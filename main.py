@@ -55,6 +55,67 @@ def weather_tool(params: WeatherParams, context: dict):
         return {"temp": 65, "condition": "Unknown location, using default weather"}
 
 
+# 🆕 NEW TOOL: Word Analysis
+class WordAnalysisParams(BaseModel):
+    text: str = Field(..., description="Text to analyze")
+    include_readability: bool = Field(False, description="Include readability metrics")
+
+
+def word_analysis_tool(params: WordAnalysisParams, context: dict):
+    """Analyze text for word count, character count, and other metrics."""
+    text = params.text.strip()
+
+    if not text:
+        return {"error": "No text provided to analyze"}
+
+    # Basic analysis
+    words = text.split()
+    sentences = text.count(".") + text.count("!") + text.count("?")
+    paragraphs = len([p for p in text.split("\n\n") if p.strip()])
+
+    # Character analysis
+    char_count = len(text)
+    char_count_no_spaces = len(text.replace(" ", ""))
+
+    # Word frequency (top 5 most common words)
+    word_freq = {}
+    for word in words:
+        clean_word = word.lower().strip('.,!?;:"')
+        word_freq[clean_word] = word_freq.get(clean_word, 0) + 1
+
+    top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    result = {
+        "word_count": len(words),
+        "character_count": char_count,
+        "character_count_no_spaces": char_count_no_spaces,
+        "sentence_count": max(sentences, 1),  # At least 1 sentence
+        "paragraph_count": max(paragraphs, 1),  # At least 1 paragraph
+        "average_words_per_sentence": round(len(words) / max(sentences, 1), 2),
+        "top_words": top_words,
+    }
+
+    # Optional readability analysis
+    if params.include_readability:
+        # Simple readability score (Flesch Reading Ease approximation)
+        avg_sentence_length = len(words) / max(sentences, 1)
+        avg_syllables_per_word = 1.5  # Rough estimate
+        flesch_score = (
+            206.835 - (1.015 * avg_sentence_length) - (84.6 * avg_syllables_per_word)
+        )
+
+        result["readability"] = {
+            "flesch_score": round(flesch_score, 2),
+            "difficulty": (
+                "Easy"
+                if flesch_score > 80
+                else "Medium" if flesch_score > 50 else "Hard"
+            ),
+        }
+
+    return result
+
+
 class AnswerParams(BaseModel):
     final_answer: str = Field(
         ..., description="The final answer to the user's question"
@@ -119,6 +180,13 @@ async def main():
     )
 
     registry.register_tool(
+        name="word_analysis",
+        param_model=WordAnalysisParams,
+        function=word_analysis_tool,
+        description="Analyze text for word count, character count, and other metrics",
+    )
+
+    registry.register_tool(
         name="answer",
         param_model=AnswerParams,
         function=answer_tool,
@@ -147,7 +215,7 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "What's the weather like in Tokyo? Then calculate 10 * 5 and tell me if that number is less than Tokyo's temperature."
+    task = "What is the capital of France?"
 
     try:
         result = await orchestrator.execute_task(
