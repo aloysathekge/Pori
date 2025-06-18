@@ -132,7 +132,7 @@ if __name__ == "__main__":
     # Execute a tool
     result = executor.execute_tool(
         tool_name="search",
-        params={"query": "python agent", "max_results": 2},
+        params={"query": "python agent", "max_results": 1},
         context={},
     )
 
