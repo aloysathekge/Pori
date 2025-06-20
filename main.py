@@ -215,7 +215,7 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "What is the capital of France?"
+    task = "What is  the current weather in London? and multiply it by 3"
 
     try:
         result = await orchestrator.execute_task(
