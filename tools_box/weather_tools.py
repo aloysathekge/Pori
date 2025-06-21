@@ -10,7 +10,7 @@ def weather_tool(params: WeatherParams, context: dict):
     # This is a mock implementation
     locations = {
         "new york": {"temp": 72, "condition": "Sunny"},
-        "london": {"temp": 62, "condition": "Rainy"},
+        "london": {"temp": 33, "condition": "Rainy"},
         "tokyo": {"temp": 80, "condition": "Clear"},
         "sydney": {"temp": 70, "condition": "Partly Cloudy"},
     }

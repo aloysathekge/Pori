@@ -27,35 +27,7 @@ async def main():
     # Set up the tool registry
     registry = ToolRegistry()
 
-    # Register tools
-
-    registry.register_tool(
-        name="weather",
-        param_model=WeatherParams,
-        function=weather_tool,
-        description="Get the current weather for a location",
-    )
-
-    registry.register_tool(
-        name="word_analysis",
-        param_model=WordAnalysisParams,
-        function=word_analysis_tool,
-        description="Analyze text for word count, character count, and other metrics",
-    )
-
-    registry.register_tool(
-        name="answer",
-        param_model=AnswerParams,
-        function=answer_tool,
-        description="REQUIRED: Provide your final answer to the user's question with reasoning",
-    )
-
-    registry.register_tool(
-        name="done",
-        param_model=DoneParams,
-        function=done_tool,
-        description="Mark the task as complete",
-    )
+    register_all_tools(registry)
 
     # Create LLM - uses ANTHROPIC_API_KEY from environment
     llm = ChatAnthropic(
@@ -72,7 +44,7 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "What is  the current weather in London? and multiply it by 3"
+    task = "What is  the current condition in London? and multiply its weather by 3"
 
     try:
         result = await orchestrator.execute_task(
