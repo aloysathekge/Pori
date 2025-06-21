@@ -9,6 +9,7 @@ from langchain_anthropic import ChatAnthropic
 from tools import ToolRegistry, ToolExecutor
 from agent import Agent, AgentSettings
 from orchestrator import Orchestrator
+from tools_box import register_all_tools
 
 # Load environment variables
 load_dotenv()
@@ -41,111 +42,6 @@ def weather_tool(params: WeatherParams, context: dict):
         return locations[location]
     else:
         return {"temp": 65, "condition": "Unknown location, using default weather"}
-
-
-# 🆕 NEW TOOL: Word Analysis
-class WordAnalysisParams(BaseModel):
-    text: str = Field(..., description="Text to analyze")
-    include_readability: bool = Field(False, description="Include readability metrics")
-
-
-def word_analysis_tool(params: WordAnalysisParams, context: dict):
-    """Analyze text for word count, character count, and other metrics."""
-    text = params.text.strip()
-
-    if not text:
-        return {"error": "No text provided to analyze"}
-
-    # Basic analysis
-    words = text.split()
-    sentences = text.count(".") + text.count("!") + text.count("?")
-    paragraphs = len([p for p in text.split("\n\n") if p.strip()])
-
-    # Character analysis
-    char_count = len(text)
-    char_count_no_spaces = len(text.replace(" ", ""))
-
-    # Word frequency (top 5 most common words)
-    word_freq = {}
-    for word in words:
-        clean_word = word.lower().strip('.,!?;:"')
-        word_freq[clean_word] = word_freq.get(clean_word, 0) + 1
-
-    top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
-
-    result = {
-        "word_count": len(words),
-        "character_count": char_count,
-        "character_count_no_spaces": char_count_no_spaces,
-        "sentence_count": max(sentences, 1),  # At least 1 sentence
-        "paragraph_count": max(paragraphs, 1),  # At least 1 paragraph
-        "average_words_per_sentence": round(len(words) / max(sentences, 1), 2),
-        "top_words": top_words,
-    }
-
-    # Optional readability analysis
-    if params.include_readability:
-        # Simple readability score (Flesch Reading Ease approximation)
-        avg_sentence_length = len(words) / max(sentences, 1)
-        avg_syllables_per_word = 1.5  # Rough estimate
-        flesch_score = (
-            206.835 - (1.015 * avg_sentence_length) - (84.6 * avg_syllables_per_word)
-        )
-
-        result["readability"] = {
-            "flesch_score": round(flesch_score, 2),
-            "difficulty": (
-                "Easy"
-                if flesch_score > 80
-                else "Medium" if flesch_score > 50 else "Hard"
-            ),
-        }
-
-    return result
-
-
-class AnswerParams(BaseModel):
-    final_answer: str = Field(
-        ..., description="The final answer to the user's question"
-    )
-    reasoning: str = Field(
-        ..., description="Brief explanation of how you arrived at this answer"
-    )
-
-
-def answer_tool(params: AnswerParams, context: dict) -> dict:
-    """Provide a final answer to the user's question."""
-    answer = {
-        "final_answer": params.final_answer,
-        "reasoning": params.reasoning or "No additional reasoning provided.",
-    }
-
-    logging.info(f"Answer tool called with final answer: {params.final_answer}")
-
-    # If context has memory, store this as the final answer
-    if context and "memory" in context:
-        context["memory"].update_state("final_answer", answer)
-        logging.info("Final answer stored in memory")
-    else:
-        logging.warning(
-            "Could not store final answer - memory not available in context"
-        )
-
-    return answer
-
-
-class DoneParams(BaseModel):
-    success: bool = Field(
-        True, description="Whether the task was completed successfully"
-    )
-    message: str = Field(
-        "Task completed", description="Final message about task completion"
-    )
-
-
-def done_tool(params: DoneParams, context: dict):
-    """Mark the task as done."""
-    return {"final_message": params.message, "success": params.success}
 
 
 async def main():
