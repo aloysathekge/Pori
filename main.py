@@ -44,7 +44,7 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "What is  the current condition in London? and multiply its weather by 3"
+    task = "Please generate 5 random numbers"
 
     try:
         result = await orchestrator.execute_task(
