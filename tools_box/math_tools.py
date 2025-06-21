@@ -1,7 +1,5 @@
-
-import logging
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+
 
 class CalculateParams(BaseModel):
     expression: str = Field(..., description="Math expression to calculate")
@@ -16,11 +14,13 @@ def calculate_tool(params: CalculateParams, context: dict):
     except Exception as e:
         return {"error": str(e)}
 
-def register_math_tools(
-       registry.register_tool(
-         name="calculate",
+
+def register_math_tools(registry):
+    """Register math-related tools with the given registry."""
+    registry.register_tool(
+        name="calculate",
         param_model=CalculateParams,
         function=calculate_tool,
         description="Calculate the result of a mathematical expression",
-       )
     )
+    print("📊 Math tools registered")
