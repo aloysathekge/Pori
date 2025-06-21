@@ -110,6 +110,8 @@ Always think step-by-step:
 1. Gather information with relevant tools
 2. Process the information 
 3. Provide a final answer that directly addresses the user's question
+
+IMPORTANT: Do NOT include the 'answer' tool in the same step as any other tool call. First gather data, then in a **separate** step call 'answer' (and optionally 'done').
 """
 
         # Add system message to memory
