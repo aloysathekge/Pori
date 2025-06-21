@@ -1,4 +1,4 @@
-from math_tools import register_math_tools
+from .math_tools import register_math_tools
 
 
 def register_all_tools(registry):
