@@ -20,18 +20,6 @@ logging.basicConfig(
 
 
 # Define some example tools
-class CalculateParams(BaseModel):
-    expression: str = Field(..., description="Math expression to calculate")
-
-
-def calculate_tool(params: CalculateParams, context: dict):
-    """Calculate the result of a math expression."""
-    try:
-        # Warning: eval is unsafe for production use, this is just for demonstration
-        result = eval(params.expression)
-        return result
-    except Exception as e:
-        return {"error": str(e)}
 
 
 class WeatherParams(BaseModel):
@@ -165,12 +153,6 @@ async def main():
     registry = ToolRegistry()
 
     # Register tools
-    registry.register_tool(
-        name="calculate",
-        param_model=CalculateParams,
-        function=calculate_tool,
-        description="Calculate the result of a mathematical expression",
-    )
 
     registry.register_tool(
         name="weather",
