@@ -77,7 +77,7 @@ class Agent:
         tool_descriptions = self.tools_registry.get_tool_descriptions()
 
         # Load prompt template from file and fill in dynamic values
-        prompt_template = load_prompt("agent_core.md")
+        prompt_template = load_prompt("system/agent_core.md")
         self.system_message = prompt_template.replace(
             "{tool_descriptions}", tool_descriptions
         )
