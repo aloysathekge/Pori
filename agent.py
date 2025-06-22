@@ -44,7 +44,6 @@ class Agent:
     """
     A general-purpose agent that can perform tasks using tools.
 
-    This mimics the architecture of browser-use but is domain-agnostic.
     """
 
     def __init__(
