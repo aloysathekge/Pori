@@ -42,7 +42,7 @@ class AgentOutput(BaseModel):
 
 class Agent:
     """
-    A general-purpose agent that can perform tasks using tools.
+    A general-purpose agent that can perform tasks using tools and have memory.
 
     """
 
