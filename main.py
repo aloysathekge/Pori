@@ -44,7 +44,7 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "Please generate 5 random numbers"
+    task = "Please generate 5 random numbers, whats the fibonnaci sum  of the largest number there"
 
     try:
         result = await orchestrator.execute_task(
