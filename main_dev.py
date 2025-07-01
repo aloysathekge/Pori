@@ -45,7 +45,7 @@ async def main():
     orchestrator = Orchestrator(llm=llm, tools_registry=registry)
 
     # Test task with Spotify API
-    task = "Search for popular songs by Taylor Swift and tell me about the most popular one"
+    task = "Search for popular songs by Shandesh and tell me about the most popular one"
 
     try:
         result = await orchestrator.execute_task(
