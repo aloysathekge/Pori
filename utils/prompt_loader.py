@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-_BASE_DIR = Path(__file__).resolve().parent / "prompts"
+_BASE_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
 @lru_cache
