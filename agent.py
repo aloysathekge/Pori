@@ -11,7 +11,7 @@ from langchain.chat_models.base import BaseChatModel
 from memory import AgentMemory
 from tools import ToolRegistry, ToolExecutor
 from evaluation import ActionResult, Evaluator
-from prompt_loader import load_prompt
+from utils.prompt_loader import load_prompt
 
 
 class AgentState(BaseModel):
