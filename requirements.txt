@@ -1,4 +1,13 @@
+# Core dependencies
 langchain>=0.1.0
 langchain-anthropic>=0.1.0
 pydantic>=2.0.0
-python-dotenv>=1.0.0 
+python-dotenv>=1.0.0
+requests>=2.28.0
+
+# Optional CLI dependencies (install with pip install pori-agent[cli])
+# click>=8.0.0
+# rich>=13.0.0
+
+# Optional Spotify integration (install with pip install pori-agent[spotify])
+# spotipy>=2.22.0 
