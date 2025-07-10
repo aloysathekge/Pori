@@ -1,6 +1,6 @@
 # Simple Agent Framework
 
-A domain-agnostic agent framework inspired by browser-use architecture, built with LangChain and Anthropic's Claude.
+A domain-agnostic agent framework inspired by browser-use architecture, 
 
 ## Setup
 
