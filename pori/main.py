@@ -44,7 +44,12 @@ async def main():
         print(f"Completed step {agent.state.n_steps}")
 
     # Execute a task
-    task = "Please generate 5 random numbers, whats the fibonnaci sum  of the largest number there"
+    print(" Pori Agent at your service!")
+    task = input("How can I help you today? ")
+
+    if not task.strip():
+        print("No task provided. Exiting...")
+        return
 
     try:
         result = await orchestrator.execute_task(
