@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pori-agent"
+name = "pori"
 version = "0.1.0"
 description = "A simple, extensible AI agent framework with tool integration and memory"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Aloy Sathekge", email = "sathekgealoy@gmail.com"}
 ]
 keywords = ["ai", "agent", "llm", "tools", "automation", "langchain"]
 classifiers = [
@@ -34,56 +34,3 @@ dependencies = [
     "requests>=2.28.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-    "black>=23.0.0",
-    "isort>=5.12.0",
-    "flake8>=6.0.0",
-    "mypy>=1.0.0",
-]
-spotify = [
-    "spotipy>=2.22.0",
-]
-cli = [
-    "click>=8.0.0",
-    "rich>=13.0.0",
-]
-
-[project.scripts]
-pori = "pori.cli:main"
-
-[project.urls]
-Homepage = "https://github.com/yourusername/pori-agent"
-Repository = "https://github.com/yourusername/pori-agent.git"
-Issues = "https://github.com/yourusername/pori-agent/issues"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["pori*"]
-
-[tool.setuptools.package-data]
-pori = ["prompts/**/*.md"]
-
-[tool.black]
-line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 88
-
-[tool.mypy]
-python_version = "3.8"
-warn_return_any = true
-warn_unused_configs = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-asyncio_mode = "auto" 
