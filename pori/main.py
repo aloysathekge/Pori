@@ -43,49 +43,53 @@ async def main():
     def on_step_end(agent: Agent):
         print(f"Completed step {agent.state.n_steps}")
 
-    # Execute a task
-    print(" Pori Agent at your service!")
-    task = input("How can I help you today? ")
+    # Interactive loop for tasks
+    while True:
+        print("\n🤖  Pori Agent at your service!")
+        task = input("How can I help you today? (leave blank to exit) ").strip()
 
-    if not task.strip():
-        print("No task provided. Exiting...")
-        return
+        # Exit if the user provides no task
+        if not task:
+            print("Goodbye! 👋")
+            break
 
-    try:
-        result = await orchestrator.execute_task(
-            task=task,
-            agent_settings=AgentSettings(max_steps=10),
-            on_step_end=on_step_end,
-        )
+        try:
+            # Execute the task with the orchestrator
+            result = await orchestrator.execute_task(
+                task=task,
+                agent_settings=AgentSettings(max_steps=10),
+                on_step_end=on_step_end,
+            )
 
-        print("\n=== Task Execution Summary ===")
-        print(f"Task: {task}")
-        print(f"Success: {result['success']}")
-        print(f"Steps taken: {result['steps_taken']}")
+            print("\n=== Task Execution Summary ===")
+            print(f"Task: {task}")
+            print(f"Success: {result['success']}")
+            print(f"Steps taken: {result['steps_taken']}")
 
-        # Show the final answer if available
-        agent = result.get("agent")
+            # Show the final answer if available
+            agent = result.get("agent")
 
-        if agent:
-            # Get final answer from memory
-            final_answer = agent.memory.get_state("final_answer")
+            if agent:
+                final_answer = agent.memory.get_final_answer()
 
-            if final_answer:
-                print("\n📝 FINAL ANSWER:")
-                print(f"  {final_answer['final_answer']}")
-                if final_answer.get("reasoning"):
-                    print(f"\n  Reasoning: {final_answer['reasoning']}")
-            else:
-                print("\n⚠️ NO FINAL ANSWER FOUND")
+                if final_answer:
+                    print("\n📝 FINAL ANSWER:")
+                    print(f"  {final_answer['final_answer']}")
+                    if final_answer.get("reasoning"):
+                        print(f"\n  Reasoning: {final_answer['reasoning']}")
+                else:
+                    print("\n⚠️ NO FINAL ANSWER FOUND")
 
-            print("\nTool Calls:")
-            for i, tool_call in enumerate(agent.memory.tool_call_history):
-                print(
-                    f"{i+1}. {tool_call.tool_name}({tool_call.parameters}) → {'✓' if tool_call.success else '✗'}"
-                )
+                # Show tool call history
+                print("\nTool Calls:")
+                for i, tool_call in enumerate(agent.memory.tool_call_history, start=1):
+                    status = "✓" if tool_call.success else "✗"
+                    print(
+                        f"  {i}. {tool_call.tool_name}({tool_call.parameters}) → {status}"
+                    )
 
-    except Exception as e:
-        print(f"Error executing task: {e}")
+        except Exception as e:
+            print(f"Error executing task: {e}")
 
 
 if __name__ == "__main__":
