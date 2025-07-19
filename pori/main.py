@@ -46,10 +46,10 @@ async def main():
     # Interactive loop for tasks
     while True:
         print("\n🤖  Pori Agent at your service!")
-        task = input("How can I help you today? (leave blank to exit) ").strip()
+        task = input(f"How can I help you today? enter quit to exit \n").strip()
 
         # Exit if the user provides no task
-        if not task:
+        if task == "quit":
             print("Goodbye! 👋")
             break
 
