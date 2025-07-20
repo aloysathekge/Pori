@@ -45,7 +45,7 @@ async def main():
 
     # Interactive loop for tasks
     while True:
-        print("\n🤖  Pori Agent at your service!")
+        print("\n Pori at your service!")
         task = input(f"How can I help you today? enter q to exit \n").strip()
 
         # Exit if the user provides no task
