@@ -30,7 +30,7 @@ def generate_fibonacci_tool(params: FibonacciParams, context: Dict):
         return {"sum": 0, "count": 0}
 
     total = 0
-    a, b = 0, 1
+    a, b = 1, 1
 
     for _ in range(n):
         total += a
