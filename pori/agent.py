@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 import json
+import logging
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Type
 
@@ -12,6 +13,10 @@ from memory import AgentMemory
 from tools import ToolRegistry, ToolExecutor
 from evaluation import ActionResult, Evaluator
 from utils.prompt_loader import load_prompt
+from utils.logging_config import ensure_logger_configured
+
+# Set up logger for this module - this will work regardless of import order
+logger = ensure_logger_configured("pori.agent")
 
 
 class AgentState(BaseModel):
@@ -53,11 +58,22 @@ class Agent:
         tools_registry: ToolRegistry,
         settings: AgentSettings = AgentSettings(),
     ):
+        # Generate unique task ID for tracking
+        self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
+
+        logger.info(f"Initializing new agent", extra={"task_id": self.task_id})
+        logger.info(f"Task: {task}", extra={"task_id": self.task_id})
+
         self.task = task
         self.llm = llm
         self.tools_registry = tools_registry
         self.tool_executor = ToolExecutor(tools_registry)
         self.settings = settings
+
+        logger.info(
+            f"Agent settings: max_steps={settings.max_steps}, max_failures={settings.max_failures}",
+            extra={"task_id": self.task_id},
+        )
 
         # Initialize state components
         self.state = AgentState()
@@ -65,15 +81,20 @@ class Agent:
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Create task record
-        self.memory.create_task(str(uuid.uuid4()), task)
+        self.memory.create_task(self.task_id, task)
+        logger.info(f"Created task record in memory", extra={"task_id": self.task_id})
 
         # Set up system message
         self._setup_system_message()
 
     def _setup_system_message(self):
         """Set up the system message for the agent."""
+        logger.debug("Setting up system message", extra={"task_id": self.task_id})
+
         # Get tool descriptions for the prompt
         tool_descriptions = self.tools_registry.get_tool_descriptions()
+        tool_count = len(self.tools_registry.tools)
+        logger.info(f"Available tools: {tool_count}", extra={"task_id": self.task_id})
 
         # Load prompt template from file and fill in dynamic values
         prompt_template = load_prompt("system/agent_core.md")
@@ -87,19 +108,50 @@ class Agent:
         # Add task message to memory
         self.memory.add_message("user", f"Task: {self.task}")
 
+        logger.debug("System message setup complete", extra={"task_id": self.task_id})
+
     async def step(self) -> None:
         """Execute one step of the task."""
+        step_number = self.state.n_steps + 1
+        logger.info(
+            f"Starting step {step_number}",
+            extra={"task_id": self.task_id, "step": step_number},
+        )
+
         tool_results = []
         step_start_time = datetime.now()
 
         try:
             # Create summaries at regular intervals to avoid context overflow
-            if self.state.n_steps % self.settings.summary_interval == 0:
+            if (
+                self.state.n_steps % self.settings.summary_interval == 0
+                and self.state.n_steps > 0
+            ):
+                logger.info(
+                    f"Creating memory summary at step {self.state.n_steps}",
+                    extra={"task_id": self.task_id, "step": step_number},
+                )
                 summary = self.memory.create_summary(self.state.n_steps)
                 self.memory.add_message("system", f"Memory summary: {summary}")
 
             # Get the next action from the LLM
+            logger.debug(
+                "Getting next action from LLM",
+                extra={"task_id": self.task_id, "step": step_number},
+            )
             model_output = await self.get_next_action()
+
+            action_count = len(model_output.action) if model_output.action else 0
+            if action_count > 0:
+                logger.info(
+                    f"LLM suggested {action_count} actions",
+                    extra={"task_id": self.task_id, "step": step_number},
+                )
+            else:
+                logger.warning(
+                    "LLM provided no actions",
+                    extra={"task_id": self.task_id, "step": step_number},
+                )
 
             # Execute actions
             if model_output.action:
@@ -109,10 +161,24 @@ class Agent:
             self.state.n_steps += 1
             self.state.consecutive_failures = 0
 
+            logger.info(
+                f"Step {step_number} completed successfully",
+                extra={"task_id": self.task_id, "step": step_number},
+            )
+
         except Exception as e:
+            logger.error(
+                f"Error during step {step_number}: {str(e)}",
+                extra={"task_id": self.task_id, "step": step_number},
+                exc_info=True,
+            )
             error_msg = f"Error during step: {str(e)}"
             tool_results = [ActionResult(success=False, error=error_msg)]
             self.state.consecutive_failures += 1
+            logger.warning(
+                f"Consecutive failures: {self.state.consecutive_failures}/{self.settings.max_failures}",
+                extra={"task_id": self.task_id, "step": step_number},
+            )
 
         # Record step metadata
         step_duration = (datetime.now() - step_start_time).total_seconds()
@@ -120,6 +186,10 @@ class Agent:
             "step_number": self.state.n_steps,
             "duration_seconds": step_duration,
         }
+        logger.info(
+            f"Step duration: {step_duration:.2f}s",
+            extra={"task_id": self.task_id, "step": step_number},
+        )
 
         # Add step results to memory
         for result in tool_results:
@@ -128,14 +198,21 @@ class Agent:
 
     async def get_next_action(self) -> AgentOutput:
         """Get next action from LLM based on current state."""
+        logger.debug("Building messages for LLM", extra={"task_id": self.task_id})
+
         # Build messages for the LLM
         messages = self._build_messages()
+        message_count = len(messages)
+        logger.debug(
+            f"Built {message_count} messages for LLM", extra={"task_id": self.task_id}
+        )
 
         # Create dynamic model for the LLM response
         output_model = self._create_output_model()
 
         # Get response from LLM
         try:
+            logger.debug("Calling LLM for next action", extra={"task_id": self.task_id})
             structured_llm = self.llm.with_structured_output(
                 output_model, include_raw=True
             )
@@ -144,14 +221,26 @@ class Agent:
             # Parse the response
             parsed_output = response.get("parsed")
             if not parsed_output:
+                logger.warning(
+                    "Structured output failed, attempting to parse raw response",
+                    extra={"task_id": self.task_id},
+                )
                 # Attempt to parse raw response if structured output failed
                 raw_content = response.get("raw", {}).content
                 parsed_json = json.loads(raw_content)
                 parsed_output = output_model(**parsed_json)
 
+            logger.debug(
+                "Successfully parsed LLM response", extra={"task_id": self.task_id}
+            )
             return parsed_output
 
         except Exception as e:
+            logger.error(
+                f"Failed to get action from LLM: {str(e)}",
+                extra={"task_id": self.task_id},
+                exc_info=True,
+            )
             raise ValueError(f"Failed to get action from LLM: {str(e)}")
 
     def _build_messages(self) -> List[Any]:
@@ -227,20 +316,36 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         self, actions: List[Dict[str, Any]]
     ) -> List[ActionResult]:
         """Execute a list of actions."""
+        logger.info(
+            f"Executing {len(actions)} actions", extra={"task_id": self.task_id}
+        )
         results = []
 
-        for action_dict in actions:
+        for i, action_dict in enumerate(actions, 1):
             if not action_dict:
+                logger.warning(
+                    f"Empty action {i}, skipping", extra={"task_id": self.task_id}
+                )
                 continue
 
             # Extract tool name and parameters
             tool_name = list(action_dict.keys())[0]
             params = action_dict[tool_name]
 
+            logger.info(
+                f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
+            )
+            logger.debug(f"Tool parameters: {params}", extra={"task_id": self.task_id})
+
             # Special handling for "done" tool
             if tool_name == "done":
                 is_successful = params.get("success", True)
                 message = params.get("message", "Task completed")
+
+                logger.info(
+                    f"Task marked as done - Success: {is_successful}",
+                    extra={"task_id": self.task_id},
+                )
 
                 # Mark all tasks as complete
                 for task in self.memory.tasks.values():
@@ -255,6 +360,8 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
             # For regular tools, execute and evaluate
             try:
+                start_time = datetime.now()
+
                 # Execute the tool
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
@@ -262,12 +369,26 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     context={"memory": self.memory, "state": self.state},
                 )
 
+                execution_time = (datetime.now() - start_time).total_seconds()
+                success = tool_result.get("success", False)
+
+                logger.info(
+                    f"Tool {tool_name} executed in {execution_time:.2f}s - {'Success' if success else 'Failed'}",
+                    extra={"task_id": self.task_id},
+                )
+
+                if not success:
+                    logger.warning(
+                        f"Tool {tool_name} failed: {tool_result.get('error', 'Unknown error')}",
+                        extra={"task_id": self.task_id},
+                    )
+
                 # Record the tool call
                 self.memory.add_tool_call(
                     tool_name=tool_name,
                     parameters=params,
                     result=tool_result,
-                    success=tool_result.get("success", False),
+                    success=success,
                 )
 
                 # Evaluate the result
@@ -279,12 +400,22 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                 # If failed and should retry, add info to memory
                 if not action_result.success and self.evaluator.should_retry(tool_name):
+                    retry_count = self.evaluator.retry_counts[tool_name]
+                    logger.info(
+                        f"Tool {tool_name} will be retried ({retry_count}/{self.settings.max_failures})",
+                        extra={"task_id": self.task_id},
+                    )
                     self.memory.add_message(
                         "system",
-                        f"Tool '{tool_name}' failed. Retrying ({self.evaluator.retry_counts[tool_name]}/{self.settings.max_failures}).",
+                        f"Tool '{tool_name}' failed. Retrying ({retry_count}/{self.settings.max_failures}).",
                     )
 
             except Exception as e:
+                logger.error(
+                    f"Error executing tool {tool_name}: {str(e)}",
+                    extra={"task_id": self.task_id},
+                    exc_info=True,
+                )
                 results.append(
                     ActionResult(
                         success=False,
@@ -293,27 +424,39 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     )
                 )
 
+        logger.info(
+            f"Completed executing {len(actions)} actions",
+            extra={"task_id": self.task_id},
+        )
         return results
 
     async def run(self) -> Dict[str, Any]:
         """Run the agent until the task is complete or max steps is reached."""
+        logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"🚀 Starting task: {self.task}")
 
         for step_count in range(self.settings.max_steps):
             # Check control flags
             if self.state.stopped:
+                logger.info("Agent stopped by request", extra={"task_id": self.task_id})
                 print("🛑 Agent stopped")
                 break
 
             if self.state.paused:
+                logger.info("Agent paused", extra={"task_id": self.task_id})
                 print("⏸ Agent paused")
                 while self.state.paused and not self.state.stopped:
                     await asyncio.sleep(0.5)
                 if self.state.stopped:
                     break
+                logger.info("Agent resumed", extra={"task_id": self.task_id})
 
             # Check for too many consecutive failures
             if self.state.consecutive_failures >= self.settings.max_failures:
+                logger.error(
+                    f"Stopping due to {self.settings.max_failures} consecutive failures",
+                    extra={"task_id": self.task_id},
+                )
                 print(
                     f"❌ Stopping due to {self.settings.max_failures} consecutive failures"
                 )
@@ -328,37 +471,58 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             )
 
             if is_complete:
+                logger.info(
+                    f"Task completed: {completion_message}",
+                    extra={"task_id": self.task_id},
+                )
                 print(f"✅ Task complete: {completion_message}")
                 break
 
             # Optional: validate task completion
             if self.settings.validate_output and is_complete:
+                logger.debug(
+                    "Validating task completion", extra={"task_id": self.task_id}
+                )
                 # In a real implementation, you would use the LLM to validate task completion
                 pass
 
         # Check if we hit the step limit
         if self.state.n_steps >= self.settings.max_steps:
+            logger.warning(
+                f"Reached maximum steps ({self.settings.max_steps}) without completing task",
+                extra={"task_id": self.task_id},
+            )
             print(
                 f"⚠️ Reached maximum steps ({self.settings.max_steps}) without completing task"
             )
 
+        completed = any(
+            task.status == "completed" for task in self.memory.tasks.values()
+        )
+
+        logger.info(
+            f"Agent run finished - Completed: {completed}, Steps: {self.state.n_steps}",
+            extra={"task_id": self.task_id},
+        )
+
         return {
             "task": self.task,
-            "completed": any(
-                task.status == "completed" for task in self.memory.tasks.values()
-            ),
+            "completed": completed,
             "steps_taken": self.state.n_steps,
             "final_state": self.state.dict(),
         }
 
     def pause(self) -> None:
         """Pause the agent."""
+        logger.info("Agent paused", extra={"task_id": self.task_id})
         self.state.paused = True
 
     def resume(self) -> None:
         """Resume the agent."""
+        logger.info("Agent resumed", extra={"task_id": self.task_id})
         self.state.paused = False
 
     def stop(self) -> None:
         """Stop the agent."""
+        logger.info("Agent stopped", extra={"task_id": self.task_id})
         self.state.stopped = True
