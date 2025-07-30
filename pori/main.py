@@ -10,38 +10,56 @@ from tools import ToolRegistry, ToolExecutor
 from agent import Agent, AgentSettings
 from orchestrator import Orchestrator
 from tools_box import register_all_tools
+from utils.logging_config import setup_logging
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configure logging using custom setup
+loggers = setup_logging(level=logging.INFO, include_http=False)
+logger = logging.getLogger("pori.main")
 
 
 # Define some example tools
 
 
 async def main():
+    logger.info("Starting Pori Agent System")
+
     # Set up the tool registry
+    logger.info("Initializing tool registry")
     registry = ToolRegistry()
 
     register_all_tools(registry)
+    logger.info(f"Registered {len(registry.tools)} tools")
 
     # Create LLM - uses ANTHROPIC_API_KEY from environment
+    model_name = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    logger.info(f"Initializing LLM with model: {model_name}")
+
     llm = ChatAnthropic(
-        model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+        model=model_name,
         temperature=0,
         api_key=os.getenv("ANTHROPIC_API_KEY"),
     )
 
     # Create orchestrator
+    logger.info("Creating orchestrator")
     orchestrator = Orchestrator(llm=llm, tools_registry=registry)
 
     # Define steps callback for monitoring
     def on_step_end(agent: Agent):
+        step_msg = f"Completed step {agent.state.n_steps}"
         print(f"Completed step {agent.state.n_steps}")
+        logger.info(
+            step_msg,
+            extra={
+                "task_id": getattr(agent, "task_id", "unknown"),
+                "step": agent.state.n_steps,
+            },
+        )
+
+    logger.info("Starting interactive loop")
 
     # Interactive loop for tasks
     while True:
@@ -50,15 +68,27 @@ async def main():
 
         # Exit if the user provides no task
         if task == "q":
+            logger.info("User requested exit")
             print("Goodbye! 👋")
             break
 
+        if not task:
+            logger.warning("Empty task provided, skipping")
+            continue
+
+        logger.info(f"New task received: {task}")
+
         try:
             # Execute the task with the orchestrator
+            logger.info("Starting task execution")
             result = await orchestrator.execute_task(
                 task=task,
                 agent_settings=AgentSettings(max_steps=10),
                 on_step_end=on_step_end,
+            )
+
+            logger.info(
+                f"Task execution completed - Success: {result['success']}, Steps: {result['steps_taken']}"
             )
 
             print("\n=== Task Execution Summary ===")
@@ -73,14 +103,19 @@ async def main():
                 final_answer = agent.memory.get_final_answer()
 
                 if final_answer:
+                    logger.info("Final answer provided")
                     print("\n📝 FINAL ANSWER:")
                     print(f"  {final_answer['final_answer']}")
                     if final_answer.get("reasoning"):
                         print(f"\n  Reasoning: {final_answer['reasoning']}")
                 else:
+                    logger.warning("No final answer found")
                     print("\n⚠️ NO FINAL ANSWER FOUND")
 
                 # Show tool call history
+                tool_calls_count = len(agent.memory.tool_call_history)
+                logger.info(f"Tool calls made: {tool_calls_count}")
+
                 print("\nTool Calls:")
                 for i, tool_call in enumerate(agent.memory.tool_call_history, start=1):
                     status = "✓" if tool_call.success else "✗"
@@ -88,9 +123,23 @@ async def main():
                         f"  {i}. {tool_call.tool_name}({tool_call.parameters}) → {status}"
                     )
 
+                    # Log each tool call
+                    log_level = logging.INFO if tool_call.success else logging.WARNING
+                    logger.log(
+                        log_level,
+                        f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",
+                    )
+
         except Exception as e:
+            logger.error(f"Error executing task: {e}", exc_info=True)
             print(f"Error executing task: {e}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        raise
