@@ -5,17 +5,19 @@ from pydantic import BaseModel, Field
 from typing import List
 from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
+
+# Import modules
 from langchain_anthropic import ChatAnthropic
 from tools import ToolRegistry, ToolExecutor
 from agent import Agent, AgentSettings
 from orchestrator import Orchestrator
 from tools_box import register_all_tools
+
+# Configure logging
 from utils.logging_config import setup_logging
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging using custom setup
 loggers = setup_logging(level=logging.INFO, include_http=False)
 logger = logging.getLogger("pori.main")
 
