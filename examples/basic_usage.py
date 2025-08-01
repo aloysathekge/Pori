@@ -1,7 +1,7 @@
 """
 Basic usage example for Pori Agent Framework.
 
-This example shows how to use the framework programmatically.
+This example shows how to use the framework .
 """
 
 import asyncio
@@ -22,7 +22,6 @@ async def main():
     registry = ToolRegistry()
     register_all_tools(registry)
 
-    # Create LLM - make sure to set ANTHROPIC_API_KEY in your environment
     llm = ChatAnthropic(
         model="claude-3-5-sonnet-20241022",
         temperature=0,
