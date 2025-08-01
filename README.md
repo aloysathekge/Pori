@@ -1,18 +1,18 @@
-# Pori - A Simple Yet Powerful AI Agent Framework
+# Pori
 
-> 🤖 **Pori** is a lightweight, extensible AI agent framework that makes it easy to build intelligent agents with memory, tools, and human-in-the-loop capabilities.
+>  **Pori** is a lightweight, extensible AI agent framework that makes it easy to build intelligent agents with memory, tools, and human-in-the-loop capabilities.
 
-## ✨ What Makes Pori Special
+##  What Makes Pori Special
 
-- **🧠 Intelligent Agents**: LLM-powered agents that can reason, plan, and execute complex tasks
-- **🔧 Extensible Tools**: Easy-to-add custom tools for any domain
-- **💭 Smart Memory**: Conversation history and state management with automatic summarization
-- **🎯 Task Orchestration**: Run single tasks or multiple tasks in parallel
-- **🔄 Human-in-the-Loop**: Built-in support for human oversight and intervention
-- **📊 Built-in Evaluation**: Automatic retry logic and task completion assessment
-- **🏗️ Clean Architecture**: Modular design that's easy to understand and extend
+- ** Intelligent Agents**: LLM-powered agents that can reason, plan, and execute complex tasks
+- ** Extensible Tools**: Easy-to-add custom tools for any domain
+- ** Smart Memory**: Conversation history and state management with automatic summarization
+- ** Task Orchestration**: Run single tasks or multiple tasks in parallel
+- ** Human-in-the-Loop**: Built-in support for human oversight and intervention
+- **  Evals**: Automatic retry logic and task completion assessment
+- ** Clean Architecture**: Modular design that's easy to understand and extend
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Installation
 
