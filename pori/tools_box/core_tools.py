@@ -87,5 +87,3 @@ def register_core_tools(registry):
         function=think_tool,
         description="Record thoughts and planning (optional)",
     )
-
-    print("🧠 Core tools registered")
