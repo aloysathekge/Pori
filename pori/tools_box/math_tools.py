@@ -23,4 +23,3 @@ def register_math_tools(registry):
         function=calculate_tool,
         description="Calculate the result of a mathematical expression",
     )
-    print("📊 Math tools registered")
