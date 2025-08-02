@@ -71,6 +71,7 @@ def setup_logging(level=logging.INFO, include_http=False):
 
     # Console handler with immediate flushing
     console_handler = ImmediateStreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
 
     # Set up component loggers
     loggers = {
@@ -79,7 +80,6 @@ def setup_logging(level=logging.INFO, include_http=False):
         "pori.orchestrator": logging.getLogger("pori.orchestrator"),
         "pori.tools": logging.getLogger("pori.tools"),
         "pori.memory": logging.getLogger("pori.memory"),
-        
     }
 
     for logger in loggers.values():
