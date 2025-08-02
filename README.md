@@ -89,20 +89,6 @@ asyncio.run(main())
                        └─────────────────┘    └─────────────────┘
 ```
 
-### Core Components
-
-- **🎭 Agent**: The main reasoning engine that plans and executes tasks
-- **🧠 Memory**: Stores conversation history, tool calls, and task state
-- **🔧 Tools**: Extensible functions the agent can call (math, web, custom)
-- **📋 Orchestrator**: Manages multiple agents and parallel task execution
-- **⚖️ Evaluator**: Assesses task completion and handles retries
-
-## 🛠️ Built-in Tools
-
-- **📊 Math Tools**: Fibonacci, factorials, basic calculations
-- **🎲 Number Tools**: Random number generation
-- **🎵 Spotify Tools**: Music-related operations (example)
-- **💬 Core Tools**: `answer`, `think`, `done` for agent communication
 
 ## 🔧 Adding Custom Tools
 
