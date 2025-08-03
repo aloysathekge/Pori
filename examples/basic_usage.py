@@ -1,7 +1,7 @@
 """
 Basic usage example for Pori Agent Framework.
 
-This example shows how to use the framework .
+This example shows how to use the framework.
 """
 
 import asyncio
