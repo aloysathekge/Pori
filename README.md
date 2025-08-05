@@ -187,14 +187,7 @@ pori/
         └── agent_core.md
 ```
 
-## 🚦 What's Next
 
-- [ ] Web interface for better user experience
-- [ ] Advanced human-in-the-loop features
-- [ ] Tool marketplace and community tools
-- [ ] Enhanced memory and context management
-- [ ] Integration with more LLM providers
-- [ ] Advanced orchestration patterns
 
 ## 🤝 Contributing
 
