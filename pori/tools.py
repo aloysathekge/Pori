@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Type
+from functools import wraps
 from pydantic import BaseModel, create_model
 
 
@@ -19,14 +20,14 @@ class ToolRegistry:
     def __init__(self):
         self.tools: Dict[str, ToolInfo] = {}
 
-    def register_tool(
+    def tool(
         self,
         name: str,
         param_model: Type[BaseModel],
         
         description: str,
     ) :
-        """Decorator for  tool  registry."""
+       
 
         """Decorator for registering tools.
         
@@ -35,13 +36,22 @@ class ToolRegistry:
             param_model: Pydantic model for parameter validation
             description: Description of what the tool does
         """
-        self.tools[name] = ToolInfo(
-            name=name,
-            param_model=param_model,
-            function=function,
-            description=description,
-        )
 
+        def decorator(func:Callable):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            self.tools(
+                name=name,
+                param_model=param_model,
+                function=func,
+                description=description
+                )
+            return wrapper
+        return decorator
+    
+
+       
     def get_tool(self, name: str) -> ToolInfo:
         """Get a tool by name."""
         if name not in self.tools:
