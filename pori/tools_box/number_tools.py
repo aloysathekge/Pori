@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Dict
 import random
-from pori.tools import TOOL_REGISTRY as Registry
+from ..tools import tool_registry
+
+Registry = tool_registry()
 
 
 class RandomParams(BaseModel):
@@ -16,7 +18,10 @@ class FibonacciParams(BaseModel):
     )
 
 
-@Registry.tool(description="Calculate the sum of the first N Fibonacci numbers")
+@Registry.tool(
+    name="fibonacci_generator",
+    description="Calculate the sum of the first N Fibonacci numbers",
+)
 def generate_fibonacci_tool(params: FibonacciParams, context: Dict):
     """Calculate the sum of the first *n* Fibonacci numbers.
 
@@ -41,7 +46,7 @@ def generate_fibonacci_tool(params: FibonacciParams, context: Dict):
     return {"sum": total, "count": n}
 
 
-@Registry.tool(description="Generate a list of random numbers")
+@Registry.tool(name="random_generator", description="Generate a list of random numbers")
 def generate_random_tool(params: RandomParams, context: Dict):
     min_val = params.min_val
     max_val = params.max_val

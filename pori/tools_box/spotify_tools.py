@@ -57,7 +57,10 @@ def get_spotify_token() -> Optional[str]:
         return None
 
 
-@Registry.tool(description="Search Spotify for tracks, artists, albums, or playlists")
+@Registry.tool(
+    name="spotify_search",
+    description="Search Spotify for tracks, artists, albums, or playlists",
+)
 def spotify_search_tool(params: SpotifySearchParams, context: Dict) -> Dict:
     """Search Spotify for tracks, artists, albums, or playlists."""
 
@@ -141,7 +144,8 @@ def spotify_search_tool(params: SpotifySearchParams, context: Dict) -> Dict:
 
 
 @Registry.tool(
-    description="Get detailed information about a specific Spotify track by ID"
+    name="spotify_track_info",
+    description="Get detailed information about a specific Spotify track by ID",
 )
 def spotify_track_info_tool(params: SpotifyTrackInfoParams, context: Dict) -> Dict:
     """Get detailed information about a specific Spotify track."""

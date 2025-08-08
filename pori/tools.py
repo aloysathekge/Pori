@@ -146,7 +146,7 @@ TOOL_REGISTRY = ToolRegistry()
 
 def tool_registry() -> ToolRegistry:
     """Return the module-level global tool registry singleton."""
-    return GLOBAL_TOOL_REGISTRY
+    return TOOL_REGISTRY
 
 
 # Example of defining and registering a tool

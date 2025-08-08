@@ -5,6 +5,9 @@ Core tools required for agent operation.
 import logging
 from pydantic import BaseModel, Field
 from typing import Dict, Any
+from ..tools import tool_registry
+
+Registry = tool_registry()
 
 
 class AnswerParams(BaseModel):
@@ -16,6 +19,10 @@ class AnswerParams(BaseModel):
     )
 
 
+@Registry.tool(
+    name="answer",
+    description="REQUIRED: Provide your final answer to the user's question with reasoning",
+)
 def answer_tool(params: AnswerParams, context: Dict[str, Any]) -> Dict[str, Any]:
     """Provide a final answer to the user's question."""
     answer = {
@@ -46,6 +53,7 @@ class DoneParams(BaseModel):
     )
 
 
+@Registry.tool(name="done", description="Mark the task as complete")
 def done_tool(params: DoneParams, context: Dict[str, Any]):
     """Mark the task as done."""
     return {"final_message": params.message, "success": params.success}
@@ -56,6 +64,7 @@ class ThinkParams(BaseModel):
     next_action: str = Field(..., description="What you plan to do next")
 
 
+@Registry.tool(name="think", description="Record thoughts and planning (optional)")
 def think_tool(params: ThinkParams, context: Dict[str, Any]):
     """Allow the agent to record its thoughts and planning."""
     return {
@@ -65,25 +74,6 @@ def think_tool(params: ThinkParams, context: Dict[str, Any]):
     }
 
 
-def register_core_tools(registry):
-    """Register core tools required for agent operation."""
-    registry.register_tool(
-        name="answer",
-        param_model=AnswerParams,
-        function=answer_tool,
-        description="REQUIRED: Provide your final answer to the user's question with reasoning",
-    )
-
-    registry.register_tool(
-        name="done",
-        param_model=DoneParams,
-        function=done_tool,
-        description="Mark the task as complete",
-    )
-
-    registry.register_tool(
-        name="think",
-        param_model=ThinkParams,
-        function=think_tool,
-        description="Record thoughts and planning (optional)",
-    )
+def register_core_tools(registry=None):
+    """Tools auto-register on import; kept for compatibility."""
+    return None
