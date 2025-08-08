@@ -226,8 +226,16 @@ class Agent:
                     extra={"task_id": self.task_id},
                 )
                 # Attempt to parse raw response if structured output failed
-                raw_content = response.get("raw", {}).content
-                parsed_json = json.loads(raw_content)
+                raw = response.get("raw")
+                raw_content = getattr(raw, "content", raw)
+                # Handle common shapes: str JSON, dict, list (already parsed), or message list
+                if isinstance(raw_content, (dict, list)):
+                    parsed_json = raw_content
+                elif isinstance(raw_content, str):
+                    parsed_json = json.loads(raw_content)
+                else:
+                    # Attempt to stringify unknown types
+                    parsed_json = json.loads(str(raw_content))
                 parsed_output = output_model(**parsed_json)
 
             logger.debug(
