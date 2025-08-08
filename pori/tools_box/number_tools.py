@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Dict
 import random
+from pori.tools import TOOL_REGISTRY as Registry
 
 
 class RandomParams(BaseModel):
@@ -15,6 +16,7 @@ class FibonacciParams(BaseModel):
     )
 
 
+@Registry.tool(description="Calculate the sum of the first N Fibonacci numbers")
 def generate_fibonacci_tool(params: FibonacciParams, context: Dict):
     """Calculate the sum of the first *n* Fibonacci numbers.
 
@@ -39,6 +41,7 @@ def generate_fibonacci_tool(params: FibonacciParams, context: Dict):
     return {"sum": total, "count": n}
 
 
+@Registry.tool(description="Generate a list of random numbers")
 def generate_random_tool(params: RandomParams, context: Dict):
     min_val = params.min_val
     max_val = params.max_val
@@ -46,7 +49,7 @@ def generate_random_tool(params: RandomParams, context: Dict):
 
     random_list = []
     if min_val > max_val:
-        return {"Error": "Maximum value is less the minimum value"}
+        return {"error": "Maximum value is less the minimum value"}
     else:
         for i in range(count):
             random_num = random.randint(min_val, max_val)
@@ -55,21 +58,6 @@ def generate_random_tool(params: RandomParams, context: Dict):
         return {"numbers": random_list, "count": count}
 
 
-def register_number_tool(registry):
-    """Register random generator tools that works with number with given registry"""
-    registry.register_tool(
-        name="random_generator",
-        param_model=RandomParams,
-        function=generate_random_tool,
-        description="generate random of numbers",
-    )
-
-    """
-    Register fibonacci generator tool that works with given registry
-    """
-    registry.register_tool(
-        name="fibonacci_generator",
-        param_model=FibonacciParams,
-        function=generate_fibonacci_tool,
-        description="Calculate the sum of the first N Fibonacci numbers",
-    )
+def register_number_tool(registry=None):
+    """Tools are auto-registered on import via decorator; kept for compatibility."""
+    return None
