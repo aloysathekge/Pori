@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, get_type_hints
 from functools import wraps
 from pydantic import BaseModel, create_model
 
@@ -20,38 +20,64 @@ class ToolRegistry:
     def __init__(self):
         self.tools: Dict[str, ToolInfo] = {}
 
-    def tool(
+    def register_tool(
         self,
         name: str,
         param_model: Type[BaseModel],
-        
+        function: Callable,
         description: str,
-    ) :
-       
+    ) -> None:
+        """Register a tool implementation in the registry."""
+        self.tools[name] = ToolInfo(
+            name=name,
+            param_model=param_model,
+            function=function,
+            description=description,
+        )
 
+    def tool(
+        self,
+        name: Optional[str] = None,
+        param_model: Optional[Type[BaseModel]] = None,
+        description: str = "",
+    ):
         """Decorator for registering tools.
-        
+
         Args:
-            name: Name of the tool
-            param_model: Pydantic model for parameter validation
+            name: Name of the tool (defaults to function name if not provided)
+            param_model: Pydantic model for parameter validation (if omitted, inferred from the 'params' argument type annotation)
             description: Description of what the tool does
         """
 
-        def decorator(func:Callable):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                return func(*args, **kwargs)
-            self.tools(
-                name=name,
-                param_model=param_model,
-                function=func,
-                description=description
-                )
-            return wrapper
-        return decorator
-    
+        def decorator(func: Callable):
+            # Infer defaults when not provided
+            derived_name = name or func.__name__
+            derived_param_model = param_model
+            if derived_param_model is None:
+                hints = get_type_hints(func)
+                model_type = hints.get("params")
+                if (
+                    model_type is None
+                    or not isinstance(model_type, type)
+                    or not issubclass(model_type, BaseModel)
+                ):
+                    raise ValueError(
+                        f"Cannot infer param_model for tool '{derived_name}'. "
+                        "Provide 'param_model' or annotate the 'params' argument with a Pydantic BaseModel subclass."
+                    )
+                derived_param_model = model_type
 
-       
+            # Register the function immediately and return the original function
+            self.register_tool(
+                name=derived_name,
+                param_model=derived_param_model,
+                function=func,
+                description=description,
+            )
+            return func
+
+        return decorator
+
     def get_tool(self, name: str) -> ToolInfo:
         """Get a tool by name."""
         if name not in self.tools:
@@ -114,9 +140,20 @@ class ToolExecutor:
             return {"success": False, "error": str(e)}
 
 
+# Global singleton registry for shared tool registration/access across the app
+TOOL_REGISTRY = ToolRegistry()
+
+
+def tool_registry() -> ToolRegistry:
+    """Return the module-level global tool registry singleton."""
+    return GLOBAL_TOOL_REGISTRY
+
+
 # Example of defining and registering a tool
 if __name__ == "__main__":
     from pydantic import BaseModel, Field
+
+    registry = ToolRegistry()
 
     # Define parameter models for tools
     class SearchParams(BaseModel):
@@ -124,6 +161,11 @@ if __name__ == "__main__":
         max_results: int = Field(5, description="Maximum number of results to return")
 
     # Define tool functions
+    @registry.tool(
+        name="search",
+        param_model=SearchParams,
+        description="Search for information on web",
+    )
     def search_tool(params: SearchParams, context: Dict[str, Any]) -> List[str]:
         """Simple mock search tool."""
         # In a real implementation, this would connect to a search API
