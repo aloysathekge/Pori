@@ -8,6 +8,9 @@ import requests
 import base64
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
+from ..tools import tool_registry
+
+Registry = tool_registry()
 
 
 class SpotifySearchParams(BaseModel):
@@ -54,6 +57,7 @@ def get_spotify_token() -> Optional[str]:
         return None
 
 
+@Registry.tool(description="Search Spotify for tracks, artists, albums, or playlists")
 def spotify_search_tool(params: SpotifySearchParams, context: Dict) -> Dict:
     """Search Spotify for tracks, artists, albums, or playlists."""
 
@@ -136,6 +140,9 @@ def spotify_search_tool(params: SpotifySearchParams, context: Dict) -> Dict:
         return {"error": f"Unexpected error: {str(e)}"}
 
 
+@Registry.tool(
+    description="Get detailed information about a specific Spotify track by ID"
+)
 def spotify_track_info_tool(params: SpotifyTrackInfoParams, context: Dict) -> Dict:
     """Get detailed information about a specific Spotify track."""
 
@@ -173,18 +180,6 @@ def spotify_track_info_tool(params: SpotifyTrackInfoParams, context: Dict) -> Di
         return {"error": f"Unexpected error: {str(e)}"}
 
 
-def register_spotify_tools(registry):
-    """Register Spotify API tools."""
-    registry.register_tool(
-        name="spotify_search",
-        param_model=SpotifySearchParams,
-        function=spotify_search_tool,
-        description="Search Spotify for tracks, artists, albums, or playlists",
-    )
-
-    registry.register_tool(
-        name="spotify_track_info",
-        param_model=SpotifyTrackInfoParams,
-        function=spotify_track_info_tool,
-        description="Get detailed information about a specific Spotify track by ID",
-    )
+def register_spotify_tools(registry=None):
+    """Tools auto-register on import; kept for compatibility."""
+    return None
