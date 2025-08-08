@@ -10,7 +10,7 @@ load_dotenv()
 
 # Import modules
 from langchain_anthropic import ChatAnthropic
-from .tools import get_global_tool_registry
+from .tools import tool_registry
 from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
 from .tools_box import register_all_tools
@@ -30,7 +30,7 @@ async def main():
 
     # Set up the tool registry
     logger.info("Initializing tool registry")
-    registry = get_global_tool_registry()
+    registry = tool_registry()
 
     register_all_tools(registry)
     logger.info(f"Registered {len(registry.tools)} tools")
