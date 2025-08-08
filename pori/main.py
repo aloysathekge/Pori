@@ -10,13 +10,13 @@ load_dotenv()
 
 # Import modules
 from langchain_anthropic import ChatAnthropic
-from tools import ToolRegistry, ToolExecutor
-from agent import Agent, AgentSettings
-from orchestrator import Orchestrator
-from tools_box import register_all_tools
+from .tools import get_global_tool_registry
+from .agent import Agent, AgentSettings
+from .orchestrator import Orchestrator
+from .tools_box import register_all_tools
 
 # Configure logging
-from utils.logging_config import setup_logging
+from .utils.logging_config import setup_logging
 
 loggers = setup_logging(level=logging.INFO, include_http=False)
 logger = logging.getLogger("pori.main")
@@ -30,7 +30,7 @@ async def main():
 
     # Set up the tool registry
     logger.info("Initializing tool registry")
-    registry = ToolRegistry()
+    registry = get_global_tool_registry()
 
     register_all_tools(registry)
     logger.info(f"Registered {len(registry.tools)} tools")

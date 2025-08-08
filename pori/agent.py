@@ -9,11 +9,11 @@ from pydantic import BaseModel
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
-from memory import AgentMemory
-from tools import ToolRegistry, ToolExecutor
-from evaluation import ActionResult, Evaluator
-from utils.prompt_loader import load_prompt
-from utils.logging_config import ensure_logger_configured
+from .memory import AgentMemory
+from .tools import ToolRegistry, ToolExecutor
+from .evaluation import ActionResult, Evaluator
+from .utils.prompt_loader import load_prompt
+from .utils.logging_config import ensure_logger_configured
 
 # Set up logger for this module - this will work regardless of import order
 logger = ensure_logger_configured("pori.agent")
