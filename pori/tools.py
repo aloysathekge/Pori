@@ -23,10 +23,18 @@ class ToolRegistry:
         self,
         name: str,
         param_model: Type[BaseModel],
-        function: Callable,
+        
         description: str,
-    ) -> None:
-        """Register a tool with the registry."""
+    ) :
+        """Decorator for  tool  registry."""
+
+        """Decorator for registering tools.
+        
+        Args:
+            name: Name of the tool
+            param_model: Pydantic model for parameter validation
+            description: Description of what the tool does
+        """
         self.tools[name] = ToolInfo(
             name=name,
             param_model=param_model,
