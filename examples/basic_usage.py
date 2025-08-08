@@ -9,7 +9,8 @@ import os
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 
-from pori import Agent, AgentSettings, ToolRegistry, Orchestrator, register_all_tools
+from pori import Agent, AgentSettings, Orchestrator, register_all_tools
+from pori.tools import get_global_tool_registry
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +20,7 @@ async def main():
     """Basic example of using the Pori agent framework."""
 
     # Set up the tool registry
-    registry = ToolRegistry()
+    registry = get_global_tool_registry()
     register_all_tools(registry)
 
     llm = ChatAnthropic(
