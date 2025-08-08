@@ -1,10 +1,14 @@
 from pydantic import BaseModel, Field
+from ..tools import tool_registry
+
+Registry = tool_registry()
 
 
 class CalculateParams(BaseModel):
     expression: str = Field(..., description="Math expression to calculate")
 
 
+@Registry.tool(description="Calculate the result of a mathematical expression")
 def calculate_tool(params: CalculateParams, context: dict):
     """Calculate the result of a math expression."""
     try:
@@ -15,11 +19,6 @@ def calculate_tool(params: CalculateParams, context: dict):
         return {"error": str(e)}
 
 
-def register_math_tools(registry):
-    """Register math-related tools with the given registry."""
-    registry.register_tool(
-        name="calculate",
-        param_model=CalculateParams,
-        function=calculate_tool,
-        description="Calculate the result of a mathematical expression",
-    )
+def register_math_tools(registry=None):
+    """Tools auto-register on import; kept for compatibility."""
+    return None
