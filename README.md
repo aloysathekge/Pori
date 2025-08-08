@@ -46,33 +46,6 @@ python pori/main.py
 
 The agent will prompt you for a task and intelligently execute it using available tools!
 
-## 💡 Example Usage
-
-```python
-import asyncio
-from pori import Agent, AgentSettings, ToolRegistry, Orchestrator, register_all_tools
-from langchain_anthropic import ChatAnthropic
-
-async def main():
-    # Set up the framework
-    registry = ToolRegistry()
-    register_all_tools(registry)
-    
-    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0)
-    orchestrator = Orchestrator(llm=llm, tools_registry=registry)
-    
-    # Execute a task
-    result = await orchestrator.execute_task(
-        task="Generate 3 random numbers and calculate their sum",
-        agent_settings=AgentSettings(max_steps=10)
-    )
-    
-    # Get the final answer
-    agent = result["agent"]
-    final_answer = agent.memory.get_final_answer()
-    print(f"Answer: {final_answer['final_answer']}")
-
-asyncio.run(main())
 ```
 
 ## 🏗️ Architecture
