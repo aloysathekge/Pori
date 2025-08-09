@@ -111,6 +111,10 @@ async def main():
                     print(f"  {final_answer['final_answer']}")
                     if final_answer.get("reasoning"):
                         print(f"\n  Reasoning: {final_answer['reasoning']}")
+                    # Show memory recall snippet if it was used in this step (logged by agent)
+                    print(
+                        "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
+                    )
                 else:
                     logger.warning("No final answer found")
                     print("\n⚠️ NO FINAL ANSWER FOUND")
