@@ -74,6 +74,34 @@ def think_tool(params: ThinkParams, context: Dict[str, Any]):
     }
 
 
+class RememberParams(BaseModel):
+    text: str = Field(..., description="The fact or note to remember long-term")
+    importance: int = Field(
+        1, ge=1, le=5, description="Importance from 1 (low) to 5 (high)"
+    )
+
+
+@Registry.tool(
+    name="remember",
+    description="Store a fact or note into long-term memory with optional importance",
+)
+def remember_tool(params: RememberParams, context: Dict[str, Any]):
+    """Persist a fact to long-term memory (and vector index if enabled)."""
+    memory = context.get("memory") if context else None
+    if not memory:
+        return {"success": False, "error": "Memory not available in context"}
+
+    try:
+        key = memory.add_experience(
+            params.text,
+            importance=params.importance,
+            meta={"type": "fact", "source": "user"},
+        )
+        return {"success": True, "result": {"key": key}}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def register_core_tools(registry=None):
     """Tools auto-register on import; kept for compatibility."""
     return None
