@@ -422,6 +422,13 @@ class Agent:
                         "Use relevant background facts below to answer the CURRENT question. "
                         "Do not copy prior final answers verbatim; verify dates/contexts."
                     )
+                    try:
+                        logger.info(
+                            "Retrieved knowledge (top):\n" + "\n".join(top),
+                            extra={"task_id": self.task_id},
+                        )
+                    except Exception:
+                        pass
                     messages.append(
                         HumanMessage(
                             content=f"Retrieved Knowledge (for reference):\n{facts}\n\n{guidance}"
@@ -498,7 +505,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
         plan_prompt = (
             "You are planning how to accomplish the user's task. "
-            "Return 3-5 short, concrete steps. Steps should reference available tools by name when useful."
+            "Return 1-3 short steps. Each step should map directly to a tool call or the final 'answer' action. "
+            "Do NOT describe internal operations that a tool already abstracts (e.g., loops or data structures). "
+            "Reference tools by name with essentia."
         )
 
         messages = [
@@ -523,6 +532,15 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     f"Plan created with {len(self.state.current_plan)} steps",
                     extra={"task_id": self.task_id},
                 )
+                # Also log the concrete steps for visibility in console
+                try:
+                    logger.info(
+                        "Plan steps:\n"
+                        + "\n".join([f"- {s}" for s in self.state.current_plan]),
+                        extra={"task_id": self.task_id},
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug(
                 f"Plan generation failed: {e}", extra={"task_id": self.task_id}
@@ -587,6 +605,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         f"Plan updated with {len(self.state.current_plan)} steps",
                         extra={"task_id": self.task_id},
                     )
+                    try:
+                        logger.info(
+                            "Updated plan steps:\n"
+                            + "\n".join([f"- {s}" for s in self.state.current_plan]),
+                            extra={"task_id": self.task_id},
+                        )
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})
 
