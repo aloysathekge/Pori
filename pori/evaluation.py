@@ -62,15 +62,22 @@ class Evaluator:
         """
         Determine if the overall task is complete.
         """
-        # Check if the agent has provided a final answer
+        # Check if the agent has provided a final answer (per-task state)
         has_final_answer = memory.get_state("final_answer") is not None
 
-        # Look for answer tool call in history
-        answer_provided = False
-        for tool_call in memory.tool_call_history:
-            if tool_call.tool_name == "answer":
-                answer_provided = True
-                break
+        # Look for answer tool call in history for this task only
+        current_task_id = getattr(memory, "current_task_id", None)
+        tool_calls = memory.tool_call_history
+        if current_task_id is not None:
+            tool_calls = [
+                tc
+                for tc in tool_calls
+                if getattr(tc, "task_id", None) == current_task_id
+            ]
+
+        answer_provided = any(
+            getattr(tc, "tool_name", None) == "answer" for tc in tool_calls
+        )
 
         # A task is complete only if a final answer has been provided
         if has_final_answer or answer_provided:
