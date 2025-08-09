@@ -3,6 +3,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from .agent import Agent, AgentSettings
+from .memory_v2 import EnhancedAgentMemory
 from .tools import ToolRegistry
 from langchain.chat_models.base import BaseChatModel
 
@@ -23,6 +24,8 @@ class Orchestrator:
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        # Shared memory across tasks within the same process/session
+        self.shared_memory = EnhancedAgentMemory(persistent=False, vector=True)
 
     async def execute_task(
         self,
@@ -44,6 +47,7 @@ class Orchestrator:
             llm=self.llm,
             tools_registry=self.tools_registry,
             settings=settings,
+            memory=self.shared_memory,
         )
         self.agents[task_id] = agent
 

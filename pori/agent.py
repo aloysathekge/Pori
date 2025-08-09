@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
-from .memory import AgentMemory
+from .memory_v2 import EnhancedAgentMemory
 from .tools import ToolRegistry, ToolExecutor
 from .evaluation import ActionResult, Evaluator
 from .utils.prompt_loader import load_prompt
@@ -70,6 +70,7 @@ class Agent:
         llm: BaseChatModel,
         tools_registry: ToolRegistry,
         settings: AgentSettings = AgentSettings(),
+        memory: Optional[Any] = None,
     ):
         # Generate unique task ID for tracking
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -90,7 +91,11 @@ class Agent:
 
         # Initialize state components
         self.state = AgentState()
-        self.memory = AgentMemory()
+        self.memory = (
+            memory
+            if memory is not None
+            else EnhancedAgentMemory(persistent=False, vector=True)
+        )
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Create task record
@@ -120,6 +125,11 @@ class Agent:
 
         # Add task message to memory
         self.memory.add_message("user", f"Task: {self.task}")
+        # Also store task text as an experience for recall
+        try:
+            self.memory.add_experience(f"Task stated: {self.task}", importance=1)
+        except Exception:
+            pass
 
         logger.debug("System message setup complete", extra={"task_id": self.task_id})
 
@@ -220,6 +230,12 @@ class Agent:
         for result in tool_results:
             if result.include_in_memory:
                 self.memory.add_message("system", str(result))
+                try:
+                    self.memory.add_experience(
+                        f"Step result: {str(result)}", importance=1
+                    )
+                except Exception:
+                    pass
 
     async def get_next_action(self) -> AgentOutput:
         """Get next action from LLM based on current state."""
@@ -285,15 +301,37 @@ class Agent:
 
         # Add conversation history (truncated if needed)
         max_history = 10  # Simplified - in a real system, use token counting
-        for msg in self.memory.conversation_history[-max_history:]:
-            if msg.role == "user":
-                messages.append(HumanMessage(content=msg.content))
-            elif msg.role == "assistant":
-                messages.append(AIMessage(content=msg.content))
+        # Use EnhancedAgentMemory working buffer if available, else fallback
+        try:
+            recent_structured = self.memory.get_recent_messages_structured(max_history)
+            for msg in recent_structured:
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        except Exception:
+            # Backward-compatibility with legacy AgentMemory
+            for msg in getattr(self.memory, "conversation_history", [])[-max_history:]:
+                if msg.role == "user":
+                    messages.append(HumanMessage(content=msg.content))
+                elif msg.role == "assistant":
+                    messages.append(AIMessage(content=msg.content))
 
         # Add current state information
         context = self._get_current_context()
         messages.append(HumanMessage(content=context))
+
+        # Inject retrieved long-term knowledge via semantic recall
+        try:
+            retrieved = self.memory.recall(query=self.task, k=5)
+            if retrieved:
+                facts = "\n".join([f"- {text}" for _, text, _ in retrieved])
+                messages.append(HumanMessage(content=f"Retrieved Knowledge:\n{facts}"))
+        except Exception:
+            # If memory backend lacks recall, skip silently
+            pass
 
         return messages
 
