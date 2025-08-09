@@ -618,6 +618,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     extra={"task_id": self.task_id},
                 )
                 print(f"✅ Task complete: {completion_message}")
+                # Ensure tasks are marked complete so final result.completed is True
+                for task in self.memory.tasks.values():
+                    task.complete(success=True)
                 break
 
             # Optional: validate task completion
