@@ -123,11 +123,13 @@ class Agent:
         # Add system message to memory
         self.memory.add_message("system", self.system_message)
 
-        # Add task message to memory
+        # Add task message to memory (working memory resets per task via begin_task)
         self.memory.add_message("user", f"Task: {self.task}")
         # Also store task text as an experience for recall
         try:
-            self.memory.add_experience(f"Task stated: {self.task}", importance=1)
+            self.memory.add_experience(
+                f"Task stated: {self.task}", importance=1, meta={"type": "task"}
+            )
         except Exception:
             pass
 
@@ -230,9 +232,21 @@ class Agent:
         for result in tool_results:
             if result.include_in_memory:
                 self.memory.add_message("system", str(result))
+                # Capture final answer in state for this task
+                try:
+                    if (
+                        isinstance(result.value, dict)
+                        and "final_answer" in result.value
+                    ):
+                        self.memory.update_state("final_answer", result.value)
+                except Exception:
+                    pass
+                # Index non-final results
                 try:
                     self.memory.add_experience(
-                        f"Step result: {str(result)}", importance=1
+                        f"Step result: {str(result)}",
+                        importance=1,
+                        meta={"type": "step_result"},
                     )
                 except Exception:
                     pass
@@ -269,14 +283,66 @@ class Agent:
                 # Attempt to parse raw response if structured output failed
                 raw = response.get("raw")
                 raw_content = getattr(raw, "content", raw)
-                # Handle common shapes: str JSON, dict, list (already parsed), or message list
-                if isinstance(raw_content, (dict, list)):
-                    parsed_json = raw_content
-                elif isinstance(raw_content, str):
-                    parsed_json = json.loads(raw_content)
-                else:
-                    # Attempt to stringify unknown types
-                    parsed_json = json.loads(str(raw_content))
+
+                def _coerce_to_output_json(obj: Any) -> Dict[str, Any]:
+                    """Coerce various raw shapes into AgentOutput JSON shape."""
+                    default = {"current_state": {}, "action": []}
+                    # Already a dict
+                    if isinstance(obj, dict):
+                        # Ensure required keys exist
+                        if "current_state" not in obj:
+                            obj["current_state"] = obj.get("state", {}) or {}
+                        if "action" not in obj:
+                            obj["action"] = obj.get("actions", []) or []
+                        return obj
+                    # String → try JSON
+                    if isinstance(obj, str):
+                        try:
+                            parsed = json.loads(obj)
+                            return _coerce_to_output_json(parsed)
+                        except Exception:
+                            return default
+                    # List handling
+                    if isinstance(obj, list):
+                        if not obj:
+                            return default
+                        # Common LC message.content shape: list of {type, text}
+                        if all(isinstance(x, dict) and "text" in x for x in obj):
+                            combined = "\n".join(str(x.get("text", "")) for x in obj)
+                            try:
+                                parsed = json.loads(combined)
+                                return _coerce_to_output_json(parsed)
+                            except Exception:
+                                return default
+                        # If it's a list of action dicts, wrap
+                        if all(isinstance(x, dict) for x in obj):
+                            first = obj[0]
+                            if "current_state" in first or "action" in first:
+                                return _coerce_to_output_json(first)
+                            # Heuristic: list of tool calls like [{tool: {...}}, ...]
+                            if all(
+                                len(x.keys()) == 1
+                                and isinstance(list(x.values())[0], (dict, list))
+                                for x in obj
+                            ):
+                                return {"current_state": {}, "action": obj}
+                            return default
+                        # List of strings → try parse first
+                        if all(isinstance(x, str) for x in obj):
+                            try:
+                                parsed = json.loads(obj[0])
+                                return _coerce_to_output_json(parsed)
+                            except Exception:
+                                return default
+                        return default
+                    # Fallback: try str-JSON
+                    try:
+                        parsed = json.loads(str(obj))
+                        return _coerce_to_output_json(parsed)
+                    except Exception:
+                        return default
+
+                parsed_json = _coerce_to_output_json(raw_content)
                 parsed_output = output_model(**parsed_json)
 
             logger.debug(
@@ -325,10 +391,42 @@ class Agent:
 
         # Inject retrieved long-term knowledge via semantic recall
         try:
-            retrieved = self.memory.recall(query=self.task, k=5)
+            # Prefer last user message as recall query if present
+            try:
+                recent_msgs = self.memory.get_recent_messages_structured(5)
+                last_user = next(
+                    (
+                        m["content"]
+                        for m in reversed(recent_msgs)
+                        if m.get("role") == "user"
+                    ),
+                    self.task,
+                )
+                recall_query = last_user or self.task
+            except Exception:
+                recall_query = self.task
+
+            retrieved = self.memory.recall(query=recall_query, k=5, min_score=0.35)
             if retrieved:
-                facts = "\n".join([f"- {text}" for _, text, _ in retrieved])
-                messages.append(HumanMessage(content=f"Retrieved Knowledge:\n{facts}"))
+                # Filter out items that look like prior final answers
+                filtered = []
+                for _, text, _score in retrieved:
+                    tx = str(text)
+                    if '"final_answer"' in tx or "Final answer" in tx:
+                        continue
+                    filtered.append(tx)
+                if filtered:
+                    top = filtered[:3]
+                    facts = "\n".join([f"- {t}" for t in top])
+                    guidance = (
+                        "Use relevant background facts below to answer the CURRENT question. "
+                        "Do not copy prior final answers verbatim; verify dates/contexts."
+                    )
+                    messages.append(
+                        HumanMessage(
+                            content=f"Retrieved Knowledge (for reference):\n{facts}\n\n{guidance}"
+                        )
+                    )
         except Exception:
             # If memory backend lacks recall, skip silently
             pass
