@@ -5,7 +5,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
@@ -26,6 +26,9 @@ class AgentState(BaseModel):
     consecutive_failures: int = 0
     paused: bool = False
     stopped: bool = False
+    # Planning/Reflection state
+    current_plan: List[str] = Field(default_factory=list)
+    last_reflection: Optional[str] = None
 
 
 class AgentSettings(BaseModel):
@@ -43,6 +46,16 @@ class AgentOutput(BaseModel):
 
     current_state: Dict[str, str]
     action: List[Dict[str, Any]]
+
+
+class PlanOutput(BaseModel):
+    plan_steps: List[str]
+    rationale: str
+
+
+class ReflectOutput(BaseModel):
+    critique: str
+    update_plan: Optional[List[str]] = None
 
 
 class Agent:
@@ -134,6 +147,9 @@ class Agent:
                 summary = self.memory.create_summary(self.state.n_steps)
                 self.memory.add_message("system", f"Memory summary: {summary}")
 
+            # Ensure we have a minimal plan before acting
+            await self._plan_if_needed()
+
             # Get the next action from the LLM
             logger.debug(
                 "Getting next action from LLM",
@@ -165,6 +181,15 @@ class Agent:
                 f"Step {step_number} completed successfully",
                 extra={"task_id": self.task_id, "step": step_number},
             )
+
+            # Reflect briefly and revise plan if needed
+            try:
+                await self._reflect_and_update_plan(tool_results)
+            except Exception as reflect_err:
+                logger.debug(
+                    f"Reflection skipped/failed: {reflect_err}",
+                    extra={"task_id": self.task_id, "step": step_number},
+                )
 
         except Exception as e:
             logger.error(
@@ -300,9 +325,19 @@ class Agent:
             t.tool_name == "done" for t in self.memory.tool_call_history
         )
 
+        # Include current plan (trim to first 5 steps for brevity)
+        plan_lines = (
+            "\n".join([f"- {s}" for s in self.state.current_plan[:5]])
+            if self.state.current_plan
+            else "(no plan yet)"
+        )
+
         context_prompt = f"""
 Current Status:
 {tasks_status}
+
+Current Plan (follow these steps; revise only if needed):
+{plan_lines}
 
 Recent Actions:
 {recent_tools}
@@ -319,6 +354,105 @@ REMINDER: You have gathered information using tools. Now analyze the results and
     def _create_output_model(self) -> Type[BaseModel]:
         """Create the output model for the LLM's response."""
         return AgentOutput
+
+    async def _plan_if_needed(self) -> None:
+        """Create a brief plan if none exists."""
+        if self.state.current_plan:
+            return
+
+        plan_prompt = (
+            "You are planning how to accomplish the user's task. "
+            "Return 3-5 short, concrete steps. Steps should reference available tools by name when useful."
+        )
+
+        messages = [
+            SystemMessage(content="Plan the task succinctly."),
+            HumanMessage(content=f"Task: {self.task}\n{plan_prompt}"),
+        ]
+
+        try:
+            structured_llm = self.llm.with_structured_output(PlanOutput)
+            plan: PlanOutput = await structured_llm.ainvoke(messages)
+            steps = [s.strip() for s in (plan.plan_steps or []) if s and s.strip()]
+            # Cap plan length to 5 steps
+            self.state.current_plan = steps[:5]
+            self.state.last_reflection = None
+            if self.state.current_plan:
+                self.memory.add_message(
+                    "system",
+                    f"Plan established:\n"
+                    + "\n".join([f"- {s}" for s in self.state.current_plan]),
+                )
+                logger.info(
+                    f"Plan created with {len(self.state.current_plan)} steps",
+                    extra={"task_id": self.task_id},
+                )
+        except Exception as e:
+            logger.debug(
+                f"Plan generation failed: {e}", extra={"task_id": self.task_id}
+            )
+
+    async def _reflect_and_update_plan(self, tool_results: List[ActionResult]) -> None:
+        """Reflect on recent actions and update the plan if necessary."""
+        # Build a compact summary of the last step's tool outcomes
+        results_summary = []
+        for r in tool_results[-3:]:
+            if isinstance(r, ActionResult):
+                if r.success:
+                    results_summary.append("success")
+                else:
+                    results_summary.append(f"fail: {r.error}")
+            else:
+                results_summary.append(str(r))
+        results_text = (
+            ", ".join(results_summary) if results_summary else "(no tool results)"
+        )
+
+        reflect_prompt = (
+            "Briefly critique progress vs the plan. If a step is done or wrong, propose an updated 1-5 step plan. "
+            "Only update the plan if it clearly improves progress."
+        )
+
+        plan_text = (
+            "\n".join([f"- {s}" for s in self.state.current_plan])
+            if self.state.current_plan
+            else "(no plan)"
+        )
+        messages = [
+            SystemMessage(content="Reflect succinctly. Be pragmatic."),
+            HumanMessage(
+                content=(
+                    f"Task: {self.task}\n"
+                    f"Current plan:\n{plan_text}\n"
+                    f"Recent results: {results_text}\n"
+                    f"{reflect_prompt}"
+                )
+            ),
+        ]
+
+        try:
+            structured_llm = self.llm.with_structured_output(ReflectOutput)
+            reflection: ReflectOutput = await structured_llm.ainvoke(messages)
+            self.state.last_reflection = reflection.critique
+            self.memory.add_message("system", f"Reflection: {reflection.critique}")
+
+            if reflection.update_plan:
+                new_steps = [
+                    s.strip() for s in reflection.update_plan if s and s.strip()
+                ]
+                if new_steps:
+                    self.state.current_plan = new_steps[:5]
+                    self.memory.add_message(
+                        "system",
+                        "Plan updated:\n"
+                        + "\n".join([f"- {s}" for s in self.state.current_plan]),
+                    )
+                    logger.info(
+                        f"Plan updated with {len(self.state.current_plan)} steps",
+                        extra={"task_id": self.task_id},
+                    )
+        except Exception as e:
+            logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})
 
     async def execute_actions(
         self, actions: List[Dict[str, Any]]
