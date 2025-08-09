@@ -13,7 +13,7 @@ from langchain_anthropic import ChatAnthropic
 from .tools import tool_registry
 from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
-from .tools_box import register_all_tools
+from .tools_builtin import register_all_tools
 
 # Configure logging
 from .utils.logging_config import setup_logging

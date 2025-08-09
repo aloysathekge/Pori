@@ -12,7 +12,7 @@ from .evaluation import ActionResult, Evaluator
 from .orchestrator import Orchestrator
 
 # Tool registrations
-from .tools_box import register_all_tools
+from .tools_builtin import register_all_tools
 
 __all__ = [
     # Core agent classes
