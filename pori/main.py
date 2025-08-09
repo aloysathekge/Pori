@@ -18,7 +18,7 @@ from .tools_builtin import register_all_tools
 # Configure logging
 from .utils.logging_config import setup_logging
 
-loggers = setup_logging(level=logging.INFO, include_http=False)
+loggers = setup_logging(level=logging.INFO, include_http=True)
 logger = logging.getLogger("pori.main")
 
 
