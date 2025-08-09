@@ -15,6 +15,7 @@ class ToolCallRecord:
     result: Dict[str, Any]
     success: bool
     timestamp: datetime
+    task_id: Optional[str] = None
 
 
 class EnhancedAgentMemory:
@@ -37,6 +38,7 @@ class EnhancedAgentMemory:
         self.state: Dict[str, Any] = {}
         self.summaries: List[Dict[str, Any]] = []
         self.final_answer: Optional[Dict[str, str]] = None
+        self.current_task_id: Optional[str] = None
 
     # ---------------- Back-compat methods ----------------
     def add_message(self, role: str, content: str) -> None:
@@ -72,6 +74,7 @@ class EnhancedAgentMemory:
             result=result,
             success=success,
             timestamp=datetime.now(),
+            task_id=self.current_task_id,
         )
         self.tool_call_history.append(rec)
 
@@ -102,11 +105,22 @@ class EnhancedAgentMemory:
 
             task = _Task(task_id, description)
             self.tasks[task_id] = task
+            # Begin new task context
+            self.begin_task(task_id)
             return task
 
         task = TaskState(task_id=task_id, description=description)
         self.tasks[task_id] = task
+        # Begin new task context
+        self.begin_task(task_id)
         return task
+
+    def begin_task(self, task_id: str) -> None:
+        """Start a new task context: reset working memory, set task id, clear final answer."""
+        self.current_task_id = task_id
+        self.working = InMemoryStore()
+        # Clear per-task fields
+        self.state.pop("final_answer", None)
 
     def create_summary(self, step: int, max_messages: int = 10) -> str:
         # Convert last N working messages into textual summary and store long-term
@@ -126,17 +140,34 @@ class EnhancedAgentMemory:
         return f"Step {step} summary stored as {key} with {len(recent)} messages"
 
     # ---------------- Enhanced APIs ----------------
-    def add_experience(self, text: str, importance: int = 1) -> str:
+    def add_experience(
+        self,
+        text: str,
+        importance: int = 1,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> str:
         key = f"exp_{len(self.long_term.data)}"
-        self.long_term.add(key, text, meta={"importance": importance})
-        if self.vector:
+        meta_full = {"importance": importance}
+        if meta:
+            meta_full.update(meta)
+        self.long_term.add(key, text, meta=meta_full)
+        # Avoid indexing prior final answers into vector store to reduce replay risk
+        should_index = True
+        if meta_full.get("type") == "final_answer":
+            should_index = False
+        if self.vector and should_index:
             self.vector.add(key, text)
         return key
 
-    def recall(self, query: str, k: int = 5) -> List[Tuple[str, str, float]]:
+    def recall(
+        self, query: str, k: int = 5, min_score: float = 0.25
+    ) -> List[Tuple[str, str, float]]:
         if self.vector:
-            return self.vector.search(query, k)
-        return self.long_term.search(query, k)
+            results = self.vector.search(query, k)
+        else:
+            results = self.long_term.search(query, k)
+        # Basic gating to avoid irrelevant injections
+        return [r for r in results if r[2] is None or r[2] >= min_score]
 
     def get_recent_messages(self, n: int = 10) -> str:
         values = list(self.working.data.values())[-n:]

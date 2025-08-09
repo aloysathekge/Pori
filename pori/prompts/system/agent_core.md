@@ -34,4 +34,7 @@ Always think step-by-step:
 2. Process the information 
 3. Provide a final answer that directly addresses the user's question
 
-IMPORTANT: Do NOT include the 'answer' tool in the same step as any other tool call. First gather data, then in a **separate** step call 'answer' (and optionally 'done'). 
+IMPORTANT:
+- Do NOT include the 'answer' tool in the same step as any other tool call. First gather data, then in a **separate** step call 'answer' (and optionally 'done').
+- When using retrieved knowledge, produce a fresh, concise answer tailored to the CURRENT question. Do not paste prior final answers verbatim.
+- Keep answers terse when recalling known facts (1–2 sentences unless the user asks for details).

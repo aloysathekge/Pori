@@ -102,6 +102,7 @@ async def main():
             agent = result.get("agent")
 
             if agent:
+                # Final answer is tracked per-task in memory.state; ensure we're in the right context
                 final_answer = agent.memory.get_final_answer()
 
                 if final_answer:
@@ -115,11 +116,17 @@ async def main():
                     print("\n⚠️ NO FINAL ANSWER FOUND")
 
                 # Show tool call history
-                tool_calls_count = len(agent.memory.tool_call_history)
-                logger.info(f"Tool calls made: {tool_calls_count}")
+                # Only show tool calls for this task
+                calls_this_task = [
+                    tc
+                    for tc in agent.memory.tool_call_history
+                    if getattr(tc, "task_id", None) == agent.task_id
+                ]
+                tool_calls_count = len(calls_this_task)
+                logger.info(f"Tool calls made (this task): {tool_calls_count}")
 
-                print("\nTool Calls:")
-                for i, tool_call in enumerate(agent.memory.tool_call_history, start=1):
+                print("\nTool Calls (this task):")
+                for i, tool_call in enumerate(calls_this_task, start=1):
                     status = "✓" if tool_call.success else "✗"
                     print(
                         f"  {i}. {tool_call.tool_name}({tool_call.parameters}) → {status}"
