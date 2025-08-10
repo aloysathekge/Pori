@@ -118,8 +118,6 @@ User (CLI)  →  Orchestrator  →  Agent  →  Tools
 5. Tooling
 
 
-6. Security & hygiene
-   - PII redaction pre-persistence; optional encryption at rest
 
 ### Runbook
 
