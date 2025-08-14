@@ -14,3 +14,16 @@ class TaskCreateResponse(BaseModel):
     task_id: str
     status: Literal["queued", "running", "completed", "failed"]
     submitted_at: datetime = Field(default_factory=datetime.now)
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    details: str | None = None
+
+
+class TaskResultResponse(BaseModel):
+    task_id: str
+    success: bool
+    final_answer: str | None = None
+    reasoning: str | None = None
