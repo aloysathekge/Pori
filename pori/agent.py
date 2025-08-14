@@ -655,6 +655,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 for task in self.memory.tasks.values():
                     task.complete(success=is_successful)
 
+                # Record the tool call so the evaluator knows the task is complete.
+                self.memory.add_tool_call(
+                    tool_name=tool_name,
+                    parameters=params,
+                    result={"message": message},
+                    success=is_successful,
+                )
+
                 results.append(
                     ActionResult(
                         success=is_successful, value=message, include_in_memory=True
