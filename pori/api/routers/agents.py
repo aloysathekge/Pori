@@ -11,8 +11,9 @@ from ..models import (
     TaskStatusResponse,
     TaskResultResponse,
 )
+from ..security import get_api_key
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_api_key)])
 
 
 @router.post("/tasks", response_model=TaskCreateResponse)
