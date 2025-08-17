@@ -1,6 +1,17 @@
 import logging
 import sys
 from typing import Dict, Any
+from pori.api.middleware import request_id_var
+
+
+class RequestIdFilter(logging.Filter):
+    """
+    Injects the request_id into the log record.
+    """
+
+    def filter(self, record):
+        record.request_id = request_id_var.get()
+        return True
 
 
 class PoriFormatter(logging.Formatter):
@@ -18,6 +29,8 @@ class PoriFormatter(logging.Formatter):
 
     def format(self, record):
         # Add context if available
+        if hasattr(record, "request_id") and record.request_id:
+            record.msg = f"[Req:{record.request_id[:8]}] {record.msg}"
         if hasattr(record, "task_id"):
             record.msg = f"[Task:{record.task_id}] {record.msg}"
         if hasattr(record, "step"):
@@ -69,9 +82,10 @@ def setup_logging(level=logging.INFO, include_http=False):
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
     )
 
-    # Console handler with immediate flushing
+    # Add the request ID filter to the console handler
     console_handler = ImmediateStreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(RequestIdFilter())
 
     # Set up component loggers
     loggers = {
@@ -80,6 +94,7 @@ def setup_logging(level=logging.INFO, include_http=False):
         "pori.orchestrator": logging.getLogger("pori.orchestrator"),
         "pori.tools": logging.getLogger("pori.tools"),
         "pori.memory": logging.getLogger("pori.memory"),
+        "pori.api": logging.getLogger("pori.api"),
     }
 
     for logger in loggers.values():

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from pori.utils.logging_config import setup_logging
 from pori.api.routers import agents
 from pori.api.deps import build_orchestrator
+from pori.api.middleware import RequestIdMiddleware
 
 
 @asynccontextmanager
@@ -32,6 +33,8 @@ def create_app() -> FastAPI:
     logger = logging.getLogger("pori.api")
 
     app = FastAPI(title="Pori API", version="0.1.0", lifespan=lifespan)
+
+    app.add_middleware(RequestIdMiddleware)
 
     app.include_router(agents.router, prefix="/v1", tags=["Agents"])
 
