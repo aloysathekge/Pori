@@ -1,13 +1,8 @@
 import uuid
-from contextvars import ContextVar
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseFunction
 from starlette.requests import Request
 from starlette.responses import Response
-
-# A context variable to hold the request ID.
-# This allows the ID to be accessed by any part of the application
-# during the lifecycle of a single request.
-request_id_var: ContextVar[str] = ContextVar("request_id", default=None)
+from pori.utils.context import request_id_var
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -29,4 +24,3 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         response.headers["X-Request-ID"] = request_id
 
         return response
-
