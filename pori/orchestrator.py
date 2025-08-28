@@ -24,9 +24,17 @@ class Orchestrator:
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
-        # Shared memory across tasks within the same process/session
-        # Consider disabling vector for fastest startup, or leave enabled for recall
-        self.shared_memory = EnhancedAgentMemory(persistent=False, vector=True)
+
+        # Shared memory with clean configuration
+        from .config import MemoryConfig
+
+        config = MemoryConfig.from_env()
+
+        self.shared_memory = EnhancedAgentMemory(
+            persistent=config.persistent,
+            vector=config.vector,
+            vector_config=config.to_vector_config(),
+        )
 
     async def execute_task(
         self,
