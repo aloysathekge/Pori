@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from .stores.in_memory import InMemoryStore
-from .stores.vector_store import VectorMemoryStore
+from .vector_factory import VectorStoreFactory
 
 
 @dataclass
@@ -24,13 +24,24 @@ class EnhancedAgentMemory:
     Maintains backward-compatible fields/methods expected by current Agent.
     """
 
-    def __init__(self, persistent: bool = False, vector: bool = True) -> None:
+    def __init__(
+        self,
+        persistent: bool = False,
+        vector: bool = True,
+        vector_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
         # Working memory: short-term rolling buffer
         self.working = InMemoryStore()
         # Long-term memory: TODO swap to SqliteStore when persistent True
         self.long_term = InMemoryStore()
-        # Vector memory for semantic recall
-        self.vector = VectorMemoryStore() if vector else None
+
+        # Vector memory for semantic recall using factory pattern
+        if vector:
+            vector_config = vector_config or {"backend": "local"}
+            backend = vector_config.pop("backend", "local")
+            self.vector = VectorStoreFactory.create_vector_store(backend, vector_config)
+        else:
+            self.vector = None
 
         # Back-compat structures expected by Agent
         self.tool_call_history: List[ToolCallRecord] = []
