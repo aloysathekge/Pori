@@ -624,6 +624,45 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             f"Executing {len(actions)} actions", extra={"task_id": self.task_id}
         )
         results = []
+        # Track duplicates within the same step
+        seen_signatures_this_step: set[str] = set()
+        results_by_signature_this_step: Dict[str, Dict[str, Any]] = {}
+
+        def _make_signature(tool: str, p: Dict[str, Any]) -> str:
+            try:
+                return f"{tool}:{json.dumps(p, sort_keys=True)}"
+            except Exception:
+                # Fallback to string repr if params not JSON-serializable
+                return f"{tool}:{str(p)}"
+
+        def _is_duplicate_this_step(tool: str, p: Dict[str, Any]) -> bool:
+            sig = _make_signature(tool, p)
+            return sig in seen_signatures_this_step
+
+        def _find_recent_same_call_result(
+            tool: str, p: Dict[str, Any], lookback: int = 5
+        ) -> Optional[Dict[str, Any]]:
+            """Return the most recent recorded result for the same tool+params within this task."""
+            sig = _make_signature(tool, p)
+            # Prefer same-step prior result if present
+            if sig in results_by_signature_this_step:
+                return results_by_signature_this_step[sig]
+            # Search recent history across steps
+            try:
+                recent = self.memory.tool_call_history[-lookback:]
+            except Exception:
+                recent = []
+            for rec in reversed(recent):
+                try:
+                    if (
+                        getattr(rec, "tool_name", None) == tool
+                        and _make_signature(tool, getattr(rec, "parameters", {})) == sig
+                        and getattr(rec, "success", False)
+                    ):
+                        return getattr(rec, "result", None)
+                except Exception:
+                    continue
+            return None
 
         for i, action_dict in enumerate(actions, 1):
             if not action_dict:
@@ -640,6 +679,45 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
             )
             logger.debug(f"Tool parameters: {params}", extra={"task_id": self.task_id})
+
+            # Duplicate handling: reuse last identical result instead of re-running
+            try:
+                sig = _make_signature(tool_name, params)
+                seen_before_this_step = _is_duplicate_this_step(tool_name, params)
+                prior_result = _find_recent_same_call_result(
+                    tool_name, params, lookback=5
+                )
+                if seen_before_this_step or prior_result is not None:
+                    reused = prior_result or results_by_signature_this_step.get(sig)
+                    if reused is not None:
+                        logger.info(
+                            f"Reusing previous result for duplicate action {i}: {tool_name}",
+                            extra={"task_id": self.task_id},
+                        )
+                        # Record the tool call for traceability
+                        try:
+                            self.memory.add_tool_call(
+                                tool_name=tool_name,
+                                parameters=params,
+                                result=reused,
+                                success=True,
+                            )
+                        except Exception:
+                            pass
+                        # Evaluate and append reused result
+                        action_result = self.evaluator.evaluate_tool_result(
+                            tool_name=tool_name, result=reused
+                        )
+                        results.append(action_result)
+                        # Ensure signature recorded for this step
+                        seen_signatures_this_step.add(sig)
+                        results_by_signature_this_step[sig] = reused
+                        continue
+                # First time seeing this signature this step
+                seen_signatures_this_step.add(sig)
+            except Exception:
+                # If duplicate detection fails, proceed normally
+                pass
 
             # Special handling for "done" tool
             if tool_name == "done":
@@ -702,6 +780,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     result=tool_result,
                     success=success,
                 )
+
+                # Cache the result for potential reuse within this step
+                try:
+                    results_by_signature_this_step[
+                        _make_signature(tool_name, params)
+                    ] = tool_result
+                except Exception:
+                    pass
 
                 # Evaluate the result
                 action_result = self.evaluator.evaluate_tool_result(
