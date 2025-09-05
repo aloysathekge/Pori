@@ -6,7 +6,6 @@ without coupling the memory system to specific implementations.
 """
 
 from typing import Dict, Any, Optional
-from .stores.vector_store import VectorMemoryStore
 from .memory_store import MemoryStore
 
 
@@ -15,7 +14,7 @@ class VectorStoreFactory:
 
     @staticmethod
     def create_vector_store(
-        backend: str = "local", config: Optional[Dict[str, Any]] = None
+        backend: str = "weaviate", config: Optional[Dict[str, Any]] = None
     ) -> MemoryStore[str]:
         """Create a vector store instance based on backend type.
 
@@ -33,8 +32,8 @@ class VectorStoreFactory:
         config = config or {}
 
         if backend.lower() == "local":
-            return VectorMemoryStore(
-                model_name=config.get("model_name", "all-MiniLM-L6-v2")
+            raise ValueError(
+                "'local' vector backend has been removed. Please use a remote backend such as 'weaviate'."
             )
 
         elif backend.lower() == "weaviate":
@@ -64,7 +63,7 @@ class VectorStoreFactory:
         else:
             raise ValueError(
                 f"Unsupported vector backend: {backend}. "
-                f"Supported backends: local, weaviate"
+                f"Supported backends: weaviate"
             )
 
 
@@ -79,4 +78,3 @@ def create_vector_store(backend: str, **kwargs) -> MemoryStore[str]:
         MemoryStore instance
     """
     return VectorStoreFactory.create_vector_store(backend, kwargs)
-

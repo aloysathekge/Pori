@@ -94,9 +94,7 @@ class Agent:
         self.memory = (
             memory
             if memory is not None
-            else EnhancedAgentMemory(
-                persistent=False, vector=True, vector_config={"backend": "local"}
-            )
+            else EnhancedAgentMemory(persistent=False, vector=False)
         )
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 

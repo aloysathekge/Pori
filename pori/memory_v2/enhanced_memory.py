@@ -37,9 +37,14 @@ class EnhancedAgentMemory:
 
         # Vector memory for semantic recall using factory pattern
         if vector:
-            vector_config = vector_config or {"backend": "local"}
-            backend = vector_config.pop("backend", "local")
-            self.vector = VectorStoreFactory.create_vector_store(backend, vector_config)
+            # Require explicit backend configuration; do not default to local
+            if vector_config and "backend" in vector_config:
+                backend = vector_config.pop("backend")
+                self.vector = VectorStoreFactory.create_vector_store(
+                    backend, vector_config
+                )
+            else:
+                self.vector = None
         else:
             self.vector = None
 

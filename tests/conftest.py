@@ -243,8 +243,8 @@ def in_memory_store():
 @pytest.fixture
 def vector_memory_store():
     """Returns a mock vector memory store for testing."""
-    # Use MagicMock to avoid loading actual embedding models
-    mock_store = MagicMock(spec=VectorMemoryStore)
+    # Use MagicMock to avoid requiring remote vector DB in unit tests
+    mock_store = MagicMock()
     mock_store.add.return_value = None
     mock_store.get.return_value = "test content"
     mock_store.search.return_value = [

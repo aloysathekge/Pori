@@ -15,8 +15,8 @@ class MemoryConfig:
     """Clean memory configuration."""
 
     persistent: bool = False
-    vector: bool = True
-    vector_backend: str = "local"
+    vector: bool = False
+    vector_backend: str = "weaviate"
 
     # Vector store specific configs
     weaviate_url: Optional[str] = None
@@ -29,8 +29,8 @@ class MemoryConfig:
         """Create configuration from environment variables."""
         return cls(
             persistent=False,
-            vector=True,
-            vector_backend=os.getenv("VECTOR_BACKEND", "local"),
+            vector=os.getenv("VECTOR", "false").lower() in {"1", "true", "yes", "on"},
+            vector_backend=os.getenv("VECTOR_BACKEND", "weaviate"),
             weaviate_url=os.getenv("WEAVIATE_URL"),
             weaviate_api_key=os.getenv("WEAVIATE_API_KEY"),
             weaviate_class=os.getenv("WEAVIATE_CLASS", "AgentMemory"),
