@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
-from .memory_v2 import EnhancedAgentMemory
+from .simple_memory import SimpleMemory
 from .tools import ToolRegistry, ToolExecutor
 from .evaluation import ActionResult, Evaluator
 from .utils.prompt_loader import load_prompt
@@ -91,11 +91,7 @@ class Agent:
 
         # Initialize state components
         self.state = AgentState()
-        self.memory = (
-            memory
-            if memory is not None
-            else EnhancedAgentMemory(persistent=False, vector=False)
-        )
+        self.memory = memory if memory is not None else SimpleMemory()
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Create task record
@@ -367,23 +363,15 @@ class Agent:
 
         # Add conversation history (truncated if needed)
         max_history = 10  # Simplified - in a real system, use token counting
-        # Use EnhancedAgentMemory working buffer if available, else fallback
-        try:
-            recent_structured = self.memory.get_recent_messages_structured(max_history)
-            for msg in recent_structured:
-                role = msg.get("role")
-                content = msg.get("content", "")
-                if role == "user":
-                    messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    messages.append(AIMessage(content=content))
-        except Exception:
-            # Backward-compatibility with legacy AgentMemory
-            for msg in getattr(self.memory, "conversation_history", [])[-max_history:]:
-                if msg.role == "user":
-                    messages.append(HumanMessage(content=msg.content))
-                elif msg.role == "assistant":
-                    messages.append(AIMessage(content=msg.content))
+        # Get recent messages from simplified memory
+        recent_structured = self.memory.get_recent_messages_structured(max_history)
+        for msg in recent_structured:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
 
         # Add current state information
         context = self._get_current_context()
