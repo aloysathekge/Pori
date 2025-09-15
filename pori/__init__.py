@@ -6,7 +6,7 @@ __email__ = "your.email@example.com"
 
 # Main exports from the agent framework
 from .agent import Agent, AgentSettings, AgentState, AgentOutput
-from .memory import AgentMemory, TaskState, ToolCall, AgentMessage
+from .simple_memory import SimpleMemory, AgentMemory, TaskState, ToolCallRecord, AgentMessage
 from .tools import ToolRegistry, ToolExecutor, ToolInfo, tool_registry
 from .evaluation import ActionResult, Evaluator
 from .orchestrator import Orchestrator
@@ -21,9 +21,10 @@ __all__ = [
     "AgentState",
     "AgentOutput",
     # Memory system
+    "SimpleMemory",
     "AgentMemory",
     "TaskState",
-    "ToolCall",
+    "ToolCallRecord",
     "AgentMessage",
     # Tools system
     "ToolRegistry",

@@ -16,10 +16,7 @@ from pydantic import BaseModel, Field
 
 from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult, Evaluator
-from pori.memory import AgentMemory, TaskState
-from pori.memory_v2 import EnhancedAgentMemory
-from pori.memory_v2.stores.in_memory import InMemoryStore
-from pori.memory_v2.stores.vector_store import VectorMemoryStore
+from pori import AgentMemory, TaskState
 from pori.orchestrator import Orchestrator
 from pori.tools import ToolInfo, ToolRegistry
 
@@ -235,40 +232,8 @@ def mock_reflect_llm():
 
 
 @pytest.fixture
-def in_memory_store():
-    """Returns a fresh in-memory store for testing."""
-    return InMemoryStore()
-
-
-@pytest.fixture
-def vector_memory_store():
-    """Returns a mock vector memory store for testing."""
-    # Use MagicMock to avoid requiring remote vector DB in unit tests
-    mock_store = MagicMock()
-    mock_store.add.return_value = None
-    mock_store.get.return_value = "test content"
-    mock_store.search.return_value = [
-        ("key1", "Test content 1", 0.95),
-        ("key2", "Test content 2", 0.85),
-        ("key3", "Test content 3", 0.75),
-    ]
-    mock_store.forget.return_value = True
-    return mock_store
-
-
-@pytest.fixture
-def enhanced_memory(in_memory_store, vector_memory_store):
-    """Returns an enhanced memory instance with mocked stores."""
-    memory = EnhancedAgentMemory(persistent=False, vector=True)
-    memory.working = in_memory_store
-    memory.long_term = in_memory_store
-    memory.vector = vector_memory_store
-    return memory
-
-
-@pytest.fixture
 def legacy_memory():
-    """Returns a legacy memory instance for testing."""
+    """Returns a simple session memory instance for testing."""
     return AgentMemory()
 
 
@@ -354,20 +319,20 @@ def agent_settings():
 
 
 @pytest.fixture
-def test_agent(mock_llm, tool_registry, enhanced_memory, agent_settings):
+def test_agent(mock_llm, tool_registry, legacy_memory, agent_settings):
     """Returns a configured agent for testing."""
     return Agent(
         task="Test task",
         llm=mock_llm,
         tools_registry=tool_registry,
         settings=agent_settings,
-        memory=enhanced_memory,
+        memory=legacy_memory,
     )
 
 
 @pytest.fixture
 def test_agent_with_tool_calls(
-    mock_llm_with_tool_calls, tool_registry, enhanced_memory, agent_settings
+    mock_llm_with_tool_calls, tool_registry, legacy_memory, agent_settings
 ):
     """Returns an agent configured with a mock LLM that makes tool calls."""
     return Agent(
@@ -375,7 +340,7 @@ def test_agent_with_tool_calls(
         llm=mock_llm_with_tool_calls,
         tools_registry=tool_registry,
         settings=agent_settings,
-        memory=enhanced_memory,
+        memory=legacy_memory,
     )
 
 
