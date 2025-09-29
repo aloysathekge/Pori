@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
-from .memory import SimpleMemory
+from .memory import AgentMemory
 from .tools import ToolRegistry, ToolExecutor
 from .evaluation import ActionResult, Evaluator
 from .utils.prompt_loader import load_prompt
@@ -91,7 +91,7 @@ class Agent:
 
         # Initialize state components
         self.state = AgentState()
-        self.memory = memory if memory is not None else SimpleMemory()
+        self.memory = memory if memory is not None else AgentMemory()
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Create task record

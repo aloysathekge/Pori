@@ -60,7 +60,7 @@ class TaskState(BaseModel):
         self.completed_at = datetime.now()
 
 
-class SimpleMemory:
+class AgentMemory:
     """
     Primary memory system for Pori agents.
     
@@ -238,15 +238,15 @@ class SimpleMemory:
         return self.get_final_answer()
 
 
-# Alias for backwards compatibility
-AgentMemory = SimpleMemory
-EnhancedAgentMemory = SimpleMemory  # For easy migration
+# Backwards compatibility aliases
+SimpleMemory = AgentMemory  # Legacy name
+EnhancedAgentMemory = AgentMemory  # For easy migration
 
 
 # Re-export commonly used classes
 __all__ = [
-    "SimpleMemory",
     "AgentMemory",
+    "SimpleMemory",  # Backwards compatibility
     "EnhancedAgentMemory",
     "AgentMessage",
     "ToolCallRecord", 
