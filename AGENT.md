@@ -1,10 +1,8 @@
-# WARP.md
 
-This file provides guidance to WARP (warp.dev) when working with code in this repository.
 
 ## Overview
 
-**Pori** is a lightweight AI agent framework built on LangChain and Anthropic's Claude models. It provides intelligent agents with memory, tool integration, task orchestration, and planning capabilities.
+**Pori** is a lightweight AI agent framework built on LangChain with support for multiple LLM providers (e.g., Anthropic Claude, OpenAI, etc.). It provides intelligent agents with memory, tool integration, task orchestration, and planning capabilities.
 
 ## Development Commands
 
@@ -21,9 +19,16 @@ pip install -r requirements.txt
 
 ### Environment Configuration
 ```powershell
-# Create .env file with required API key
+# Create .env file with the API key(s) for your chosen provider(s)
+# Anthropic example
 echo "ANTHROPIC_API_KEY=your_actual_api_key_here" > .env
 echo "ANTHROPIC_MODEL=claude-3-5-sonnet-20241022" >> .env
+
+# OpenAI example 
+echo "OPENAI_API_KEY=your_openai_key_here" >> .env
+echo "OPENAI_MODEL=gpt-4o-mini" >> .env
+
+# You can set one or multiple providers; the app will use the configured provider
 ```
 
 ### Running the Application
@@ -120,8 +125,8 @@ def tool_function(params: ParamsModel, context: Dict[str, Any]) -> Dict[str, Any
 ### Configuration
 
 Environment variables control agent behavior:
-- `ANTHROPIC_API_KEY`: Required API key
-- `ANTHROPIC_MODEL`: Model selection (default: claude-3-5-sonnet-20241022)
+- Provider API keys: set one or more depending on the provider you use (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
+- Model selection: use the provider-specific variable (e.g., `ANTHROPIC_MODEL`, `OPENAI_MODEL`)
 - `MAX_STEPS`: Maximum steps per task (default: 50)
 - `MAX_FAILURES`: Consecutive failure limit (default: 3)
 
