@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain.chat_models.base import BaseChatModel
 
-from .simple_memory import SimpleMemory
+from .memory import SimpleMemory
 from .tools import ToolRegistry, ToolExecutor
 from .evaluation import ActionResult, Evaluator
 from .utils.prompt_loader import load_prompt

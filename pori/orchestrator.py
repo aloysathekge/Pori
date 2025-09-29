@@ -3,7 +3,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from .agent import Agent, AgentSettings
-from .simple_memory import SimpleMemory
+from .memory import SimpleMemory
 from .tools import ToolRegistry
 from langchain.chat_models.base import BaseChatModel
 
