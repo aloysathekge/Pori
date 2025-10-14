@@ -35,9 +35,14 @@ echo "OPENAI_MODEL=gpt-4o-mini" >> .env
 
 **Interactive CLI Mode:**
 ```powershell
-python pori/main.py
-# Or
-python -m pori.cli
+ # Run as a module from the project root to avoid relative import errors
+ python -m pori.main
+ # Or
+ python -m pori.cli
+
+ # Using uv
+ uv run -m pori.main
+ uv run -m pori.cli
 ```
 
 **Basic Usage Example:**
@@ -90,7 +95,7 @@ mypy pori/
 
 **Orchestrator (pori/orchestrator.py)**: Manages agent lifecycle, task delegation, and parallel execution. Creates agents with shared memory and provides monitoring hooks.
 
-**Memory System (pori/memory_v2/)**: Multi-layered memory architecture with working memory (short-term), long-term persistence, and optional vector storage for semantic recall. Supports automatic summarization.
+**Memory System (pori/memory/)**: Multi-layered memory architecture with working memory (short-term), long-term persistence, and optional vector storage for semantic recall. Supports automatic summarization.
 
 **Tool System (pori/tools.py)**: Registry-based tool management with automatic parameter validation via Pydantic. Tools receive context including memory and agent state.
 
