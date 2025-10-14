@@ -236,7 +236,7 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="write_file", description="Write content to a file")
+@Registry.tool(name="write_file", param_model=WriteFileParams, description="Write content to a file")
 @safe_path_operation
 def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
     """Write content to a file with safety checks."""
@@ -267,7 +267,7 @@ def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="list_directory", description="List files and directories")
+@Registry.tool(name="list_directory", param_model=ListDirectoryParams, description="List files and directories")
 @safe_path_operation
 def list_directory_tool(params: ListDirectoryParams, context: Dict[str, Any]):
     """List directory contents."""
@@ -333,7 +333,7 @@ def list_directory_tool(params: ListDirectoryParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="file_info", description="Get detailed information about a file or directory")
+@Registry.tool(name="file_info", param_model=FileInfoParams, description="Get detailed information about a file or directory")
 @safe_path_operation
 def file_info_tool(params: FileInfoParams, context: Dict[str, Any]):
     """Get file or directory information."""
@@ -373,7 +373,7 @@ def file_info_tool(params: FileInfoParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="create_directory", description="Create a new directory")
+@Registry.tool(name="create_directory", param_model=CreateDirectoryParams, description="Create a new directory")
 @safe_path_operation
 def create_directory_tool(params: CreateDirectoryParams, context: Dict[str, Any]):
     """Create a directory."""
@@ -394,7 +394,7 @@ def create_directory_tool(params: CreateDirectoryParams, context: Dict[str, Any]
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="search_files", description="Search for files by name pattern or content")
+@Registry.tool(name="search_files", param_model=SearchFilesParams, description="Search for files by name pattern or content")
 @safe_path_operation
 def search_files_tool(params: SearchFilesParams, context: Dict[str, Any]):
     """Search for files matching criteria."""
@@ -460,7 +460,7 @@ def search_files_tool(params: SearchFilesParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="copy_file", description="Copy a file or directory to another location")
+@Registry.tool(name="copy_file", param_model=CopyParams, description="Copy a file or directory to another location")
 @safe_path_operation
 def copy_file_tool(params: CopyParams, context: Dict[str, Any]):
     """Copy files or directories."""
@@ -498,7 +498,7 @@ def copy_file_tool(params: CopyParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="move_file", description="Move or rename a file or directory")
+@Registry.tool(name="move_file", param_model=MoveParams, description="Move or rename a file or directory")
 @safe_path_operation
 def move_file_tool(params: MoveParams, context: Dict[str, Any]):
     """Move or rename files or directories."""
@@ -536,7 +536,7 @@ def move_file_tool(params: MoveParams, context: Dict[str, Any]):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@Registry.tool(name="delete_file", description="Delete a file or directory (use with caution!)")
+@Registry.tool(name="delete_file", param_model=DeleteParams, description="Delete a file or directory (use with caution!)")
 @safe_path_operation
 def delete_file_tool(params: DeleteParams, context: Dict[str, Any]):
     """Delete files or directories with safety checks."""
