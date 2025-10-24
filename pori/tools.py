@@ -90,7 +90,7 @@ class ToolRegistry:
         for name, tool in self.tools.items():
             params = [
                 f"{field_name}: {field_info.annotation.__name__}"
-                for field_name, field_info in tool.param_model.__fields__.items()
+                for field_name, field_info in tool.param_model.model_fields.items()
             ]
             param_str = ", ".join(params)
             descriptions.append(f"{name}({param_str}): {tool.description}")
