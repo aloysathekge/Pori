@@ -1,6 +1,6 @@
 # Pori
 
->  **Pori** is a lightweight, extensible AI agent framework that makes it easy to build intelligent agents with memory, tools, and human-in-the-loop capabilities.
+>  **Pori** is a lightweight, extensible AI agent framework that makes it easy to build intelligent agents with memory, tools,and evals.
 
 ##  What Makes Pori Special
 
@@ -19,7 +19,7 @@
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd simple_agent
+cd Pori
 
 # Install dependencies (using uv - recommended)
 uv venv
@@ -132,25 +132,18 @@ for result in results:
         print(f"❌ Task failed: {result['error']}")
 ```
 
-## 🤝 Human-in-the-Loop (Coming Soon)
-
-Pori is designed with human oversight in mind:
-
-- **Approval Gates**: Ask for permission before executing sensitive tools
-- **Intervention Points**: Allow humans to guide the agent's decisions
-- **Real-time Monitoring**: Track agent progress and step in when needed
-- **Learning from Feedback**: Improve agent behavior based on human input
 
 ## 📁 Project Structure
 
 ```
 pori/
 ├── agent.py          # Core agent logic
-├── orchestrator.py   # Task management and parallel execution  
+├── orchestrator.py   # Task management and parallel   
 ├── memory.py         # Conversation and state management
 ├── tools.py          # Tool registry and execution
 ├── evaluation.py     # Result assessment and retry logic
 ├── main.py          # Interactive CLI interface
+├── api/             # using Pri via api 
 ├── tools_box/       # Built-in tools
 │   ├── core_tools.py
 │   ├── math_tools.py
