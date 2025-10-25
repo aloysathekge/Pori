@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Pori** is a lightweight AI agent framework built on LangChain with support for multiple LLM providers (e.g., Anthropic Claude, OpenAI, etc.). It provides intelligent agents with memory, tool integration, task orchestration, and planning capabilities.
+**Pori** is a lightweight AI agent framework  with  support for Anthropic Claude, OpenAI, Google Gemini, Oss models. It provides intelligent agents with memory, tool integration, task orchestration, and planning capabilities.
 
 ## Development Commands
 
@@ -20,15 +20,19 @@ pip install -r requirements.txt
 ### Environment Configuration
 ```powershell
 # Create .env file with the API key(s) for your chosen provider(s)
-# Anthropic example
-echo "ANTHROPIC_API_KEY=your_actual_api_key_here" > .env
+
+# Anthropic (Claude)
+echo "ANTHROPIC_API_KEY=your_key_here" > .env
 echo "ANTHROPIC_MODEL=claude-3-5-sonnet-20241022" >> .env
 
-# OpenAI example 
-echo "OPENAI_API_KEY=your_openai_key_here" >> .env
+# OpenAI (GPT)
+echo "OPENAI_API_KEY=your_key_here" >> .env
 echo "OPENAI_MODEL=gpt-4o-mini" >> .env
 
-# You can set one or multiple providers; the app will use the configured provider
+# Google (Gemini)
+echo "GOOGLE_API_KEY=your_key_here" >> .env
+
+# You can configure multiple providers and switch between them in code
 ```
 
 ### Running the Application
@@ -130,8 +134,11 @@ def tool_function(params: ParamsModel, context: Dict[str, Any]) -> Dict[str, Any
 ### Configuration
 
 Environment variables control agent behavior:
-- Provider API keys: set one or more depending on the provider you use (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
-- Model selection: use the provider-specific variable (e.g., `ANTHROPIC_MODEL`, `OPENAI_MODEL`)
+- **Provider API keys**: Configure one or more LLM providers:
+  - `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`
+  - `OPENAI_API_KEY` + `OPENAI_MODEL`
+  - `GOOGLE_API_KEY`
+  - Or any other LangChain-compatible provider
 - `MAX_STEPS`: Maximum steps per task (default: 50)
 - `MAX_FAILURES`: Consecutive failure limit (default: 3)
 
