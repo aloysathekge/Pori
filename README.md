@@ -9,7 +9,7 @@
 
 ##  What Makes Pori Special
 
-- **🤖 Intelligent Agents**: LLM-powered agents that can reason, plan, and execute complex tasks
+- **Intelligent Agents**: LLM-powered agents that can reason, plan, and execute complex tasks
 - **🔧 Extensible Tools**: Easy-to-add custom tools for any domain
 - **🧠 Smart Memory**: Conversation history and state management with automatic summarization
 - **⚡ Task Orchestration**: Run single tasks or multiple tasks in parallel
