@@ -23,7 +23,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/pori.git
+git clone https://github.com/aloysathekge/pori.git
 cd pori
 
 # Install dependencies (using uv - recommended)
@@ -253,7 +253,7 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduc
 
 ```bash
 # Fork and clone the repo
-git clone https://github.com/your-username/pori.git
+git clone https://github.com/aloysathekge/pori.git
 cd pori
 
 # Install dev dependencies
@@ -276,13 +276,13 @@ See [ROADMAP.md](ROADMAP.md) for planned features and how you can help!
 - Streaming support for real-time output
 - Human-in-the-loop approval gates
 - Multi-agent coordination
-- Tool marketplace
+
 
 ## 💬 Community
 
-- **Issues**: [Bug reports and feature requests](https://github.com/your-username/pori/issues)
-- **Discussions**: [Questions and ideas](https://github.com/your-username/pori/discussions)
-- **Pull Requests**: [Code contributions](https://github.com/your-username/pori/pulls)
+- **Issues**: [Bug reports and feature requests](https://github.com/aloysathekge/pori/issues)
+- **Discussions**: [Questions and ideas](https://github.com/aloysathekge/pori/discussions)
+- **Pull Requests**: [Code contributions](https://github.com/aloysathekge/pori/pulls)
 
 ## 📄 License
 
@@ -290,4 +290,4 @@ MIT License - feel free to use Pori in your projects!
 
 ---
 
-**🌟 Star this repo if you find Pori useful!** 
+**🌟 Star this repo if you find Pori interesting and potentially useful!** 
