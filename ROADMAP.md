@@ -158,7 +158,7 @@ To maintain focus, we explicitly don't plan to:
 
 - Build a no-code/low-code interface (there are other projects for that)
 - Support every possible LLM provider natively (LangChain handles this)
-- Become a full workflow orchestration system (e.g., Airflow replacement)
+- Become a full workflow orchestration system 
 - Implement agent UI frameworks (focus is on backend)
 
 ## Versioning Policy
@@ -169,11 +169,11 @@ To maintain focus, we explicitly don't plan to:
 
 ## Questions?
 
-- **General questions**: [GitHub Discussions](https://github.com/your-username/pori/discussions)
-- **Feature proposals**: [Feature Request Template](https://github.com/your-username/pori/issues/new?template=feature_request.md)
+- **General questions**: [GitHub Discussions](https://github.com/aloysathekge/pori/discussions)
+- **Feature proposals**: [Feature Request Template](https://github.com/aloysathekge/pori/issues/new?template=feature_request.md)
 - **Roadmap feedback**: Comment on this file via PR or issue
 
 ---
 
-*Last updated: 2025-01-24*
+*Last updated: 2025-11-11*
 *This roadmap is subject to change based on community feedback and priorities.*
