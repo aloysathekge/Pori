@@ -151,7 +151,7 @@ AgentSettings provide per-task configuration:
 
 - **pori/agent.py**: Core agent implementation with planning and execution logic
 - **pori/orchestrator.py**: Task management and parallel execution
-- **pori/memory_v2/enhanced_memory.py**: Multi-layered memory system
+- **pori/memory.py**: Multi-layered memory system
 - **pori/tools.py**: Tool registry and execution framework
 - **pori/tools_builtin/**: Built-in tools (core, math, number operations)
 - **pori/api/**: FastAPI server implementation
