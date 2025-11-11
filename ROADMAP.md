@@ -148,8 +148,8 @@ Before working on a major feature:
 
 Have an idea not on this roadmap? We'd love to hear it!
 
-- Open a [Feature Request](https://github.com/your-username/pori/issues/new?template=feature_request.md)
-- Participate in [Discussions](https://github.com/your-username/pori/discussions)
+- Open a [Feature Request](https://github.com/aloysathekge/pori/issues/new?template=feature_request.md)
+- Participate in [Discussions](https://github.com/aloysathekge/pori/discussions)
 - Join community conversations
 
 
