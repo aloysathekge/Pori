@@ -36,7 +36,7 @@ async def main():
     logger.info(f"Registered {len(registry.tools)} tools")
 
     # Create LLM - uses ANTHROPIC_API_KEY from environment
-    model_name = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    model_name = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
     logger.info(f"Initializing LLM with model: {model_name}")
 
     llm = ChatAnthropic(
