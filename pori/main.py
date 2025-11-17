@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import modules
-from langchain_anthropic import ChatAnthropic
 from .tools import tool_registry
 from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
 from .tools_builtin import register_all_tools
+from .config import get_configured_llm
 
 # Configure logging
 from .utils.logging_config import setup_logging
@@ -35,15 +35,22 @@ async def main():
     register_all_tools(registry)
     logger.info(f"Registered {len(registry.tools)} tools")
 
-    # Create LLM - uses ANTHROPIC_API_KEY from environment
-    model_name = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-    logger.info(f"Initializing LLM with model: {model_name}")
-
-    llm = ChatAnthropic(
-        model=model_name,
-        temperature=0,
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-    )
+    # Create LLM from config file
+    logger.info("Loading LLM configuration")
+    try:
+        llm, config = get_configured_llm()
+        logger.info(
+            f"Initialized LLM - Provider: {config.llm.provider}, Model: {config.llm.model}"
+        )
+    except FileNotFoundError as e:
+        logger.error(f"Configuration error: {e}")
+        print(f"\n❌ Error: {e}")
+        print("Please create a config.yaml file based on config.example.yaml")
+        return
+    except Exception as e:
+        logger.error(f"Failed to initialize LLM: {e}")
+        print(f"\n❌ Error initializing LLM: {e}")
+        return
 
     # Create orchestrator
     logger.info("Creating orchestrator")
@@ -85,7 +92,7 @@ async def main():
             logger.info("Starting task execution")
             result = await orchestrator.execute_task(
                 task=task,
-                agent_settings=AgentSettings(max_steps=10),
+                agent_settings=AgentSettings(max_steps=config.agent.max_steps),
                 on_step_end=on_step_end,
             )
 
