@@ -7,28 +7,11 @@ llm:
   provider: anthropic
   
   # Model name (provider-specific)
-  # Anthropic: claude-sonnet-4-5-20250929, claude-3-5-sonnet-20241022, etc.
-  # OpenAI: gpt-4o, gpt-4-turbo, gpt-3.5-turbo, etc.
-  # Google: gemini-pro, gemini-1.5-pro, etc.
+ 
   model: claude-sonnet-4-5-20250929
-  
-  # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
-  temperature: 0.0
-  
-  # Max tokens to generate (optional)
-  # max_tokens: 4096
-  
-  # Top-p sampling (optional, 0.0 - 1.0)
-  # top_p: 1.0
-  
-  # Extra provider-specific parameters (optional)
-  # extra_params:
-  #   stop_sequences: ["\n\nHuman:"]
-  #   top_k: 40
-
+    
 agent:
   # Maximum steps the agent can take per task
   max_steps: 10
   
-  # Enable memory system
-  enable_memory: true
+

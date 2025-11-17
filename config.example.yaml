@@ -1,0 +1,57 @@
+# Pori Agent Configuration Example
+# Copy this file to config.yaml and customize for your needs
+# API keys should be stored in .env file, not here
+
+llm:
+  # Provider: anthropic, openai, google, or azure
+  provider: anthropic
+  
+  # Model name (provider-specific)
+  # Anthropic: claude-sonnet-4-5-20250929, claude-3-5-sonnet-20241022, claude-3-opus-20240229
+  # OpenAI: gpt-4o, gpt-4-turbo, gpt-4, gpt-3.5-turbo
+  # Google: gemini-pro, gemini-1.5-pro, gemini-1.5-flash
+  model: claude-sonnet-4-5-20250929
+  
+  # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
+  temperature: 0.0
+  
+  # Max tokens to generate (optional)
+  # max_tokens: 4096
+  
+  # Top-p sampling (optional, 0.0 - 1.0)
+  # top_p: 1.0
+  
+  # Extra provider-specific parameters (optional)
+  # extra_params:
+  #   stop_sequences: ["\n\nHuman:"]
+  #   top_k: 40
+
+agent:
+  # Maximum steps the agent can take per task
+  max_steps: 10
+  
+  # Enable memory system
+  enable_memory: true
+
+# ============================================
+# Example configurations for different providers:
+# ============================================
+
+# OpenAI configuration:
+# llm:
+#   provider: openai
+#   model: gpt-4o
+#   temperature: 0.7
+#   max_tokens: 2048
+
+# Google configuration:
+# llm:
+#   provider: google
+#   model: gemini-1.5-pro
+#   temperature: 0.5
+
+# Azure OpenAI configuration:
+# llm:
+#   provider: azure
+#   model: gpt-4
+#   temperature: 0.0
