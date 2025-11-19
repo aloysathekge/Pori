@@ -11,7 +11,7 @@
 
 - **Intelligent Agents**: LLM-powered agents that can reason, plan, and execute complex tasks
 - **🔧 Extensible Tools**: Easy-to-add custom tools for any domain
-- **🧠 Smart Memory**: Conversation history and state management with automatic summarization
+- **🧠 Smart Memory**: Conversation history and state management 
 - **⚡ Task Orchestration**: Run single tasks or multiple tasks in parallel
 - **👤 Human-in-the-Loop**: Built-in support for human oversight and intervention (coming soon)
 - **✅ Evals**: Automatic retry logic and task completion assessment
