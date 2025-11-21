@@ -19,6 +19,13 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
 - Comprehensive logging
 - FastAPI server for async task execution
 
+### 🚧 Core Framework Evolution (Upcoming)
+
+- [ ] **Remove LangChain Dependency**
+  - Replace `BaseChatModel` with lightweight `LLMClient`
+  - Direct integration with OpenAI/Anthropic SDKs
+  - Remove framework overhead for cleaner, more controllable architecture
+
 
 ### Human-in-the-Loop
 
@@ -157,7 +164,7 @@ Have an idea not on this roadmap? We'd love to hear it!
 To maintain focus, we explicitly don't plan to:
 
 - Build a no-code/low-code interface (there are other projects for that)
-- Support every possible LLM provider natively (LangChain handles this)
+- Support every possible LLM provider natively (we will implement key providers directly)
 - Become a full workflow orchestration system 
 - Implement agent UI frameworks (focus is on backend)
 
