@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from .agent import Agent, AgentSettings
 from .memory import AgentMemory
-from .tools import ToolRegistry
+from .tools.registry import ToolRegistry
 from langchain.chat_models.base import BaseChatModel
 
 

@@ -18,7 +18,7 @@ from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult, Evaluator
 from pori import AgentMemory, TaskState
 from pori.orchestrator import Orchestrator
-from pori.tools import ToolInfo, ToolRegistry
+from pori.tools.registry import ToolInfo, ToolRegistry
 
 
 # ========== Mock LLM Fixtures ==========

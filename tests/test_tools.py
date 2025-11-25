@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 def test_tool_registry_register_and_execute(tool_registry):
     """Register a tiny tool and execute it through ToolExecutor."""
-    from pori.tools import ToolExecutor
+    from pori.tools.registry import ToolExecutor
 
     # Tool is provided by the fixture (test_tool)
     executor = ToolExecutor(tool_registry)
@@ -20,7 +20,7 @@ def test_tool_registry_register_and_execute(tool_registry):
 
 def test_tool_registry_decorator_registration():
     """Use the decorator to register a tool and then run it."""
-    from pori.tools import ToolRegistry, ToolExecutor
+    from pori.tools.registry import ToolRegistry, ToolExecutor
 
     registry = ToolRegistry()
 

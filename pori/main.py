@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import modules
-from .tools import tool_registry
+from .tools.registry import tool_registry
 from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
-from .tools_builtin import register_all_tools
+from .tools.standard import register_all_tools
 from .config import get_configured_llm
 
 # Configure logging

@@ -8,8 +8,8 @@ from fastapi import Request
 from langchain_anthropic import ChatAnthropic
 
 from pori.orchestrator import Orchestrator
-from pori.tools import tool_registry
-from pori.tools_builtin import register_all_tools
+from pori.tools.registry import tool_registry
+from pori.tools.standard import register_all_tools
 
 load_dotenv()
 
