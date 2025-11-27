@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Dict
 import random
-from ..tools import tool_registry
+from ..registry import tool_registry
 
 Registry = tool_registry()
 

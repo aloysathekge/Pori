@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from ..tools import tool_registry
+from ..registry import tool_registry
 
 Registry = tool_registry()
 

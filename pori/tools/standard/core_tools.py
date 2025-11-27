@@ -5,7 +5,7 @@ Core tools required for agent operation.
 import logging
 from pydantic import BaseModel, Field
 from typing import Dict, Any
-from ..tools import tool_registry
+from ..registry import tool_registry
 
 Registry = tool_registry()
 

@@ -15,7 +15,7 @@ import mimetypes
 import hashlib
 
 from pydantic import BaseModel, Field, validator
-from ..tools import tool_registry
+from ..registry import tool_registry
 
 Registry = tool_registry()
 logger = logging.getLogger("pori.filesystem_tools")
