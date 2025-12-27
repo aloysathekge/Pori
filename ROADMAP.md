@@ -26,6 +26,17 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - Direct integration with OpenAI/Anthropic SDKs
   - Remove framework overhead for cleaner, more controllable architecture
 
+- [ ] **Memory System (inspired by Letta)**
+  - Replace the current memory approach with a tiered memory architecture:
+    - **Core Memory**: in-context, editable memory blocks (persona/human/notes/custom)
+    - **Recall Memory**: conversation history + searchable retrieval
+    - **Archival Memory**: long-term storage with semantic retrieval (vector-backed when enabled)
+  - Enable **self-editing memory** via tools (append/replace/insert/rethink) with size limits + validation
+  - Make core memory **always in-context** by dynamically compiling memory blocks into each model call
+  - Add **memory identity** for future multi-user support (agent_id/user_id/session_id)
+  - *Sequencing note*: implement after removing LangChain to avoid rework
+  - *Help wanted*: API design for memory identity, storage schema design, retrieval evaluation
+
 
 ### Human-in-the-Loop
 
@@ -68,6 +79,12 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - Jupyter kernel integration
   - Code analysis tools
   - *Help wanted: Sandboxing, security*
+
+- [ ] **Multi-user Memory & Persistence**
+  - Persist Core/Recall/Archival memory across runs (start with SQLite; allow pluggable backends)
+  - Add API-level scoping to prevent memory leakage between users/sessions
+  - Optional vector store integration for Archival Memory (Weaviate/Pinecone/etc.)
+  - *Help wanted*: persistence adapters, migration strategy, privacy/security review
 
 ### Observability
 
