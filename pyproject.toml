@@ -26,6 +26,9 @@ dependencies = [
     "numpy>=1.24.0",
 ]
 
+[project.scripts]
+pori = "pori.cli:run"
+
 [tool.setuptools.packages.find]
 where = ["."] 
 include = ["pori*"]
