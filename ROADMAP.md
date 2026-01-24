@@ -14,19 +14,25 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
 - Memory system with conversation history and tool tracking
 - Tool registry with Pydantic validation
 - Task orchestration with parallel execution support
-- Built-in tools (core, math, numbers, filesystem,)
-- LangChain integration for LLM providers
+- Built-in tools (core, math, numbers, filesystem)
+- **Lightweight LLM wrappers** (direct Anthropic/OpenAI SDK integration - LangChain removed)
 - Comprehensive logging
 - FastAPI server for async task execution
 
 ### 🚧 Core Framework Evolution (Upcoming)
 
-- [ ] **Remove LangChain Dependency**
-  - Replace `BaseChatModel` with lightweight `LLMClient`
+- [x] **Remove LangChain Dependency** ✅ *Completed*
+  - Replaced with lightweight `BaseChatModel` protocol in `pori/llm/`
   - Direct integration with OpenAI/Anthropic SDKs
-  - Remove framework overhead for cleaner, more controllable architecture
+  - Cleaner, more controllable architecture with no framework overhead
 
-- [ ] **Memory System (inspired by Letta)**
+- [ ] **PyPI Publishing**
+  - Publish to PyPI for `pip install pori`
+  - Finalize `pyproject.toml` metadata
+  - Set up automated releases via GitHub Actions
+  - Create TestPyPI workflow for pre-release testing
+
+- [ ] **Memory System (inspired by Letta)** ← *Ready to implement*
   - Replace the current memory approach with a tiered memory architecture:
     - **Core Memory**: in-context, editable memory blocks (persona/human/notes/custom)
     - **Recall Memory**: conversation history + searchable retrieval
@@ -34,7 +40,6 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - Enable **self-editing memory** via tools (append/replace/insert/rethink) with size limits + validation
   - Make core memory **always in-context** by dynamically compiling memory blocks into each model call
   - Add **memory identity** for future multi-user support (agent_id/user_id/session_id)
-  - *Sequencing note*: implement after removing LangChain to avoid rework
   - *Help wanted*: API design for memory identity, storage schema design, retrieval evaluation
 
 
@@ -199,5 +204,5 @@ To maintain focus, we explicitly don't plan to:
 
 ---
 
-*Last updated: 2025-11-11*
+*Last updated: 2026-01-24*
 *This roadmap is subject to change based on community feedback and priorities.*
