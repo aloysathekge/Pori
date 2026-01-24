@@ -1,6 +1,6 @@
 import time
 from typing import Any, Dict, List, Optional, Type
-from langchain.schema import BaseMessage
+from pori.llm import BaseMessage
 from pydantic import BaseModel
 from .logging_config import ensure_logger_configured
 

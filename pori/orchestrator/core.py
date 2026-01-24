@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ..agent import Agent, AgentSettings
 from ..memory import AgentMemory
 from ..tools.registry import ToolRegistry
-from langchain.chat_models.base import BaseChatModel
+from pori.llm import BaseChatModel
 
 
 class Orchestrator:

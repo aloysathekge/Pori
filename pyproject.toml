@@ -11,14 +11,14 @@ license = "MIT"
 authors = [
     {name = "Aloy Sathekge", email = "sathekgealoy@gmail.com"}
 ]
-keywords = ["ai", "agent", "llm", "tools", "automation", "langchain"]
+keywords = ["ai", "agent", "llm", "tools", "automation"]
 classifiers = [
    
 ]
 requires-python = ">=3.8.1"
 dependencies = [
-    "langchain>=0.2.0",
-    "langchain-anthropic>=0.1.0",
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.0",

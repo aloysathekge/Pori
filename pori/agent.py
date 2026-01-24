@@ -6,8 +6,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
-from langchain.schema import AIMessage, HumanMessage, SystemMessage
-from langchain.chat_models.base import BaseChatModel
+from pori.llm import BaseChatModel, SystemMessage, UserMessage, AssistantMessage
 
 from .memory import AgentMemory
 from .tools.registry import ToolRegistry, ToolExecutor
@@ -369,13 +368,13 @@ class Agent:
             role = msg.get("role")
             content = msg.get("content", "")
             if role == "user":
-                messages.append(HumanMessage(content=content))
+                messages.append(UserMessage(content=content))
             elif role == "assistant":
-                messages.append(AIMessage(content=content))
+                messages.append(AssistantMessage(content=content))
 
         # Add current state information
         context = self._get_current_context()
-        messages.append(HumanMessage(content=context))
+        messages.append(UserMessage(content=context))
 
         # Inject retrieved long-term knowledge via semantic recall
         try:
@@ -418,7 +417,7 @@ class Agent:
                     except Exception:
                         pass
                     messages.append(
-                        HumanMessage(
+                        UserMessage(
                             content=f"Retrieved Knowledge (for reference):\n{facts}\n\n{guidance}"
                         )
                     )
@@ -500,7 +499,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
         messages = [
             SystemMessage(content="Plan the task succinctly."),
-            HumanMessage(content=f"Task: {self.task}\n{plan_prompt}"),
+            UserMessage(content=f"Task: {self.task}\n{plan_prompt}"),
         ]
 
         try:
@@ -562,7 +561,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         )
         messages = [
             SystemMessage(content="Reflect succinctly. Be pragmatic."),
-            HumanMessage(
+            UserMessage(
                 content=(
                     f"Task: {self.task}\n"
                     f"Current plan:\n{plan_text}\n"

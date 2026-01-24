@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from pori.llm import SystemMessage, UserMessage, AssistantMessage
 from pydantic import BaseModel, Field
 
 from pori.agent import Agent, AgentOutput, AgentSettings

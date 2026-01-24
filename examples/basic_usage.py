@@ -7,7 +7,7 @@ This example shows how to use the framework.
 import asyncio
 import os
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
+from pori.llm import ChatAnthropic
 
 from pori import Agent, AgentSettings, Orchestrator, register_all_tools
 from pori.tools.registry import tool_registry
@@ -24,8 +24,8 @@ async def main():
     register_all_tools(registry)
 
     llm = ChatAnthropic(
-        model="claude-3-5-sonnet-20241022",
-        temperature=0,
+        model="claude-sonnet-4-20250514",
+        temperature=0.0,
         api_key=os.getenv("ANTHROPIC_API_KEY"),
     )
 

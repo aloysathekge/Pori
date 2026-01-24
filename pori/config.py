@@ -108,13 +108,7 @@ def create_llm(config: LLMConfig):
     common_params.update(config.extra_params)
     
     if provider == "anthropic":
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except ImportError:
-            raise ImportError(
-                "langchain-anthropic is required for Anthropic provider. "
-                "Install it with: pip install langchain-anthropic"
-            )
+        from pori.llm import ChatAnthropic
         
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
@@ -123,13 +117,7 @@ def create_llm(config: LLMConfig):
         return ChatAnthropic(api_key=api_key, **common_params)
     
     elif provider == "openai":
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError:
-            raise ImportError(
-                "langchain-openai is required for OpenAI provider. "
-                "Install it with: pip install langchain-openai"
-            )
+        from pori.llm import ChatOpenAI
         
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -137,44 +125,7 @@ def create_llm(config: LLMConfig):
         
         return ChatOpenAI(api_key=api_key, **common_params)
     
-    elif provider == "google":
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-        except ImportError:
-            raise ImportError(
-                "langchain-google-genai is required for Google provider. "
-                "Install it with: pip install langchain-google-genai"
-            )
-        
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable is not set")
-        
-        return ChatGoogleGenerativeAI(google_api_key=api_key, **common_params)
     
-    elif provider == "azure":
-        try:
-            from langchain_openai import AzureChatOpenAI
-        except ImportError:
-            raise ImportError(
-                "langchain-openai is required for Azure provider. "
-                "Install it with: pip install langchain-openai"
-            )
-        
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        
-        if not api_key or not endpoint:
-            raise ValueError(
-                "AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT "
-                "environment variables must be set"
-            )
-        
-        return AzureChatOpenAI(
-            api_key=api_key,
-            azure_endpoint=endpoint,
-            **common_params
-        )
     
     else:
         raise ValueError(
