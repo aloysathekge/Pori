@@ -1,5 +1,6 @@
 <p align="center">
-  <img src="pori.png" alt="Pori Logo" width="200"/>
+  <img src="pori.png" alt="Pori Logo" width="150"/>  <!-- Smaller -->
+  <img src="pori.png" alt="Pori Logo" width="300"/>  <!-- Larger -->
 </p>
 
 # Pori
