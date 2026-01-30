@@ -4,6 +4,7 @@
 
 # Pori
 
+[![PyPI version](https://badge.fury.io/py/pori.svg)](https://badge.fury.io/py/pori)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -13,8 +14,29 @@
 ## ⚡ Quick Start
 
 ### Installation
+
+**Basic installation:**
 ```bash
 pip install pori
+```
+
+**With optional dependencies:**
+```bash
+# Install with FastAPI server support
+pip install pori[api]
+
+# Install with development tools
+pip install pori[dev]
+
+# Install everything
+pip install pori[all]
+```
+
+**From source:**
+```bash
+git clone https://github.com/aloysathekge/pori.git
+cd pori
+pip install -e .
 ```
 
 ### Basic Usage

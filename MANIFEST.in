@@ -1,0 +1,23 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include requirements.txt
+
+# Include prompt templates
+recursive-include pori/prompts *.md
+
+# Include package data
+recursive-include pori *.yaml *.yml *.json
+
+# Exclude unnecessary files
+exclude .env
+exclude .env.example
+exclude config.yaml
+exclude config.example.yaml
+
+# Exclude development and test files
+recursive-exclude tests *
+recursive-exclude examples *
+recursive-exclude dev_docs *
+recursive-exclude .github *
+exclude .gitignore

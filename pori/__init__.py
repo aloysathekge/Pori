@@ -1,8 +1,8 @@
 """Pori - A simple, extensible AI agent framework."""
 
 __version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__author__ = "Aloy Sathekge"
+__email__ = "sathekgealoy@gmail.com"
 
 # Main exports from the agent framework
 from .agent import Agent, AgentSettings, AgentState, AgentOutput
