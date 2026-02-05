@@ -89,9 +89,9 @@ uv pip install -r requirements.txt
 # Install development dependencies
 uv pip install -e ".[test]"
 
-# Set up environment variables
-copy .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Set up config and env
+copy config.example.yaml config.yaml
+# Create .env with ANTHROPIC_API_KEY (and/or OPENAI_API_KEY)
 ```
 
 ### Project Structure
@@ -99,20 +99,27 @@ copy .env.example .env
 ```
 pori/
 ├── pori/                  # Main package
-│   ├── agent.py          # Core agent implementation
-│   ├── orchestrator.py   # Task management
-│   ├── memory.py         # Memory system
-│   ├── tools.py          # Tool registry
-│   ├── evaluation.py     # Task evaluation
-│   ├── tools_builtin/    # Built-in tools
+│   ├── agent.py          # Core agent (planning, execution, reflection)
+│   ├── config.py         # YAML config + LLM factory
+│   ├── memory.py         # Memory (conversation, tool history, recall)
+│   ├── evaluation.py    # Task completion and retry logic
+│   ├── llm/              # Custom LLM wrappers (no LangChain)
+│   │   ├── messages.py   # SystemMessage, UserMessage, AssistantMessage
+│   │   ├── base.py       # BaseChatModel protocol
+│   │   ├── anthropic.py  # ChatAnthropic
+│   │   ├── openai.py     # ChatOpenAI
+│   │   └── README.md     # How to add new providers
+│   ├── orchestrator/     # Task management, parallel execution
+│   ├── tools/            # Tool registry + built-in tools (standard/)
 │   ├── api/              # FastAPI server
-│   └── utils/            # Utilities
+│   ├── prompts/          # System prompts
+│   └── utils/            # Logging, prompt loader, etc.
 ├── tests/                # Test suite
 ├── examples/             # Usage examples
-└── Dev_docs/             # Development documentation
+└── config.example.yaml   # Copy to config.yaml and add .env for API keys
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details. To add a new LLM provider, see [pori/llm/README.md](pori/llm/README.md).
 
 ## Development Workflow
 
@@ -220,8 +227,7 @@ def example_tool(params: ToolParams, context: Dict[str, Any]) -> Dict[str, Any]:
 
 ```python
 import pytest
-from pori import Agent, AgentSettings
-from pori.tools import ToolRegistry
+from pori import Agent, AgentSettings, ToolRegistry
 
 @pytest.mark.unit
 def test_tool_registration():
@@ -337,8 +343,10 @@ Contributors are recognized in:
 
 ## Additional Resources
 
-- [Architecture Documentation](ARCHITECTURE.md)
-- [Development Roadmap](ROADMAP.md)
+- [Architecture](ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
+- [LLM providers (adding new)](pori/llm/README.md)
+- [Migration from LangChain](MIGRATION.md)
 
 
 ---

@@ -14,17 +14,18 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
 - Memory system with conversation history and tool tracking
 - Tool registry with Pydantic validation
 - Task orchestration with parallel execution support
-- Built-in tools (core, math, numbers, filesystem)
-- **Lightweight LLM wrappers** (direct Anthropic/OpenAI SDK integration - LangChain removed)
+- Built-in tools (core, math, numbers, filesystem, Spotify)
+- **Custom LLM wrappers** (`pori/llm/`) — Anthropic and OpenAI via direct SDKs; no LangChain in core
+- YAML config + env-based API keys
 - Comprehensive logging
 - FastAPI server for async task execution
 
 ### 🚧 Core Framework Evolution (Upcoming)
 
-- [x] **Remove LangChain Dependency** ✅ *Completed*
-  - Replaced with lightweight `BaseChatModel` protocol in `pori/llm/`
-  - Direct integration with OpenAI/Anthropic SDKs
-  - Cleaner, more controllable architecture with no framework overhead
+- [x] **Remove LangChain dependency** ✅ *Done*
+  - Custom `pori/llm/`: `BaseChatModel` protocol, `ChatAnthropic`, `ChatOpenAI`
+  - Direct `anthropic` and `openai` SDK usage; minimal dependencies
+  - Google/Azure in config still use LangChain until native wrappers are added (see `pori/llm/README.md` to add a provider)
 
 - [ ] **PyPI Publishing**
   - Publish to PyPI for `pip install pori`
@@ -149,10 +150,10 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
    - Distributed execution
    - Performance optimization
 
-2. **LLM Integration**
-   - New provider support
-   - Custom model adapters
-   - Prompt optimization
+2. **LLM integration**
+   - Add new providers in `pori/llm/` (see `pori/llm/README.md` and `_template.py`)
+   - Google and Azure native wrappers (replace LangChain fallback in `config.py`)
+   - Prompt and schema tweaks
 
 3. **Security**
    - Sandboxing
@@ -204,5 +205,5 @@ To maintain focus, we explicitly don't plan to:
 
 ---
 
-*Last updated: 2026-01-24*
+*Last updated: 2026-02-05*
 *This roadmap is subject to change based on community feedback and priorities.*
