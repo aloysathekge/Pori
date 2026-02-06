@@ -2,13 +2,76 @@
 Memory system for Pori agents.
 
 Provides conversation history, tool call tracking, task management,
-long-term experience storage, and semantic recall capabilities.
+long-term experience storage, semantic recall, and Letta-style core memory
+(editable in-context blocks: persona, human, notes).
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel
+
+
+# ---------- Letta-style Core Memory ----------
+
+DEFAULT_CORE_BLOCK_LIMIT = 2000
+
+
+@dataclass
+class Block:
+    """A single core memory block (persona, human, notes, or custom)."""
+
+    label: str
+    value: str = ""
+    limit: int = DEFAULT_CORE_BLOCK_LIMIT
+    read_only: bool = False
+
+    def append(self, content: str) -> None:
+        if self.read_only:
+            raise ValueError(f"Block '{self.label}' is read-only")
+        new_value = (self.value + "\n" + content).strip() if self.value else content
+        self.value = new_value[: self.limit] if len(new_value) > self.limit else new_value
+
+    def replace(self, old_string: str, new_string: str) -> None:
+        if self.read_only:
+            raise ValueError(f"Block '{self.label}' is read-only")
+        if old_string not in self.value:
+            raise ValueError(f"Text not found in block '{self.label}'")
+        self.value = (self.value.replace(old_string, new_string))[: self.limit]
+
+    def set_value(self, value: str) -> None:
+        if self.read_only:
+            raise ValueError(f"Block '{self.label}' is read-only")
+        self.value = value[: self.limit] if len(value) > self.limit else value
+
+
+class CoreMemory:
+    """
+    In-context, editable memory blocks (Letta-style).
+    Compiled into the system prompt so the agent always sees them.
+    """
+
+    def __init__(self, block_limit: int = DEFAULT_CORE_BLOCK_LIMIT):
+        self._blocks: Dict[str, Block] = {}
+        self._block_limit = block_limit
+        for label in ("persona", "human", "notes"):
+            self._blocks[label] = Block(label=label, limit=block_limit)
+
+    def get_block(self, label: str) -> Block:
+        if label not in self._blocks:
+            self._blocks[label] = Block(label=label, limit=self._block_limit)
+        return self._blocks[label]
+
+    def compile(self) -> str:
+        """Render blocks as text for injection into the system prompt."""
+        parts = []
+        for label in ("persona", "human", "notes"):
+            block = self._blocks.get(label)
+            if block and block.value.strip():
+                parts.append(f"<{label}>\n{block.value.strip()}\n</{label}>")
+        if not parts:
+            return ""
+        return "<memory_blocks>\n" + "\n\n".join(parts) + "\n</memory_blocks>"
 
 
 class AgentMessage(BaseModel):
@@ -71,16 +134,19 @@ class AgentMemory:
     
     def __init__(self):
         """Initialize a new session memory."""
+        # Letta-style core memory (editable blocks, always in-context)
+        self.core_memory = CoreMemory()
+
         # Core memory components
         self.messages: List[AgentMessage] = []
         self.tool_call_history: List[ToolCallRecord] = []
         self.tasks: Dict[str, TaskState] = {}
         self.state: Dict[str, Any] = {}
         self.summaries: List[Dict[str, Any]] = []
-        
+
         # Track current task context
         self.current_task_id: Optional[str] = None
-        
+
         # Simple experience storage for this session
         self.experiences: List[Dict[str, Any]] = []
         
@@ -249,6 +315,8 @@ __all__ = [
     "SimpleMemory",  # Backwards compatibility
     "EnhancedAgentMemory",
     "AgentMessage",
-    "ToolCallRecord", 
+    "ToolCallRecord",
     "TaskState",
+    "Block",
+    "CoreMemory",
 ]

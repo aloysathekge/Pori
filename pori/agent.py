@@ -357,8 +357,13 @@ class Agent:
         """Build the list of messages for the LLM."""
         messages = []
 
-        # Add system message
-        messages.append(SystemMessage(content=self.system_message))
+        # Add system message (include compiled core memory if present)
+        system_content = self.system_message
+        if getattr(self.memory, "core_memory", None):
+            compiled = self.memory.core_memory.compile()
+            if compiled:
+                system_content = system_content + "\n\n" + compiled
+        messages.append(SystemMessage(content=system_content))
 
         # Add conversation history (truncated if needed)
         max_history = 10  # Simplified - in a real system, use token counting
