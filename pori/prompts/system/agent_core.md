@@ -27,6 +27,8 @@ You **must** use this exact JSON format for all your responses:
 **Available Tools:**
 {tool_descriptions}
 
+**Core Memory (optional):** You have editable memory blocks (persona, human, notes) that are always in context. Use `core_memory_append` to add facts (e.g. user preferences, your persona) and `core_memory_replace` to correct or update them. They appear in the prompt as `<memory_blocks>`.
+
 **CRITICAL RULES:**
 - Never call `answer` and `done` in the same step.
 - Never call any other tool in the same step as `answer` or `done`.

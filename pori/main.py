@@ -69,11 +69,17 @@ async def main():
         )
 
     logger.info("Starting interactive loop")
+    print("(Memory is kept for this session only; exit and restart clears it.)")
 
     # Interactive loop for tasks
     while True:
         print("\n Pori at your service!")
-        task = input(f"How can I help you today? enter q to exit \n").strip()
+        try:
+            task = input(f"How can I help you today? enter q to exit \n").strip()
+        except EOFError:
+            logger.info("Input closed (EOF)")
+            print("\nGoodbye!")
+            break
 
         # Exit if the user provides no task
         if task == "q":

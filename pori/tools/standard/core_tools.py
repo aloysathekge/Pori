@@ -101,6 +101,60 @@ def remember_tool(params: RememberParams, context: Dict[str, Any]):
         return {"success": False, "error": str(e)}
 
 
+# ---------- Letta-style core memory (editable in-context blocks) ----------
+
+
+class CoreMemoryAppendParams(BaseModel):
+    label: str = Field(
+        ...,
+        description="Block to edit: 'persona' (your traits), 'human' (user facts), or 'notes' (scratch)",
+    )
+    content: str = Field(..., description="Text to append to the block")
+
+
+class CoreMemoryReplaceParams(BaseModel):
+    label: str = Field(
+        ...,
+        description="Block to edit: 'persona', 'human', or 'notes'",
+    )
+    old_string: str = Field(..., description="Exact text to find and replace")
+    new_string: str = Field(..., description="Replacement text")
+
+
+@Registry.tool(
+    name="core_memory_append",
+    description="Append a line to a core memory block (persona, human, or notes). Always in context.",
+)
+def core_memory_append_tool(params: CoreMemoryAppendParams, context: Dict[str, Any]):
+    """Append content to a core memory block."""
+    memory = context.get("memory") if context else None
+    if not memory or not getattr(memory, "core_memory", None):
+        return {"success": False, "error": "Core memory not available"}
+    try:
+        block = memory.core_memory.get_block(params.label)
+        block.append(params.content)
+        return {"success": True, "message": f"Appended to {params.label}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+
+@Registry.tool(
+    name="core_memory_replace",
+    description="Replace exact text in a core memory block (persona, human, or notes).",
+)
+def core_memory_replace_tool(params: CoreMemoryReplaceParams, context: Dict[str, Any]):
+    """Replace text in a core memory block."""
+    memory = context.get("memory") if context else None
+    if not memory or not getattr(memory, "core_memory", None):
+        return {"success": False, "error": "Core memory not available"}
+    try:
+        block = memory.core_memory.get_block(params.label)
+        block.replace(params.old_string, params.new_string)
+        return {"success": True, "message": f"Updated {params.label}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+
 def register_core_tools(registry=None):
     """Tools auto-register on import; kept for compatibility."""
     return None
