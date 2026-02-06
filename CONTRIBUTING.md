@@ -119,7 +119,7 @@ pori/
 └── config.example.yaml   # Copy to config.yaml and add .env for API keys
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details. To add a new LLM provider, see [pori/llm/README.md](pori/llm/README.md).
+To add a new LLM provider, see [pori/llm/README.md](pori/llm/README.md). For project structure and design patterns, see the code comments and [ROADMAP.md](ROADMAP.md).
 
 ## Development Workflow
 
@@ -343,10 +343,10 @@ Contributors are recognized in:
 
 ## Additional Resources
 
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
-- [LLM providers (adding new)](pori/llm/README.md)
-- [Migration from LangChain](MIGRATION.md)
+- [Roadmap](ROADMAP.md) — Planned features and contribution areas
+- [LLM providers (adding new)](pori/llm/README.md) — How to add new providers
+- [Migration from LangChain](MIGRATION.md) — Why we removed LangChain
+- [Core Memory](docs/CORE_MEMORY.md) — Letta-style memory system
 
 
 ---

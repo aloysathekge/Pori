@@ -13,46 +13,94 @@
 ## ⚡ Quick Start
 
 ### Installation
+
+**Currently, Pori must be installed from source** (PyPI publishing is planned — see [ROADMAP.md](ROADMAP.md)):
+
 ```bash
-pip install pori
+git clone https://github.com/aloysathekge/pori.git
+cd pori
+
+# Using uv (recommended)
+uv venv
+.venv\Scripts\activate  # On Windows: .venv\Scripts\activate
+                        # On Unix/macOS: source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Or using pip
+pip install -r requirements.txt
+```
+
+### Configuration
+
+Create `config.yaml` from `config.example.yaml` and add your API keys to `.env`:
+
+```bash
+cp config.example.yaml config.yaml
+# Edit .env with your ANTHROPIC_API_KEY or OPENAI_API_KEY
 ```
 
 ### Basic Usage
+
+**Interactive CLI:**
+```bash
+python -m pori
+```
+
+**Programmatic:**
 ```python
 import asyncio
-from pori import Orchestrator, tool_registry, register_all_tools
-from pori.llm import ChatOpenAI
+from pori import Orchestrator, AgentSettings, register_all_tools
+from pori.llm import ChatAnthropic
+from pori.tools.registry import tool_registry
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 async def main():
     registry = tool_registry()
     register_all_tools(registry)
     
-    llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatAnthropic(
+        model="claude-sonnet-4-20250514",
+        api_key=os.getenv("ANTHROPIC_API_KEY")
+    )
     orchestrator = Orchestrator(llm=llm, tools_registry=registry)
     
-    result = await orchestrator.execute_task("Find the square root of 256")
-    print(result['agent'].memory.get_final_answer())
+    result = await orchestrator.execute_task(
+        "Calculate the sum of the first 10 Fibonacci numbers",
+        agent_settings=AgentSettings(max_steps=10)
+    )
+    
+    if result['success']:
+        agent = result.get('agent')
+        final_answer = agent.memory.get_final_answer()
+        print(f"Answer: {final_answer['final_answer']}")
 
 asyncio.run(main())
 ```
 
 ## 🧠 Core Features
-- **Tiered Memory**: Inspired by Letta (Core, Recall, Archival)
-- **Extensible Tools**: Simple decorator-based tool registration
+- **Core Memory**: Letta-style editable blocks (persona, human, notes) — always in-context
+- **Custom LLM Wrappers**: Direct SDK integration (Anthropic, OpenAI) — no LangChain dependency
+- **Planning & Reflection**: Agent plans tasks and adapts based on results
+- **Extensible Tools**: Simple decorator-based tool registration with Pydantic validation
 - **Parallel Execution**: Orchestrate multiple tasks concurrently
-- **Observation**: Comprehensive logging and state tracking
+- **Comprehensive Logging**: Full observability of agent decisions and tool calls
 
 ## 🏗️ Architecture
 Pori follows a modular design:
-- **Orchestrator**: Manages task lifecycle and concurrency
-- **Agent**: The core reasoning loop (Plan → Act → Reflect)
-- **Memory**: Three-tier system for long and short-term context
-- **Registry**: Validated tool management via Pydantic
+- **Orchestrator**: Manages task lifecycle, concurrency, and shared memory
+- **Agent**: Core reasoning loop (Plan → Act → Reflect → Evaluate)
+- **Memory**: Conversation history, tool tracking, and Letta-style core memory blocks
+- **Tool Registry**: Validated tool management via Pydantic models
+- **LLM Wrappers**: Lightweight providers (`pori/llm/`) replacing LangChain
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for more details.
-
-## 📁 Links
-- [Documentation] [Roadmap](ROADMAP.md) | [Contributing](CONTRIBUTING.md)
+## 📚 Documentation
+- [Roadmap](ROADMAP.md) — Planned features and contribution areas
+- [Contributing](CONTRIBUTING.md) — How to contribute
+- [Migration Guide](MIGRATION.md) — Moving from LangChain to custom wrappers
+- [Core Memory](docs/CORE_MEMORY.md) — Letta-style memory system explained
 
 ## 📄 License
 MIT License.
