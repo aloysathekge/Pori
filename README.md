@@ -99,8 +99,6 @@ Pori follows a modular design:
 ## 📚 Documentation
 - [Roadmap](ROADMAP.md) — Planned features and contribution areas
 - [Contributing](CONTRIBUTING.md) — How to contribute
-- [Migration Guide](MIGRATION.md) — Moving from LangChain to custom wrappers
-- [Core Memory](docs/CORE_MEMORY.md) — Letta-style memory system explained
 
 ## 📄 License
 MIT License.
