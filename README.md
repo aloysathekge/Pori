@@ -80,6 +80,25 @@ async def main():
 asyncio.run(main())
 ```
 
+### Docker
+
+**Build and run with Docker:**
+```bash
+# Build
+docker build -t pori .
+
+# Run (use --env-file to load API keys from .env)
+docker run -p 8000:8000 --env-file .env pori
+```
+
+**Or with Docker Compose:**
+```bash
+# Ensure .env exists with ANTHROPIC_API_KEY
+docker compose up --build
+```
+
+Health check: `curl http://localhost:8000/v1/health`
+
 ## 🧠 Core Features
 - **Core Memory**: Letta-style editable blocks (persona, human, notes) — always in-context
 - **Custom LLM Wrappers**: Direct SDK integration (Anthropic, OpenAI) — no LangChain dependency
