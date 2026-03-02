@@ -121,6 +121,21 @@ pori/
 
 To add a new LLM provider, see [pori/llm/README.md](pori/llm/README.md). For project structure and design patterns, see the code comments and [ROADMAP.md](ROADMAP.md).
 
+### Sandbox
+
+The sandbox gives the agent an isolated execution environment (run commands, read/write files) per task. Enable it in `config.yaml`:
+
+```yaml
+sandbox:
+  enabled: true
+  base_dir: .pori_sandbox
+```
+
+- **Location:** `pori/sandbox/` — `base.py` (Sandbox + SandboxProvider interfaces), `path_resolution.py` (virtual paths, thread dirs), `local.py` (host execution), `sandbox_tools.py` (bash, sandbox_read_file, sandbox_write_file, sandbox_list_dir).
+- **Virtual paths:** The agent uses `/mnt/user-data/workspace`, `/mnt/user-data/uploads`, `/mnt/user-data/outputs`; the framework maps these to per-task dirs under `{base_dir}/threads/{thread_id}/user-data/`.
+- **Adding a sandbox tool:** Use `_ensure_sandbox_and_thread_dirs(context)` to get the sandbox and thread_data; for local sandbox, resolve paths with `replace_virtual_path(path, thread_data)` before calling `sandbox.read_file` / `write_file` / `list_dir` / `execute_command`. Register the tool on the same registry used by the agent (see `sandbox_tools.py`).
+- **Adding a new provider (e.g. Docker):** Implement the `Sandbox` and `SandboxProvider` interfaces in a new module; in `main`, choose the provider from config and call `set_sandbox_provider(...)`.
+
 ## Development Workflow
 
 ### Branching Strategy

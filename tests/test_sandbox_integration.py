@@ -12,7 +12,21 @@ from pori.sandbox import (
     set_sandbox_provider,
     get_thread_data,
 )
-from pori.sandbox.sandbox_tools import bash_tool, BashParams
+from pori.sandbox.path_resolution import VIRTUAL_PREFIX
+from pori.tools.standard.filesystem_tools import (
+    create_directory_tool,
+    CreateDirectoryParams,
+)
+from pori.sandbox.sandbox_tools import (
+    bash_tool,
+    BashParams,
+    sandbox_read_file_tool,
+    sandbox_write_file_tool,
+    sandbox_list_dir_tool,
+    SandboxReadFileParams,
+    SandboxWriteFileParams,
+    SandboxListDirParams,
+)
 
 
 @pytest.fixture
@@ -65,3 +79,54 @@ def test_bash_tool_creates_thread_dirs_on_first_use(sandbox_env):
     result = bash_tool(BashParams(command="echo ok"), context)
     assert result.get("success") is True
     assert workspace.exists()
+
+
+def test_sandbox_write_file_and_read_file(sandbox_env):
+    """sandbox_write_file and sandbox_read_file use virtual paths and per-thread dirs."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    path = f"{VIRTUAL_PREFIX}/workspace/test_sandbox_file.txt"
+    content = "sandbox file content"
+    write_result = sandbox_write_file_tool(
+        SandboxWriteFileParams(path=path, content=content),
+        context,
+    )
+    assert write_result.get("success") is True
+    read_result = sandbox_read_file_tool(SandboxReadFileParams(path=path), context)
+    assert read_result.get("success") is True
+    assert read_result.get("content") == content
+    real_path = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace" / "test_sandbox_file.txt"
+    assert real_path.exists()
+    assert real_path.read_text() == content
+
+
+def test_sandbox_list_dir(sandbox_env):
+    """sandbox_list_dir lists entries in the sandbox workspace."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    # Ensure dir exists by writing a file first
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(path=f"{VIRTUAL_PREFIX}/workspace/foo.txt", content="x"),
+        context,
+    )
+    result = sandbox_list_dir_tool(
+        SandboxListDirParams(path=f"{VIRTUAL_PREFIX}/workspace", max_depth=2),
+        context,
+    )
+    assert result.get("success") is True
+    entries = result.get("entries", [])
+    assert any("foo.txt" in e for e in entries)
+
+
+def test_create_directory_accepts_sandbox_virtual_path(sandbox_env):
+    """Standard create_directory tool accepts /mnt/user-data/... when context has thread_id + sandbox_base_dir."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    result = create_directory_tool(
+        CreateDirectoryParams(directory_path=f"{VIRTUAL_PREFIX}/workspace/aloy", parents=True),
+        context,
+    )
+    assert result.get("message") is not None, result
+    assert "successfully" in result.get("message", "")
+    real_dir = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace" / "aloy"
+    assert real_dir.is_dir()

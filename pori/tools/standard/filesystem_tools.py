@@ -17,6 +17,18 @@ import hashlib
 from pydantic import BaseModel, Field, validator
 from ..registry import tool_registry
 
+# Optional: resolve sandbox virtual paths when context has thread_id + sandbox_base_dir
+try:
+    from pori.sandbox.path_resolution import (
+        VIRTUAL_PREFIX as SANDBOX_VIRTUAL_PREFIX,
+        get_thread_data,
+        replace_virtual_path,
+    )
+except ImportError:
+    SANDBOX_VIRTUAL_PREFIX = "/mnt/user-data"
+    get_thread_data = None
+    replace_virtual_path = None
+
 Registry = tool_registry()
 logger = logging.getLogger("pori.filesystem_tools")
 
@@ -43,23 +55,34 @@ class FilesystemConfig:
         self.max_file_size = 50 * 1024 * 1024  # 50MB limit
         self.max_files_per_operation = 100
 
-    def is_path_safe(self, path: Union[str, Path]) -> bool:
-        """Check if a path is safe to access."""
+    def is_path_safe(
+        self,
+        path: Union[str, Path],
+        extra_allowed_bases: Optional[List[Path]] = None,
+    ) -> bool:
+        """Check if a path is safe to access. Optionally allow paths under extra bases (e.g. sandbox base_dir)."""
         try:
             path = Path(path).resolve()
-            
-            # Check if path is within allowed areas (home or current project)
+
+            # Check if path is within allowed areas (home, current project, or extra bases)
             home_relative = self.home_dir in path.parents or path == self.home_dir
             current_relative = self.current_dir in path.parents or path == self.current_dir
-            
-            if not (home_relative or current_relative):
+            extra_relative = False
+            if extra_allowed_bases:
+                for base in extra_allowed_bases:
+                    base_resolved = Path(base).resolve()
+                    if base_resolved in path.parents or path == base_resolved:
+                        extra_relative = True
+                        break
+
+            if not (home_relative or current_relative or extra_relative):
                 return False
-            
+
             # Check forbidden directory names
             for part in path.parts:
                 if part in self.forbidden_dirs:
                     return False
-            
+
             return True
         except (OSError, ValueError):
             return False
@@ -123,28 +146,72 @@ class ExecuteScriptParams(BaseModel):
 
 # ============= Helper Functions =============
 
+def _resolve_sandbox_path_if_needed(path: str, context: Optional[Dict[str, Any]]) -> tuple[str, Optional[Path]]:
+    """
+    If path is a sandbox virtual path and context has thread_id + sandbox_base_dir,
+    return (resolved_real_path, Path(sandbox_base_dir)) for safety check.
+    Otherwise return (path, None).
+    """
+    if not context or not path.strip().startswith(SANDBOX_VIRTUAL_PREFIX):
+        return path, None
+    thread_id = context.get("thread_id") or context.get("task_id")
+    base_dir = context.get("sandbox_base_dir")
+    if not thread_id or not base_dir or get_thread_data is None or replace_virtual_path is None:
+        return path, None
+    thread_data = context.get("thread_data")
+    if thread_data is None:
+        thread_data = get_thread_data(thread_id, base_dir)
+        thread_data.ensure_dirs()
+        context["thread_data"] = thread_data
+    resolved = replace_virtual_path(path, thread_data)
+    return resolved, Path(base_dir).resolve()
+
+
 def safe_path_operation(func):
-    """Decorator to ensure path operations are safe."""
+    """Decorator to ensure path operations are safe. Resolves sandbox virtual paths when context provides thread_id + sandbox_base_dir."""
     def wrapper(params, context: Dict[str, Any]):
         try:
-            # Extract path from params
+            # Extract path(s) from params and resolve sandbox virtual paths
+            extra_bases: Optional[List[Path]] = None
             if hasattr(params, 'file_path'):
                 path = params.file_path
+                path, sandbox_base = _resolve_sandbox_path_if_needed(path, context)
+                if sandbox_base is not None:
+                    params.file_path = path
+                    extra_bases = [sandbox_base]
             elif hasattr(params, 'directory_path'):
                 path = params.directory_path
+                path, sandbox_base = _resolve_sandbox_path_if_needed(path, context)
+                if sandbox_base is not None:
+                    params.directory_path = path
+                    extra_bases = [sandbox_base]
             elif hasattr(params, 'path'):
                 path = params.path
+                path, sandbox_base = _resolve_sandbox_path_if_needed(path, context)
+                if sandbox_base is not None:
+                    params.path = path
+                    extra_bases = [sandbox_base]
             elif hasattr(params, 'source_path'):
-                # For operations with multiple paths, check all
-                if not fs_config.is_path_safe(params.source_path):
+                src, sandbox_base = _resolve_sandbox_path_if_needed(params.source_path, context)
+                if sandbox_base is not None:
+                    params.source_path = src
+                    extra_bases = [sandbox_base]
+                if not fs_config.is_path_safe(params.source_path, extra_allowed_bases=extra_bases):
                     return {"success": False, "error": f"Source path not allowed: {params.source_path}"}
-                if hasattr(params, 'destination_path') and not fs_config.is_path_safe(params.destination_path):
+                dst_path, dst_base = _resolve_sandbox_path_if_needed(params.destination_path, context)
+                if dst_base is not None:
+                    params.destination_path = dst_path
+                    if extra_bases is None:
+                        extra_bases = [dst_base]
+                    elif dst_base not in extra_bases:
+                        extra_bases = extra_bases + [dst_base]
+                if not fs_config.is_path_safe(params.destination_path, extra_allowed_bases=extra_bases):
                     return {"success": False, "error": f"Destination path not allowed: {params.destination_path}"}
-                path = params.source_path
+                return func(params, context)
             else:
                 return {"success": False, "error": "No valid path found in parameters"}
 
-            if not fs_config.is_path_safe(path):
+            if not fs_config.is_path_safe(path, extra_allowed_bases=extra_bases):
                 return {"success": False, "error": f"Path not allowed: {path}"}
 
             return func(params, context)

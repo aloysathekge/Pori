@@ -94,3 +94,90 @@ def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": True, "output": output, "sandbox_id": sandbox_id}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _resolve_path_for_sandbox(path: str, sandbox_id: str, thread_data: Any) -> str:
+    """Resolve virtual path to real path when using local sandbox; otherwise return path as-is."""
+    if sandbox_id == "local" and thread_data is not None and replace_virtual_path is not None:
+        return replace_virtual_path(path, thread_data)
+    return path
+
+
+# --- Sandbox file tools (read/write/list in sandbox workspace) ---
+
+class SandboxReadFileParams(BaseModel):
+    path: str = Field(
+        ...,
+        description=f"Path to file in sandbox, e.g. {VIRTUAL_PREFIX}/workspace/file.txt or {VIRTUAL_PREFIX}/outputs/result.txt",
+    )
+
+
+@Registry.tool(
+    name="sandbox_read_file",
+    param_model=SandboxReadFileParams,
+    description=f"Read a text file from the sandbox. Use paths under {VIRTUAL_PREFIX}/workspace, {VIRTUAL_PREFIX}/uploads, or {VIRTUAL_PREFIX}/outputs.",
+)
+def sandbox_read_file_tool(params: SandboxReadFileParams, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Read file contents from the sandbox; paths are resolved per-thread when using local sandbox."""
+    sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
+    if err:
+        return {"success": False, "error": err}
+    resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
+    try:
+        content = sandbox.read_file(resolved)
+        return {"success": True, "content": content, "path": params.path}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class SandboxWriteFileParams(BaseModel):
+    path: str = Field(
+        ...,
+        description=f"Path in sandbox, e.g. {VIRTUAL_PREFIX}/workspace/notes.txt or {VIRTUAL_PREFIX}/outputs/report.txt",
+    )
+    content: str = Field(..., description="Text content to write")
+    append: bool = Field(False, description="If true, append to file instead of overwriting")
+
+
+@Registry.tool(
+    name="sandbox_write_file",
+    param_model=SandboxWriteFileParams,
+    description=f"Write text to a file in the sandbox. Use {VIRTUAL_PREFIX}/workspace for scratch, {VIRTUAL_PREFIX}/outputs for results.",
+)
+def sandbox_write_file_tool(params: SandboxWriteFileParams, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Write or append to a file in the sandbox; paths are resolved per-thread when using local sandbox."""
+    sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
+    if err:
+        return {"success": False, "error": err}
+    resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
+    try:
+        sandbox.write_file(resolved, params.content, append=params.append)
+        return {"success": True, "path": params.path, "bytes_written": len(params.content.encode("utf-8"))}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class SandboxListDirParams(BaseModel):
+    path: str = Field(
+        ...,
+        description=f"Directory path in sandbox, e.g. {VIRTUAL_PREFIX}/workspace or {VIRTUAL_PREFIX}/outputs",
+    )
+    max_depth: int = Field(2, ge=1, le=5, description="Maximum depth to list (default 2)")
+
+
+@Registry.tool(
+    name="sandbox_list_dir",
+    param_model=SandboxListDirParams,
+    description=f"List files and directories in the sandbox. Use {VIRTUAL_PREFIX}/workspace, {VIRTUAL_PREFIX}/uploads, or {VIRTUAL_PREFIX}/outputs.",
+)
+def sandbox_list_dir_tool(params: SandboxListDirParams, context: Dict[str, Any]) -> Dict[str, Any]:
+    """List directory contents in the sandbox; paths are resolved per-thread when using local sandbox."""
+    sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
+    if err:
+        return {"success": False, "error": err}
+    resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
+    try:
+        entries = sandbox.list_dir(resolved, max_depth=params.max_depth)
+        return {"success": True, "path": params.path, "entries": entries}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

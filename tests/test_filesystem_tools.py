@@ -51,7 +51,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = read_file_tool(params, context)
@@ -73,7 +73,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = read_file_tool(params, context)
@@ -94,7 +94,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = write_file_tool(params, context)
@@ -118,7 +118,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = write_file_tool(params, context)
@@ -135,7 +135,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = list_directory_tool(params, context)
@@ -166,7 +166,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = list_directory_tool(params, context)
@@ -186,7 +186,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = file_info_tool(params, context)
@@ -207,7 +207,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = create_directory_tool(params, context)
@@ -227,7 +227,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = search_files_tool(params, context)
@@ -251,7 +251,7 @@ class TestFilesystemTools:
         
         # Temporarily allow this path
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = search_files_tool(params, context)
@@ -284,7 +284,7 @@ class TestFilesystemTools:
         
         # Temporarily allow the path but not the extension
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: True
+        fs_config.is_path_safe = lambda x, **kwargs: True
         
         try:
             result = read_file_tool(params, context)
@@ -302,7 +302,7 @@ def test_filesystem_tools_integration():
         
         # Temporarily allow this path for all operations
         original_is_safe = fs_config.is_path_safe
-        fs_config.is_path_safe = lambda x: tmp_path in Path(x).parents or Path(x) == tmp_path
+        fs_config.is_path_safe = lambda x, **kwargs: tmp_path in Path(x).parents or Path(x) == tmp_path
         
         try:
             context = {}
