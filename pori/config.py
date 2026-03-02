@@ -38,11 +38,22 @@ class AgentConfig(BaseModel):
     enable_memory: bool = Field(default=True)
 
 
+class SandboxConfig(BaseModel):
+    """Configuration for sandbox execution (bash, file I/O per thread)."""
+    
+    enabled: bool = Field(default=False, description="Enable sandbox; agent can use bash and per-thread dirs")
+    base_dir: Optional[str] = Field(
+        default=None,
+        description="Base directory for per-thread workspace/uploads/outputs (e.g. .pori_sandbox or /tmp/pori_sandbox)",
+    )
+
+
 class Config(BaseModel):
     """Main configuration container."""
     
     llm: LLMConfig
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    sandbox: Optional[SandboxConfig] = Field(default=None)
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:

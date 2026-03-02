@@ -33,6 +33,11 @@ agent:
   # Enable memory system
   enable_memory: true
 
+# Sandbox: isolated shell and file environment per task (optional)
+# sandbox:
+#   enabled: true
+#   base_dir: .pori_sandbox   # or e.g. /tmp/pori_sandbox
+
 # ============================================
 # Example configurations for different providers:
 # ============================================

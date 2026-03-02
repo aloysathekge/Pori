@@ -34,6 +34,7 @@ class Orchestrator:
         agent_settings: Optional[AgentSettings] = None,
         on_step_start: Optional[Callable[[Agent], Any]] = None,
         on_step_end: Optional[Callable[[Agent], Any]] = None,
+        sandbox_base_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -49,6 +50,7 @@ class Orchestrator:
             tools_registry=self.tools_registry,
             settings=settings,
             memory=self.shared_memory,
+            sandbox_base_dir=sandbox_base_dir,
         )
         self.agents[task_id] = agent
 

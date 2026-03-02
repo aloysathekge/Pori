@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import modules
+from pathlib import Path
 from .tools.registry import tool_registry
 from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
@@ -33,6 +34,8 @@ async def main():
     registry = tool_registry()
 
     register_all_tools(registry)
+    # Register sandbox tools (bash) so they appear in the same registry
+    import pori.sandbox.sandbox_tools  # noqa: F401
     logger.info(f"Registered {len(registry.tools)} tools")
 
     # Create LLM from config file
@@ -51,6 +54,14 @@ async def main():
         logger.error(f"Failed to initialize LLM: {e}")
         print(f"\n❌ Error initializing LLM: {e}")
         return
+
+    # Sandbox: if enabled, set provider and base dir for per-task workspace
+    sandbox_base_dir = None
+    if getattr(config, "sandbox", None) and config.sandbox.enabled and config.sandbox.base_dir:
+        from pori.sandbox import set_sandbox_provider, LocalSandboxProvider
+        set_sandbox_provider(LocalSandboxProvider())
+        sandbox_base_dir = str(Path(config.sandbox.base_dir).resolve())
+        logger.info(f"Sandbox enabled; base_dir={sandbox_base_dir}")
 
     # Create orchestrator
     logger.info("Creating orchestrator")
@@ -100,6 +111,7 @@ async def main():
                 task=task,
                 agent_settings=AgentSettings(max_steps=config.agent.max_steps),
                 on_step_end=on_step_end,
+                sandbox_base_dir=sandbox_base_dir,
             )
 
             logger.info(
