@@ -1,0 +1,56 @@
+# CI: Lint, typecheck, and test on push and PRs
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Black (format check)
+        run: black --check pori/ tests/
+
+      - name: isort (import sort check)
+        run: isort --check-only pori/ tests/
+
+      - name: mypy (type check)
+        run: mypy pori/ --ignore-missing-imports || true
+        # Optional: remove "|| true" to fail CI on type errors once mypy is strict
+
+      - name: Pytest
+        run: pytest tests/ -v --tb=short --cov=pori --cov-report=xml --cov-report=term-missing
+        env:
+          # Tests use mocks; no real API keys needed
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""
+
+      - name: Upload coverage (for Codecov or similar)
+        uses: actions/upload-artifact@v4
+        if: success() && matrix.python-version == '3.12'
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7

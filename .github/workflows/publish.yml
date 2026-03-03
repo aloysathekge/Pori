@@ -1,0 +1,36 @@
+# CD: Build and publish to PyPI on release
+# Setup: Add repository secret PYPI_API_TOKEN (pypi.org API token)
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  # Optional: allow manual run from Actions tab
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    # Optional: add "environment: pypi" and store PYPI_API_TOKEN in that environment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+          verbose: true

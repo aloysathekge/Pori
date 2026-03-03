@@ -138,6 +138,11 @@ sandbox:
 
 ## Development Workflow
 
+### CI/CD (GitHub Actions)
+
+- **CI** (`.github/workflows/ci.yml`): Runs on every push and pull request to `main` and `develop`. Steps: Black (format check), isort (import sort), mypy (type check), pytest with coverage. Matrix: Python 3.10, 3.11, 3.12. No API keys required (tests use mocks). Coverage XML is uploaded as an artifact for the 3.12 run (e.g. for Codecov).
+- **Publish** (`.github/workflows/publish.yml`): Runs when a GitHub release is published (or via manual workflow_dispatch). Builds the package and publishes to PyPI. Requires repository secret `PYPI_API_TOKEN` (create at pypi.org under Account → API tokens).
+
 ### Branching Strategy
 
 - `main` - Stable production branch
