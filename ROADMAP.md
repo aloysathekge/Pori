@@ -16,6 +16,7 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
 - Task orchestration with parallel execution support
 - Built-in tools (core, math, numbers, filesystem, Spotify)
 - **Custom LLM wrappers** (`pori/llm/`) — Anthropic and OpenAI via direct SDKs; no LangChain in core
+- **Sandbox** — Per-task isolated execution: `bash`, `sandbox_read_file` / `sandbox_write_file` / `sandbox_list_dir`; virtual paths (`/mnt/user-data/workspace`, `uploads`, `outputs`); standard filesystem tools accept sandbox paths when enabled. Config: `sandbox.enabled`, `sandbox.base_dir`. See CONTRIBUTING.md § Sandbox.
 - YAML config + env-based API keys
 - Comprehensive logging
 - FastAPI server for async task execution
@@ -42,6 +43,13 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - Make core memory **always in-context** by dynamically compiling memory blocks into each model call
   - Add **memory identity** for future multi-user support (agent_id/user_id/session_id)
   - *Help wanted*: API design for memory identity, storage schema design, retrieval evaluation
+
+- [ ] **MCP (Model Context Protocol) support**
+  - Connect the agent to MCP servers so it can use tools and resources exposed by external servers (databases, APIs, filesystems, etc.)
+  - Register MCP server tools into the tool registry (or bridge at runtime); map MCP tool schemas to Pori’s tool format
+  - Support stdio and HTTP transports; optional SSE for streaming where applicable
+  - Config: list of MCP server endpoints or commands and which tools/resources to enable per server
+  - *Doable*: use the official Python MCP SDK as client; add an optional `pori/mcp/` integration that discovers tools and forwards calls to the agent’s executor
 
 
 ### Human-in-the-Loop
@@ -81,10 +89,10 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - *Help wanted: Multimodal AI experience*
 
 - [ ] **Code Generation & Execution**
-  - Safe code execution sandboxes
+  - ~~Safe code execution sandboxes~~ ✅ *Local sandbox done; optional: Docker/container backend*
   - Jupyter kernel integration
   - Code analysis tools
-  - *Help wanted: Sandboxing, security*
+  - *Help wanted: Security hardening, resource limits*
 
 - [ ] **Multi-user Memory & Persistence**
   - Persist Core/Recall/Archival memory across runs (start with SQLite; allow pluggable backends)
@@ -156,7 +164,7 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
    - Prompt and schema tweaks
 
 3. **Security**
-   - Sandboxing
+   - Sandboxing (local done; container/VM backend optional)
    - Permission systems
    - Vulnerability audits
 
@@ -205,5 +213,5 @@ To maintain focus, we explicitly don't plan to:
 
 ---
 
-*Last updated: 2026-02-05*
+*Last updated: 2026-03-02*
 *This roadmap is subject to change based on community feedback and priorities.*
