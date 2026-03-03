@@ -1,3 +1,4 @@
+# DISABLED: Rename to ci.yml to re-enable (was disabled due to billing)
 # CI: Lint, typecheck, and test on push and PRs
 name: CI
 

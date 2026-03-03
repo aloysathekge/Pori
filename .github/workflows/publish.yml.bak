@@ -1,3 +1,4 @@
+# DISABLED: Rename to publish.yml to re-enable (was disabled due to billing)
 # CD: Build and publish to PyPI on release
 # Setup: Add repository secret PYPI_API_TOKEN (pypi.org API token)
 name: Publish to PyPI
