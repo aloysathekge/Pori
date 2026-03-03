@@ -13,5 +13,8 @@ llm:
 agent:
   # Maximum steps the agent can take per task
   max_steps: 10
-  
+
+sandbox:
+  enabled: true
+  base_dir: .pori_sandbox
 

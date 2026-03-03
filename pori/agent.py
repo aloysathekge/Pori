@@ -70,9 +70,11 @@ class Agent:
         tools_registry: ToolRegistry,
         settings: AgentSettings = AgentSettings(),
         memory: Optional[Any] = None,
+        sandbox_base_dir: Optional[str] = None,
     ):
-        # Generate unique task ID for tracking
+        # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
+        self.sandbox_base_dir = sandbox_base_dir
 
         logger.info(f"Initializing new agent", extra={"task_id": self.task_id})
         logger.info(f"Task: {task}", extra={"task_id": self.task_id})
@@ -745,10 +747,16 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 start_time = datetime.now()
 
                 # Execute the tool
+                tool_context = {
+                    "memory": self.memory,
+                    "state": self.state,
+                    "thread_id": self.task_id,
+                    "sandbox_base_dir": self.sandbox_base_dir,
+                }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
                     params=params,
-                    context={"memory": self.memory, "state": self.state},
+                    context=tool_context,
                 )
 
                 execution_time = (datetime.now() - start_time).total_seconds()
