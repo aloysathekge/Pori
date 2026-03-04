@@ -90,6 +90,13 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
 
 - [ ] **Code Generation & Execution**
   - ~~Safe code execution sandboxes~~ ✅ *Local sandbox done; optional: Docker/container backend*
+  - **Sandbox hardening (Pattern 1: isolate the tool)** ← *Production polish*
+    - Run code execution + filesystem + terminal tools in a **separate sandbox service** (container/VM/microVM), while the agent loop stays in the API/app process
+    - **No secrets in the sandbox**: sandbox receives only a session token + control-plane URL; all credentialed operations (LLM calls, S3, DB, internal APIs) go through the main app/proxy
+    - **Network controls**: default-deny egress; allow only the control plane; block metadata endpoints
+    - **Resource limits**: per-call timeouts, max stdout/stderr bytes, disk quota per session, max file sizes, max processes
+    - **Policy layer**: command allow/deny lists, tool allowlists per tenant/project, approval gates for high-risk ops
+    - **Observability**: structured audit logs for every sandbox call (who/what/when), metrics (latency/error/timeout), artifact retention for `/outputs`
   - Jupyter kernel integration
   - Code analysis tools
   - *Help wanted: Security hardening, resource limits*
