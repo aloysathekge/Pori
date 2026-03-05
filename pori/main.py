@@ -15,6 +15,7 @@ from .agent import Agent, AgentSettings
 from .orchestrator import Orchestrator
 from .tools.standard import register_all_tools
 from .config import get_configured_llm
+from .hitl import CLIHITLHandler
 
 # Configure logging
 from .utils.logging_config import setup_logging
@@ -67,6 +68,13 @@ async def main():
     logger.info("Creating orchestrator")
     orchestrator = Orchestrator(llm=llm, tools_registry=registry)
 
+    # HITL: check if enabled in config
+    hitl_handler = None
+    hitl_config = getattr(config, "hitl", None)
+    if hitl_config and hitl_config.enabled:
+        hitl_handler = CLIHITLHandler(timeout_seconds=hitl_config.timeout_seconds)
+        logger.info("HITL enabled in CLI mode")
+
     # Define steps callback for monitoring
     def on_step_end(agent: Agent):
         step_msg = f"Completed step {agent.state.n_steps}"
@@ -112,6 +120,8 @@ async def main():
                 agent_settings=AgentSettings(max_steps=config.agent.max_steps),
                 on_step_end=on_step_end,
                 sandbox_base_dir=sandbox_base_dir,
+                hitl_handler=hitl_handler,
+                hitl_config=hitl_config,
             )
 
             logger.info(

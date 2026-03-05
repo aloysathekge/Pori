@@ -48,12 +48,16 @@ class SandboxConfig(BaseModel):
     )
 
 
+from pori.hitl import HITLConfig
+
+
 class Config(BaseModel):
     """Main configuration container."""
     
     llm: LLMConfig
     agent: AgentConfig = Field(default_factory=AgentConfig)
     sandbox: Optional[SandboxConfig] = Field(default=None)
+    hitl: Optional[HITLConfig] = Field(default=None)
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:

@@ -6,6 +6,7 @@ from ..agent import Agent, AgentSettings
 from ..memory import AgentMemory
 from ..tools.registry import ToolRegistry
 from pori.llm import BaseChatModel
+from ..hitl import HITLHandler, HITLConfig
 
 
 class Orchestrator:
@@ -35,6 +36,8 @@ class Orchestrator:
         on_step_start: Optional[Callable[[Agent], Any]] = None,
         on_step_end: Optional[Callable[[Agent], Any]] = None,
         sandbox_base_dir: Optional[str] = None,
+        hitl_handler: Optional[HITLHandler] = None,
+        hitl_config: Optional[HITLConfig] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -51,6 +54,8 @@ class Orchestrator:
             settings=settings,
             memory=self.shared_memory,
             sandbox_base_dir=sandbox_base_dir,
+            hitl_handler=hitl_handler,
+            hitl_config=hitl_config,
         )
         self.agents[task_id] = agent
 
