@@ -13,6 +13,15 @@ from .tools.registry import ToolRegistry, ToolExecutor
 from .evaluation import ActionResult, Evaluator
 from .utils.prompt_loader import load_prompt
 from .utils.logging_config import ensure_logger_configured
+from .hitl import (
+    HITLConfig,
+    HITLHandler,
+    ApprovalRequest,
+    ApprovalResponse,
+    ActionRequest,
+    ReviewConfig,
+    resolve_interrupt_config,
+)
 
 # Set up logger for this module - this will work regardless of import order
 logger = ensure_logger_configured("pori.agent")
@@ -71,13 +80,22 @@ class Agent:
         settings: AgentSettings = AgentSettings(),
         memory: Optional[Any] = None,
         sandbox_base_dir: Optional[str] = None,
+        hitl_handler: Optional[HITLHandler] = None,
+        hitl_config: Optional[HITLConfig] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
         self.sandbox_base_dir = sandbox_base_dir
 
+        # Human-in-the-loop
+        self.hitl_handler = hitl_handler
+        self.hitl_config = hitl_config
+        self._approved_signatures: set = set()  # for auto_approve_duplicates
+
         logger.info(f"Initializing new agent", extra={"task_id": self.task_id})
         logger.info(f"Task: {task}", extra={"task_id": self.task_id})
+        if hitl_handler and hitl_config and hitl_config.enabled:
+            logger.info("HITL approval gates enabled", extra={"task_id": self.task_id})
 
         self.task = task
         self.llm = llm
@@ -180,7 +198,10 @@ class Agent:
 
             # Execute actions
             if model_output.action:
-                tool_results = await self.execute_actions(model_output.action)
+                tool_results = await self.execute_actions(
+                    model_output.action,
+                    agent_reasoning=model_output.current_state,
+                )
 
             # Update state
             self.state.n_steps += 1
@@ -492,6 +513,26 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         """Create the output model for the LLM's response."""
         return AgentOutput
 
+    def _get_interrupt_config(self, tool_name: str) -> Optional[Any]:
+        """Check if a tool requires HITL approval."""
+        if not self.hitl_config or not self.hitl_config.enabled:
+            return None
+
+        cfg = resolve_interrupt_config(tool_name, self.hitl_config)
+        if cfg is None:
+            return None
+
+        # Check if auto_approve_duplicates applies
+        if self.hitl_config.auto_approve_duplicates:
+            # We don't have the exact params here, so the actual check happens
+            # in execute_actions where we know the params. But we can check
+            # if we previously approved *this exact tool+params signature*.
+            # The logic in execute_actions uses this helper just to see if the
+            # tool generally requires approval, and then handles duplicates directly.
+            pass
+
+        return cfg
+
     async def _plan_if_needed(self) -> None:
         """Create a brief plan if none exists."""
         if self.state.current_plan:
@@ -611,7 +652,8 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})
 
     async def execute_actions(
-        self, actions: List[Dict[str, Any]]
+        self, actions: List[Dict[str, Any]],
+        agent_reasoning: Optional[Dict[str, str]] = None,
     ) -> List[ActionResult]:
         """Execute a list of actions."""
         logger.info(
@@ -744,6 +786,88 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
             # For regular tools, execute and evaluate
             try:
+                # --- HITL approval gate ---
+                if self.hitl_handler and self.hitl_config and self.hitl_config.enabled:
+                    interrupt_cfg = self._get_interrupt_config(tool_name)
+                    if interrupt_cfg is not None:
+                        # Auto-approve duplicates: skip if same tool+params was already approved
+                        if self.hitl_config.auto_approve_duplicates:
+                            sig = _make_signature(tool_name, params)
+                            if sig in self._approved_signatures:
+                                logger.info(
+                                    f"HITL: auto-approved duplicate {tool_name}",
+                                    extra={"task_id": self.task_id},
+                                )
+                                # Fall through to normal execution
+                                interrupt_cfg = None
+
+                    if interrupt_cfg is not None:
+                        request = ApprovalRequest(
+                            action_requests=[ActionRequest(
+                                name=tool_name,
+                                arguments=params,
+                                description=(
+                                    f"{interrupt_cfg.description or self.hitl_config.description_prefix}"
+                                    + (
+                                        f"\n\nAgent reasoning:"
+                                        f"\n  Goal: {agent_reasoning.get('next_goal', 'N/A')}"
+                                        f"\n  Context: {agent_reasoning.get('memory', 'N/A')}"
+                                        if agent_reasoning else ""
+                                    )
+                                ),
+                            )],
+                            review_configs=[ReviewConfig(
+                                action_name=tool_name,
+                                allowed_decisions=interrupt_cfg.allowed_decisions,
+                            )],
+                            task_id=self.task_id,
+                            step_number=self.state.n_steps,
+                        )
+                        response = await self.hitl_handler.request_approval(request)
+                        decision = response.decisions[0]
+
+                        if decision.type == "reject":
+                            msg = decision.message or "Action rejected by human."
+                            logger.info(
+                                f"HITL: {tool_name} rejected — {msg}",
+                                extra={"task_id": self.task_id},
+                            )
+                            self.memory.add_message(
+                                "system", f"Human rejected {tool_name}: {msg}"
+                            )
+                            self.memory.add_tool_call(
+                                tool_name=tool_name,
+                                parameters=params,
+                                result={"rejected": True, "message": msg},
+                                success=False,
+                            )
+                            results.append(
+                                ActionResult(
+                                    success=False,
+                                    error=f"Rejected by human: {msg}",
+                                    include_in_memory=True,
+                                )
+                            )
+                            continue
+
+                        if decision.type == "edit" and decision.edited_action:
+                            old_name = tool_name
+                            tool_name = decision.edited_action.name
+                            params = decision.edited_action.args
+                            logger.info(
+                                f"HITL: edited {old_name} → {tool_name} with new params",
+                                extra={"task_id": self.task_id},
+                            )
+
+                        # Track approved signature for auto_approve_duplicates
+                        try:
+                            self._approved_signatures.add(
+                                _make_signature(tool_name, params)
+                            )
+                        except Exception:
+                            pass
+                # --- end HITL gate ---
+
                 start_time = datetime.now()
 
                 # Execute the tool

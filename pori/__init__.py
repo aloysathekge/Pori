@@ -18,6 +18,13 @@ from .memory import (
 from .tools.registry import ToolRegistry, ToolExecutor, ToolInfo, tool_registry
 from .evaluation import ActionResult, Evaluator
 from .orchestrator import Orchestrator
+from .hitl import (
+    HITLConfig,
+    HITLHandler,
+    CLIHITLHandler,
+    AutoApproveHandler,
+    InterruptConfig,
+)
 
 # Tool registrations
 from .tools.standard import register_all_tools
@@ -47,4 +54,10 @@ __all__ = [
     "Evaluator",
     # Orchestration
     "Orchestrator",
+    # HITL
+    "HITLConfig",
+    "HITLHandler",
+    "CLIHITLHandler",
+    "AutoApproveHandler",
+    "InterruptConfig",
 ]

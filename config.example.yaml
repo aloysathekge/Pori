@@ -38,6 +38,19 @@ agent:
 #   enabled: true
 #   base_dir: .pori_sandbox   # or e.g. /tmp/pori_sandbox
 
+# Human-in-the-Loop: require approval before executing certain tools
+# hitl:
+#   enabled: true
+#   interrupt_on:
+#     bash: true                          # All decisions allowed (approve/edit/reject)
+#     write_file: true
+#     sandbox_write_file: true
+#     execute_sql:                        # Fine-grained control
+#       allowed_decisions: [approve, reject]  # No editing allowed
+#     read_file: false                    # Safe: no approval needed (default if not listed)
+#   auto_approve_duplicates: true         # Skip re-asking for identical approved calls
+#   timeout_seconds: 300                  # Wait time for human response
+
 # ============================================
 # Example configurations for different providers:
 # ============================================

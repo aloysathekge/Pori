@@ -18,3 +18,10 @@ sandbox:
   enabled: true
   base_dir: .pori_sandbox
 
+hitl:
+  enabled: true
+  interrupt_on:
+    bash: true
+    sandbox_write_file: true
+
+
