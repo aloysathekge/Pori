@@ -74,6 +74,12 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
   - Shared knowledge bases
   - *Help wanted: Distributed systems, multi-agent architectures*
 
+- [ ] **Team-based Multi-Agent Orchestration**
+  - Implement `Team` abstraction (router/broadcast/delegate modes) 
+  - Use `Team` as a coordinator over multiple specialized `Agent` instances and/or nested Teams
+  - Start with router and broadcast modes; add delegate once stable
+  - *Help wanted: API design, coordination prompts, and evaluation of team vs single-agent performance*
+
 - [ ] **Learning from Feedback**
   - Capture human corrections
   - Fine-tune prompts based on feedback
