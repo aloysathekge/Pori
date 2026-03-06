@@ -1,4 +1,4 @@
-"""Pori - A simple, extensible AI agent framework."""
+"""Pori - A simple, extensible AI agent framework for all ."""
 
 __version__ = "1.0"
 __author__ = "Aloy Sathekge"
