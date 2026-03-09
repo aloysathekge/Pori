@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
 from pori.llm import BaseChatModel, SystemMessage, UserMessage, AssistantMessage
+from .metrics import RunMetrics, StepMetrics, LLMCallMetrics, ToolCallMetrics
 
 from .memory import AgentMemory
 from .tools.registry import ToolRegistry, ToolExecutor
@@ -113,6 +114,9 @@ class Agent:
         self.memory = memory if memory is not None else AgentMemory()
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
+        # Metrics for this agent run (initialized in run())
+        self._run_metrics: Optional[RunMetrics] = None
+
         # Create task record
         self.memory.create_task(self.task_id, task)
         logger.info(f"Created task record in memory", extra={"task_id": self.task_id})
@@ -160,6 +164,7 @@ class Agent:
 
         tool_results = []
         step_start_time = datetime.now()
+        step_metrics = StepMetrics(step_number=step_number)
 
         try:
             # Create summaries at regular intervals to avoid context overflow
@@ -182,7 +187,20 @@ class Agent:
                 "Getting next action from LLM",
                 extra={"task_id": self.task_id, "step": step_number},
             )
+            llm_start_time = datetime.now()
             model_output = await self.get_next_action()
+            llm_duration = (datetime.now() - llm_start_time).total_seconds()
+
+            # Record LLM call metrics for this step (token usage and cost can be filled later)
+            try:
+                llm_metrics = LLMCallMetrics(
+                    model_id=getattr(self.llm, "model", ""),
+                    model_provider=self.llm.__class__.__name__,
+                    duration_seconds=llm_duration,
+                )
+                step_metrics.llm_calls.append(llm_metrics)
+            except Exception:
+                pass
 
             action_count = len(model_output.action) if model_output.action else 0
             if action_count > 0:
@@ -201,6 +219,7 @@ class Agent:
                 tool_results = await self.execute_actions(
                     model_output.action,
                     agent_reasoning=model_output.current_state,
+                    step_metrics=step_metrics,
                 )
 
             # Update state
@@ -245,6 +264,14 @@ class Agent:
             f"Step duration: {step_duration:.2f}s",
             extra={"task_id": self.task_id, "step": step_number},
         )
+
+        # Record step duration in metrics
+        try:
+            step_metrics.duration_seconds = step_duration
+            if self._run_metrics is not None:
+                self._run_metrics.steps.append(step_metrics)
+        except Exception:
+            pass
 
         # Add step results to memory
         for result in tool_results:
@@ -652,8 +679,10 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})
 
     async def execute_actions(
-        self, actions: List[Dict[str, Any]],
+        self,
+        actions: List[Dict[str, Any]],
         agent_reasoning: Optional[Dict[str, str]] = None,
+        step_metrics: Optional[StepMetrics] = None,
     ) -> List[ActionResult]:
         """Execute a list of actions."""
         logger.info(
@@ -897,6 +926,19 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         extra={"task_id": self.task_id},
                     )
 
+                # Record tool metrics for this step
+                try:
+                    if step_metrics is not None:
+                        step_metrics.tool_calls.append(
+                            ToolCallMetrics(
+                                tool_name=tool_name,
+                                duration_seconds=execution_time,
+                                success=success,
+                            )
+                        )
+                except Exception:
+                    pass
+
                 # Record the tool call
                 self.memory.add_tool_call(
                     tool_name=tool_name,
@@ -956,6 +998,16 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         """Run the agent until the task is complete or max steps is reached."""
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"🚀 Starting task: {self.task}")
+
+        # Initialize run metrics
+        self._run_metrics = RunMetrics(
+            run_id=self.task_id,
+            agent_id=self.task_id,
+            agent_name=None,
+            model_id=getattr(self.llm, "model", ""),
+            model_provider=self.llm.__class__.__name__,
+            start_time=datetime.now(),
+        )
 
         for step_count in range(self.settings.max_steps):
             # Check control flags
@@ -1025,6 +1077,23 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             task.status == "completed" for task in self.memory.tasks.values()
         )
 
+        # Finalize metrics
+        if self._run_metrics is not None:
+            try:
+                self._run_metrics.end_time = datetime.now()
+                self._run_metrics.finalize()
+                summary = self._run_metrics.summary()
+                logger.info(
+                    "Run metrics summary: "
+                    + f"duration={summary['duration']}, "
+                    f"steps={summary['steps']}, "
+                    f"llm_calls={summary['llm_calls']}, "
+                    f"tool_calls={summary['tool_calls']}",
+                    extra={"task_id": self.task_id},
+                )
+            except Exception:
+                pass
+
         logger.info(
             f"Agent run finished - Completed: {completed}, Steps: {self.state.n_steps}",
             extra={"task_id": self.task_id},
@@ -1035,6 +1104,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "completed": completed,
             "steps_taken": self.state.n_steps,
             "final_state": self.state.dict(),
+            "metrics": self._run_metrics.summary()
+            if self._run_metrics is not None
+            else None,
         }
 
     def pause(self) -> None:
