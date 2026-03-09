@@ -3,6 +3,34 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 
+# $ per MTok (million tokens): (input, output). Cache tiers not included.
+PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
+    # OpenAI — GPT-5 (future)
+    "gpt-5.2": (1.75, 14.00),
+    "gpt-5-2": (1.75, 14.00),
+    "gpt-5.2-pro": (21.00, 168.00),
+    "gpt-5-2-pro": (21.00, 168.00),
+    "gpt-5-mini": (0.25, 2.00),
+    # OpenAI — GPT-4
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    # Anthropic — Claude
+    "claude-sonnet-4-5-20250929": (3.00, 15.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-sonnet-4-5": (3.00, 15.00),
+    "claude-sonnet-4": (3.00, 15.00),
+    "claude-sonnet-3-7": (3.00, 15.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-haiku-3-5": (0.80, 4.00),
+    "claude-haiku-3": (0.25, 1.25),
+    "claude-opus-4-6": (5.00, 25.00),
+    "claude-opus-4-5": (5.00, 25.00),
+    "claude-opus-4-1": (15.00, 75.00),
+    "claude-opus-4": (15.00, 75.00),
+    "claude-opus-3": (15.00, 75.00),
+}
+
+
 @dataclass
 class TokenUsage:
     """Token consumption for a single LLM call."""
@@ -114,6 +142,7 @@ class RunMetrics:
     def summary(self) -> Dict:
         """Return a human-readable summary dict."""
         tokens = self.total_tokens
+        cost = self.total_cost
         return {
             "run_id": self.run_id,
             "agent": self.agent_name or self.agent_id,
@@ -127,6 +156,21 @@ class RunMetrics:
                 "output": tokens.output_tokens,
                 "total": tokens.total_tokens,
             },
-            "cost_usd": f"${self.total_cost:.4f}",
+            "tokens_raw": tokens,
+            "cost_usd": f"${cost:.4f}" if cost else None,
         }
+
+
+def estimate_llm_call_cost(model_id: str, tokens: TokenUsage) -> Optional[float]:
+    """Estimate dollar cost for one LLM call based on token usage."""
+    if not model_id:
+        return None
+    prices = PRICE_PER_MTOK.get(model_id)
+    if not prices:
+        return None
+    in_price_per_mtok, out_price_per_mtok = prices
+    in_cost = (tokens.input_tokens / 1_000_000) * in_price_per_mtok
+    out_cost = (tokens.output_tokens / 1_000_000) * out_price_per_mtok
+    return in_cost + out_cost
+
 
