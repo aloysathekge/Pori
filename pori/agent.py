@@ -7,7 +7,14 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
 from pori.llm import BaseChatModel, SystemMessage, UserMessage, AssistantMessage
-from .metrics import RunMetrics, StepMetrics, LLMCallMetrics, ToolCallMetrics, TokenUsage
+from .metrics import (
+    RunMetrics,
+    StepMetrics,
+    LLMCallMetrics,
+    ToolCallMetrics,
+    TokenUsage,
+    estimate_llm_call_cost,
+)
 
 from .memory import AgentMemory
 from .tools.registry import ToolRegistry, ToolExecutor
@@ -216,10 +223,14 @@ class Agent:
                         )
                         tokens.total_tokens = int(usage.get("total_tokens", 0) or 0)
 
+                model_id = getattr(self.llm, "model", "")
+                cost = estimate_llm_call_cost(model_id, tokens) if tokens.total_tokens else None
+
                 llm_metrics = LLMCallMetrics(
-                    model_id=getattr(self.llm, "model", ""),
+                    model_id=model_id,
                     model_provider=self.llm.__class__.__name__,
                     tokens=tokens,
+                    cost=cost,
                     duration_seconds=llm_duration,
                 )
                 step_metrics.llm_calls.append(llm_metrics)
