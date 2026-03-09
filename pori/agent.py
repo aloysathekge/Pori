@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
 from pori.llm import BaseChatModel, SystemMessage, UserMessage, AssistantMessage
-from .metrics import RunMetrics, StepMetrics, LLMCallMetrics, ToolCallMetrics
+from .metrics import RunMetrics, StepMetrics, LLMCallMetrics, ToolCallMetrics, TokenUsage
 
 from .memory import AgentMemory
 from .tools.registry import ToolRegistry, ToolExecutor
@@ -191,11 +191,35 @@ class Agent:
             model_output = await self.get_next_action()
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
 
-            # Record LLM call metrics for this step (token usage and cost can be filled later)
+            # Record LLM call metrics for this step
             try:
+                # Optional token usage from provider-specific metadata
+                tokens = TokenUsage()
+                usage = getattr(self.llm, "last_usage", None)
+                if isinstance(usage, dict):
+                    # Anthropic-style keys
+                    if "input_tokens" in usage or "output_tokens" in usage:
+                        tokens.input_tokens = int(usage.get("input_tokens", 0) or 0)
+                        tokens.output_tokens = int(usage.get("output_tokens", 0) or 0)
+                        tokens.total_tokens = tokens.input_tokens + tokens.output_tokens
+                        tokens.cache_read_tokens = int(
+                            usage.get("cache_read_input_tokens", 0) or 0
+                        )
+                        tokens.cache_write_tokens = int(
+                            usage.get("cache_creation_input_tokens", 0) or 0
+                        )
+                    # OpenAI-style keys
+                    elif "prompt_tokens" in usage or "completion_tokens" in usage:
+                        tokens.input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                        tokens.output_tokens = int(
+                            usage.get("completion_tokens", 0) or 0
+                        )
+                        tokens.total_tokens = int(usage.get("total_tokens", 0) or 0)
+
                 llm_metrics = LLMCallMetrics(
                     model_id=getattr(self.llm, "model", ""),
                     model_provider=self.llm.__class__.__name__,
+                    tokens=tokens,
                     duration_seconds=llm_duration,
                 )
                 step_metrics.llm_calls.append(llm_metrics)
