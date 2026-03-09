@@ -33,3 +33,21 @@ def test_agent_executes_tool_calls(async_context, test_agent_with_tool_calls):
     fa = agent.memory.get_final_answer()
     assert isinstance(fa, dict)
     assert fa.get("final_answer") == "The test was successful"
+
+
+def test_agent_run_includes_metrics(async_context, test_agent_with_tool_calls):
+    """Agent.run should return aggregated run metrics."""
+    loop = async_context
+    agent = test_agent_with_tool_calls
+
+    result = loop.run_until_complete(agent.run())
+
+    assert "metrics" in result
+    metrics = result["metrics"]
+    assert isinstance(metrics, dict)
+
+    # Basic fields from RunMetrics.summary
+    assert "duration" in metrics
+    assert "steps" in metrics
+    assert "llm_calls" in metrics
+    assert "tool_calls" in metrics

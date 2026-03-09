@@ -133,6 +133,27 @@ async def main():
             print(f"Success: {result['success']}")
             print(f"Steps taken: {result['steps_taken']}")
 
+            # Show basic run metrics if available
+            metrics = result.get("result", {}).get("metrics")
+            if metrics:
+                try:
+                    tokens = metrics.get("tokens", {}) or {}
+                    cost = metrics.get("cost_usd")
+                    print(
+                        f"Run metrics: duration={metrics.get('duration')}, "
+                        f"steps={metrics.get('steps')}, "
+                        f"llm_calls={metrics.get('llm_calls')}, "
+                        f"tool_calls={metrics.get('tool_calls')}, "
+                        f"tokens_in={tokens.get('input')}, "
+                        f"tokens_out={tokens.get('output')}, "
+                        f"tokens_total={tokens.get('total')}"
+                    )
+                    if cost is not None:
+                        print(f"Estimated cost: {cost}")
+                except Exception:
+                    # Metrics are optional; ignore if shape is unexpected
+                    pass
+
             # Show the final answer if available
             agent = result.get("agent")
 
