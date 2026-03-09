@@ -24,6 +24,8 @@ class ChatOpenAI:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client = AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
+        # Last usage metadata from the most recent call (for metrics)
+        self.last_usage: dict[str, Any] | None = None
 
     async def ainvoke(
         self,
@@ -42,6 +44,18 @@ class ChatOpenAI:
 
         if output_format is None:
             response = await self._client.chat.completions.create(**request)
+            # Capture usage for metrics if available
+            try:
+                if getattr(response, "usage", None) is not None:
+                    self.last_usage = {
+                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+                        "completion_tokens": getattr(
+                            response.usage, "completion_tokens", 0
+                        ),
+                        "total_tokens": getattr(response.usage, "total_tokens", 0),
+                    }
+            except Exception:
+                self.last_usage = None
             return response.choices[0].message.content or ""
         else:
             # Use response_format for structured output
@@ -54,6 +68,20 @@ class ChatOpenAI:
                 },
             }
             response = await self._client.chat.completions.create(**request)
+
+            # Capture usage for metrics if available
+            try:
+                if getattr(response, "usage", None) is not None:
+                    self.last_usage = {
+                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+                        "completion_tokens": getattr(
+                            response.usage, "completion_tokens", 0
+                        ),
+                        "total_tokens": getattr(response.usage, "total_tokens", 0),
+                    }
+            except Exception:
+                self.last_usage = None
+
             content = response.choices[0].message.content
             return output_format.model_validate_json(content)
 

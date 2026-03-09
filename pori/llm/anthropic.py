@@ -24,6 +24,8 @@ class ChatAnthropic:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client = AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic()
+        # Last usage metadata from the most recent call (for metrics)
+        self.last_usage: dict[str, Any] | None = None
 
     async def ainvoke(
         self,
@@ -55,6 +57,21 @@ class ChatAnthropic:
         if output_format is None:
             # Text response
             response = await self._client.messages.create(**request)
+            # Capture usage for metrics if available
+            try:
+                if getattr(response, "usage", None) is not None:
+                    self.last_usage = {
+                        "input_tokens": getattr(response.usage, "input_tokens", 0),
+                        "output_tokens": getattr(response.usage, "output_tokens", 0),
+                        "cache_creation_input_tokens": getattr(
+                            response.usage, "cache_creation_input_tokens", 0
+                        ),
+                        "cache_read_input_tokens": getattr(
+                            response.usage, "cache_read_input_tokens", 0
+                        ),
+                    }
+            except Exception:
+                self.last_usage = None
             return response.content[0].text
         else:
             # Structured output via tool use
@@ -72,6 +89,22 @@ class ChatAnthropic:
             request["tool_choice"] = {"type": "tool", "name": output_format.__name__}
 
             response = await self._client.messages.create(**request)
+
+            # Capture usage for metrics if available
+            try:
+                if getattr(response, "usage", None) is not None:
+                    self.last_usage = {
+                        "input_tokens": getattr(response.usage, "input_tokens", 0),
+                        "output_tokens": getattr(response.usage, "output_tokens", 0),
+                        "cache_creation_input_tokens": getattr(
+                            response.usage, "cache_creation_input_tokens", 0
+                        ),
+                        "cache_read_input_tokens": getattr(
+                            response.usage, "cache_read_input_tokens", 0
+                        ),
+                    }
+            except Exception:
+                self.last_usage = None
 
             for block in response.content:
                 if hasattr(block, "type") and block.type == "tool_use":
