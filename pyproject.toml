@@ -35,6 +35,12 @@ where = ["."]
 include = ["pori*"]
 exclude = ["dev_docs*", "tests*", "examples*"]
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+pori = ["prompts/**/*.md"]
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.3.1",

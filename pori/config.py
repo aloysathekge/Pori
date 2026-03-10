@@ -55,6 +55,15 @@ class SandboxConfig(BaseModel):
 from pori.hitl import HITLConfig
 
 
+class PromptsConfig(BaseModel):
+    """Configuration for prompt loading."""
+
+    base_dir: Optional[str] = Field(
+        default=None,
+        description="Optional base directory for prompt templates (overrides packaged prompts)",
+    )
+
+
 class Config(BaseModel):
     """Main configuration container."""
 
@@ -62,6 +71,7 @@ class Config(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     sandbox: Optional[SandboxConfig] = Field(default=None)
     hitl: Optional[HITLConfig] = Field(default=None)
+    prompts: Optional[PromptsConfig] = Field(default=None)
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:

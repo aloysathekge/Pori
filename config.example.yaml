@@ -33,6 +33,10 @@ agent:
   # Enable memory system
   enable_memory: true
 
+# Prompts: override where prompt templates are loaded from (optional)
+# prompts:
+#   base_dir: ./prompts
+
 # Sandbox: isolated shell and file environment per task (optional)
 # sandbox:
 #   enabled: true

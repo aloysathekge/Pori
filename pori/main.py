@@ -21,6 +21,7 @@ from .tools.standard import register_all_tools
 
 # Configure logging
 from .utils.logging_config import setup_logging
+from .utils.prompt_loader import set_prompts_dir
 
 loggers = setup_logging(level=logging.INFO, include_http=True)
 logger = logging.getLogger("pori.main")
@@ -58,6 +59,18 @@ async def main():
         logger.error(f"Failed to initialize LLM: {e}")
         print(f"\n❌ Error initializing LLM: {e}")
         return
+
+    # Prompts: allow overriding packaged prompt templates
+    try:
+        if (
+            getattr(config, "prompts", None)
+            and config.prompts
+            and config.prompts.base_dir
+        ):
+            set_prompts_dir(config.prompts.base_dir)
+            logger.info(f"Prompts override enabled; base_dir={config.prompts.base_dir}")
+    except Exception:
+        pass
 
     # Sandbox: if enabled, set provider and base dir for per-task workspace
     sandbox_base_dir = None
