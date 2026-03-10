@@ -9,23 +9,23 @@ import pytest
 
 from pori.sandbox import (
     LocalSandboxProvider,
-    set_sandbox_provider,
     get_thread_data,
+    set_sandbox_provider,
 )
 from pori.sandbox.path_resolution import VIRTUAL_PREFIX
-from pori.tools.standard.filesystem_tools import (
-    create_directory_tool,
-    CreateDirectoryParams,
-)
 from pori.sandbox.sandbox_tools import (
-    bash_tool,
     BashParams,
-    sandbox_read_file_tool,
-    sandbox_write_file_tool,
-    sandbox_list_dir_tool,
+    SandboxListDirParams,
     SandboxReadFileParams,
     SandboxWriteFileParams,
-    SandboxListDirParams,
+    bash_tool,
+    sandbox_list_dir_tool,
+    sandbox_read_file_tool,
+    sandbox_write_file_tool,
+)
+from pori.tools.standard.filesystem_tools import (
+    CreateDirectoryParams,
+    create_directory_tool,
 )
 
 
@@ -95,7 +95,14 @@ def test_sandbox_write_file_and_read_file(sandbox_env):
     read_result = sandbox_read_file_tool(SandboxReadFileParams(path=path), context)
     assert read_result.get("success") is True
     assert read_result.get("content") == content
-    real_path = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace" / "test_sandbox_file.txt"
+    real_path = (
+        Path(base_dir)
+        / "threads"
+        / thread_id
+        / "user-data"
+        / "workspace"
+        / "test_sandbox_file.txt"
+    )
     assert real_path.exists()
     assert real_path.read_text() == content
 
@@ -123,10 +130,14 @@ def test_create_directory_accepts_sandbox_virtual_path(sandbox_env):
     base_dir, thread_id = sandbox_env
     context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
     result = create_directory_tool(
-        CreateDirectoryParams(directory_path=f"{VIRTUAL_PREFIX}/workspace/aloy", parents=True),
+        CreateDirectoryParams(
+            directory_path=f"{VIRTUAL_PREFIX}/workspace/aloy", parents=True
+        ),
         context,
     )
     assert result.get("message") is not None, result
     assert "successfully" in result.get("message", "")
-    real_dir = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace" / "aloy"
+    real_dir = (
+        Path(base_dir) / "threads" / thread_id / "user-data" / "workspace" / "aloy"
+    )
     assert real_dir.is_dir()

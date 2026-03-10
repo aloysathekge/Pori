@@ -210,7 +210,9 @@ class CLIHITLHandler(HITLHandler):
             key = raw.strip().lower()[:1]
             if key in choice_map:
                 break
-            print(f"  Invalid choice '{raw.strip()}'. Please enter one of: {', '.join(choice_map.keys())}")
+            print(
+                f"  Invalid choice '{raw.strip()}'. Please enter one of: {', '.join(choice_map.keys())}"
+            )
 
         decision_type = choice_map[key]
 

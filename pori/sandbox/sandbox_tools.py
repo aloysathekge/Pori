@@ -22,10 +22,10 @@ try:
     from .base import get_sandbox_provider
     from .path_resolution import (
         VIRTUAL_PREFIX,
+        ThreadData,
         get_thread_data,
         replace_virtual_path,
         replace_virtual_paths_in_command,
-        ThreadData,
     )
 except ImportError:
     get_sandbox_provider = None
@@ -37,14 +37,18 @@ except ImportError:
 
 
 class BashParams(BaseModel):
-    command: str = Field(..., description="Shell command to run (e.g. bash -c 'echo hello')")
+    command: str = Field(
+        ..., description="Shell command to run (e.g. bash -c 'echo hello')"
+    )
     working_dir: Optional[str] = Field(
         None,
         description=f"Working directory. Use {VIRTUAL_PREFIX}/workspace for scratch, {VIRTUAL_PREFIX}/outputs for results.",
     )
 
 
-def _ensure_sandbox_and_thread_dirs(context: Dict[str, Any]) -> Tuple[Optional[Any], Optional[str], Optional[Any], str]:
+def _ensure_sandbox_and_thread_dirs(
+    context: Dict[str, Any],
+) -> Tuple[Optional[Any], Optional[str], Optional[Any], str]:
     """
     Ensure sandbox is acquired and thread dirs exist (for local).
     Returns (sandbox, sandbox_id, thread_data, error_message).
@@ -54,8 +58,15 @@ def _ensure_sandbox_and_thread_dirs(context: Dict[str, Any]) -> Tuple[Optional[A
         return None, None, None, "Sandbox module not available."
     provider = get_sandbox_provider()
     if provider is None:
-        return None, None, None, "No sandbox provider configured. Set one via set_sandbox_provider(LocalSandboxProvider())."
-    thread_id = (context or {}).get("thread_id") or (context or {}).get("task_id") or "default"
+        return (
+            None,
+            None,
+            None,
+            "No sandbox provider configured. Set one via set_sandbox_provider(LocalSandboxProvider()).",
+        )
+    thread_id = (
+        (context or {}).get("thread_id") or (context or {}).get("task_id") or "default"
+    )
     thread_data = (context or {}).get("thread_data")
     sandbox_id = (context or {}).get("sandbox_id")
     if sandbox_id is None:
@@ -87,7 +98,11 @@ def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
     if err:
         return {"success": False, "error": err}
     command = params.command
-    if sandbox_id == "local" and thread_data is not None and replace_virtual_paths_in_command is not None:
+    if (
+        sandbox_id == "local"
+        and thread_data is not None
+        and replace_virtual_paths_in_command is not None
+    ):
         command = replace_virtual_paths_in_command(command, thread_data)
     try:
         output = sandbox.execute_command(command)
@@ -98,12 +113,17 @@ def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
 
 def _resolve_path_for_sandbox(path: str, sandbox_id: str, thread_data: Any) -> str:
     """Resolve virtual path to real path when using local sandbox; otherwise return path as-is."""
-    if sandbox_id == "local" and thread_data is not None and replace_virtual_path is not None:
+    if (
+        sandbox_id == "local"
+        and thread_data is not None
+        and replace_virtual_path is not None
+    ):
         return replace_virtual_path(path, thread_data)
     return path
 
 
 # --- Sandbox file tools (read/write/list in sandbox workspace) ---
+
 
 class SandboxReadFileParams(BaseModel):
     path: str = Field(
@@ -117,7 +137,9 @@ class SandboxReadFileParams(BaseModel):
     param_model=SandboxReadFileParams,
     description=f"Read a text file from the sandbox. Use paths under {VIRTUAL_PREFIX}/workspace, {VIRTUAL_PREFIX}/uploads, or {VIRTUAL_PREFIX}/outputs.",
 )
-def sandbox_read_file_tool(params: SandboxReadFileParams, context: Dict[str, Any]) -> Dict[str, Any]:
+def sandbox_read_file_tool(
+    params: SandboxReadFileParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
     """Read file contents from the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
     if err:
@@ -136,7 +158,9 @@ class SandboxWriteFileParams(BaseModel):
         description=f"Path in sandbox, e.g. {VIRTUAL_PREFIX}/workspace/notes.txt or {VIRTUAL_PREFIX}/outputs/report.txt",
     )
     content: str = Field(..., description="Text content to write")
-    append: bool = Field(False, description="If true, append to file instead of overwriting")
+    append: bool = Field(
+        False, description="If true, append to file instead of overwriting"
+    )
 
 
 @Registry.tool(
@@ -144,7 +168,9 @@ class SandboxWriteFileParams(BaseModel):
     param_model=SandboxWriteFileParams,
     description=f"Write text to a file in the sandbox. Use {VIRTUAL_PREFIX}/workspace for scratch, {VIRTUAL_PREFIX}/outputs for results.",
 )
-def sandbox_write_file_tool(params: SandboxWriteFileParams, context: Dict[str, Any]) -> Dict[str, Any]:
+def sandbox_write_file_tool(
+    params: SandboxWriteFileParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
     """Write or append to a file in the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
     if err:
@@ -152,7 +178,11 @@ def sandbox_write_file_tool(params: SandboxWriteFileParams, context: Dict[str, A
     resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
     try:
         sandbox.write_file(resolved, params.content, append=params.append)
-        return {"success": True, "path": params.path, "bytes_written": len(params.content.encode("utf-8"))}
+        return {
+            "success": True,
+            "path": params.path,
+            "bytes_written": len(params.content.encode("utf-8")),
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -162,7 +192,9 @@ class SandboxListDirParams(BaseModel):
         ...,
         description=f"Directory path in sandbox, e.g. {VIRTUAL_PREFIX}/workspace or {VIRTUAL_PREFIX}/outputs",
     )
-    max_depth: int = Field(2, ge=1, le=5, description="Maximum depth to list (default 2)")
+    max_depth: int = Field(
+        2, ge=1, le=5, description="Maximum depth to list (default 2)"
+    )
 
 
 @Registry.tool(
@@ -170,7 +202,9 @@ class SandboxListDirParams(BaseModel):
     param_model=SandboxListDirParams,
     description=f"List files and directories in the sandbox. Use {VIRTUAL_PREFIX}/workspace, {VIRTUAL_PREFIX}/uploads, or {VIRTUAL_PREFIX}/outputs.",
 )
-def sandbox_list_dir_tool(params: SandboxListDirParams, context: Dict[str, Any]) -> Dict[str, Any]:
+def sandbox_list_dir_tool(
+    params: SandboxListDirParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
     """List directory contents in the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
     if err:

@@ -1,9 +1,9 @@
-from .math_tools import register_math_tools
 from .core_tools import register_core_tools
-from .number_tools import register_number_tool
-from .spotify_tools import register_spotify_tools
 from .filesystem_tools import register_filesystem_tools
 from .internet_tools import register_internet_tools
+from .math_tools import register_math_tools
+from .number_tools import register_number_tool
+from .spotify_tools import register_spotify_tools
 
 
 def register_all_tools(registry):

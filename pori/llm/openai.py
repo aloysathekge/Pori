@@ -1,8 +1,9 @@
 """OpenAI chat model."""
 
 from typing import Any, Generic, TypeVar
-from pydantic import BaseModel
+
 from openai import AsyncOpenAI
+from pydantic import BaseModel
 
 from .messages import BaseMessage
 

@@ -3,11 +3,13 @@ Spotify API tools for development/learning purposes.
 This is NOT part of the core framework - delete when done experimenting.
 """
 
-import os
-import requests
 import base64
+import os
 from typing import Dict, List, Optional
+
+import requests
 from pydantic import BaseModel, Field
+
 from ..registry import tool_registry
 
 Registry = tool_registry()

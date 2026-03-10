@@ -1,8 +1,9 @@
 """Anthropic chat model."""
 
 from typing import Any, Generic, TypeVar
-from pydantic import BaseModel
+
 from anthropic import AsyncAnthropic
+from pydantic import BaseModel
 
 from .messages import BaseMessage, SystemMessage
 

@@ -1,21 +1,23 @@
 import asyncio
 import logging
 import os
-from pydantic import BaseModel, Field
 from typing import List
+
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 # Load environment variables
 load_dotenv()
 
 # Import modules
 from pathlib import Path
-from .tools.registry import tool_registry
+
 from .agent import Agent, AgentSettings
-from .orchestrator import Orchestrator
-from .tools.standard import register_all_tools
 from .config import get_configured_llm
 from .hitl import CLIHITLHandler
+from .orchestrator import Orchestrator
+from .tools.registry import tool_registry
+from .tools.standard import register_all_tools
 
 # Configure logging
 from .utils.logging_config import setup_logging
@@ -37,6 +39,7 @@ async def main():
     register_all_tools(registry)
     # Register sandbox tools (bash) so they appear in the same registry
     import pori.sandbox.sandbox_tools  # noqa: F401
+
     logger.info(f"Registered {len(registry.tools)} tools")
 
     # Create LLM from config file
@@ -58,8 +61,13 @@ async def main():
 
     # Sandbox: if enabled, set provider and base dir for per-task workspace
     sandbox_base_dir = None
-    if getattr(config, "sandbox", None) and config.sandbox.enabled and config.sandbox.base_dir:
-        from pori.sandbox import set_sandbox_provider, LocalSandboxProvider
+    if (
+        getattr(config, "sandbox", None)
+        and config.sandbox.enabled
+        and config.sandbox.base_dir
+    ):
+        from pori.sandbox import LocalSandboxProvider, set_sandbox_provider
+
         set_sandbox_provider(LocalSandboxProvider())
         sandbox_base_dir = str(Path(config.sandbox.base_dir).resolve())
         logger.info(f"Sandbox enabled; base_dir={sandbox_base_dir}")

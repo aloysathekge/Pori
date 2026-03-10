@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-
 # Default virtual prefix; agent and system prompt should use these paths
 VIRTUAL_PREFIX = "/mnt/user-data"
 WORKSPACE_SEGMENT = "workspace"

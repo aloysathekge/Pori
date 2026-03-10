@@ -1,7 +1,9 @@
 import uuid
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseFunction
 from starlette.requests import Request
 from starlette.responses import Response
+
 from pori.utils.context import request_id_var
 
 

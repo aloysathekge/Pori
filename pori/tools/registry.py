@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Type, get_type_hints
 from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Type, get_type_hints
+
 from pydantic import BaseModel, create_model
 
 

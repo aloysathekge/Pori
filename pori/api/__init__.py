@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from pori.utils.logging_config import setup_logging
-from pori.api.routers import agents
 from pori.api.deps import build_orchestrator
 from pori.api.middleware import RequestIdMiddleware
+from pori.api.routers import agents
+from pori.utils.logging_config import setup_logging
 
 
 @asynccontextmanager

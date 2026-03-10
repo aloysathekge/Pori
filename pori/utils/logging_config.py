@@ -1,6 +1,7 @@
 import logging
 import sys
-from typing import Dict, Any
+from typing import Any, Dict
+
 from pori.utils.context import request_id_var
 
 

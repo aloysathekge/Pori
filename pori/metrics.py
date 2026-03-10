@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
-
 # $ per MTok (million tokens): (input, output). Cache tiers not included.
 PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     # OpenAI — GPT-5 (future)
@@ -172,5 +171,3 @@ def estimate_llm_call_cost(model_id: str, tokens: TokenUsage) -> Optional[float]
     in_cost = (tokens.input_tokens / 1_000_000) * in_price_per_mtok
     out_cost = (tokens.output_tokens / 1_000_000) * out_price_per_mtok
     return in_cost + out_cost
-
-

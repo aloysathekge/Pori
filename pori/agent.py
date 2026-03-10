@@ -1,35 +1,36 @@
 import asyncio
-from datetime import datetime
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
-from pori.llm import BaseChatModel, SystemMessage, UserMessage, AssistantMessage
-from .metrics import (
-    RunMetrics,
-    StepMetrics,
-    LLMCallMetrics,
-    ToolCallMetrics,
-    TokenUsage,
-    estimate_llm_call_cost,
-)
 
-from .memory import AgentMemory
-from .tools.registry import ToolRegistry, ToolExecutor
+from pori.llm import AssistantMessage, BaseChatModel, SystemMessage, UserMessage
+
 from .evaluation import ActionResult, Evaluator
-from .utils.prompt_loader import load_prompt
-from .utils.logging_config import ensure_logger_configured
 from .hitl import (
-    HITLConfig,
-    HITLHandler,
+    ActionRequest,
     ApprovalRequest,
     ApprovalResponse,
-    ActionRequest,
+    HITLConfig,
+    HITLHandler,
     ReviewConfig,
     resolve_interrupt_config,
 )
+from .memory import AgentMemory
+from .metrics import (
+    LLMCallMetrics,
+    RunMetrics,
+    StepMetrics,
+    TokenUsage,
+    ToolCallMetrics,
+    estimate_llm_call_cost,
+)
+from .tools.registry import ToolExecutor, ToolRegistry
+from .utils.logging_config import ensure_logger_configured
+from .utils.prompt_loader import load_prompt
 
 # Set up logger for this module - this will work regardless of import order
 logger = ensure_logger_configured("pori.agent")
@@ -224,7 +225,11 @@ class Agent:
                         tokens.total_tokens = int(usage.get("total_tokens", 0) or 0)
 
                 model_id = getattr(self.llm, "model", "")
-                cost = estimate_llm_call_cost(model_id, tokens) if tokens.total_tokens else None
+                cost = (
+                    estimate_llm_call_cost(model_id, tokens)
+                    if tokens.total_tokens
+                    else None
+                )
 
                 llm_metrics = LLMCallMetrics(
                     model_id=model_id,
@@ -867,23 +872,28 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                     if interrupt_cfg is not None:
                         request = ApprovalRequest(
-                            action_requests=[ActionRequest(
-                                name=tool_name,
-                                arguments=params,
-                                description=(
-                                    f"{interrupt_cfg.description or self.hitl_config.description_prefix}"
-                                    + (
-                                        f"\n\nAgent reasoning:"
-                                        f"\n  Goal: {agent_reasoning.get('next_goal', 'N/A')}"
-                                        f"\n  Context: {agent_reasoning.get('memory', 'N/A')}"
-                                        if agent_reasoning else ""
-                                    )
-                                ),
-                            )],
-                            review_configs=[ReviewConfig(
-                                action_name=tool_name,
-                                allowed_decisions=interrupt_cfg.allowed_decisions,
-                            )],
+                            action_requests=[
+                                ActionRequest(
+                                    name=tool_name,
+                                    arguments=params,
+                                    description=(
+                                        f"{interrupt_cfg.description or self.hitl_config.description_prefix}"
+                                        + (
+                                            f"\n\nAgent reasoning:"
+                                            f"\n  Goal: {agent_reasoning.get('next_goal', 'N/A')}"
+                                            f"\n  Context: {agent_reasoning.get('memory', 'N/A')}"
+                                            if agent_reasoning
+                                            else ""
+                                        )
+                                    ),
+                                )
+                            ],
+                            review_configs=[
+                                ReviewConfig(
+                                    action_name=tool_name,
+                                    allowed_decisions=interrupt_cfg.allowed_decisions,
+                                )
+                            ],
                             task_id=self.task_id,
                             step_number=self.state.n_steps,
                         )
@@ -1119,8 +1129,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 self._run_metrics.finalize()
                 summary = self._run_metrics.summary()
                 logger.info(
-                    "Run metrics summary: "
-                    + f"duration={summary['duration']}, "
+                    "Run metrics summary: " + f"duration={summary['duration']}, "
                     f"steps={summary['steps']}, "
                     f"llm_calls={summary['llm_calls']}, "
                     f"tool_calls={summary['tool_calls']}",
@@ -1139,9 +1148,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "completed": completed,
             "steps_taken": self.state.n_steps,
             "final_state": self.state.dict(),
-            "metrics": self._run_metrics.summary()
-            if self._run_metrics is not None
-            else None,
+            "metrics": (
+                self._run_metrics.summary() if self._run_metrics is not None else None
+            ),
         }
 
     def pause(self) -> None:

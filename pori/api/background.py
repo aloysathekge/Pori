@@ -31,4 +31,3 @@ def get_task_status(task_id: str) -> Dict[str, Any]:
             return {"status": "failed", "error": str(e)}
     else:
         return {"status": "running"}
-

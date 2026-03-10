@@ -28,8 +28,14 @@ class LocalSandbox(Sandbox):
         """Apply shared path mappings only (thread paths come in already resolved)."""
         path = path.strip()
         for virtual, real in self.path_mappings.items():
-            if path == virtual or path.startswith(virtual + "/") or path.startswith(virtual + "\\"):
-                return os.path.join(real, path[len(virtual) :].lstrip("/\\")).replace("/", os.sep)
+            if (
+                path == virtual
+                or path.startswith(virtual + "/")
+                or path.startswith(virtual + "\\")
+            ):
+                return os.path.join(real, path[len(virtual) :].lstrip("/\\")).replace(
+                    "/", os.sep
+                )
         return path
 
     def execute_command(self, command: str) -> str:

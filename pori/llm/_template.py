@@ -5,11 +5,14 @@ Replace all instances of "ProviderName" with your provider name.
 """
 
 from typing import Any, Generic, TypeVar
+
 from pydantic import BaseModel
+
+from .messages import BaseMessage
+
 # TODO: Import your provider's SDK
 # from provider_sdk import AsyncClient
 
-from .messages import BaseMessage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -68,17 +71,17 @@ class ChatProviderName:
             # Structured output path
             # TODO: Convert Pydantic model to provider's schema format
             schema = output_format.model_json_schema()
-            
+
             # TODO: Add provider-specific structured output parameters
             # Example for OpenAI-style:
             # request["response_format"] = {
             #     "type": "json_schema",
             #     "json_schema": {"schema": schema}
             # }
-            
+
             # TODO: Call provider API
             # response = await self._client.complete(**request)
-            
+
             # TODO: Extract and parse structured result
             # content = extract_content_from_response(response)
             # return output_format.model_validate_json(content)
@@ -93,7 +96,7 @@ class ChatProviderName:
 
 class StructuredWrapper(Generic[T]):
     """Wrapper for structured output calls.
-    
+
     This is the same for all providers - just copy as-is.
     """
 

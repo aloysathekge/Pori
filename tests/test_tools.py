@@ -20,7 +20,7 @@ def test_tool_registry_register_and_execute(tool_registry):
 
 def test_tool_registry_decorator_registration():
     """Use the decorator to register a tool and then run it."""
-    from pori.tools.registry import ToolRegistry, ToolExecutor
+    from pori.tools.registry import ToolExecutor, ToolRegistry
 
     registry = ToolRegistry()
 

@@ -1,6 +1,7 @@
 """Base protocol for LLM providers."""
 
 from typing import Any, Protocol, TypeVar, runtime_checkable
+
 from pydantic import BaseModel
 
 from .messages import BaseMessage

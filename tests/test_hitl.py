@@ -8,29 +8,28 @@ auto_approve_duplicates.
 
 import asyncio
 import json
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 from pydantic import BaseModel, Field
 
 from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult
-from pori.memory import AgentMemory
-from pori.tools.registry import ToolRegistry
 from pori.hitl import (
-    HITLConfig,
-    HITLHandler,
-    AutoApproveHandler,
-    InterruptConfig,
+    ActionRequest,
     ApprovalRequest,
     ApprovalResponse,
-    ActionRequest,
-    ReviewConfig,
+    AutoApproveHandler,
     Decision,
     EditedAction,
+    HITLConfig,
+    HITLHandler,
+    InterruptConfig,
+    ReviewConfig,
     resolve_interrupt_config,
 )
-
+from pori.memory import AgentMemory
+from pori.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,19 +52,19 @@ class MockLLMForHITL:
 
         if hasattr(self._output_model, "plan_steps"):
             return MagicMock(
-                get=lambda k, d=None: PlanOutput(
-                    plan_steps=["step1"], rationale="test"
+                get=lambda k, d=None: (
+                    PlanOutput(plan_steps=["step1"], rationale="test")
+                    if k == "parsed"
+                    else d
                 )
-                if k == "parsed"
-                else d
             )
         if hasattr(self._output_model, "critique"):
             return MagicMock(
-                get=lambda k, d=None: ReflectOutput(
-                    critique="ok", update_plan=None
+                get=lambda k, d=None: (
+                    ReflectOutput(critique="ok", update_plan=None)
+                    if k == "parsed"
+                    else d
                 )
-                if k == "parsed"
-                else d
             )
         output = AgentOutput(
             current_state={"next_goal": "test"},
@@ -126,8 +125,10 @@ def _make_registry():
         return f"result:{params.param1}"
 
     registry.register_tool(
-        name="test_tool", param_model=TestParams,
-        function=test_fn, description="A test tool",
+        name="test_tool",
+        param_model=TestParams,
+        function=test_fn,
+        description="A test tool",
     )
 
     class SafeParams(BaseModel):
@@ -137,8 +138,10 @@ def _make_registry():
         return f"safe:{params.query}"
 
     registry.register_tool(
-        name="safe_tool", param_model=SafeParams,
-        function=safe_fn, description="A safe tool",
+        name="safe_tool",
+        param_model=SafeParams,
+        function=safe_fn,
+        description="A safe tool",
     )
 
     class AnswerParams(BaseModel):
@@ -154,8 +157,10 @@ def _make_registry():
         return {"final_answer": params.final_answer}
 
     registry.register_tool(
-        name="answer", param_model=AnswerParams,
-        function=answer_fn, description="answer",
+        name="answer",
+        param_model=AnswerParams,
+        function=answer_fn,
+        description="answer",
     )
 
     class DoneParams(BaseModel):
@@ -166,8 +171,10 @@ def _make_registry():
         return {"success": params.success}
 
     registry.register_tool(
-        name="done", param_model=DoneParams,
-        function=done_fn, description="done",
+        name="done",
+        param_model=DoneParams,
+        function=done_fn,
+        description="done",
     )
     return registry
 
@@ -180,8 +187,9 @@ def _make_hitl_config(tool_names=None, **kwargs):
     return HITLConfig(enabled=True, interrupt_on=interrupt_on, **kwargs)
 
 
-def _make_agent(llm=None, hitl_handler=None, hitl_config=None,
-                tool_name="test_tool", params=None):
+def _make_agent(
+    llm=None, hitl_handler=None, hitl_config=None, tool_name="test_tool", params=None
+):
     return Agent(
         task="Test HITL task",
         llm=llm or MockLLMForHITL(tool_name=tool_name, params=params),
@@ -223,7 +231,9 @@ class TestResolveInterruptConfig:
     def test_interrupt_config_object(self):
         cfg = HITLConfig(
             enabled=True,
-            interrupt_on={"sql": InterruptConfig(allowed_decisions=["approve", "reject"])},
+            interrupt_on={
+                "sql": InterruptConfig(allowed_decisions=["approve", "reject"])
+            },
         )
         result = resolve_interrupt_config("sql", cfg)
         assert result is not None
@@ -312,8 +322,10 @@ def test_safe_tool_skips_gate(event_loop):
     handler = ApproveHandler()
     config = _make_hitl_config(tool_names=["bash"])
     agent = _make_agent(
-        hitl_handler=handler, hitl_config=config,
-        tool_name="safe_tool", params={"query": "hello"},
+        hitl_handler=handler,
+        hitl_config=config,
+        tool_name="safe_tool",
+        params={"query": "hello"},
     )
 
     event_loop.run_until_complete(agent.step())
@@ -373,7 +385,9 @@ def test_per_tool_allowed_decisions(event_loop):
     handler = ApproveHandler()
     config = HITLConfig(
         enabled=True,
-        interrupt_on={"test_tool": InterruptConfig(allowed_decisions=["approve", "reject"])},
+        interrupt_on={
+            "test_tool": InterruptConfig(allowed_decisions=["approve", "reject"])
+        },
     )
     agent = _make_agent(hitl_handler=handler, hitl_config=config)
 
