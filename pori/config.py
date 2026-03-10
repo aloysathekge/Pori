@@ -78,9 +78,12 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:
     """
     Load configuration from YAML file.
 
-    Args:
-        config_path: Path to config file. If None, looks for 'config.yaml'
-                    in project root.
+    Resolution order:
+    1) Explicit config_path argument (if provided)
+    2) Environment variable PORI_CONFIG (if set)
+    3) ./config.yaml in current working directory
+    4) ~/.config/pori/config.yaml (desktop / service-friendly default)
+    5) Packaged config.example.yaml next to this module (fallback)
 
     Returns:
         Config object with loaded settings
@@ -89,20 +92,44 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:
         FileNotFoundError: If config file doesn't exist
         ValueError: If config is invalid
     """
-    if config_path is None:
-        # Default to config.yaml in project root
-        project_root = Path(__file__).parent.parent
-        config_path = project_root / "config.yaml"
+    # 1) Explicit path wins
+    if config_path is not None:
+        candidate = Path(config_path)
+    else:
+        # 2) PORI_CONFIG env var
+        env_path = os.getenv("PORI_CONFIG")
+        if env_path:
+            candidate = Path(env_path)
+        else:
+            # 3) ./config.yaml in CWD
+            cwd_candidate = Path.cwd() / "config.yaml"
+            if cwd_candidate.exists():
+                candidate = cwd_candidate
+            else:
+                # 4) ~/.config/pori/config.yaml
+                home_cfg = Path.home() / ".config" / "pori" / "config.yaml"
+                if home_cfg.exists():
+                    candidate = home_cfg
+                else:
+                    # 5) Fallback: packaged example next to this module
+                    project_root = Path(__file__).parent.parent
+                    example_cfg = project_root / "config.example.yaml"
+                    if example_cfg.exists():
+                        candidate = example_cfg
+                    else:
+                        raise FileNotFoundError(
+                            "No configuration file found. "
+                            "Searched PORI_CONFIG env, ./config.yaml, "
+                            "~/.config/pori/config.yaml, and config.example.yaml."
+                        )
 
-    config_path = Path(config_path)
-
-    if not config_path.exists():
+    if not candidate.exists():
         raise FileNotFoundError(
-            f"Config file not found at {config_path}. "
+            f"Config file not found at {candidate}. "
             f"Please create one based on config.example.yaml"
         )
 
-    with open(config_path, "r") as f:
+    with open(candidate, "r") as f:
         config_dict = yaml.safe_load(f)
 
     return Config(**config_dict)
