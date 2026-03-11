@@ -103,6 +103,91 @@ def remember_tool(params: RememberParams, context: Dict[str, Any]):
         return {"success": False, "error": str(e)}
 
 
+# ---------- Recall + Archival memory tools (Letta-style) ----------
+
+
+class ConversationSearchParams(BaseModel):
+    query: str = Field(..., description="Search query")
+    limit: int = Field(10, ge=1, le=50, description="Max results to return")
+    roles: list[str] | None = Field(
+        default=None, description="Optional roles filter (e.g. ['user','assistant'])"
+    )
+
+
+@Registry.tool(
+    name="conversation_search",
+    description="Search the conversation history for relevant prior messages.",
+)
+def conversation_search_tool(params: ConversationSearchParams, context: Dict[str, Any]):
+    memory = context.get("memory") if context else None
+    if not memory or not hasattr(memory, "conversation_search"):
+        return {"success": False, "error": "Memory search not available"}
+    try:
+        results = memory.conversation_search(
+            query=params.query, limit=params.limit, roles=params.roles
+        )
+        return {"success": True, "results": results, "count": len(results)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class ArchivalInsertParams(BaseModel):
+    text: str = Field(..., description="Passage to store in archival memory")
+    tags: list[str] | None = Field(default=None, description="Optional tags")
+    importance: int = Field(1, ge=1, le=5, description="Importance from 1-5")
+
+
+@Registry.tool(
+    name="archival_memory_insert",
+    description="Store a passage in long-term archival memory for later retrieval.",
+)
+def archival_memory_insert_tool(params: ArchivalInsertParams, context: Dict[str, Any]):
+    memory = context.get("memory") if context else None
+    if not memory or not hasattr(memory, "archival_memory_insert"):
+        return {"success": False, "error": "Archival memory not available"}
+    try:
+        pid = memory.archival_memory_insert(
+            text=params.text, tags=params.tags, importance=params.importance
+        )
+        return {"success": True, "result": {"id": pid}}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class ArchivalSearchParams(BaseModel):
+    query: str = Field(..., description="Search query")
+    k: int = Field(5, ge=1, le=20, description="Max results to return")
+    min_score: float = Field(0.0, ge=0.0, le=1.0, description="Minimum score")
+    tags: list[str] | None = Field(default=None, description="Optional tag filter")
+
+
+@Registry.tool(
+    name="archival_memory_search",
+    description="Search archival memory passages by query (simple semantic proxy).",
+)
+def archival_memory_search_tool(params: ArchivalSearchParams, context: Dict[str, Any]):
+    memory = context.get("memory") if context else None
+    if not memory or not hasattr(memory, "archival_memory_search"):
+        return {"success": False, "error": "Archival memory not available"}
+    try:
+        results = memory.archival_memory_search(
+            query=params.query,
+            k=params.k,
+            min_score=params.min_score,
+            tags=params.tags,
+        )
+        return {
+            "success": True,
+            "results": [
+                {"id": rid, "text": text, "score": score}
+                for rid, text, score in results
+            ],
+            "count": len(results),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ---------- Letta-style core memory (editable in-context blocks) ----------
 
 
