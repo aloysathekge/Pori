@@ -37,3 +37,33 @@ def test_agent_memory_basic_flow(legacy_memory, test_task_id):
 
     # Final answer is not set by default
     assert memory.get_final_answer() is None
+
+
+def test_conversation_search(legacy_memory):
+    memory = legacy_memory
+    memory.add_message("user", "Hello world")
+    memory.add_message("assistant", "General Aloy")
+    memory.add_message("user", "Hello again")
+
+    results = memory.conversation_search(query="hello", limit=10)
+    assert len(results) == 2
+    assert results[0]["content"] == "Hello again"
+    assert results[1]["content"] == "Hello world"
+
+    filtered = memory.conversation_search(query="hello", limit=10, roles=["assistant"])
+    assert filtered == []
+
+
+def test_archival_memory_insert_and_search(legacy_memory):
+    memory = legacy_memory
+    pid = memory.archival_memory_insert(
+        text="Project spec: use Postgres and FastAPI",
+        tags=["spec", "backend"],
+        importance=3,
+    )
+    assert pid.startswith("arch_")
+
+    hits = memory.archival_memory_search(query="FastAPI", k=5, min_score=0.0)
+    assert len(hits) >= 1
+    assert hits[0][0] == pid
+    assert "FastAPI" in hits[0][1]
