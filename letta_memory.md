@@ -3868,6 +3868,75 @@ This section gives a concrete checklist and mapping so you can implement Letta-s
 
 ---
 
+## Pori Implementation Status (What we’ve done + what’s next)
+
+This section maps the guide above to the current Pori codebase and identifies what’s still missing to be “Letta-complete”.
+
+### What Pori already implements
+
+- **Core memory blocks (Letta-style)** [x]
+  - `pori/memory.py`: `CoreMemory` with `Block` (`persona`, `human`, `notes`) and `compile()` injected into the system prompt.
+- **Core memory editing tools** [x]
+  - `pori/tools/standard/core_tools.py`: `core_memory_append`, `core_memory_replace`.
+- **Recall memory (conversation history)** [x] (basic)
+  - `pori/memory.py`: message history via `AgentMemory.messages`.
+  - `conversation_search` implemented as substring search over message history.
+  - `pori/tools/standard/core_tools.py`: `conversation_search` tool.
+- **Archival memory** [x] (MVP / in-memory)
+  - `pori/memory.py`: in-memory `archival_passages` with `archival_memory_insert` / `archival_memory_search` (simple keyword scoring + optional tag filter).
+  - `pori/tools/standard/core_tools.py`: `archival_memory_insert`, `archival_memory_search` tools.
+
+### What’s still missing vs “complete Letta memory”
+
+1) **Persistence layer (DB-backed memory)** [ ]
+   - Letta persists blocks, messages, and archival passages to a DB and can reload them by IDs.
+   - Pori’s memory is currently **in-process** (lost on restart).
+
+2) **Serializable AgentState (IDs, not full data)** [ ]
+   - Letta stores `message_ids` and `block_ids` in a serializable state so context can be reconstructed.
+   - Pori currently keeps messages in memory objects and does not maintain a durable `AgentState` that can rebuild context.
+
+3) **Context-window management (token budget + summarization + trimming)** [ ]
+   - Letta uses token-aware overflow detection, summarizes and trims old messages, then prepends a summary message.
+   - Pori has a simple summary interval, but not token-budget based trimming and summary insertion into recall.
+
+4) **Richer self-edit tools + validation** [ ]
+   - Add more core memory tools (insert/delete/rethink) and stricter validation rules (size, structure).
+
+5) **Semantic recall + real archival vector search** [ ]
+   - Today `conversation_search` and archival search are substring/keyword based.
+   - Letta uses embeddings + vector retrieval (plus filters/tags).
+
+6) **Identity boundaries (agent/user/session) and multi-tenant safety** [ ]
+   - Needed for `pori_cloud`: prevent memory leakage and allow per-tenant persistence.
+
+### Proposed incremental plan for Pori (safe upgrades)
+
+**Phase A (already done): Core + basic recall/archival + tools**
+- [x] Core blocks + compile
+- [x] Core editing tools
+- [x] `conversation_search`
+- [x] archival insert/search (in-memory)
+
+**Phase B: Pluggable persistence (SQLite first)**
+- Add a `MemoryStore` interface (save/load blocks, messages, passages).
+- Provide `SQLiteMemoryStore` (single-file DB) as default optional backend.
+- Keep in-memory fallback for “toy mode”.
+
+**Phase C: Serializable `AgentState` + rebuildable context**
+- Store ordered `message_ids` (system + conversation) and block refs/ids.
+- Load messages by ID to construct the in-context window.
+
+**Phase D: Token-budget context window manager**
+- Add token counting (approx first, exact per-provider later).
+- Implement overflow policy: summarize + trim + prepend summary message.
+
+**Phase E: Semantic retrieval (optional)**
+- Embedding provider + vector backend (local SQLite+FAISS or external vector DB).
+- Keep the same tool API (`archival_memory_insert/search`) so apps don’t break.
+
+---
+
 ## Summary
 
 This implementation guide covers the complete Letta memory system:
