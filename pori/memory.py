@@ -379,29 +379,10 @@ class AgentMemory:
         results.sort(key=lambda x: x[2], reverse=True)
         return results[:k]
 
-    # ============= Backwards Compatibility =============
-
-    @property
-    def conversation_history(self) -> List[AgentMessage]:
-        """Backwards compatibility for old interface."""
-        return self.messages
-
-    @property
-    def final_answer(self) -> Optional[Dict[str, str]]:
-        """Backwards compatibility for final answer."""
-        return self.get_final_answer()
-
-
-# Backwards compatibility aliases
-SimpleMemory = AgentMemory  # Legacy name
-EnhancedAgentMemory = AgentMemory  # For easy migration
-
 
 # Re-export commonly used classes
 __all__ = [
     "AgentMemory",
-    "SimpleMemory",  # Backwards compatibility
-    "EnhancedAgentMemory",
     "AgentMessage",
     "ToolCallRecord",
     "TaskState",

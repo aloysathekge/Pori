@@ -12,8 +12,8 @@ def test_agent_memory_basic_flow(legacy_memory, test_task_id):
 
     # Add a message and verify it appears in history
     memory.add_message("user", "Hello")
-    assert len(memory.conversation_history) == 1
-    assert memory.conversation_history[0].content == "Hello"
+    assert len(memory.messages) == 1
+    assert memory.messages[0].content == "Hello"
 
     # Update and read simple state
     memory.update_state("foo", "bar")

@@ -19,7 +19,6 @@ from .memory import (
     AgentMessage,
     Block,
     CoreMemory,
-    SimpleMemory,
     TaskState,
     ToolCallRecord,
 )
@@ -37,7 +36,6 @@ __all__ = [
     "AgentOutput",
     # Memory system
     "AgentMemory",
-    "SimpleMemory",  # Backwards compatibility
     "TaskState",
     "ToolCallRecord",
     "AgentMessage",
