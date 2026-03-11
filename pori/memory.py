@@ -152,6 +152,9 @@ class AgentMemory:
         # Simple experience storage for this session
         self.experiences: List[Dict[str, Any]] = []
 
+        # Archival memory (long-term passages; in-memory by default)
+        self.archival_passages: List[Dict[str, Any]] = []
+
     # ============= Core Memory Methods =============
 
     def add_message(self, role: str, content: str) -> None:
@@ -281,6 +284,98 @@ class AgentMemory:
                 results.append((exp["id"], text, score))
 
         # Sort by score and return top k
+        results.sort(key=lambda x: x[2], reverse=True)
+        return results[:k]
+
+    # ============= Recall Memory Search =============
+
+    def conversation_search(
+        self, query: str, limit: int = 10, roles: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Search conversation history (messages) by substring match.
+
+        Args:
+            query: Text query to search for
+            limit: Max results
+            roles: Optional list of roles to include (e.g. ["user", "assistant"])
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+
+        matches: List[Dict[str, Any]] = []
+        for msg in reversed(self.messages):
+            if roles and msg.role not in roles:
+                continue
+            content = msg.content or ""
+            if q in content.lower():
+                matches.append(
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": (
+                            msg.timestamp.isoformat()
+                            if getattr(msg, "timestamp", None)
+                            else None
+                        ),
+                    }
+                )
+            if len(matches) >= limit:
+                break
+        return matches
+
+    # ============= Archival Memory (Passages) =============
+
+    def archival_memory_insert(
+        self, text: str, tags: Optional[List[str]] = None, importance: int = 1
+    ) -> str:
+        """Insert a passage into archival memory.
+
+        Returns a passage id.
+        """
+        pid = f"arch_{len(self.archival_passages)}"
+        rec = {
+            "id": pid,
+            "text": text,
+            "tags": tags or [],
+            "importance": int(importance or 1),
+            "timestamp": datetime.now(),
+        }
+        self.archival_passages.append(rec)
+        return pid
+
+    def archival_memory_search(
+        self,
+        query: str,
+        k: int = 5,
+        min_score: float = 0.0,
+        tags: Optional[List[str]] = None,
+    ) -> List[Tuple[str, str, float]]:
+        """Search archival passages with simple keyword scoring.
+
+        Returns list of (id, text, score).
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        words = [w for w in q.split() if w]
+
+        results: List[Tuple[str, str, float]] = []
+        for rec in self.archival_passages:
+            if tags:
+                rec_tags = set(rec.get("tags") or [])
+                if not rec_tags.intersection(tags):
+                    continue
+            text = str(rec.get("text", ""))
+            tl = text.lower()
+            score = 0.0
+            if q in tl:
+                score = 1.0
+            elif words and any(w in tl for w in words):
+                score = 0.5
+            if score >= min_score:
+                results.append((rec["id"], text, score))
+
         results.sort(key=lambda x: x[2], reverse=True)
         return results[:k]
 
