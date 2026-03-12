@@ -1,5 +1,6 @@
 """Anthropic chat model."""
 
+import json
 from typing import Any, Generic, TypeVar
 
 from anthropic import AsyncAnthropic
@@ -109,7 +110,23 @@ class ChatAnthropic:
 
             for block in response.content:
                 if hasattr(block, "type") and block.type == "tool_use":
-                    return output_format.model_validate(block.input)
+                    # Some models occasionally return fields as JSON strings.
+                    # Coerce common shapes before validation (e.g. action as a JSON list string).
+                    tool_input = block.input
+                    if isinstance(tool_input, dict):
+                        try:
+                            if isinstance(tool_input.get("action"), str):
+                                tool_input["action"] = json.loads(tool_input["action"])
+                        except Exception:
+                            pass
+                        try:
+                            if isinstance(tool_input.get("current_state"), str):
+                                tool_input["current_state"] = json.loads(
+                                    tool_input["current_state"]
+                                )
+                        except Exception:
+                            pass
+                    return output_format.model_validate(tool_input)
 
             raise ValueError("No structured output in response")
 
