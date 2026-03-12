@@ -1,6 +1,17 @@
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Type, get_type_hints
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import BaseModel, create_model
 
@@ -87,10 +98,37 @@ class ToolRegistry:
 
     def get_tool_descriptions(self) -> str:
         """Get descriptions of all registered tools for prompting."""
+
+        def _type_name(tp: Any) -> str:
+            if tp is None:
+                return "None"
+            # Pydantic sometimes stores annotations as objects like types.UnionType (PEP 604)
+            origin = get_origin(tp)
+            if origin is None and isinstance(tp, type):
+                return getattr(tp, "__name__", str(tp))
+            # Handle PEP 604 unions and typing.Union
+            if origin in (Union,) or str(tp).startswith("types.UnionType"):
+                args = get_args(tp) or ()
+                if args:
+                    return " | ".join(_type_name(a) for a in args)
+                return "Union"
+            if origin is list:
+                (arg,) = get_args(tp) or (Any,)
+                return f"list[{_type_name(arg)}]"
+            if origin is dict:
+                k, v = get_args(tp) or (Any, Any)
+                return f"dict[{_type_name(k)}, {_type_name(v)}]"
+            if origin is tuple:
+                args = get_args(tp) or ()
+                inner = ", ".join(_type_name(a) for a in args) if args else "Any"
+                return f"tuple[{inner}]"
+            # Fallback for other typing constructs
+            return str(tp).replace("typing.", "")
+
         descriptions = []
         for name, tool in self.tools.items():
             params = [
-                f"{field_name}: {field_info.annotation.__name__}"
+                f"{field_name}: {_type_name(field_info.annotation)}"
                 for field_name, field_info in tool.param_model.model_fields.items()
             ]
             param_str = ", ".join(params)
