@@ -41,6 +41,9 @@ include-package-data = true
 [tool.setuptools.package-data]
 pori = ["prompts/**/*.md"]
 
+[project.entry-points."pori.tools"]
+"standard" = "pori.tools.standard:register_all_tools"
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.3.1",
