@@ -103,6 +103,12 @@ Pori aims to be the simplest, most extensible AI agent framework for Python deve
     - **Resource limits**: per-call timeouts, max stdout/stderr bytes, disk quota per session, max file sizes, max processes
     - **Policy layer**: command allow/deny lists, tool allowlists per tenant/project, approval gates for high-risk ops
     - **Observability**: structured audit logs for every sandbox call (who/what/when), metrics (latency/error/timeout), artifact retention for `/outputs`
+  - **Letta-style sandbox parity (for `pori_cloud`)**
+    - Add a real isolation backend (`DockerSandboxProvider` for local/CI and/or `RemoteSandboxProvider` for hosted) using the existing `SandboxProvider` interface
+    - Move high-risk execution (shell/code/user-provided tools) into the isolated runtime; keep low-risk tools in-process for speed
+    - Enforce hard limits: CPU/memory/timeouts, disk quotas, max output bytes, process limits
+    - Separate secrets from execution: sandbox gets short-lived tokens only; credentialed calls happen in the control plane
+    - Default-deny network egress in cloud; explicit allowlists only
   - Jupyter kernel integration
   - Code analysis tools
   - *Help wanted: Security hardening, resource limits*
