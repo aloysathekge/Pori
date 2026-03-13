@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import Request
 
 from pori.llm import ChatAnthropic
+from pori.memory import AgentMemory, create_memory_store
 from pori.orchestrator import Orchestrator
 from pori.tools.registry import tool_registry
 from pori.tools.standard import register_all_tools
@@ -26,7 +27,24 @@ def build_orchestrator() -> Orchestrator:
         api_key=os.getenv("ANTHROPIC_API_KEY"),
     )
 
-    return Orchestrator(llm=llm, tools_registry=registry)
+    memory_backend = os.getenv("PORI_MEMORY_BACKEND", "memory")
+    memory_sqlite_path = os.getenv("PORI_MEMORY_SQLITE_PATH")
+    memory_store = create_memory_store(
+        backend=memory_backend,
+        sqlite_path=memory_sqlite_path,
+    )
+    shared_memory = AgentMemory(
+        user_id=os.getenv("PORI_MEMORY_USER_ID", "api_user"),
+        agent_id=os.getenv("PORI_MEMORY_AGENT_ID", "api_agent"),
+        session_id=os.getenv("PORI_MEMORY_SESSION_ID"),
+        store=memory_store,
+    )
+
+    return Orchestrator(
+        llm=llm,
+        tools_registry=registry,
+        shared_memory=shared_memory,
+    )
 
 
 def get_orchestrator(request: Request) -> Orchestrator:
