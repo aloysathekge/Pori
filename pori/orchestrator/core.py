@@ -21,14 +21,17 @@ class Orchestrator:
     4. Callbacks for monitoring agent progress
     """
 
-    def __init__(self, llm: BaseChatModel, tools_registry: ToolRegistry):
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        tools_registry: ToolRegistry,
+        shared_memory: Optional[AgentMemory] = None,
+    ):
         self.llm = llm
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
-
-        # Shared memory - simple per-session memory
-        self.shared_memory = AgentMemory()
+        self.shared_memory = shared_memory or AgentMemory()
 
     async def execute_task(
         self,
