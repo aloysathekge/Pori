@@ -5,3 +5,4 @@ utputFormat
 pori.egg-info
 uv.lock
 .pori_sandbox
+memory.db
