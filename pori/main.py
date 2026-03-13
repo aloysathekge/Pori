@@ -15,6 +15,7 @@ from pathlib import Path
 from .agent import Agent, AgentSettings
 from .config import get_configured_llm
 from .hitl import CLIHITLHandler
+from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
 from .tools.registry import tool_registry
 from .tools.standard import register_all_tools
@@ -85,9 +86,34 @@ async def main():
         sandbox_base_dir = str(Path(config.sandbox.base_dir).resolve())
         logger.info(f"Sandbox enabled; base_dir={sandbox_base_dir}")
 
+    memory_backend = (
+        getattr(config, "memory", None).backend
+        if getattr(config, "memory", None)
+        else "memory"
+    )
+    memory_sqlite_path = (
+        getattr(config, "memory", None).sqlite_path
+        if getattr(config, "memory", None)
+        else None
+    )
+    memory_store = create_memory_store(
+        backend=memory_backend,
+        sqlite_path=memory_sqlite_path,
+    )
+    shared_memory = AgentMemory(
+        user_id=getattr(config.memory, "user_id", "default_user"),
+        agent_id=getattr(config.memory, "agent_id", "default_agent"),
+        session_id=getattr(config.memory, "session_id", None),
+        store=memory_store,
+    )
+
     # Create orchestrator
     logger.info("Creating orchestrator")
-    orchestrator = Orchestrator(llm=llm, tools_registry=registry)
+    orchestrator = Orchestrator(
+        llm=llm,
+        tools_registry=registry,
+        shared_memory=shared_memory,
+    )
 
     # HITL: check if enabled in config
     hitl_handler = None
@@ -109,7 +135,12 @@ async def main():
         )
 
     logger.info("Starting interactive loop")
-    print("(Memory is kept for this session only; exit and restart clears it.)")
+    if memory_backend == "memory":
+        print("(Memory backend: in-memory; exiting clears session memory.)")
+    else:
+        print(
+            f"(Memory backend: {memory_backend}; session namespace={shared_memory.namespace})"
+        )
 
     # Interactive loop for tasks
     while True:
@@ -138,7 +169,11 @@ async def main():
             logger.info("Starting task execution")
             result = await orchestrator.execute_task(
                 task=task,
-                agent_settings=AgentSettings(max_steps=config.agent.max_steps),
+                agent_settings=AgentSettings(
+                    max_steps=config.agent.max_steps,
+                    context_window_tokens=config.agent.context_window_tokens,
+                    context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                ),
                 on_step_end=on_step_end,
                 sandbox_base_dir=sandbox_base_dir,
                 hitl_handler=hitl_handler,

@@ -32,6 +32,20 @@ agent:
   
   # Enable memory system
   enable_memory: true
+  # Approximate token budget used for conversation window
+  context_window_tokens: 3000
+  # Tokens reserved for system prompt, planning context, and tool outputs
+  context_window_reserve_tokens: 1200
+
+memory:
+  # memory (ephemeral) or sqlite (persistent)
+  backend: memory
+  # Used when backend=sqlite
+  # sqlite_path: .pori/memory.db
+  user_id: default_user
+  agent_id: default_agent
+  # Optional stable session id. If omitted, a new session id is generated.
+  # session_id: session_main
 
 # Prompts: override where prompt templates are loaded from (optional)
 # prompts:

@@ -19,8 +19,13 @@ from .memory import (
     AgentMessage,
     Block,
     CoreMemory,
+    InMemoryMemoryStore,
+    MemoryStore,
+    SerializableMemoryState,
+    SQLiteMemoryStore,
     TaskState,
     ToolCallRecord,
+    create_memory_store,
 )
 from .orchestrator import Orchestrator
 from .tools.registry import ToolExecutor, ToolInfo, ToolRegistry, tool_registry
@@ -41,6 +46,11 @@ __all__ = [
     "AgentMessage",
     "Block",
     "CoreMemory",
+    "SerializableMemoryState",
+    "MemoryStore",
+    "InMemoryMemoryStore",
+    "SQLiteMemoryStore",
+    "create_memory_store",
     # Tools system
     "ToolRegistry",
     "ToolExecutor",

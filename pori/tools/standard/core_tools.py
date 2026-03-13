@@ -163,7 +163,7 @@ class ArchivalSearchParams(BaseModel):
 
 @Registry.tool(
     name="archival_memory_search",
-    description="Search archival memory passages by query (simple semantic proxy).",
+    description="Search archival memory passages by query using semantic similarity.",
 )
 def archival_memory_search_tool(params: ArchivalSearchParams, context: Dict[str, Any]):
     memory = context.get("memory") if context else None
@@ -208,6 +208,26 @@ class CoreMemoryReplaceParams(BaseModel):
     new_string: str = Field(..., description="Replacement text")
 
 
+class MemoryInsertParams(BaseModel):
+    label: str = Field(
+        ...,
+        description="Block to edit: 'persona', 'human', or 'notes'",
+    )
+    new_str: str = Field(..., description="Text to insert")
+    insert_line: int = Field(
+        -1,
+        description="Line index to insert at (0-based). Use -1 to append",
+    )
+
+
+class MemoryRethinkParams(BaseModel):
+    label: str = Field(
+        ...,
+        description="Block to rewrite: 'persona', 'human', or 'notes'",
+    )
+    new_memory: str = Field(..., description="Complete new content for the block")
+
+
 @Registry.tool(
     name="core_memory_append",
     description="Append a line to a core memory block (persona, human, or notes). Always in context.",
@@ -218,8 +238,9 @@ def core_memory_append_tool(params: CoreMemoryAppendParams, context: Dict[str, A
     if not memory or not getattr(memory, "core_memory", None):
         return {"success": False, "error": "Core memory not available"}
     try:
-        block = memory.core_memory.get_block(params.label)
-        block.append(params.content)
+        memory.core_memory.get_block(params.label).append(params.content)
+        if hasattr(memory, "persist"):
+            memory.persist()
         return {"success": True, "message": f"Appended to {params.label}"}
     except ValueError as e:
         return {"success": False, "error": str(e)}
@@ -235,9 +256,53 @@ def core_memory_replace_tool(params: CoreMemoryReplaceParams, context: Dict[str,
     if not memory or not getattr(memory, "core_memory", None):
         return {"success": False, "error": "Core memory not available"}
     try:
-        block = memory.core_memory.get_block(params.label)
-        block.replace(params.old_string, params.new_string)
+        memory.core_memory.get_block(params.label).replace(
+            params.old_string, params.new_string
+        )
+        if hasattr(memory, "persist"):
+            memory.persist()
         return {"success": True, "message": f"Updated {params.label}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+
+@Registry.tool(
+    name="memory_insert",
+    description="Insert text into a core memory block at a specific line index.",
+)
+def memory_insert_tool(params: MemoryInsertParams, context: Dict[str, Any]):
+    memory = context.get("memory") if context else None
+    if not memory or not getattr(memory, "core_memory", None):
+        return {"success": False, "error": "Core memory not available"}
+    try:
+        memory.core_memory.memory_insert(
+            label=params.label,
+            new_str=params.new_str,
+            insert_line=params.insert_line,
+        )
+        if hasattr(memory, "persist"):
+            memory.persist()
+        return {"success": True, "message": f"Inserted text into {params.label}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+
+@Registry.tool(
+    name="memory_rethink",
+    description="Rewrite an entire core memory block with a validated replacement.",
+)
+def memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
+    memory = context.get("memory") if context else None
+    if not memory or not getattr(memory, "core_memory", None):
+        return {"success": False, "error": "Core memory not available"}
+    try:
+        memory.core_memory.memory_rethink(
+            label=params.label,
+            new_memory=params.new_memory,
+        )
+        if hasattr(memory, "persist"):
+            memory.persist()
+        return {"success": True, "message": f"Rewrote {params.label}"}
     except ValueError as e:
         return {"success": False, "error": str(e)}
 

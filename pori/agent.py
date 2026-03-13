@@ -56,6 +56,8 @@ class AgentSettings(BaseModel):
     retry_delay: int = 2
     summary_interval: int = 5
     validate_output: bool = False
+    context_window_tokens: int = 3000
+    context_window_reserve_tokens: int = 1200
 
 
 class AgentOutput(BaseModel):
@@ -455,10 +457,19 @@ class Agent:
                 system_content = system_content + "\n\n" + compiled
         messages.append(SystemMessage(content=system_content))
 
-        # Add conversation history (truncated if needed)
-        max_history = 10  # Simplified - in a real system, use token counting
-        # Get recent messages from simplified memory
-        recent_structured = self.memory.get_recent_messages_structured(max_history)
+        recent_structured = []
+        try:
+            if hasattr(self.memory, "get_token_limited_messages"):
+                recent_structured = self.memory.get_token_limited_messages(
+                    max_tokens=self.settings.context_window_tokens,
+                    reserve_tokens=self.settings.context_window_reserve_tokens,
+                    include_summary_message=True,
+                )
+            else:
+                recent_structured = self.memory.get_recent_messages_structured(10)
+        except Exception:
+            recent_structured = self.memory.get_recent_messages_structured(10)
+
         for msg in recent_structured:
             role = msg.get("role")
             content = msg.get("content", "")
@@ -466,6 +477,8 @@ class Agent:
                 messages.append(UserMessage(content=content))
             elif role == "assistant":
                 messages.append(AssistantMessage(content=content))
+            elif role == "system":
+                messages.append(UserMessage(content=f"Context summary:\n{content}"))
 
         # Add current state information
         context = self._get_current_context()

@@ -25,6 +25,8 @@ dependencies = [
     "pyyaml>=6.0.0",
     "requests>=2.28.0",
     "numpy>=1.24.0",
+    "chromadb>=0.5.23",
+    "sentence-transformers>=3.2.1",
 ]
 
 [project.scripts]
@@ -43,6 +45,10 @@ pori = ["prompts/**/*.md"]
 
 [project.entry-points."pori.tools"]
 "standard" = "pori.tools.standard:register_all_tools"
+
+[project.entry-points."pori.memory_stores"]
+"memory" = "pori.memory:create_in_memory_store"
+"sqlite" = "pori.memory:create_sqlite_memory_store"
 
 [project.optional-dependencies]
 test = [
