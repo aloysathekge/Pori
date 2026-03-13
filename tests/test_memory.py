@@ -1,5 +1,7 @@
 import pytest
 
+from pori.memory import AgentMemory, create_memory_store
+
 
 def test_agent_memory_basic_flow(legacy_memory, test_task_id):
     """Basic create/read/update flow on AgentMemory should work."""
@@ -67,3 +69,97 @@ def test_archival_memory_insert_and_search(legacy_memory):
     assert len(hits) >= 1
     assert hits[0][0] == pid
     assert "FastAPI" in hits[0][1]
+    assert isinstance(memory.archival_passages[0].get("embedding"), list)
+    assert len(memory.archival_passages[0]["embedding"]) > 0
+
+
+def test_memory_persistence_with_sqlite_store(tmp_path):
+    db_path = tmp_path / "memory.db"
+    store = create_memory_store(backend="sqlite", sqlite_path=str(db_path))
+
+    mem1 = AgentMemory(
+        user_id="u1",
+        agent_id="a1",
+        session_id="s1",
+        store=store,
+    )
+    mem1.add_message("user", "Persist me")
+    mem1.add_experience("Known fact", importance=2)
+    mem1.archival_memory_insert("Long-term note", tags=["note"], importance=3)
+    mem1.core_memory.get_block("notes").append("Persistent core note")
+    mem1.persist()
+
+    mem2 = AgentMemory(
+        user_id="u1",
+        agent_id="a1",
+        session_id="s1",
+        store=store,
+    )
+    assert any(m.content == "Persist me" for m in mem2.messages)
+    assert any("Known fact" in str(e.get("text", "")) for e in mem2.experiences)
+    assert any(
+        "Long-term note" in str(p.get("text", "")) for p in mem2.archival_passages
+    )
+    assert "Persistent core note" in mem2.core_memory.get_block("notes").value
+
+
+def test_memory_serializable_state_round_trip(legacy_memory):
+    memory = legacy_memory
+    memory.add_message("user", "hello")
+    state = memory.export_state()
+
+    rebuilt = AgentMemory.from_state(state, store=memory.store)
+    assert rebuilt.namespace == memory.namespace
+    assert rebuilt.export_state().session_id == state.session_id
+
+
+def test_token_limited_messages_generates_summary(legacy_memory):
+    memory = legacy_memory
+    for i in range(40):
+        memory.add_message("user", f"Message number {i} " + ("x" * 120))
+
+    window = memory.get_token_limited_messages(
+        max_tokens=300,
+        reserve_tokens=200,
+        include_summary_message=True,
+    )
+    assert len(window) > 0
+    assert window[0]["role"] == "system"
+    assert "Conversation summary" in window[0]["content"]
+    assert len(memory.summaries) >= 1
+
+
+def test_token_limited_messages_reuses_cached_summary(legacy_memory):
+    memory = legacy_memory
+    for i in range(30):
+        memory.add_message("user", f"Cached summary message {i} " + ("z" * 80))
+
+    first = memory.get_token_limited_messages(
+        max_tokens=280,
+        reserve_tokens=180,
+        include_summary_message=True,
+    )
+    summary_count_after_first = len(memory.summaries)
+    second = memory.get_token_limited_messages(
+        max_tokens=280,
+        reserve_tokens=180,
+        include_summary_message=True,
+    )
+
+    assert first[0]["role"] == "system"
+    assert second[0]["role"] == "system"
+    assert first[0]["content"] == second[0]["content"]
+    assert len(memory.summaries) == summary_count_after_first
+
+
+def test_recall_uses_embedded_experiences(legacy_memory):
+    memory = legacy_memory
+    key = memory.add_experience(
+        "Deployment runbook includes rollback checklist for production incidents",
+        importance=3,
+    )
+
+    hits = memory.recall("rollback checklist", k=3, min_score=0.0)
+    assert len(hits) >= 1
+    assert hits[0][0] == key
+    assert isinstance(memory.experiences[0].get("embedding"), list)
