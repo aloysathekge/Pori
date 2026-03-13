@@ -11,7 +11,7 @@ from typing import Any, Dict, Literal, Optional, Union
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +37,22 @@ class AgentConfig(BaseModel):
 
     max_steps: int = Field(default=10, ge=1)
     enable_memory: bool = Field(default=True)
+    context_window_tokens: int = Field(default=3000, ge=256)
+    context_window_reserve_tokens: int = Field(default=1200, ge=0)
+
+
+class MemoryConfig(BaseModel):
+    """Configuration for memory persistence and identity boundaries."""
+
+    backend: str = Field(
+        default="memory", description="Memory backend: memory, sqlite, or plugin name"
+    )
+    sqlite_path: Optional[str] = Field(
+        default=None, description="Path to SQLite DB when backend=sqlite"
+    )
+    user_id: str = Field(default="default_user")
+    agent_id: str = Field(default="default_agent")
+    session_id: Optional[str] = Field(default=None)
 
 
 class SandboxConfig(BaseModel):
@@ -69,6 +85,7 @@ class Config(BaseModel):
 
     llm: LLMConfig
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     sandbox: Optional[SandboxConfig] = Field(default=None)
     hitl: Optional[HITLConfig] = Field(default=None)
     prompts: Optional[PromptsConfig] = Field(default=None)
