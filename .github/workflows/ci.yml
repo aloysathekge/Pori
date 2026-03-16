@@ -30,7 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync --locked --extra test
+        run: uv sync --extra test
 
       - name: Black (format check)
         run: uv run black --check pori/ tests/
