@@ -51,13 +51,15 @@ class SQLiteMemoryStore:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS memory_snapshots (
                     namespace TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
-                """)
+                """
+            )
             conn.commit()
 
     def load(self, namespace: str) -> Optional[Dict[str, Any]]:
