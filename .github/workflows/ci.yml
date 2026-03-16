@@ -26,23 +26,24 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
+        run: uv sync --extra test
 
       - name: Black (format check)
-        run: black --check pori/ tests/
+        run: uv run black --check pori/ tests/
 
       - name: isort (import sort check)
-        run: isort --check-only pori/ tests/
+        run: uv run isort --check-only pori/ tests/
 
       - name: mypy (type check)
-        run: mypy pori/ --ignore-missing-imports || true
+        run: uv run mypy pori/ --ignore-missing-imports || true
         # Optional: remove "|| true" to fail CI on type errors once mypy is strict
 
       - name: Pytest
-        run: pytest tests/ -v --tb=short --cov=pori --cov-report=xml --cov-report=term-missing
+        run: uv run pytest tests/ -v --tb=short --cov=pori --cov-report=xml --cov-report=term-missing
         env:
           # Tests use mocks; no real API keys needed
           ANTHROPIC_API_KEY: ""
