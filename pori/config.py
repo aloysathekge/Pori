@@ -5,9 +5,11 @@ Supports multiple LLM providers (Anthropic, OpenAI, Google, etc.) with
 a factory pattern for easy switching between providers.
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
 import yaml
 from dotenv import load_dotenv
@@ -70,6 +72,9 @@ class SandboxConfig(BaseModel):
 
 from pori.hitl import HITLConfig
 
+if TYPE_CHECKING:
+    from pori.team.models import TeamConfig
+
 
 class PromptsConfig(BaseModel):
     """Configuration for prompt loading."""
@@ -89,6 +94,7 @@ class Config(BaseModel):
     sandbox: Optional[SandboxConfig] = Field(default=None)
     hitl: Optional[HITLConfig] = Field(default=None)
     prompts: Optional[PromptsConfig] = Field(default=None)
+    team: Optional[TeamConfig] = Field(default=None)
 
 
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:
