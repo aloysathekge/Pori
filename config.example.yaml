@@ -69,6 +69,36 @@ memory:
 #   auto_approve_duplicates: true         # Skip re-asking for identical approved calls
 #   timeout_seconds: 300                  # Wait time for human response
 
+# Team: multi-agent coordination with LLM-powered routing (optional)
+# team:
+#   name: research-team
+#   mode: router                             # router, broadcast, or delegate
+#   coordinator_llm:                         # LLM for routing/planning decisions
+#     provider: anthropic
+#     model: claude-sonnet-4-5-20250929
+#     temperature: 0.0
+#   max_delegation_steps: 10
+#   max_concurrent_members: 5
+#   members:
+#     - name: researcher
+#       description: "Searches the web and gathers information"
+#       tools: [search, answer, done]
+#     - name: analyst
+#       description: "Analyses data and writes reports"
+#       tools: [answer, done]
+#       agent_settings:
+#         max_steps: 15
+#     - name: sub-team                       # Nested team as a member
+#       description: "A sub-team for complex analysis"
+#       team_config:
+#         name: analysis-sub-team
+#         mode: broadcast
+#         members:
+#           - name: statistician
+#             description: "Runs statistical analysis"
+#           - name: writer
+#             description: "Writes summaries"
+
 # ============================================
 # Example configurations for different providers:
 # ============================================
