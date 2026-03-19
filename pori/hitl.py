@@ -171,7 +171,7 @@ class CLIHITLHandler(HITLHandler):
         """Prompt the human for a single decision in the terminal."""
         # Build the prompt
         print("\n" + "=" * 60)
-        print(f"🔒 {action.description}")
+        print(f"[HITL] {action.description}")
         print(f"\n  Tool: {action.name}")
         try:
             args_str = json.dumps(action.arguments, indent=4)
@@ -204,7 +204,7 @@ class CLIHITLHandler(HITLHandler):
                     timeout=self._timeout,
                 )
             except asyncio.TimeoutError:
-                print("  Timeout — auto-rejecting.")
+                print("  Timeout -- auto-rejecting.")
                 return Decision(type="reject", message="Approval timed out")
 
             key = raw.strip().lower()[:1]
@@ -235,7 +235,7 @@ class CLIHITLHandler(HITLHandler):
             try:
                 new_args = json.loads(new_args_raw.strip())
             except json.JSONDecodeError:
-                print("  ⚠ Invalid JSON — keeping original args.")
+                print("  Invalid JSON -- keeping original args.")
 
         new_name_raw = await loop.run_in_executor(
             None, input, f"  Tool name [{action.name}] (press Enter to keep): "

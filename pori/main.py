@@ -17,6 +17,7 @@ from .config import get_configured_llm
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
+from .team import Team, TeamMode
 from .tools.registry import tool_registry
 from .tools.standard import register_all_tools
 
@@ -53,12 +54,12 @@ async def main():
         )
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         print("Please create a config.yaml file based on config.example.yaml")
         return
     except Exception as e:
         logger.error(f"Failed to initialize LLM: {e}")
-        print(f"\n❌ Error initializing LLM: {e}")
+        print(f"\nError initializing LLM: {e}")
         return
 
     # Prompts: allow overriding packaged prompt templates
@@ -122,6 +123,17 @@ async def main():
         hitl_handler = CLIHITLHandler(timeout_seconds=hitl_config.timeout_seconds)
         logger.info("HITL enabled in CLI mode")
 
+    # Team: check if configured
+    team_config = getattr(config, "team", None)
+    use_team = team_config is not None and len(team_config.members) > 0
+    if use_team:
+        logger.info(
+            f"Team mode enabled: '{team_config.name}' ({team_config.mode.value}) "
+            f"with {len(team_config.members)} members"
+        )
+        print(f"(Team mode: {team_config.name} [{team_config.mode.value}] "
+              f"with {len(team_config.members)} members)")
+
     # Define steps callback for monitoring
     def on_step_end(agent: Agent):
         step_msg = f"Completed step {agent.state.n_steps}"
@@ -155,7 +167,7 @@ async def main():
         # Exit if the user provides no task
         if task == "q":
             logger.info("User requested exit")
-            print("Goodbye! 👋")
+            print("Goodbye!")
             break
 
         if not task:
@@ -165,95 +177,134 @@ async def main():
         logger.info(f"New task received: {task}")
 
         try:
-            # Execute the task with the orchestrator
-            logger.info("Starting task execution")
-            result = await orchestrator.execute_task(
-                task=task,
-                agent_settings=AgentSettings(
+            if use_team:
+                # Execute via Team
+                logger.info("Starting team execution")
+                agent_defaults = AgentSettings(
                     max_steps=config.agent.max_steps,
                     context_window_tokens=config.agent.context_window_tokens,
                     context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
-                ),
-                on_step_end=on_step_end,
-                sandbox_base_dir=sandbox_base_dir,
-                hitl_handler=hitl_handler,
-                hitl_config=hitl_config,
-            )
+                )
+                team = Team(
+                    task=task,
+                    coordinator_llm=llm,
+                    members=team_config.members,
+                    mode=team_config.mode,
+                    tools_registry=registry,
+                    hitl_handler=hitl_handler,
+                    hitl_config=hitl_config,
+                    agent_defaults=agent_defaults,
+                    max_delegation_steps=team_config.max_delegation_steps,
+                    max_concurrent_members=team_config.max_concurrent_members,
+                    name=team_config.name,
+                )
+                result = await team.run()
 
-            logger.info(
-                f"Task execution completed - Success: {result['success']}, Steps: {result['steps_taken']}"
-            )
+                logger.info(
+                    f"Team execution completed - Success: {result['completed']}, Steps: {result['steps_taken']}"
+                )
 
-            print("\n=== Task Execution Summary ===")
-            print(f"Task: {task}")
-            print(f"Success: {result['success']}")
-            print(f"Steps taken: {result['steps_taken']}")
+                print("\n=== Task Execution Summary ===")
+                print(f"Task: {task}")
+                print(f"Completed: {result['completed']}")
+                print(f"Steps taken: {result['steps_taken']}")
 
-            # Show basic run metrics if available
-            metrics = result.get("result", {}).get("metrics")
-            if metrics:
-                try:
-                    tokens = metrics.get("tokens", {}) or {}
-                    cost = metrics.get("cost_usd")
-                    print(
-                        f"Run metrics: duration={metrics.get('duration')}, "
-                        f"steps={metrics.get('steps')}, "
-                        f"llm_calls={metrics.get('llm_calls')}, "
-                        f"tool_calls={metrics.get('tool_calls')}, "
-                        f"tokens_in={tokens.get('input')}, "
-                        f"tokens_out={tokens.get('output')}, "
-                        f"tokens_total={tokens.get('total')}"
-                    )
-                    if cost is not None:
-                        print(f"Estimated cost: {cost}")
-                except Exception:
-                    # Metrics are optional; ignore if shape is unexpected
-                    pass
+                fs = result.get("final_state", {})
+                if "plan_steps" in fs:
+                    print(f"Plan steps: {fs['plan_steps']} | Agent steps: {fs['agent_steps']}")
+                if "chosen_member" in fs:
+                    print(f"Routed to: {fs['chosen_member']}")
 
-            # Show the final answer if available
-            agent = result.get("agent")
-
-            if agent:
-                # Final answer is tracked per-task in memory.state; ensure we're in the right context
-                final_answer = agent.memory.get_final_answer()
-
+                final_answer = fs.get("final_answer")
                 if final_answer:
-                    logger.info("Final answer provided")
-                    print("\n📝 FINAL ANSWER:")
-                    print(f"  {final_answer['final_answer']}")
-                    if final_answer.get("reasoning"):
-                        print(f"\n  Reasoning: {final_answer['reasoning']}")
-                    # Show memory recall snippet if it was used in this step (logged by agent)
-                    print(
-                        "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
-                    )
+                    print(f"\nFINAL ANSWER:\n  {final_answer}")
                 else:
-                    logger.warning("No final answer found")
-                    print("\n⚠️ NO FINAL ANSWER FOUND")
+                    print("\nNO FINAL ANSWER FOUND")
 
-                # Show tool call history
-                # Only show tool calls for this task
-                calls_this_task = [
-                    tc
-                    for tc in agent.memory.tool_call_history
-                    if getattr(tc, "task_id", None) == agent.task_id
-                ]
-                tool_calls_count = len(calls_this_task)
-                logger.info(f"Tool calls made (this task): {tool_calls_count}")
+            else:
+                # Execute via single-agent Orchestrator
+                logger.info("Starting task execution")
+                result = await orchestrator.execute_task(
+                    task=task,
+                    agent_settings=AgentSettings(
+                        max_steps=config.agent.max_steps,
+                        context_window_tokens=config.agent.context_window_tokens,
+                        context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                    ),
+                    on_step_end=on_step_end,
+                    sandbox_base_dir=sandbox_base_dir,
+                    hitl_handler=hitl_handler,
+                    hitl_config=hitl_config,
+                )
 
-                print("\nTool Calls (this task):")
-                for i, tool_call in enumerate(calls_this_task, start=1):
-                    status = "✓" if tool_call.success else "✗"
-                    print(
-                        f"  {i}. {tool_call.tool_name}({tool_call.parameters}) → {status}"
-                    )
+                logger.info(
+                    f"Task execution completed - Success: {result['success']}, Steps: {result['steps_taken']}"
+                )
 
-                    # Log each tool call
-                    log_level = logging.INFO if tool_call.success else logging.WARNING
-                    logger.log(
-                        log_level,
-                        f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",
-                    )
+                print("\n=== Task Execution Summary ===")
+                print(f"Task: {task}")
+                print(f"Success: {result['success']}")
+                print(f"Steps taken: {result['steps_taken']}")
+
+                # Show basic run metrics if available
+                metrics = result.get("result", {}).get("metrics")
+                if metrics:
+                    try:
+                        tokens = metrics.get("tokens", {}) or {}
+                        cost = metrics.get("cost_usd")
+                        print(
+                            f"Run metrics: duration={metrics.get('duration')}, "
+                            f"steps={metrics.get('steps')}, "
+                            f"llm_calls={metrics.get('llm_calls')}, "
+                            f"tool_calls={metrics.get('tool_calls')}, "
+                            f"tokens_in={tokens.get('input')}, "
+                            f"tokens_out={tokens.get('output')}, "
+                            f"tokens_total={tokens.get('total')}"
+                        )
+                        if cost is not None:
+                            print(f"Estimated cost: {cost}")
+                    except Exception:
+                        pass
+
+                # Show the final answer if available
+                agent = result.get("agent")
+
+                if agent:
+                    final_answer = agent.memory.get_final_answer()
+
+                    if final_answer:
+                        logger.info("Final answer provided")
+                        print("\nFINAL ANSWER:")
+                        print(f"  {final_answer['final_answer']}")
+                        if final_answer.get("reasoning"):
+                            print(f"\n  Reasoning: {final_answer['reasoning']}")
+                        print(
+                            "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
+                        )
+                    else:
+                        logger.warning("No final answer found")
+                        print("\nNO FINAL ANSWER FOUND")
+
+                    calls_this_task = [
+                        tc
+                        for tc in agent.memory.tool_call_history
+                        if getattr(tc, "task_id", None) == agent.task_id
+                    ]
+                    tool_calls_count = len(calls_this_task)
+                    logger.info(f"Tool calls made (this task): {tool_calls_count}")
+
+                    print("\nTool Calls (this task):")
+                    for i, tool_call in enumerate(calls_this_task, start=1):
+                        status = "+" if tool_call.success else "x"
+                        print(
+                            f"  {i}. {tool_call.tool_name}({tool_call.parameters}) -> {status}"
+                        )
+
+                        log_level = logging.INFO if tool_call.success else logging.WARNING
+                        logger.log(
+                            log_level,
+                            f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",
+                        )
 
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)

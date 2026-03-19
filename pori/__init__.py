@@ -28,10 +28,16 @@ from .memory import (
     create_memory_store,
 )
 from .orchestrator import Orchestrator
+from .team import MemberConfig, Team, TeamConfig, TeamMode
 from .tools.registry import ToolExecutor, ToolInfo, ToolRegistry, tool_registry
 
 # Tool registrations
 from .tools.standard import register_all_tools
+
+# Rebuild Config now that TeamConfig is available (deferred forward ref)
+from .config import Config as _Config
+
+_Config.model_rebuild()
 
 __all__ = [
     # Core agent classes
@@ -62,6 +68,11 @@ __all__ = [
     "Evaluator",
     # Orchestration
     "Orchestrator",
+    # Team
+    "Team",
+    "TeamMode",
+    "MemberConfig",
+    "TeamConfig",
     # HITL
     "HITLConfig",
     "HITLHandler",

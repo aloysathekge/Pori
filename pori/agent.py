@@ -1055,7 +1055,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
     async def run(self) -> Dict[str, Any]:
         """Run the agent until the task is complete or max steps is reached."""
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
-        print(f"🚀 Starting task: {self.task}")
+        print(f"Starting task: {self.task}")
 
         # Initialize run metrics
         self._run_metrics = RunMetrics(
@@ -1071,12 +1071,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             # Check control flags
             if self.state.stopped:
                 logger.info("Agent stopped by request", extra={"task_id": self.task_id})
-                print("🛑 Agent stopped")
+                print("Agent stopped")
                 break
 
             if self.state.paused:
                 logger.info("Agent paused", extra={"task_id": self.task_id})
-                print("⏸ Agent paused")
+                print("Agent paused")
                 while self.state.paused and not self.state.stopped:
                     await asyncio.sleep(0.5)
                 if self.state.stopped:
@@ -1090,7 +1090,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     extra={"task_id": self.task_id},
                 )
                 print(
-                    f"❌ Stopping due to {self.settings.max_failures} consecutive failures"
+                    f"Stopping due to {self.settings.max_failures} consecutive failures"
                 )
                 break
 
@@ -1107,7 +1107,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     f"Task completed: {completion_message}",
                     extra={"task_id": self.task_id},
                 )
-                print(f"✅ Task complete: {completion_message}")
+                print(f"Task complete: {completion_message}")
                 # Ensure tasks are marked complete so final result.completed is True
                 for task in self.memory.tasks.values():
                     task.complete(success=True)
@@ -1128,7 +1128,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 extra={"task_id": self.task_id},
             )
             print(
-                f"⚠️ Reached maximum steps ({self.settings.max_steps}) without completing task"
+                f"Reached maximum steps ({self.settings.max_steps}) without completing task"
             )
 
         completed = any(
