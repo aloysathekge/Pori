@@ -139,7 +139,9 @@ class Team:
     # ------------------------------------------------------------------
 
     async def _run_broadcast(self) -> Dict[str, Any]:
-        print(f"\n[Team:{self.name}] Broadcasting task to all {len(self.members)} members in parallel...")
+        print(
+            f"\n[Team:{self.name}] Broadcasting task to all {len(self.members)} members in parallel..."
+        )
         semaphore = asyncio.Semaphore(self.max_concurrent_members)
         member_configs = list(self.members.values())
 
@@ -166,7 +168,9 @@ class Team:
             else:
                 member_results.append(r)
 
-        print(f"\n[Team:{self.name}] All members finished. Coordinator is combining results...")
+        print(
+            f"\n[Team:{self.name}] All members finished. Coordinator is combining results..."
+        )
         summary = await self._coordinator_combine(member_results)
         total_steps = sum(r.steps_taken for r in member_results)
 
@@ -308,9 +312,7 @@ class Team:
                 "plan_steps": len(plan.steps),
                 "agent_steps": total_steps,
                 "plan": plan.model_dump(),
-                "step_results": {
-                    k: v.model_dump() for k, v in step_results.items()
-                },
+                "step_results": {k: v.model_dump() for k, v in step_results.items()},
                 "final_answer": final_answer,
             },
             "metrics": None,
@@ -362,12 +364,12 @@ class Team:
     # Member execution
     # ------------------------------------------------------------------
 
-    async def _run_member(
-        self, config: MemberConfig, task: str
-    ) -> MemberRunResult:
+    async def _run_member(self, config: MemberConfig, task: str) -> MemberRunResult:
         """Run a single member (Agent or nested Team)."""
         member_type = "Team" if config.team_config else "Agent"
-        logger.info(f"[{self.name}] Running member '{config.name}' with task: {task[:80]}...")
+        logger.info(
+            f"[{self.name}] Running member '{config.name}' with task: {task[:80]}..."
+        )
         print(f"\n{'='*50}")
         print(f"[Member:{config.name}] Starting ({member_type})")
         print(f"[Member:{config.name}] Task: {task[:120]}")
@@ -378,10 +380,14 @@ class Team:
                 result = await self._run_nested_team(config, task)
             else:
                 result = await self._run_agent_member(config, task)
-            print(f"[Member:{config.name}] Completed: {result.completed} | Steps: {result.steps_taken}")
+            print(
+                f"[Member:{config.name}] Completed: {result.completed} | Steps: {result.steps_taken}"
+            )
             if result.final_answer:
                 preview = result.final_answer[:150]
-                print(f"[Member:{config.name}] Answer: {preview}{'...' if len(result.final_answer) > 150 else ''}")
+                print(
+                    f"[Member:{config.name}] Answer: {preview}{'...' if len(result.final_answer) > 150 else ''}"
+                )
             if result.error:
                 print(f"[Member:{config.name}] Error: {result.error}")
             print(f"{'='*50}")
@@ -485,7 +491,9 @@ class Team:
             hitl_handler=self.hitl_handler,
             hitl_config=self.hitl_config,
             agent_defaults=(
-                AgentSettings(**tc.agent_defaults) if tc.agent_defaults else self.agent_defaults
+                AgentSettings(**tc.agent_defaults)
+                if tc.agent_defaults
+                else self.agent_defaults
             ),
             max_delegation_steps=tc.max_delegation_steps,
             max_concurrent_members=tc.max_concurrent_members,

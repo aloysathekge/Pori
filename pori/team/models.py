@@ -37,7 +37,8 @@ class MemberConfig(BaseModel):
         description="Tool name filter (None = all tools). 'answer' and 'done' are always included.",
     )
     team_config: Optional["TeamConfig"] = Field(
-        default=None, description="If set, this member is a nested Team instead of an Agent"
+        default=None,
+        description="If set, this member is a nested Team instead of an Agent",
     )
     hitl_config: Optional[Dict[str, Any]] = Field(default=None)
     sandbox_base_dir: Optional[str] = Field(default=None)

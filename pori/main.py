@@ -131,8 +131,10 @@ async def main():
             f"Team mode enabled: '{team_config.name}' ({team_config.mode.value}) "
             f"with {len(team_config.members)} members"
         )
-        print(f"(Team mode: {team_config.name} [{team_config.mode.value}] "
-              f"with {len(team_config.members)} members)")
+        print(
+            f"(Team mode: {team_config.name} [{team_config.mode.value}] "
+            f"with {len(team_config.members)} members)"
+        )
 
     # Define steps callback for monitoring
     def on_step_end(agent: Agent):
@@ -211,7 +213,9 @@ async def main():
 
                 fs = result.get("final_state", {})
                 if "plan_steps" in fs:
-                    print(f"Plan steps: {fs['plan_steps']} | Agent steps: {fs['agent_steps']}")
+                    print(
+                        f"Plan steps: {fs['plan_steps']} | Agent steps: {fs['agent_steps']}"
+                    )
                 if "chosen_member" in fs:
                     print(f"Routed to: {fs['chosen_member']}")
 
@@ -300,7 +304,9 @@ async def main():
                             f"  {i}. {tool_call.tool_name}({tool_call.parameters}) -> {status}"
                         )
 
-                        log_level = logging.INFO if tool_call.success else logging.WARNING
+                        log_level = (
+                            logging.INFO if tool_call.success else logging.WARNING
+                        )
                         logger.log(
                             log_level,
                             f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",

@@ -62,7 +62,9 @@ class AgentMockLLM:
 
     model = "mock-agent"
 
-    def __init__(self, final_answer: str = "mock answer", reasoning: str = "mock reasoning"):
+    def __init__(
+        self, final_answer: str = "mock answer", reasoning: str = "mock reasoning"
+    ):
         self._final_answer = final_answer
         self._reasoning = reasoning
         self._call_count = 0
@@ -461,9 +463,7 @@ class TestDelegateMode:
             ],
         )
 
-        coordinator = StructuredMockLLM(
-            responses=[plan, "Final answer"]
-        )
+        coordinator = StructuredMockLLM(responses=[plan, "Final answer"])
 
         members = [
             MemberConfig(name="a", description="d"),
@@ -622,7 +622,9 @@ class TestNesting:
         # Coordinator routes to nested member
         coordinator = StructuredMockLLM(
             responses=[
-                RoutingDecision(chosen_member="nested", reasoning="delegate to sub-team"),
+                RoutingDecision(
+                    chosen_member="nested", reasoning="delegate to sub-team"
+                ),
             ]
         )
 
@@ -701,7 +703,11 @@ class TestReturnShape:
 
         async def mock_run(config, task):
             return MemberRunResult(
-                member_name="a", task=task, completed=True, steps_taken=1, final_answer="ok"
+                member_name="a",
+                task=task,
+                completed=True,
+                steps_taken=1,
+                final_answer="ok",
             )
 
         team._run_agent_member = mock_run
@@ -722,7 +728,11 @@ class TestReturnShape:
 
         async def mock_run(config, task):
             return MemberRunResult(
-                member_name="a", task=task, completed=True, steps_taken=1, final_answer="ok"
+                member_name="a",
+                task=task,
+                completed=True,
+                steps_taken=1,
+                final_answer="ok",
             )
 
         team._run_agent_member = mock_run
@@ -745,7 +755,11 @@ class TestReturnShape:
 
         async def mock_run(config, task):
             return MemberRunResult(
-                member_name="a", task=task, completed=True, steps_taken=1, final_answer="ok"
+                member_name="a",
+                task=task,
+                completed=True,
+                steps_taken=1,
+                final_answer="ok",
             )
 
         team._run_agent_member = mock_run
