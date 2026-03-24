@@ -6,6 +6,9 @@ __email__ = "sathekgealoy@gmail.com"
 
 # Main exports from the agent framework
 from .agent import Agent, AgentOutput, AgentSettings, AgentState
+
+# Rebuild Config now that TeamConfig is available (deferred forward ref)
+from .config import Config as _Config
 from .evaluation import ActionResult, Evaluator
 from .hitl import (
     AutoApproveHandler,
@@ -33,9 +36,6 @@ from .tools.registry import ToolExecutor, ToolInfo, ToolRegistry, tool_registry
 
 # Tool registrations
 from .tools.standard import register_all_tools
-
-# Rebuild Config now that TeamConfig is available (deferred forward ref)
-from .config import Config as _Config
 
 _Config.model_rebuild()
 

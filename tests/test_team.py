@@ -23,7 +23,6 @@ from pori.team import (
 from pori.team.models import DelegationStep
 from pori.tools.registry import ToolRegistry
 
-
 # ========== Helper: Mock LLM that returns structured output objects ==========
 
 
