@@ -204,10 +204,19 @@ def create_llm(config: LLMConfig):
 
         return ChatOpenAI(api_key=api_key, **common_params)
 
+    elif provider == "google":
+        from pori.llm import ChatGoogle
+
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is not set")
+
+        return ChatGoogle(api_key=api_key, **common_params)
+
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported providers: anthropic, openai, google, azure"
+            f"Supported providers: anthropic, openai, google"
         )
 
 
