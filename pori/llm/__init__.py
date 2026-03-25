@@ -2,12 +2,8 @@
 
 from .anthropic import ChatAnthropic
 from .base import BaseChatModel
-from .messages import (
-    AssistantMessage,
-    BaseMessage,
-    SystemMessage,
-    UserMessage,
-)
+from .google import ChatGoogle
+from .messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
 from .openai import ChatOpenAI
 
 __all__ = [
@@ -17,5 +13,6 @@ __all__ = [
     "AssistantMessage",
     "BaseChatModel",
     "ChatAnthropic",
+    "ChatGoogle",
     "ChatOpenAI",
 ]
