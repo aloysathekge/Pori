@@ -9,6 +9,21 @@ from .agent import Agent, AgentOutput, AgentSettings, AgentState
 
 # Rebuild Config now that TeamConfig is available (deferred forward ref)
 from .config import Config as _Config
+from .eval import (
+    AccuracyEval,
+    AccuracyResult,
+    AgentJudgeEval,
+    AgentJudgeResult,
+    BaseEval,
+    ContentPolicyGuardrail,
+    EvalResult,
+    FactualityGuardrail,
+    PerformanceEval,
+    PerformanceResult,
+    ReliabilityEval,
+    ReliabilityResult,
+    TopicGuardrail,
+)
 from .evaluation import ActionResult, Evaluator
 from .hitl import (
     AutoApproveHandler,
@@ -29,6 +44,16 @@ from .memory import (
     TaskState,
     ToolCallRecord,
     create_memory_store,
+)
+from .observability import (
+    ConsoleTelemetryExporter,
+    InMemoryTraceStore,
+    Span,
+    SpanStatus,
+    SpanType,
+    TelemetryExporter,
+    Trace,
+    TraceStore,
 )
 from .orchestrator import Orchestrator
 from .team import MemberConfig, Team, TeamConfig, TeamMode
@@ -66,6 +91,30 @@ __all__ = [
     # Evaluation
     "ActionResult",
     "Evaluator",
+    # Eval framework
+    "BaseEval",
+    "EvalResult",
+    "AccuracyEval",
+    "AccuracyResult",
+    "ReliabilityEval",
+    "ReliabilityResult",
+    "PerformanceEval",
+    "PerformanceResult",
+    "AgentJudgeEval",
+    "AgentJudgeResult",
+    # Guardrails
+    "ContentPolicyGuardrail",
+    "FactualityGuardrail",
+    "TopicGuardrail",
+    # Observability
+    "Trace",
+    "Span",
+    "SpanType",
+    "SpanStatus",
+    "TraceStore",
+    "InMemoryTraceStore",
+    "TelemetryExporter",
+    "ConsoleTelemetryExporter",
     # Orchestration
     "Orchestrator",
     # Team

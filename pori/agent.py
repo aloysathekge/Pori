@@ -28,6 +28,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
+from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
 from .utils.prompt_loader import load_prompt
@@ -93,6 +94,7 @@ class Agent:
         sandbox_base_dir: Optional[str] = None,
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
+        guardrails: Optional[List] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -102,6 +104,9 @@ class Agent:
         self.hitl_handler = hitl_handler
         self.hitl_config = hitl_config
         self._approved_signatures: set = set()  # for auto_approve_duplicates
+
+        # Guardrails (BaseEval instances with pre_check/post_check)
+        self.guardrails = guardrails or []
 
         logger.info(f"Initializing new agent", extra={"task_id": self.task_id})
         logger.info(f"Task: {task}", extra={"task_id": self.task_id})
@@ -124,8 +129,10 @@ class Agent:
         self.memory = memory if memory is not None else AgentMemory()
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
-        # Metrics for this agent run (initialized in run())
+        # Metrics and trace for this agent run (initialized in run())
         self._run_metrics: Optional[RunMetrics] = None
+        self._trace: Optional[Trace] = None
+        self._current_step_span: Optional[Span] = None
 
         # Create task record
         self.memory.create_task(self.task_id, task)
@@ -176,6 +183,15 @@ class Agent:
         step_start_time = datetime.now()
         step_metrics = StepMetrics(step_number=step_number)
 
+        # Start a step span in the trace
+        step_span = None
+        if self._trace:
+            step_span = self._trace.start_span(
+                name=f"step_{step_number}",
+                span_type=SpanType.AGENT,
+            )
+            self._current_step_span = step_span
+
         try:
             # Create summaries at regular intervals to avoid context overflow
             if (
@@ -197,9 +213,20 @@ class Agent:
                 "Getting next action from LLM",
                 extra={"task_id": self.task_id, "step": step_number},
             )
+            llm_span = None
+            if self._trace and step_span:
+                llm_span = self._trace.start_span(
+                    name=f"{getattr(self.llm, 'model', 'llm')}.invoke",
+                    span_type=SpanType.LLM,
+                    parent_span_id=step_span.span_id,
+                    attributes={"model": getattr(self.llm, "model", "")},
+                )
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
+            if llm_span:
+                llm_span.attributes["duration_seconds"] = llm_duration
+                llm_span.finish()
 
             # Record LLM call metrics for this step
             try:
@@ -288,6 +315,8 @@ class Agent:
                 extra={"task_id": self.task_id, "step": step_number},
                 exc_info=True,
             )
+            if step_span:
+                step_span.finish(SpanStatus.ERROR, error=str(e))
             error_msg = f"Error during step: {str(e)}"
             tool_results = [ActionResult(success=False, error=error_msg)]
             self.state.consecutive_failures += 1
@@ -314,6 +343,10 @@ class Agent:
                 self._run_metrics.steps.append(step_metrics)
         except Exception:
             pass
+
+        # Finish step span if not already finished (error case finishes early)
+        if step_span and step_span.end_time is None:
+            step_span.finish()
 
         # Add step results to memory
         for result in tool_results:
@@ -1067,6 +1100,32 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             start_time=datetime.now(),
         )
 
+        # Initialize trace
+        self._trace = Trace(
+            name=f"Agent.run",
+            run_id=self.task_id,
+            agent_id=self.task_id,
+            start_time=datetime.now(),
+            input=self.task,
+        )
+
+        # Pre-check guardrails (input validation)
+        for guardrail in self.guardrails:
+            try:
+                await guardrail.pre_check(self.task)
+            except ValueError as e:
+                logger.warning(
+                    f"Input guardrail blocked: {e}", extra={"task_id": self.task_id}
+                )
+                return {
+                    "task": self.task,
+                    "completed": False,
+                    "blocked_by": "input_guardrail",
+                    "reason": str(e),
+                    "steps_taken": 0,
+                    "metrics": None,
+                }
+
         for step_count in range(self.settings.max_steps):
             # Check control flags
             if self.state.stopped:
@@ -1151,6 +1210,38 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             except Exception:
                 pass
 
+        # Post-check guardrails (output validation)
+        if completed and self.guardrails:
+            final_answer = self.memory.get_final_answer()
+            if final_answer:
+                output_text = str(final_answer.get("final_answer", ""))
+                for guardrail in self.guardrails:
+                    try:
+                        await guardrail.post_check(self.task, output_text)
+                    except ValueError as e:
+                        logger.warning(
+                            f"Output guardrail blocked: {e}",
+                            extra={"task_id": self.task_id},
+                        )
+                        return {
+                            "task": self.task,
+                            "completed": False,
+                            "blocked_by": "output_guardrail",
+                            "reason": str(e),
+                            "steps_taken": self.state.n_steps,
+                            "metrics": (
+                                self._run_metrics.summary()
+                                if self._run_metrics is not None
+                                else None
+                            ),
+                        }
+
+        # Finalize trace
+        if self._trace:
+            final = self.memory.get_final_answer()
+            self._trace.output = str(final.get("final_answer", "")) if final else None
+            self._trace.finish()
+
         logger.info(
             f"Agent run finished - Completed: {completed}, Steps: {self.state.n_steps}",
             extra={"task_id": self.task_id},
@@ -1164,6 +1255,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "metrics": (
                 self._run_metrics.summary() if self._run_metrics is not None else None
             ),
+            "trace": self._trace.to_dict() if self._trace else None,
         }
 
     def pause(self) -> None:
