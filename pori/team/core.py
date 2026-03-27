@@ -430,8 +430,10 @@ class Team:
         elif self.hitl_config:
             hitl_config = self.hitl_config
 
-        # Fresh memory per member
+        # Fresh memory per member, seeded with user context (read-only)
         member_memory = AgentMemory()
+        if self.memory and self.memory.core_memory:
+            member_memory.core_memory = self.memory.core_memory.clone_read_only()
 
         agent = Agent(
             task=task,

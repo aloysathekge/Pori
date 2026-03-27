@@ -242,6 +242,19 @@ class CoreMemory:
                 cm._blocks[label] = Block(label=label, limit=cm._block_limit)
         return cm
 
+    def clone_read_only(self) -> "CoreMemory":
+        """Return a deep copy with all blocks set to read-only."""
+        cm = CoreMemory(block_limit=self._block_limit)
+        cm._blocks = {}
+        for label, block in self._blocks.items():
+            cm._blocks[label] = Block(
+                label=block.label,
+                value=block.value,
+                limit=block.limit,
+                read_only=True,
+            )
+        return cm
+
     def compile(self) -> str:
         parts = []
         for label in ("persona", "human", "notes"):
