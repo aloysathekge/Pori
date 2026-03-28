@@ -66,9 +66,9 @@ class Team:
     async def run(self) -> Dict[str, Any]:
         """Run the team. Returns the same shape as ``Agent.run()``."""
         logger.info(f"[{self.name}] Starting team run in {self.mode.value} mode")
-        print(f"\n[Team:{self.name}] Starting in {self.mode.value} mode")
-        print(f"[Team:{self.name}] Task: {self.task}")
-        print(f"[Team:{self.name}] Members: {', '.join(self.members.keys())}")
+        logger.info(f"\n[Team:{self.name}] Starting in {self.mode.value} mode")
+        logger.info(f"[Team:{self.name}] Task: {self.task}")
+        logger.info(f"[Team:{self.name}] Members: {', '.join(self.members.keys())}")
 
         if self.mode == TeamMode.ROUTER:
             return await self._run_router()
@@ -84,15 +84,15 @@ class Team:
     # ------------------------------------------------------------------
 
     async def _run_router(self) -> Dict[str, Any]:
-        print(f"\n[Team:{self.name}] Coordinator is choosing a member...")
+        logger.info(f"\n[Team:{self.name}] Coordinator is choosing a member...")
         decision = await self._coordinator_route()
         logger.info(
             f"[{self.name}] Router chose '{decision.chosen_member}': {decision.reasoning}"
         )
-        print(f"[Team:{self.name}] Routed to: '{decision.chosen_member}'")
-        print(f"[Team:{self.name}] Reasoning: {decision.reasoning}")
+        logger.info(f"[Team:{self.name}] Routed to: '{decision.chosen_member}'")
+        logger.info(f"[Team:{self.name}] Reasoning: {decision.reasoning}")
         if decision.rewritten_task:
-            print(f"[Team:{self.name}] Rewritten task: {decision.rewritten_task}")
+            logger.info(f"[Team:{self.name}] Rewritten task: {decision.rewritten_task}")
 
         config = self.members.get(decision.chosen_member)
         if config is None:
@@ -139,7 +139,7 @@ class Team:
     # ------------------------------------------------------------------
 
     async def _run_broadcast(self) -> Dict[str, Any]:
-        print(
+        logger.info(
             f"\n[Team:{self.name}] Broadcasting task to all {len(self.members)} members in parallel..."
         )
         semaphore = asyncio.Semaphore(self.max_concurrent_members)
@@ -168,7 +168,7 @@ class Team:
             else:
                 member_results.append(r)
 
-        print(
+        logger.info(
             f"\n[Team:{self.name}] All members finished. Coordinator is combining results..."
         )
         summary = await self._coordinator_combine(member_results)
@@ -215,15 +215,19 @@ class Team:
     # ------------------------------------------------------------------
 
     async def _run_delegate(self) -> Dict[str, Any]:
-        print(f"\n[Team:{self.name}] Coordinator is creating a delegation plan...")
+        logger.info(
+            f"\n[Team:{self.name}] Coordinator is creating a delegation plan..."
+        )
         plan = await self._coordinator_plan()
         logger.info(
             f"[{self.name}] Delegation plan ({len(plan.steps)} steps): {plan.rationale}"
         )
-        print(f"[Team:{self.name}] Plan ({len(plan.steps)} steps): {plan.rationale}")
+        logger.info(
+            f"[Team:{self.name}] Plan ({len(plan.steps)} steps): {plan.rationale}"
+        )
         for s in plan.steps:
             deps = f" (depends on: {s.depends_on})" if s.depends_on else ""
-            print(f"  Step {s.step_number}: [{s.member_name}] {s.subtask}{deps}")
+            logger.info(f"Step {s.step_number}: [{s.member_name}] {s.subtask}{deps}")
 
         if len(plan.steps) > self.max_delegation_steps:
             return self._error_result(
@@ -370,32 +374,32 @@ class Team:
         logger.info(
             f"[{self.name}] Running member '{config.name}' with task: {task[:80]}..."
         )
-        print(f"\n{'='*50}")
-        print(f"[Member:{config.name}] Starting ({member_type})")
-        print(f"[Member:{config.name}] Task: {task[:120]}")
+        logger.info(f"\n{'='*50}")
+        logger.info(f"[Member:{config.name}] Starting ({member_type})")
+        logger.info(f"[Member:{config.name}] Task: {task[:120]}")
         tools = config.tools or list(self.tools_registry.tools.keys())
-        print(f"[Member:{config.name}] Tools: {len(tools)} available")
+        logger.info(f"[Member:{config.name}] Tools: {len(tools)} available")
         try:
             if config.team_config is not None:
                 result = await self._run_nested_team(config, task)
             else:
                 result = await self._run_agent_member(config, task)
-            print(
+            logger.info(
                 f"[Member:{config.name}] Completed: {result.completed} | Steps: {result.steps_taken}"
             )
             if result.final_answer:
                 preview = result.final_answer[:150]
-                print(
+                logger.info(
                     f"[Member:{config.name}] Answer: {preview}{'...' if len(result.final_answer) > 150 else ''}"
                 )
             if result.error:
-                print(f"[Member:{config.name}] Error: {result.error}")
-            print(f"{'='*50}")
+                logger.info(f"[Member:{config.name}] Error: {result.error}")
+            logger.info(f"{'='*50}")
             return result
         except Exception as e:
             logger.error(f"[{self.name}] Member '{config.name}' failed: {e}")
-            print(f"[Member:{config.name}] FAILED: {e}")
-            print(f"{'='*50}")
+            logger.info(f"[Member:{config.name}] FAILED: {e}")
+            logger.info(f"{'='*50}")
             return MemberRunResult(
                 member_name=config.name,
                 task=task,
