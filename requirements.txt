@@ -1,15 +1,4 @@
-# Core dependencies
-anthropic>=0.40.0
-tavily-python>=0.5.0
-openai>=1.50.0
-pydantic>=2.0.0
-python-dotenv>=1.0.0
-requests>=2.28.0
-pyyaml>=6.0.0
-numpy>=1.24.0
-
-# API server
-fastapi>=0.110.0
-uvicorn[standard]>=0.23.0
-python-multipart>=0.0.9
- 
+# This file is provided for convenience only.
+# The canonical dependency list is in pyproject.toml.
+# Install with: pip install -e .
+-e .
