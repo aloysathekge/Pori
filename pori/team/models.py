@@ -32,6 +32,10 @@ class MemberConfig(BaseModel):
     agent_settings: Optional[Dict[str, Any]] = Field(
         default=None, description="AgentSettings overrides (max_steps, etc.)"
     )
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="Custom system prompt for this member. Prepended to the default agent system prompt.",
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool name filter (None = all tools). 'answer' and 'done' are always included.",

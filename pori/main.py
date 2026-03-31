@@ -32,6 +32,101 @@ logger = logging.getLogger("pori.main")
 # Define some example tools
 
 
+def _handle_cli_command(command: str, memory: AgentMemory) -> None:
+    """Handle slash commands like /memory, /memory clear, etc."""
+    parts = command.strip().split()
+    cmd = parts[0].lower()
+
+    if cmd == "/memory":
+        subcmd = parts[1].lower() if len(parts) > 1 else "list"
+
+        if subcmd == "list":
+            print("\n=== Memory Overview ===")
+
+            # Messages
+            print(f"\nMessages: {len(memory.messages)}")
+            for msg in memory.messages[-10:]:
+                preview = msg.content[:80].replace("\n", " ")
+                print(f"  [{msg.role}] {preview}...")
+
+            # Experiences
+            print(f"\nExperiences: {len(memory.experiences)}")
+            for exp in memory.experiences:
+                text = str(exp.get("text", ""))[:80].replace("\n", " ")
+                imp = exp.get("importance", 1)
+                print(f"  [imp={imp}] {text}")
+
+            # Tasks
+            print(f"\nTasks: {len(memory.tasks)}")
+            for tid, task in memory.tasks.items():
+                print(f"  [{task.status}] {tid}: {task.description[:60]}")
+
+            # Tool calls
+            print(f"\nTool calls: {len(memory.tool_call_history)}")
+
+            # Core memory blocks
+            if getattr(memory, "core_memory", None):
+                print("\nCore memory blocks:")
+                for label, block in memory.core_memory._blocks.items():
+                    lines = block.value.strip()
+                    if lines:
+                        print(f"  [{label}] ({len(lines)} chars) {lines[:80]}...")
+                    else:
+                        print(f"  [{label}] (empty)")
+
+            # Archival passages
+            print(f"\nArchival passages: {len(memory.archival_passages)}")
+            for rec in memory.archival_passages:
+                text = str(rec.get("text", ""))[:80].replace("\n", " ")
+                tags = rec.get("tags", [])
+                print(f"  {text}" + (f"  tags={tags}" if tags else ""))
+
+        elif subcmd == "clear":
+            target = parts[2].lower() if len(parts) > 2 else "all"
+            if target == "all":
+                memory.messages.clear()
+                memory.experiences.clear()
+                memory.tasks.clear()
+                memory.tool_call_history.clear()
+                memory.summaries.clear()
+                memory.archival_passages.clear()
+                memory.state.clear()
+                if getattr(memory, "core_memory", None):
+                    for block in memory.core_memory._blocks.values():
+                        block.value = ""
+                memory._persist()
+                print("All memory cleared.")
+            elif target == "messages":
+                memory.messages.clear()
+                memory._persist()
+                print("Messages cleared.")
+            elif target == "experiences":
+                memory.experiences.clear()
+                memory._persist()
+                print("Experiences cleared.")
+            elif target == "tasks":
+                memory.tasks.clear()
+                memory._persist()
+                print("Tasks cleared.")
+            elif target == "archival":
+                memory.archival_passages.clear()
+                memory._persist()
+                print("Archival passages cleared.")
+            else:
+                print(f"Unknown clear target: {target}")
+                print("Usage: /memory clear [all|messages|experiences|tasks|archival]")
+
+        else:
+            print(f"Unknown subcommand: {subcmd}")
+            print(
+                "Usage: /memory [list|clear [all|messages|experiences|tasks|archival]]"
+            )
+
+    else:
+        print(f"Unknown command: {cmd}")
+        print("Available commands: /memory")
+
+
 async def main():
     logger.info("Starting Pori Agent System")
 
@@ -174,6 +269,11 @@ async def main():
 
         if not task:
             logger.warning("Empty task provided, skipping")
+            continue
+
+        # CLI commands
+        if task.startswith("/"):
+            _handle_cli_command(task, shared_memory)
             continue
 
         logger.info(f"New task received: {task}")

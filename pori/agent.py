@@ -95,6 +95,7 @@ class Agent:
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
         guardrails: Optional[List] = None,
+        system_prompt: Optional[str] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -116,6 +117,7 @@ class Agent:
         self.task = task
         self.llm = llm
         self.tools_registry = tools_registry
+        self._custom_system_prompt = system_prompt
         self.tool_executor = ToolExecutor(tools_registry)
         self.settings = settings
 
@@ -156,18 +158,19 @@ class Agent:
             "{tool_descriptions}", tool_descriptions
         )
 
+        # Prepend custom system prompt if provided
+        if self._custom_system_prompt:
+            self.system_message = (
+                self._custom_system_prompt + "\n\n" + self.system_message
+            )
+
         # Add system message to memory
         self.memory.add_message("system", self.system_message)
 
         # Add task message to memory (working memory resets per task via begin_task)
         self.memory.add_message("user", f"Task: {self.task}")
-        # Also store task text as an experience for recall
-        try:
-            self.memory.add_experience(
-                f"Task stated: {self.task}", importance=1, meta={"type": "task"}
-            )
-        except Exception:
-            pass
+        # Task is already tracked in memory.tasks — no need to duplicate as an experience.
+        # Only user facts (via core_memory/remember tools) should be stored as experiences.
 
         logger.debug("System message setup complete", extra={"task_id": self.task_id})
 
@@ -361,15 +364,8 @@ class Agent:
                         self.memory.update_state("final_answer", result.value)
                 except Exception:
                     pass
-                # Index non-final results
-                try:
-                    self.memory.add_experience(
-                        f"Step result: {str(result)}",
-                        importance=1,
-                        meta={"type": "step_result"},
-                    )
-                except Exception:
-                    pass
+                # Skip indexing intermediate step results — they add noise.
+                # Only task descriptions and final answers are stored as experiences.
 
     async def get_next_action(self) -> AgentOutput:
         """Get next action from LLM based on current state."""
@@ -654,12 +650,16 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         plan_prompt = (
             "You are planning how to accomplish the user's task. "
             "Return 1-3 short steps. Each step should map directly to a tool call or the final 'answer' action. "
+            "IMPORTANT: If the task requires information the user has not provided, "
+            "the FIRST step must be to use `ask_user` to gather the missing details. "
+            "Also, if you do not have the tools needed to deliver the requested output, "
+            "the plan should be to inform the user via `answer` immediately. "
             "Do NOT describe internal operations that a tool already abstracts (e.g., loops or data structures). "
             "Reference tools by name with essentia."
         )
 
         messages = [
-            SystemMessage(content="Plan the task succinctly."),
+            SystemMessage(content=self.system_message),
             UserMessage(content=f"Task: {self.task}\n{plan_prompt}"),
         ]
 

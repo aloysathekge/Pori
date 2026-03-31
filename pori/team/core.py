@@ -59,10 +59,6 @@ class Team:
         self.max_concurrent_members = max_concurrent_members
         self.name = name
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     async def run(self) -> Dict[str, Any]:
         """Run the team. Returns the same shape as ``Agent.run()``."""
         logger.info(f"[{self.name}] Starting team run in {self.mode.value} mode")
@@ -448,6 +444,7 @@ class Team:
             sandbox_base_dir=config.sandbox_base_dir,
             hitl_handler=self.hitl_handler,
             hitl_config=hitl_config,
+            system_prompt=config.system_prompt,
         )
 
         result = await agent.run()
