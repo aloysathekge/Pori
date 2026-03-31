@@ -60,6 +60,30 @@ def done_tool(params: DoneParams, context: Dict[str, Any]):
     return {"final_message": params.message, "success": params.success}
 
 
+class AskUserParams(BaseModel):
+    question: str = Field(
+        ..., description="The question to ask the user for clarification"
+    )
+    reason: str = Field(
+        ...,
+        description="Why you need this information before proceeding",
+    )
+
+
+@Registry.tool(
+    name="ask_user",
+    description="Ask the user a clarifying question when you lack required information to complete the task. Use this BEFORE taking action when critical details are missing.",
+)
+def ask_user_tool(params: AskUserParams, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Ask the user for clarification and return their response."""
+    print(f"\n[Agent needs clarification]\n{params.question}")
+    try:
+        user_response = input("Your answer: ").strip()
+    except EOFError:
+        user_response = ""
+    return {"success": True, "user_response": user_response}
+
+
 class ThinkParams(BaseModel):
     thoughts: str = Field(..., description="What you're thinking about")
     next_action: str = Field(..., description="What you plan to do next")
