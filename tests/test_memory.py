@@ -181,3 +181,25 @@ def test_in_memory_store_instances_are_isolated():
     store_b.save("ns", {"owner": "b"})
     assert store_a.load("ns") == {"owner": "a"}
     assert store_b.load("ns") == {"owner": "b"}
+
+
+def test_hydrate_timestamps_parses_iso_strings_in_place():
+    """Timestamp hydration helper should convert ISO strings to datetime on each
+    dict item and leave non-dict or missing timestamps alone."""
+    from datetime import datetime
+
+    from pori.memory import AgentMemory
+
+    memory = AgentMemory()
+    items = [
+        {"timestamp": "2024-01-02T03:04:05"},
+        {"timestamp": datetime(2024, 1, 1)},
+        {"no_timestamp": True},
+        "not a dict",
+    ]
+    memory._hydrate_timestamps(items)
+
+    assert items[0]["timestamp"] == datetime(2024, 1, 2, 3, 4, 5)
+    assert items[1]["timestamp"] == datetime(2024, 1, 1)
+    assert "timestamp" not in items[2]
+    assert items[3] == "not a dict"

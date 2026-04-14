@@ -373,6 +373,15 @@ class AgentMemory:
         except Exception:
             return None
 
+    def _hydrate_timestamps(self, items: List[Any]) -> None:
+        """Parse ISO timestamp strings on each dict item in-place."""
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ts = self._safe_from_iso(item.get("timestamp"))
+            if ts is not None:
+                item["timestamp"] = ts
+
     def _to_snapshot(self) -> Dict[str, Any]:
         return {
             "meta": {
@@ -417,21 +426,8 @@ class AgentMemory:
         self.experiences = snapshot.get("experiences") or []
         self.archival_passages = snapshot.get("archival_passages") or []
 
-        for item in self.experiences:
-            if isinstance(item, dict):
-                ts = self._safe_from_iso(item.get("timestamp"))
-                if ts is not None:
-                    item["timestamp"] = ts
-        for item in self.archival_passages:
-            if isinstance(item, dict):
-                ts = self._safe_from_iso(item.get("timestamp"))
-                if ts is not None:
-                    item["timestamp"] = ts
-        for item in self.summaries:
-            if isinstance(item, dict):
-                ts = self._safe_from_iso(item.get("timestamp"))
-                if ts is not None:
-                    item["timestamp"] = ts
+        for collection in (self.experiences, self.archival_passages, self.summaries):
+            self._hydrate_timestamps(collection)
 
     def _load_from_store(self) -> None:
         snapshot = self.store.load(self.namespace)
