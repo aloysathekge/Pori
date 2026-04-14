@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ..registry import tool_registry
 
 Registry = tool_registry()
+logger = logging.getLogger("pori.core_tools")
 
 
 class AnswerParams(BaseModel):
@@ -32,15 +33,13 @@ def answer_tool(params: AnswerParams, context: Dict[str, Any]) -> Dict[str, Any]
         "reasoning": params.reasoning or "No additional reasoning provided.",
     }
 
-    logging.info(f"Answer tool called with final answer: {params.final_answer}")
+    logger.info(f"Answer tool called with final answer: {params.final_answer}")
 
     if context and "memory" in context:
         context["memory"].update_state("final_answer", answer)
-        logging.info("Final answer stored in memory")
+        logger.info("Final answer stored in memory")
     else:
-        logging.warning(
-            "Could not store final answer - memory not available in context"
-        )
+        logger.warning("Could not store final answer - memory not available in context")
 
     return answer
 

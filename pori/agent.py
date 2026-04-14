@@ -271,8 +271,11 @@ class Agent:
                     duration_seconds=llm_duration,
                 )
                 step_metrics.llm_calls.append(llm_metrics)
-            except Exception:
-                pass
+            except Exception as metrics_err:
+                logger.debug(
+                    f"Failed to record LLM call metrics: {metrics_err}",
+                    extra={"task_id": self.task_id, "step": step_number},
+                )
 
             action_count = len(model_output.action) if model_output.action else 0
             if action_count > 0:
@@ -344,8 +347,11 @@ class Agent:
             step_metrics.duration_seconds = step_duration
             if self._run_metrics is not None:
                 self._run_metrics.steps.append(step_metrics)
-        except Exception:
-            pass
+        except Exception as metrics_err:
+            logger.debug(
+                f"Failed to record step metrics: {metrics_err}",
+                extra={"task_id": self.task_id, "step": step_number},
+            )
 
         # Finish step span if not already finished (error case finishes early)
         if step_span and step_span.end_time is None:
@@ -362,8 +368,11 @@ class Agent:
                         and "final_answer" in result.value
                     ):
                         self.memory.update_state("final_answer", result.value)
-                except Exception:
-                    pass
+                except Exception as state_err:
+                    logger.debug(
+                        f"Failed to update final_answer state: {state_err}",
+                        extra={"task_id": self.task_id},
+                    )
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
@@ -496,7 +505,11 @@ class Agent:
                 )
             else:
                 recent_structured = self.memory.get_recent_messages_structured(10)
-        except Exception:
+        except Exception as msg_err:
+            logger.debug(
+                f"Token-limited message fetch failed, using recent fallback: {msg_err}",
+                extra={"task_id": self.task_id},
+            )
             recent_structured = self.memory.get_recent_messages_structured(10)
 
         for msg in recent_structured:
@@ -527,7 +540,11 @@ class Agent:
                     self.task,
                 )
                 recall_query = last_user or self.task
-            except Exception:
+            except Exception as recall_err:
+                logger.debug(
+                    f"Recall query extraction failed, using task: {recall_err}",
+                    extra={"task_id": self.task_id},
+                )
                 recall_query = self.task
 
             retrieved = self.memory.recall(query=recall_query, k=5, min_score=0.35)
@@ -546,21 +563,20 @@ class Agent:
                         "Use relevant background facts below to answer the CURRENT question. "
                         "Do not copy prior final answers verbatim; verify dates/contexts."
                     )
-                    try:
-                        logger.info(
-                            "Retrieved knowledge (top):\n" + "\n".join(top),
-                            extra={"task_id": self.task_id},
-                        )
-                    except Exception:
-                        pass
+                    logger.info(
+                        "Retrieved knowledge (top):\n" + "\n".join(top),
+                        extra={"task_id": self.task_id},
+                    )
                     messages.append(
                         UserMessage(
                             content=f"Retrieved Knowledge (for reference):\n{facts}\n\n{guidance}"
                         )
                     )
-        except Exception:
-            # If memory backend lacks recall, skip silently
-            pass
+        except Exception as recall_err:
+            logger.debug(
+                f"Semantic recall unavailable or failed: {recall_err}",
+                extra={"task_id": self.task_id},
+            )
 
         return messages
 
@@ -655,7 +671,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "Also, if you do not have the tools needed to deliver the requested output, "
             "the plan should be to inform the user via `answer` immediately. "
             "Do NOT describe internal operations that a tool already abstracts (e.g., loops or data structures). "
-            "Reference tools by name with essentia."
+            "Reference tools by their exact names and only the essential arguments."
         )
 
         messages = [

@@ -55,15 +55,33 @@ class ChatGoogle:
             system_instruction=system_instruction,
         )
 
+        response = None
         if output_format is not None:
             config.response_mime_type = "application/json"
             config.response_schema = output_format
+            try:
+                response = await self._client.aio.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+            except ValueError as e:
+                # Gemini's schema transformer rejects JSON Schema features like
+                # additionalProperties. Fall back to JSON-only mode and validate
+                # locally with Pydantic.
+                if (
+                    "additionalProperties is not supported in the Gemini API"
+                    not in str(e)
+                ):
+                    raise
+                config.response_schema = None
 
-        response = await self._client.aio.models.generate_content(
-            model=self.model,
-            contents=contents,
-            config=config,
-        )
+        if response is None:
+            response = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
+            )
 
         # Capture usage
         try:
@@ -80,6 +98,11 @@ class ChatGoogle:
         text = response.text or ""
 
         if output_format is not None:
+            if text.startswith("```"):
+                text = text.strip().removeprefix("```json").removeprefix("```")
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
             return output_format.model_validate_json(text)
 
         return text
