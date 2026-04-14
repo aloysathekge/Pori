@@ -12,7 +12,11 @@
       "Bash(python -m json.tool)",
       "Bash(curl -s http://localhost:8000/v1/health)",
       "Bash(curl -s -o /dev/null -w \"CORS preflight: %{http_code}\" -X OPTIONS -H \"Origin: http://localhost:3000\" -H \"Access-Control-Request-Method: POST\" http://localhost:8000/v1/runs)",
-      "Bash(curl -s -v http://localhost:8000/v1/runs)"
+      "Bash(curl -s -v http://localhost:8000/v1/runs)",
+      "Bash(grep -r \"import logging\" /c/Users/DELL/Documents/Workspace/Pori/Pori/pori/*.py)",
+      "Bash(grep:*)",
+      "Bash(head -n 189 pori/tools/registry.py)",
+      "Bash(mv /tmp/registry_trimmed.py pori/tools/registry.py)"
     ]
   }
 }

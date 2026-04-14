@@ -163,3 +163,21 @@ def test_recall_uses_embedded_experiences(legacy_memory):
     assert len(hits) >= 1
     assert hits[0][0] == key
     assert isinstance(memory.experiences[0].get("embedding"), list)
+
+
+def test_in_memory_store_instances_are_isolated():
+    """Regression: InMemoryMemoryStore used a class-level dict, so two
+    instances leaked state into each other. Each instance must have its own
+    namespace-keyed store."""
+    from pori.memory import InMemoryMemoryStore
+
+    store_a = InMemoryMemoryStore()
+    store_b = InMemoryMemoryStore()
+
+    store_a.save("ns", {"owner": "a"})
+    assert store_b.load("ns") is None
+    assert store_a.load("ns") == {"owner": "a"}
+
+    store_b.save("ns", {"owner": "b"})
+    assert store_a.load("ns") == {"owner": "a"}
+    assert store_b.load("ns") == {"owner": "b"}

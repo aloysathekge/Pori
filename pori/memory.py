@@ -26,7 +26,8 @@ class MemoryStore(Protocol):
 
 
 class InMemoryMemoryStore:
-    _db: Dict[str, Dict[str, Any]] = {}
+    def __init__(self) -> None:
+        self._db: Dict[str, Dict[str, Any]] = {}
 
     def load(self, namespace: str) -> Optional[Dict[str, Any]]:
         data = self._db.get(namespace)
