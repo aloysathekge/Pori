@@ -3,13 +3,15 @@
 # API keys should be stored in .env file, not here
 
 llm:
-  # Provider: anthropic, openai, google, or azure
+  # Provider: anthropic, openai, google, azure, or openrouter
   provider: anthropic
-  
+
   # Model name (provider-specific)
   # Anthropic: claude-sonnet-4-5-20250929, claude-3-5-sonnet-20241022, claude-3-opus-20240229
   # OpenAI: gpt-4o, gpt-4-turbo, gpt-4, gpt-3.5-turbo
   # Google: gemini-pro, gemini-1.5-pro, gemini-1.5-flash
+  # OpenRouter: meta-llama/llama-3.3-70b-instruct, mistralai/mistral-nemo, qwen/qwen-2.5-72b-instruct,
+  #             deepseek/deepseek-chat, google/gemma-2-27b-it, openai/gpt-4o-mini
   model: claude-sonnet-4-5-20250929
   
   # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
@@ -121,3 +123,18 @@ memory:
 #   provider: azure
 #   model: gpt-4
 #   temperature: 0.0
+
+# OpenRouter configuration (access OSS + hosted models via one API):
+# Set OPENROUTER_API_KEY in .env. Optional: OPENROUTER_HTTP_REFERER and
+# OPENROUTER_X_TITLE for attribution on openrouter.ai/rankings.
+# Model names use the "vendor/model" slug from https://openrouter.ai/models
+#
+# Tip: set `model: select` to get an interactive model picker at startup,
+# backed by the curated catalog in pori/llm/openrouter_models.py.
+# You can also set PORI_SELECT_MODEL=1 to force the picker regardless of
+# what's configured.
+# llm:
+#   provider: openrouter
+#   model: select                                  # or e.g. meta-llama/llama-3.3-70b-instruct
+#   temperature: 0.2
+#   max_tokens: 4096

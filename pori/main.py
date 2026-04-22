@@ -37,6 +37,25 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
     parts = command.strip().split()
     cmd = parts[0].lower()
 
+    if cmd in {"/new", "/reset", "/clear"}:
+        # Start a fresh conversation: drop transient per-task state (messages,
+        # tool-call history, open task records) so the next task doesn't
+        # inherit prior-task context. Keep durable memory intact: experiences,
+        # archival passages, core memory blocks, summaries.
+        msg_count = len(memory.messages)
+        tool_count = len(memory.tool_call_history)
+        memory.messages.clear()
+        memory.tool_call_history.clear()
+        memory.tasks.clear()
+        memory.current_task_id = None
+        memory.state.clear()
+        memory._persist()
+        print(
+            f"Cleared conversation ({msg_count} messages, "
+            f"{tool_count} tool calls). Durable memory kept."
+        )
+        return
+
     if cmd == "/memory":
         subcmd = parts[1].lower() if len(parts) > 1 else "list"
 
@@ -124,7 +143,115 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
 
     else:
         print(f"Unknown command: {cmd}")
-        print("Available commands: /memory")
+        print("Available commands: /memory, /model, /new")
+
+
+# Small curated per-provider lists used by /model. Users can also type a
+# raw model id, so these don't need to be exhaustive.
+_PROVIDER_MODELS: dict[str, list[str]] = {
+    "anthropic": [
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5",
+        "claude-opus-4-5",
+        "claude-3-5-sonnet-20241022",
+    ],
+    "openai": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-5-mini",
+    ],
+    "google": [
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+    ],
+}
+
+_PROVIDER_ENV_KEYS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _switch_model_interactive(current: "LLMConfig"):
+    """Two-step picker: choose provider, then model. Rebuilds LLM via create_llm().
+
+    Returns (llm, new_llm_config) on success, or (None, None) if the user
+    cancels or an error occurs.
+    """
+    from .config import LLMConfig, create_llm
+    from .llm import pick_openrouter_model
+
+    providers = list(_PROVIDER_ENV_KEYS.keys())
+
+    print("\n=== Select a provider ===", flush=True)
+    for i, name in enumerate(providers, start=1):
+        has_key = bool(os.getenv(_PROVIDER_ENV_KEYS[name]))
+        tag = "" if has_key else "  (API key not set)"
+        marker = " *" if name == current.provider else "  "
+        print(f"  {i}.{marker}{name}{tag}")
+    print(f"\n  Current: {current.provider} / {current.model}")
+    print("  Press Enter to cancel.\n", flush=True)
+
+    try:
+        raw = input("  > ").strip().lower()
+    except EOFError:
+        return None, None
+    if not raw:
+        return None, None
+
+    if raw.isdigit() and 1 <= int(raw) <= len(providers):
+        provider = providers[int(raw) - 1]
+    elif raw in providers:
+        provider = raw
+    else:
+        print(f"  Unknown provider: {raw}")
+        return None, None
+
+    if not os.getenv(_PROVIDER_ENV_KEYS[provider]):
+        print(
+            f"  {_PROVIDER_ENV_KEYS[provider]} is not set; "
+            f"export it before switching to {provider}."
+        )
+        return None, None
+
+    # Choose model for the selected provider
+    if provider == "openrouter":
+        default = current.model if current.provider == "openrouter" else None
+        model = pick_openrouter_model(default_slug=default)
+    else:
+        options = _PROVIDER_MODELS.get(provider, [])
+        print(f"\nSelect a {provider} model:")
+        for i, m in enumerate(options, start=1):
+            print(f"  {i}. {m}")
+        print("\n  Type a number, paste any model id, or press Enter to cancel.")
+        try:
+            raw_m = input("  > ").strip()
+        except EOFError:
+            return None, None
+        if not raw_m:
+            return None, None
+        if raw_m.isdigit() and 1 <= int(raw_m) <= len(options):
+            model = options[int(raw_m) - 1]
+        else:
+            model = raw_m
+
+    new_cfg = LLMConfig(
+        provider=provider,
+        model=model,
+        temperature=current.temperature,
+        max_tokens=current.max_tokens,
+        top_p=current.top_p,
+        extra_params=dict(current.extra_params),
+    )
+    try:
+        new_llm = create_llm(new_cfg)
+    except Exception as e:
+        print(f"  Failed to build LLM: {e}")
+        return None, None
+    return new_llm, new_cfg
 
 
 async def main():
@@ -273,6 +400,29 @@ async def main():
 
         # CLI commands
         if task.startswith("/"):
+            if task.strip().split()[0].lower() == "/model":
+                import sys as _sys
+
+                _sys.stdout.flush()
+                new_llm, new_llm_config = _switch_model_interactive(config.llm)
+                _sys.stdout.flush()
+                if new_llm is not None and new_llm_config is not None:
+                    llm = new_llm
+                    config.llm = new_llm_config
+                    orchestrator.llm = llm
+                    print(
+                        "\n=== Model switched ===\n"
+                        f"  Provider: {new_llm_config.provider}\n"
+                        f"  Model:    {new_llm_config.model}\n"
+                        "  Next task will use this model.\n"
+                        "  Tip: type /new to start a fresh conversation "
+                        "(drops prior-task context).\n",
+                        flush=True,
+                    )
+                else:
+                    print("  Model unchanged.", flush=True)
+                continue
+
             _handle_cli_command(task, shared_memory)
             continue
 
