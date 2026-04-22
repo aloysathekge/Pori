@@ -1,6 +1,6 @@
 """Pori - A simple, extensible AI agent framework for all ."""
 
-__version__ = "1.3.2"
+__version__ = "1.3.3"
 __author__ = "Aloy Sathekge"
 __email__ = "sathekgealoy@gmail.com"
 

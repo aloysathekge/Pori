@@ -4,6 +4,32 @@ All notable changes to Pori will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-04-22
+
+**Headline: OpenRouter models land in Pori.** Access any OSS or hosted model (Llama, Qwen, DeepSeek, Mistral, Gemma, Claude, GPT, Gemini) through one provider, with an interactive picker for choosing at startup and a new `/model` command for swapping mid-session.
+
+### Added
+- **OpenRouter LLM provider** (`pori/llm/openrouter.py`) — access OSS models (Llama, Qwen, DeepSeek, Mistral, Gemma) and hosted frontier models through a single API
+- **Curated OpenRouter catalog** (`pori/llm/openrouter_models.py`) with grouped Free / Open Source / Hosted tiers
+- **Interactive model selection** at startup via `model: select` config sentinel or `PORI_SELECT_MODEL=1` env var
+- **`/model` CLI command** — switch provider and model at runtime across Anthropic, OpenAI, Google, and OpenRouter without restart
+- **`/new` CLI command** (aliases `/reset`, `/clear`) — start a fresh conversation; drops prior-task messages + tool calls but keeps durable memory (experiences, archival passages, core memory)
+- **`ask_user` tool** for agent-driven clarification during task execution
+- **Code of Conduct** and **SECURITY.md** for community governance
+- `.editorconfig` for consistent editor settings across contributors
+
+### Changed
+- **Agent system prompt** tuned to respond directly to greetings, identity questions, and conversational inputs (no more `ask_user` spam on simple queries). `ask_user` now reserved for genuine blockers.
+- **CoreMemory** gains `clone_read_only()` and `rewrite()` alias; team members receive read-only copy of coordinator memory
+- **ChatGoogle** error handling and response processing hardened
+- **LLM provider error logging** expanded for easier debugging of transport/auth failures
+- **Team** refactored for cleaner task coordination and member management
+- README overhauled with clearer overview and installation instructions
+
+### Fixed
+- Timestamp handling in `AgentMemory` (timezone-aware)
+- Removed dead Spotify API tool registrations
+
 ## [1.3.2] - 2026-03-28
 
 ### Added
