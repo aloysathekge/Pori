@@ -668,6 +668,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "Return 1-3 short steps. Each step should map directly to a tool call or the final 'answer' action. "
             "IMPORTANT: If the task requires information the user has not provided, "
             "the FIRST step must be to use `ask_user` to gather the missing details. "
+            "For core-memory rewrites, use `memory_rethink` (or `core_memory_replace` for targeted edits). "
             "Also, if you do not have the tools needed to deliver the requested output, "
             "the plan should be to inform the user via `answer` immediately. "
             "Do NOT describe internal operations that a tool already abstracts (e.g., loops or data structures). "

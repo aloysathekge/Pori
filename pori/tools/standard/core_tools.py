@@ -330,6 +330,15 @@ def memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
         return {"success": False, "error": str(e)}
 
 
+@Registry.tool(
+    name="core_memory_rethink",
+    description="Compatibility alias for memory_rethink to rewrite a full core memory block.",
+)
+def core_memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
+    """Backwards-compatible alias for full core memory rewrites."""
+    return memory_rethink_tool(params, context)
+
+
 def register_core_tools(registry=None):
     """Tools auto-register on import; kept for compatibility."""
     return None
