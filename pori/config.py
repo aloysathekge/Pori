@@ -22,7 +22,7 @@ load_dotenv()
 class LLMConfig(BaseModel):
     """Base configuration for LLM providers."""
 
-    provider: Literal["anthropic", "openai", "google", "azure"] = Field(
+    provider: Literal["anthropic", "openai", "google", "azure", "openrouter"] = Field(
         description="LLM provider name"
     )
     model: str = Field(description="Model name/identifier")
@@ -213,10 +213,29 @@ def create_llm(config: LLMConfig):
 
         return ChatGoogle(api_key=api_key, **common_params)
 
+    elif provider == "openrouter":
+        from pori.llm import ChatOpenRouter, is_select_sentinel, pick_openrouter_model
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+
+        # If the config asks us to prompt (model: select / prompt / pick / ?),
+        # or PORI_SELECT_MODEL=1 is set, run the interactive picker and
+        # override the model slug before constructing the client.
+        env_force = os.getenv("PORI_SELECT_MODEL", "").strip() in {"1", "true", "yes"}
+        if is_select_sentinel(common_params.get("model")) or env_force:
+            chosen = pick_openrouter_model(
+                default_slug=None if env_force else None,
+            )
+            common_params["model"] = chosen
+
+        return ChatOpenRouter(api_key=api_key, **common_params)
+
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported providers: anthropic, openai, google"
+            f"Supported providers: anthropic, openai, google, openrouter"
         )
 
 
