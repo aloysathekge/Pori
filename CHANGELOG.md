@@ -4,6 +4,42 @@ All notable changes to Pori will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-23
+
+**Headline: slimmer core install.** `pip install pori` now pulls only what the core agent loop needs. Heavy ML dependencies move to optional extras.
+
+### Changed (install surface)
+- **Core dependencies reduced to six packages**: `anthropic`, `openai`, `google-genai`, `pydantic`, `python-dotenv`, `pyyaml`. Fresh install drops from ~214 transitive packages to a fraction of that — no `torch`, no `transformers`, no `chromadb`.
+- **`sentence-transformers` moved to `pori[embeddings]` extra.** Pori falls back to a deterministic hash-based embedding when the extra is not installed (lower quality but zero-dependency). Install with `pip install "pori[embeddings]"` for semantic memory recall.
+- **`tavily-python` moved to `pori[web]` extra.** The `web_search` tool returns a clear "install tavily-python" error when invoked without the extra. Install with `pip install "pori[web]"`.
+- **`pori[all]`** extra installs both `embeddings` and `web` in one shot.
+
+### Removed
+- **`chromadb`** dependency — was declared but never imported anywhere in the codebase.
+- **`numpy`** dependency — not used directly; sentence-transformers pulls it transitively when needed.
+- **`requests`** dependency — not used directly; SDKs bring their own HTTP clients.
+
+### Migration
+
+If you relied on the implicit transitive install of these packages, pin them explicitly or install the appropriate extra:
+
+\`\`\`bash
+# Before (v1.3.x): one install pulled everything
+pip install pori
+
+# After (v1.4.0): lean core
+pip install pori
+
+# Want semantic memory recall?
+pip install "pori[embeddings]"
+
+# Want the web_search tool?
+pip install "pori[web]"
+
+# Want everything?
+pip install "pori[all]"
+\`\`\`
+
 ## [1.3.3] - 2026-04-22
 
 **Headline: OpenRouter models land in Pori.** Access any OSS or hosted model (Llama, Qwen, DeepSeek, Mistral, Gemma, Claude, GPT, Gemini) through one provider, with an interactive picker for choosing at startup and a new `/model` command for swapping mid-session.
