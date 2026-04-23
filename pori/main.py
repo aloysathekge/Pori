@@ -22,6 +22,7 @@ from .tools.registry import tool_registry
 from .tools.standard import register_all_tools
 
 # Configure logging
+from .utils.file_refs import expand_file_refs
 from .utils.logging_config import setup_logging
 from .utils.prompt_loader import set_prompts_dir
 
@@ -426,7 +427,16 @@ async def main():
             _handle_cli_command(task, shared_memory)
             continue
 
-        logger.info(f"New task received: {task}")
+        # Inline any @path file references the user typed (e.g. @main.py).
+        expanded_task, ref_notes = expand_file_refs(task)
+        if ref_notes:
+            print("\nAttached files:")
+            for note in ref_notes:
+                print(note)
+            logger.info(f"Expanded {len(ref_notes)} @path reference(s)")
+        task = expanded_task
+
+        logger.info("New task received")
 
         try:
             if use_team:
