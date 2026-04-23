@@ -2,6 +2,7 @@
 
 from .anthropic import ChatAnthropic
 from .base import BaseChatModel
+from .fireworks import ChatFireworks
 from .google import ChatGoogle
 from .messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
 from .openai import ChatOpenAI
@@ -21,6 +22,7 @@ __all__ = [
     "AssistantMessage",
     "BaseChatModel",
     "ChatAnthropic",
+    "ChatFireworks",
     "ChatGoogle",
     "ChatOpenAI",
     "ChatOpenRouter",

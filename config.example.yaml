@@ -3,7 +3,7 @@
 # API keys should be stored in .env file, not here
 
 llm:
-  # Provider: anthropic, openai, google, azure, or openrouter
+  # Provider: anthropic, openai, google, azure, openrouter, or fireworks
   provider: anthropic
 
   # Model name (provider-specific)
@@ -123,6 +123,20 @@ memory:
 #   provider: azure
 #   model: gpt-4
 #   temperature: 0.0
+
+# Fireworks AI configuration (OpenAI-compatible endpoint hosting open + partner models):
+# Set FIREWORKS_API_KEY in .env. Optionally override FIREWORKS_BASE_URL.
+# Model slugs follow the "accounts/<account>/models/<model>" format.
+# llm:
+#   provider: fireworks
+#   model: accounts/fireworks/models/kimi-k2p6
+#   temperature: 0.6
+#   max_tokens: 4096
+#   extra_params:
+#     top_p: 1
+#     top_k: 40
+#     presence_penalty: 0
+#     frequency_penalty: 0
 
 # OpenRouter configuration (access OSS + hosted models via one API):
 # Set OPENROUTER_API_KEY in .env. Optional: OPENROUTER_HTTP_REFERER and

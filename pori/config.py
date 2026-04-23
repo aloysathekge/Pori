@@ -22,9 +22,9 @@ load_dotenv()
 class LLMConfig(BaseModel):
     """Base configuration for LLM providers."""
 
-    provider: Literal["anthropic", "openai", "google", "azure", "openrouter"] = Field(
-        description="LLM provider name"
-    )
+    provider: Literal[
+        "anthropic", "openai", "google", "azure", "openrouter", "fireworks"
+    ] = Field(description="LLM provider name")
     model: str = Field(description="Model name/identifier")
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
@@ -232,10 +232,19 @@ def create_llm(config: LLMConfig):
 
         return ChatOpenRouter(api_key=api_key, **common_params)
 
+    elif provider == "fireworks":
+        from pori.llm import ChatFireworks
+
+        api_key = os.getenv("FIREWORKS_API_KEY")
+        if not api_key:
+            raise ValueError("FIREWORKS_API_KEY environment variable is not set")
+
+        return ChatFireworks(api_key=api_key, **common_params)
+
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported providers: anthropic, openai, google, openrouter"
+            f"Supported providers: anthropic, openai, google, openrouter, fireworks"
         )
 
 
