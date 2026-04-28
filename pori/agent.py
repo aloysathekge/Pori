@@ -306,12 +306,18 @@ class Agent:
                 extra={"task_id": self.task_id, "step": step_number},
             )
 
-            # Reflect briefly and revise plan if needed
-            try:
-                await self._reflect_and_update_plan(tool_results)
-            except Exception as reflect_err:
+            # Reflect briefly and revise plan if needed (skip if task is terminal)
+            if not self._current_task_terminal():
+                try:
+                    await self._reflect_and_update_plan(tool_results)
+                except Exception as reflect_err:
+                    logger.debug(
+                        f"Reflection skipped/failed: {reflect_err}",
+                        extra={"task_id": self.task_id, "step": step_number},
+                    )
+            else:
                 logger.debug(
-                    f"Reflection skipped/failed: {reflect_err}",
+                    "Skipping reflection: task is terminal",
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
@@ -634,6 +640,85 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
         return context_prompt
 
+    def _current_task_status(self) -> str:
+        """Return the status of the current task."""
+        task = self.memory.tasks.get(self.task_id)
+        return task.status if task else "unknown"
+
+    def _current_task_terminal(self) -> bool:
+        """Return True if the current task is in a terminal state (completed or failed)."""
+        status = self._current_task_status()
+        return status in ("completed", "failed")
+
+    def _task_requests_memory_mutation(self) -> bool:
+        """Return True if the current task explicitly requests memory deletion/removal."""
+        task_lower = self.task.lower()
+        deletion_keywords = ["forget", "delete", "remove", "erase"]
+        memory_keywords = ["memory", "role", "instruction", "persona", "identity"]
+        has_deletion = any(kw in task_lower for kw in deletion_keywords)
+        has_memory = any(kw in task_lower for kw in memory_keywords)
+        return has_deletion and has_memory
+
+    def _current_task_has_core_memory_mutation(self) -> bool:
+        """Return True if a core memory mutation tool succeeded in the current task.
+
+        Only replacement/rewrite tools count (core_memory_replace, memory_rethink,
+        core_memory_rethink). Append/insert tools do not satisfy deletion requests.
+        """
+        mutation_tools = {
+            "core_memory_replace",
+            "memory_rethink",
+            "core_memory_rethink",
+        }
+        for tc in self.memory.tool_call_history:
+            if (
+                getattr(tc, "task_id", None) == self.task_id
+                and getattr(tc, "tool_name", None) in mutation_tools
+                and getattr(tc, "success", False)
+            ):
+                return True
+        return False
+
+    def _memory_deletion_forbidden_terms(self) -> list:
+        """Extract terms from the task that the user explicitly wants removed.
+
+        Returns a list of lowercased terms that should not appear in new memory writes.
+        """
+        import re
+
+        forbidden = []
+        task_lower = self.task.lower()
+        # Look for quoted terms
+        quoted = re.findall(r'["\']([^"\']+)["\']', self.task)
+        for q in quoted:
+            forbidden.append(q.lower())
+        # Look for "FinBot" style proper nouns mentioned with deletion intent
+        if "finbot" in task_lower:
+            forbidden.append("finbot")
+        if "master financial summary" in task_lower:
+            forbidden.append("master financial summary")
+        return forbidden
+
+    def _params_write_forbidden_memory_terms(
+        self, tool_name: str, params: dict
+    ) -> bool:
+        """Return True if the tool params would write forbidden terms back to memory."""
+        if not self._task_requests_memory_mutation():
+            return False
+        forbidden = self._memory_deletion_forbidden_terms()
+        if not forbidden:
+            return False
+        # Check various param fields that could contain new content
+        fields_to_check = ["content", "new_str", "new_memory", "new_string"]
+        for field in fields_to_check:
+            val = params.get(field, "")
+            if isinstance(val, str):
+                val_lower = val.lower()
+                for term in forbidden:
+                    if term in val_lower:
+                        return True
+        return False
+
     def _create_output_model(self) -> Type[BaseModel]:
         """Create the output model for the LLM's response."""
         return AgentOutput
@@ -668,7 +753,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "Return 1-3 short steps. Each step should map directly to a tool call or the final 'answer' action. "
             "IMPORTANT: If the task requires information the user has not provided, "
             "the FIRST step must be to use `ask_user` to gather the missing details. "
-            "For core-memory rewrites, use `memory_rethink` (or `core_memory_replace` for targeted edits). "
+            "To inspect core memory, use `core_memory_read`. "
+            "For core-memory rewrites, use `memory_rethink` (or `core_memory_replace` for targeted edits); "
+            "never use rewrite tools just to view or summarize memory. "
             "Also, if you do not have the tools needed to deliver the requested output, "
             "the plan should be to inform the user via `answer` immediately. "
             "Do NOT describe internal operations that a tool already abstracts (e.g., loops or data structures). "
@@ -810,14 +897,25 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         def _find_recent_same_call_result(
             tool: str, p: Dict[str, Any], lookback: int = 5
         ) -> Optional[Dict[str, Any]]:
-            """Return the most recent recorded result for the same tool+params within this task."""
+            """Return the most recent recorded result for the same tool+params within this task.
+
+            Terminal tools (answer, done) are never eligible for reuse.
+            Only results from the current task are considered.
+            """
+            # Never reuse terminal tools
+            if tool in ("answer", "done"):
+                return None
             sig = _make_signature(tool, p)
             # Prefer same-step prior result if present
             if sig in results_by_signature_this_step:
                 return results_by_signature_this_step[sig]
-            # Search recent history across steps
+            # Search recent history across steps, but only within the current task
             try:
-                recent = self.memory.tool_call_history[-lookback:]
+                recent = [
+                    tc
+                    for tc in self.memory.tool_call_history[-lookback:]
+                    if getattr(tc, "task_id", None) == self.task_id
+                ]
             except Exception:
                 recent = []
             for rec in reversed(recent):
@@ -892,14 +990,35 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 is_successful = params.get("success", True)
                 message = params.get("message", "Task completed")
 
+                # Reject done(success=True) if no final_answer exists yet
+                if is_successful and self.memory.get_state("final_answer") is None:
+                    reject_msg = (
+                        "Cannot mark task done with success=True before providing "
+                        "a final answer via the 'answer' tool."
+                    )
+                    logger.warning(reject_msg, extra={"task_id": self.task_id})
+                    self.memory.add_tool_call(
+                        tool_name=tool_name,
+                        parameters=params,
+                        result={"rejected": True, "message": reject_msg},
+                        success=False,
+                    )
+                    results.append(
+                        ActionResult(
+                            success=False, error=reject_msg, include_in_memory=True
+                        )
+                    )
+                    continue
+
                 logger.info(
                     f"Task marked as done - Success: {is_successful}",
                     extra={"task_id": self.task_id},
                 )
 
-                # Mark all tasks as complete
-                for task in self.memory.tasks.values():
-                    task.complete(success=is_successful)
+                # Mark only the current task as complete, not all tasks
+                current_task = self.memory.tasks.get(self.task_id)
+                if current_task:
+                    current_task.complete(success=is_successful)
 
                 # Record the tool call so the evaluator knows the task is complete.
                 self.memory.add_tool_call(
@@ -1004,6 +1123,79 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         except Exception:
                             pass
                 # --- end HITL gate ---
+
+                # --- Memory deletion guards ---
+                # For deletion tasks, reject append/insert tools that cannot satisfy deletion
+                if self._task_requests_memory_mutation():
+                    if tool_name in ("core_memory_append", "memory_insert"):
+                        reject_msg = (
+                            f"Tool '{tool_name}' cannot satisfy a memory deletion request. "
+                            "Use core_memory_replace, memory_rethink, or core_memory_rethink instead."
+                        )
+                        logger.warning(reject_msg, extra={"task_id": self.task_id})
+                        self.memory.add_tool_call(
+                            tool_name=tool_name,
+                            parameters=params,
+                            result={"rejected": True, "message": reject_msg},
+                            success=False,
+                        )
+                        results.append(
+                            ActionResult(
+                                success=False, error=reject_msg, include_in_memory=True
+                            )
+                        )
+                        continue
+
+                # Reject memory tools that attempt to write forbidden terms back
+                memory_tools = {
+                    "core_memory_append",
+                    "core_memory_replace",
+                    "memory_insert",
+                    "memory_rethink",
+                    "core_memory_rethink",
+                }
+                if tool_name in memory_tools:
+                    if self._params_write_forbidden_memory_terms(tool_name, params):
+                        reject_msg = f"Tool '{tool_name}' would reintroduce terms the user asked to remove."
+                        logger.warning(reject_msg, extra={"task_id": self.task_id})
+                        self.memory.add_tool_call(
+                            tool_name=tool_name,
+                            parameters=params,
+                            result={"rejected": True, "message": reject_msg},
+                            success=False,
+                        )
+                        results.append(
+                            ActionResult(
+                                success=False, error=reject_msg, include_in_memory=True
+                            )
+                        )
+                        continue
+
+                # Guard for answer: reject false deletion confirmations
+                if tool_name == "answer":
+                    if self._task_requests_memory_mutation():
+                        if not self._current_task_has_core_memory_mutation():
+                            reject_msg = (
+                                "Cannot confirm memory deletion without first successfully "
+                                "using a core memory mutation tool (core_memory_replace, "
+                                "memory_rethink, or core_memory_rethink)."
+                            )
+                            logger.warning(reject_msg, extra={"task_id": self.task_id})
+                            self.memory.add_tool_call(
+                                tool_name=tool_name,
+                                parameters=params,
+                                result={"rejected": True, "message": reject_msg},
+                                success=False,
+                            )
+                            results.append(
+                                ActionResult(
+                                    success=False,
+                                    error=reject_msg,
+                                    include_in_memory=True,
+                                )
+                            )
+                            continue
+                # --- end Memory deletion guards ---
 
                 start_time = datetime.now()
 
@@ -1170,10 +1362,26 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 )
                 break
 
+            # Stop immediately if the current task is already terminal
+            if self._current_task_terminal():
+                logger.info(
+                    "Current task already terminal, stopping run loop",
+                    extra={"task_id": self.task_id},
+                )
+                break
+
             # Execute step
             await self.step()
 
-            # Check if task is complete
+            # Stop immediately if current task became terminal during the step
+            if self._current_task_terminal():
+                logger.info(
+                    f"Task {self.task_id} reached terminal state, stopping",
+                    extra={"task_id": self.task_id},
+                )
+                break
+
+            # Check if task is complete via evaluator
             is_complete, completion_message = self.evaluator.evaluate_task_completion(
                 self.task, self.memory
             )
@@ -1184,9 +1392,10 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     extra={"task_id": self.task_id},
                 )
                 print(f"Task complete: {completion_message}")
-                # Ensure tasks are marked complete so final result.completed is True
-                for task in self.memory.tasks.values():
-                    task.complete(success=True)
+                # Mark only the current task complete
+                current_task = self.memory.tasks.get(self.task_id)
+                if current_task:
+                    current_task.complete(success=True)
                 break
 
             # Optional: validate task completion
@@ -1207,9 +1416,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 f"Reached maximum steps ({self.settings.max_steps}) without completing task"
             )
 
-        completed = any(
-            task.status == "completed" for task in self.memory.tasks.values()
-        )
+        # Completion is based solely on the current task
+        current_task = self.memory.tasks.get(self.task_id)
+        completed = current_task is not None and current_task.status == "completed"
 
         # Finalize metrics
         if self._run_metrics is not None:

@@ -46,7 +46,7 @@ agent:
 
 memory:
   # memory (ephemeral) or sqlite (persistent)
-  backend: sqlite
+  #backend: sqlite
   # Used when backend=sqlite
   sqlite_path: .pori/memory.db
   user_id: default_user
@@ -58,10 +58,10 @@ memory:
 # prompts:
 #   base_dir: ./prompts
 
-# Sandbox: isolated shell and file environment per task (optional)
-# sandbox:
-#   enabled: true
-#   base_dir: .pori_sandbox   # or e.g. /tmp/pori_sandbox
+Sandbox: isolated shell and file environment per task (optional)
+sandbox:
+  enabled: true
+  base_dir: .pori_sandbox   # or e.g. /tmp/pori_sandbox
 
 # Human-in-the-Loop: require approval before executing certain tools
 # hitl:

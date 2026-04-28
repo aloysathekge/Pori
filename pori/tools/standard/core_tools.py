@@ -214,6 +214,38 @@ def archival_memory_search_tool(params: ArchivalSearchParams, context: Dict[str,
 # ---------- Letta-style core memory (editable in-context blocks) ----------
 
 
+class CoreMemoryReadParams(BaseModel):
+    label: str | None = Field(
+        default=None,
+        description="Optional block to read: 'persona', 'human', or 'notes'. If omitted, returns all blocks.",
+    )
+
+
+@Registry.tool(
+    name="core_memory_read",
+    description="Read-only inspection of core memory blocks. Use this to view what is stored without modifying anything.",
+)
+def core_memory_read_tool(
+    params: CoreMemoryReadParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Return one or all core memory blocks without mutation."""
+    memory = context.get("memory") if context else None
+    if not memory or not getattr(memory, "core_memory", None):
+        return {"success": False, "error": "Core memory not available"}
+    try:
+        if params.label:
+            block = memory.core_memory.get_block(params.label)
+            return {"success": True, "blocks": {params.label: block.value}}
+        else:
+            blocks = {
+                name: memory.core_memory.get_block(name).value
+                for name in ["persona", "human", "notes"]
+            }
+            return {"success": True, "blocks": blocks}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+
 class CoreMemoryAppendParams(BaseModel):
     label: str = Field(
         ...,
@@ -312,7 +344,7 @@ def memory_insert_tool(params: MemoryInsertParams, context: Dict[str, Any]):
 
 @Registry.tool(
     name="memory_rethink",
-    description="Rewrite an entire core memory block with a validated replacement.",
+    description="Mutation only: Rewrite an entire core memory block with a validated replacement. Do not use this to inspect or summarize memory; use core_memory_read instead.",
 )
 def memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
     memory = context.get("memory") if context else None
@@ -332,7 +364,7 @@ def memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
 
 @Registry.tool(
     name="core_memory_rethink",
-    description="Compatibility alias for memory_rethink to rewrite a full core memory block.",
+    description="Mutation only: Compatibility alias for memory_rethink to rewrite a full core memory block. Do not use this to inspect or summarize memory; use core_memory_read instead.",
 )
 def core_memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
     """Backwards-compatible alias for full core memory rewrites."""

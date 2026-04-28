@@ -61,30 +61,36 @@ class Evaluator:
     ) -> Tuple[bool, str]:
         """
         Determine if the overall task is complete.
+
+        Only successful answer/done calls from the current task are considered.
         """
         # Check if the agent has provided a final answer (per-task state)
         has_final_answer = memory.get_state("final_answer") is not None
 
-        # Look for answer tool call in history for this task only
+        # Filter to only the current task's tool calls
         current_task_id = getattr(memory, "current_task_id", None)
-        tool_calls = memory.tool_call_history
-        if current_task_id is not None:
-            tool_calls = [
-                tc
-                for tc in tool_calls
-                if getattr(tc, "task_id", None) == current_task_id
-            ]
+        current_task_calls = [
+            tc
+            for tc in memory.tool_call_history
+            if getattr(tc, "task_id", None) == current_task_id
+        ]
 
+        # Check for successful answer call in the current task
         answer_provided = any(
-            getattr(tc, "tool_name", None) == "answer" for tc in tool_calls
+            getattr(tc, "tool_name", None) == "answer" and getattr(tc, "success", False)
+            for tc in current_task_calls
         )
 
-        # A task is complete only if a final answer has been provided
-        if has_final_answer or answer_provided:
-            for tool_call in memory.tool_call_history:
-                if tool_call.tool_name == "done":
-                    return True, "Task marked as complete with final answer provided"
+        # Check for successful done call in the current task
+        done_called = any(
+            getattr(tc, "tool_name", None) == "done" and getattr(tc, "success", False)
+            for tc in current_task_calls
+        )
 
+        # A task is complete only if a successful answer has been provided
+        if has_final_answer or answer_provided:
+            if done_called:
+                return True, "Task marked as complete with final answer provided"
             # Allow completion even if done isn't explicitly called
             return True, "Final answer provided to user's question"
 

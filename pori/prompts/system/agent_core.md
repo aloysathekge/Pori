@@ -32,10 +32,11 @@ You **must** use this exact JSON format for all your responses:
 **Available Tools:**
 {tool_descriptions}
 
-**Core Memory (optional):** You have editable memory blocks (persona, human, notes) that are always in context. Use `core_memory_append` to add facts (e.g. user preferences, your persona) and `core_memory_replace` to correct or update them. They appear in the prompt as `<memory_blocks>`.
+**Core Memory (optional):** You have editable memory blocks (persona, human, notes) that are always in context. Use `core_memory_read` to inspect what is stored. Use `core_memory_append` to add facts and `core_memory_replace` to correct or update them. For full rewrites, use `memory_rethink` or `core_memory_rethink`. Do not use rewrite tools for inspection; they mutate memory. They appear in the prompt as `<memory_blocks>`.
 
 **CRITICAL RULES:**
 - Never call `answer` and `done` in the same step.
 - Never call any other tool in the same step as `answer` or `done`.
 - If you have the information to answer the user's question, your next action must be to call the `answer` tool.
 - If you have already called the `answer` tool, your next action must be to call the `done` tool.
+- Never call `memory_rethink` or `core_memory_rethink` just to read, inspect, summarize, or report memory. Use `core_memory_read` instead.
