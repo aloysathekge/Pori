@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +58,8 @@ class AgentSettings(BaseModel):
     retry_delay: int = 2
     summary_interval: int = 5
     validate_output: bool = False
+    planning_mode: Literal["auto", "always", "never"] = "auto"
+    reflection_mode: Literal["auto", "always", "never"] = "auto"
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
 
@@ -208,8 +211,10 @@ class Agent:
                 summary = self.memory.create_summary(self.state.n_steps)
                 self.memory.add_message("system", f"Memory summary: {summary}")
 
-            # Ensure we have a minimal plan before acting
-            await self._plan_if_needed()
+            # Planning adds an LLM call before acting. In auto mode it is used
+            # only for tasks that look complex enough to benefit from it.
+            if self._should_plan():
+                await self._plan_if_needed()
 
             # Get the next action from the LLM
             logger.debug(
@@ -306,8 +311,9 @@ class Agent:
                 extra={"task_id": self.task_id, "step": step_number},
             )
 
-            # Reflect briefly and revise plan if needed (skip if task is terminal)
-            if not self._current_task_terminal():
+            # Reflection adds an LLM call after acting. In auto mode it is only
+            # used for failed/unclear progress, and never after a final answer.
+            if self._should_reflect(tool_results):
                 try:
                     await self._reflect_and_update_plan(tool_results)
                 except Exception as reflect_err:
@@ -317,7 +323,7 @@ class Agent:
                     )
             else:
                 logger.debug(
-                    "Skipping reflection: task is terminal",
+                    "Skipping reflection: disabled or task is complete",
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
@@ -650,6 +656,103 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         status = self._current_task_status()
         return status in ("completed", "failed")
 
+    def _should_plan(self) -> bool:
+        """Decide whether this task should pay for a separate planning call."""
+        mode = self.settings.planning_mode
+        if mode == "never":
+            return False
+        if mode == "always":
+            return True
+        if self.state.current_plan:
+            return False
+        return self._task_looks_complex()
+
+    def _should_reflect(self, tool_results: List[ActionResult]) -> bool:
+        """Decide whether this step should pay for a separate reflection call."""
+        mode = self.settings.reflection_mode
+        if mode == "never":
+            return False
+        if self._current_task_terminal():
+            return False
+        if self.memory.get_state("final_answer") is not None:
+            return False
+        if mode == "always":
+            return True
+        # Auto reflection is for recovery, not routine progress updates.
+        return any(not result.success for result in tool_results)
+
+    def _task_looks_complex(self) -> bool:
+        """Heuristic classifier for adaptive planning.
+
+        The goal is conservative: skip the planner for direct/simple tasks, but
+        use it when the request likely spans multiple files, debugging,
+        architecture, memory mutation, or a longer investigation.
+        """
+        task_lower = self.task.lower()
+        words = re.findall(r"\w+", task_lower)
+
+        complex_keywords = {
+            "architecture",
+            "architect",
+            "audit",
+            "debug",
+            "deep-dive",
+            "design",
+            "diagnose",
+            "implement",
+            "investigate",
+            "migration",
+            "migrate",
+            "multi-step",
+            "optimize",
+            "plan",
+            "refactor",
+            "review",
+            "root cause",
+            "tests",
+            "update",
+        }
+        memory_mutation_keywords = {
+            "forget",
+            "delete",
+            "erase",
+            "remove",
+            "memory",
+            "persona",
+            "instruction",
+            "role",
+        }
+        multi_file_keywords = {"files", "modules", "codebase", "repo", "project"}
+        simple_patterns = (
+            "write and run",
+            "write me a",
+            "what is",
+            "calculate",
+            "prints",
+            "print",
+        )
+
+        has_complex_keyword = any(keyword in task_lower for keyword in complex_keywords)
+        has_memory_mutation = any(
+            keyword in task_lower for keyword in memory_mutation_keywords
+        )
+        has_multi_file_hint = any(
+            keyword in task_lower for keyword in multi_file_keywords
+        )
+        has_multiple_clauses = (
+            task_lower.count(" and ") >= 2 or task_lower.count(",") >= 2
+        )
+        is_long_request = len(words) >= 35
+        is_simple_direct = any(pattern in task_lower for pattern in simple_patterns)
+
+        if has_memory_mutation or has_multi_file_hint:
+            return True
+        if has_complex_keyword and not is_simple_direct:
+            return True
+        if is_long_request or has_multiple_clauses:
+            return True
+        return False
+
     def _task_requests_memory_mutation(self) -> bool:
         """Return True if the current task explicitly requests memory deletion/removal."""
         task_lower = self.task.lower()
@@ -684,8 +787,6 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
         Returns a list of lowercased terms that should not appear in new memory writes.
         """
-        import re
-
         forbidden = []
         task_lower = self.task.lower()
         # Look for quoted terms

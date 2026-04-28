@@ -18,16 +18,16 @@ llm:
   model: accounts/fireworks/models/kimi-k2p6
   temperature: 0.6
   max_tokens: 4096
-  
+
 #   # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
 #   temperature: 0.0
-  
+
   # Max tokens to generate (optional)
   # max_tokens: 4096
-  
+
   # Top-p sampling (optional, 0.0 - 1.0)
   # top_p: 1.0
-  
+
   # Extra provider-specific parameters (optional)
   # extra_params:
   #   stop_sequences: ["\n\nHuman:"]
@@ -36,9 +36,12 @@ llm:
 agent:
   # Maximum steps the agent can take per task
   max_steps: 10
-  
+
   # Enable memory system
   enable_memory: true
+  # Adaptive control for extra LLM calls: auto, always, or never
+  planning_mode: auto
+  reflection_mode: auto
   # Approximate token budget used for conversation window
   context_window_tokens: 3000
   # Tokens reserved for system prompt, planning context, and tool outputs

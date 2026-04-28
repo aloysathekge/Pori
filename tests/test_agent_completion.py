@@ -98,47 +98,17 @@ class TestPrematureDoneRejection:
 
     def test_done_accepted_after_answer(self, basic_registry, event_loop):
         """done(success=True) should be accepted after a successful answer."""
-        from pori.agent import PlanOutput, ReflectOutput
-
-        # Create plan and reflect responses for the planner phase
-        plan_response = MockLLMResponse(
-            parsed=PlanOutput(
-                plan_steps=["Provide the answer", "Mark done"],
-                rationale="Simple task",
-            )
-        )
-        reflect_response = MockLLMResponse(
-            parsed=ReflectOutput(critique="Good progress", update_plan=None)
-        )
-
-        class SequenceLLM:
-            def __init__(self):
-                self.call_count = 0
-
-            def with_structured_output(self, output_model, include_raw=True):
-                self._output_model = output_model
-                return self
-
-            async def ainvoke(self, messages):
-                self.call_count += 1
-                model_name = getattr(self, "_output_model", None)
-                if model_name == PlanOutput:
-                    return plan_response
-                if model_name == ReflectOutput:
-                    return reflect_response
-                # Action responses
-                if self.call_count <= 2:
-                    return make_response(
-                        [{"answer": {"final_answer": "42", "reasoning": "Because."}}]
-                    )
-                return make_response(
-                    [{"done": {"success": True, "message": "Task complete"}}]
-                )
+        responses = [
+            make_response(
+                [{"answer": {"final_answer": "42", "reasoning": "Because."}}]
+            ),
+            make_response([{"done": {"success": True, "message": "Task complete"}}]),
+        ]
 
         memory = AgentMemory()
         agent = Agent(
             task="What is the answer?",
-            llm=SequenceLLM(),
+            llm=MockLLM(responses),
             tools_registry=basic_registry,
             settings=AgentSettings(max_steps=5),
             memory=memory,
@@ -171,13 +141,7 @@ class TestStaleDoneReuse:
         )
         memory.tool_call_history.append(old_done)
 
-        responses = [
-            make_response(
-                [{"answer": {"final_answer": "New answer", "reasoning": "New task"}}]
-            ),
-            make_response([{"done": {"success": True, "message": "New task done"}}]),
-        ]
-        llm = MockLLM(responses)
+        llm = MockLLM([])
         agent = Agent(
             task="New task",
             llm=llm,
@@ -186,8 +150,14 @@ class TestStaleDoneReuse:
             memory=memory,
         )
 
-        # Run the agent
-        result = event_loop.run_until_complete(agent.run())
+        # Make done valid for the current task, then call the same done params
+        # as the old task. It must execute fresh, not reuse old_task_id.
+        memory.update_state("final_answer", {"final_answer": "New answer"})
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [{"done": {"success": True, "message": "Old task done"}}]
+            )
+        )
 
         # Check that a new done call was made for this task
         new_task_done_calls = [

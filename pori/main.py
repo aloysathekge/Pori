@@ -444,6 +444,8 @@ async def main():
                 logger.info("Starting team execution")
                 agent_defaults = AgentSettings(
                     max_steps=config.agent.max_steps,
+                    planning_mode=config.agent.planning_mode,
+                    reflection_mode=config.agent.reflection_mode,
                     context_window_tokens=config.agent.context_window_tokens,
                     context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
                 )
@@ -492,6 +494,8 @@ async def main():
                     task=task,
                     agent_settings=AgentSettings(
                         max_steps=config.agent.max_steps,
+                        planning_mode=config.agent.planning_mode,
+                        reflection_mode=config.agent.reflection_mode,
                         context_window_tokens=config.agent.context_window_tokens,
                         context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
                     ),

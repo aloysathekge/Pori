@@ -39,8 +39,25 @@ class AgentConfig(BaseModel):
 
     max_steps: int = Field(default=10, ge=1)
     enable_memory: bool = Field(default=True)
+    planning_mode: Literal["auto", "always", "never"] = Field(
+        default="auto",
+        description="When to run a separate planning LLM call: auto, always, or never.",
+    )
+    reflection_mode: Literal["auto", "always", "never"] = Field(
+        default="auto",
+        description="When to run separate reflection LLM calls: auto, always, or never.",
+    )
+    # Backward-compatible aliases. Prefer planning_mode/reflection_mode.
+    enable_planning: Optional[bool] = Field(default=None, exclude=True)
+    enable_reflection: Optional[bool] = Field(default=None, exclude=True)
     context_window_tokens: int = Field(default=3000, ge=256)
     context_window_reserve_tokens: int = Field(default=1200, ge=0)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.enable_planning is not None:
+            self.planning_mode = "always" if self.enable_planning else "never"
+        if self.enable_reflection is not None:
+            self.reflection_mode = "always" if self.enable_reflection else "never"
 
 
 class MemoryConfig(BaseModel):
