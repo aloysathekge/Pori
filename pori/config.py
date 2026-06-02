@@ -52,6 +52,17 @@ class AgentConfig(BaseModel):
     enable_reflection: Optional[bool] = Field(default=None, exclude=True)
     context_window_tokens: int = Field(default=3000, ge=256)
     context_window_reserve_tokens: int = Field(default=1200, ge=0)
+    validate_output: bool = Field(
+        default=False,
+        description="Run an LLM adequacy check on each proposed final answer; "
+        "inadequate answers are rejected and the agent is asked to revise.",
+    )
+    max_validation_retries: int = Field(
+        default=2,
+        ge=0,
+        description="Max times an answer can be rejected by output validation "
+        "before it is accepted anyway (prevents loops).",
+    )
 
     def model_post_init(self, __context: Any) -> None:
         if self.enable_planning is not None:

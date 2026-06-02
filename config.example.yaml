@@ -38,6 +38,11 @@ agent:
   context_window_tokens: 3000
   # Tokens reserved for system prompt, planning context, and tool outputs
   context_window_reserve_tokens: 1200
+  # When true, an LLM judges each proposed final answer; inadequate answers are
+  # rejected and the agent must revise (empty answers are always rejected).
+  validate_output: false
+  # Max answer rejections by output validation before accepting anyway.
+  max_validation_retries: 2
 
 memory:
   # memory (ephemeral) or sqlite (persistent)

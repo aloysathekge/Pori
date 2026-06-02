@@ -1,10 +1,22 @@
 import asyncio
+import inspect
 import json
 import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 from pydantic import BaseModel, Field
 
@@ -62,6 +74,10 @@ class AgentSettings(BaseModel):
     reflection_mode: Literal["auto", "always", "never"] = "auto"
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
+    # When validate_output is True, an LLM judge checks each proposed final
+    # answer; inadequate answers are rejected and the agent is asked to revise,
+    # up to this many times before the answer is accepted to avoid loops.
+    max_validation_retries: int = 2
 
 
 class AgentOutput(BaseModel):
@@ -79,6 +95,13 @@ class PlanOutput(BaseModel):
 class ReflectOutput(BaseModel):
     critique: str
     update_plan: Optional[List[str]] = None
+
+
+class CompletionValidation(BaseModel):
+    """LLM judgment on whether a proposed final answer is adequate."""
+
+    adequate: bool
+    reason: str = ""
 
 
 class Agent:
@@ -108,6 +131,8 @@ class Agent:
         self.hitl_handler = hitl_handler
         self.hitl_config = hitl_config
         self._approved_signatures: set = set()  # for auto_approve_duplicates
+        # Bounded counter for opt-in output validation (see settings.validate_output)
+        self._completion_validation_attempts = 0
 
         # Guardrails (BaseEval instances with pre_check/post_check)
         self.guardrails = guardrails or []
@@ -969,6 +994,50 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         except Exception as e:
             logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})
 
+    async def _validate_answer_text(self, answer_text: str) -> Tuple[bool, str]:
+        """LLM-judge whether a proposed final answer adequately addresses the task.
+
+        Fails open: if the validator itself errors, the answer is accepted so a
+        validator outage never blocks legitimate completion. Returns
+        (is_adequate, reason).
+        """
+        try:
+            messages = [
+                SystemMessage(
+                    content=(
+                        "You are a strict reviewer. Decide whether the proposed "
+                        "answer adequately and directly addresses the user's task. "
+                        "Reject answers that are empty, evasive, off-topic, refuse "
+                        "without cause, or leave the core request unaddressed. "
+                        "Do not reward verbosity; a short correct answer is adequate."
+                    )
+                ),
+                UserMessage(
+                    content=(
+                        f"Task:\n{self.task}\n\n"
+                        f"Proposed answer:\n{answer_text}\n\n"
+                        "Is this answer adequate? Set adequate=true/false and give a "
+                        "brief reason. If false, the reason should say what is missing."
+                    )
+                ),
+            ]
+            structured_llm = self.llm.with_structured_output(CompletionValidation)
+            result = await structured_llm.ainvoke(messages)
+            adequate = bool(getattr(result, "adequate", True))
+            reason = str(getattr(result, "reason", "") or "")
+            logger.info(
+                f"Output validation: adequate={adequate}"
+                + (f" — {reason}" if reason else ""),
+                extra={"task_id": self.task_id},
+            )
+            return adequate, reason
+        except Exception as e:
+            logger.debug(
+                f"Output validation failed open (accepting answer): {e}",
+                extra={"task_id": self.task_id},
+            )
+            return True, ""
+
     async def execute_actions(
         self,
         actions: List[Dict[str, Any]],
@@ -1298,6 +1367,68 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                             continue
                 # --- end Memory deletion guards ---
 
+                # --- Completion quality gate (answer tool) ---
+                if tool_name == "answer":
+                    answer_text = ""
+                    if isinstance(params, dict):
+                        raw = params.get("final_answer")
+                        if isinstance(raw, str):
+                            answer_text = raw.strip()
+
+                    # 1) Deterministic (always on): never accept an empty answer.
+                    if not answer_text:
+                        reject_msg = (
+                            "The 'answer' tool requires a non-empty final_answer. "
+                            "Provide a substantive answer to the user's question."
+                        )
+                        logger.warning(reject_msg, extra={"task_id": self.task_id})
+                        self.memory.add_tool_call(
+                            tool_name=tool_name,
+                            parameters=params,
+                            result={"rejected": True, "message": reject_msg},
+                            success=False,
+                        )
+                        results.append(
+                            ActionResult(
+                                success=False, error=reject_msg, include_in_memory=True
+                            )
+                        )
+                        continue
+
+                    # 2) Semantic (opt-in via validate_output): LLM judges adequacy,
+                    #    bounded by max_validation_retries to avoid loops.
+                    if (
+                        self.settings.validate_output
+                        and self._completion_validation_attempts
+                        < self.settings.max_validation_retries
+                    ):
+                        adequate, reason = await self._validate_answer_text(answer_text)
+                        if not adequate:
+                            self._completion_validation_attempts += 1
+                            reject_msg = (
+                                "Answer rejected by output validation "
+                                f"({self._completion_validation_attempts}/"
+                                f"{self.settings.max_validation_retries}): "
+                                f"{reason or 'inadequate'}. Revise and call 'answer' "
+                                "again with a corrected response."
+                            )
+                            logger.info(reject_msg, extra={"task_id": self.task_id})
+                            self.memory.add_tool_call(
+                                tool_name=tool_name,
+                                parameters=params,
+                                result={"rejected": True, "message": reject_msg},
+                                success=False,
+                            )
+                            results.append(
+                                ActionResult(
+                                    success=False,
+                                    error=reject_msg,
+                                    include_in_memory=True,
+                                )
+                            )
+                            continue
+                # --- end Completion quality gate ---
+
                 start_time = datetime.now()
 
                 # Execute the tool
@@ -1395,8 +1526,47 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         )
         return results
 
-    async def run(self) -> Dict[str, Any]:
-        """Run the agent until the task is complete or max steps is reached."""
+    async def _invoke_step_callback(
+        self,
+        callback: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]],
+    ) -> None:
+        """Invoke a step lifecycle callback, tolerating sync or async callables.
+
+        The callback receives this Agent instance so observers (e.g. SSE
+        streaming in Pori Cloud, the CLI, custom monitors) can read live state:
+        `agent.state`, `agent.memory.tool_call_history`, the latest
+        `agent._run_metrics.steps[-1]`, current plan, reflection, etc. A failing
+        callback must never crash the agent run, so errors are logged and
+        swallowed.
+        """
+        if callback is None:
+            return
+        try:
+            result = callback(self)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as cb_err:
+            logger.debug(
+                f"Step callback raised, ignoring: {cb_err}",
+                extra={"task_id": self.task_id},
+            )
+
+    async def run(
+        self,
+        on_step_start: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
+        on_step_end: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
+    ) -> Dict[str, Any]:
+        """Run the agent until the task is complete or max steps is reached.
+
+        Args:
+            on_step_start: Optional callback invoked immediately before each
+                step executes. Receives this Agent instance. May be sync or
+                async. Exceptions are logged and ignored.
+            on_step_end: Optional callback invoked immediately after each step
+                executes (including any planning/reflection within the step).
+                Receives this Agent instance. May be sync or async. Exceptions
+                are logged and ignored.
+        """
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")
 
@@ -1471,8 +1641,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 )
                 break
 
+            # Notify observers that a step is about to start
+            await self._invoke_step_callback(on_step_start)
+
             # Execute step
             await self.step()
+
+            # Notify observers that the step finished (after plan/reflect)
+            await self._invoke_step_callback(on_step_end)
 
             # Stop immediately if current task became terminal during the step
             if self._current_task_terminal():
@@ -1499,13 +1675,10 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     current_task.complete(success=True)
                 break
 
-            # Optional: validate task completion
-            if self.settings.validate_output and is_complete:
-                logger.debug(
-                    "Validating task completion", extra={"task_id": self.task_id}
-                )
-                # In a real implementation, you would use the LLM to validate task completion
-                pass
+            # Note: output validation (settings.validate_output) is enforced at
+            # the 'answer' tool gate in execute_actions, before a final answer is
+            # ever recorded — so by the time a task reads as complete here, the
+            # answer has already passed the empty-check and any LLM adequacy check.
 
         # Check if we hit the step limit
         if self.state.n_steps >= self.settings.max_steps:

@@ -7,6 +7,7 @@ from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
 from .messages import BaseMessage, SystemMessage
+from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -28,6 +29,8 @@ class ChatAnthropic:
         self._client = AsyncAnthropic(api_key=api_key) if api_key else AsyncAnthropic()
         # Last usage metadata from the most recent call (for metrics)
         self.last_usage: dict[str, Any] | None = None
+        # Retry transient API failures (rate limits, timeouts, 5xx) with backoff.
+        self._retry_config = RetryConfig.from_env()
 
     async def ainvoke(
         self,
@@ -58,7 +61,11 @@ class ChatAnthropic:
 
         if output_format is None:
             # Text response
-            response = await self._client.messages.create(**request)
+            response = await retry_async(
+                lambda: self._client.messages.create(**request),
+                self._retry_config,
+                label="anthropic",
+            )
             # Capture usage for metrics if available
             try:
                 if getattr(response, "usage", None) is not None:
@@ -90,7 +97,11 @@ class ChatAnthropic:
             ]
             request["tool_choice"] = {"type": "tool", "name": output_format.__name__}
 
-            response = await self._client.messages.create(**request)
+            response = await retry_async(
+                lambda: self._client.messages.create(**request),
+                self._retry_config,
+                label="anthropic",
+            )
 
             # Capture usage for metrics if available
             try:
