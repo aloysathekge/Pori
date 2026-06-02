@@ -7,6 +7,7 @@ from google import genai
 from pydantic import BaseModel
 
 from .messages import BaseMessage
+from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -27,6 +28,8 @@ class ChatGoogle:
         self.max_tokens = max_tokens
         self._client = genai.Client(api_key=api_key)
         self.last_usage: dict[str, Any] | None = None
+        # Retry transient API failures (rate limits, timeouts, 5xx) with backoff.
+        self._retry_config = RetryConfig.from_env()
 
     async def ainvoke(
         self,
@@ -60,10 +63,14 @@ class ChatGoogle:
             config.response_mime_type = "application/json"
             config.response_schema = output_format
             try:
-                response = await self._client.aio.models.generate_content(
-                    model=self.model,
-                    contents=contents,
-                    config=config,
+                response = await retry_async(
+                    lambda: self._client.aio.models.generate_content(
+                        model=self.model,
+                        contents=contents,
+                        config=config,
+                    ),
+                    self._retry_config,
+                    label="google",
                 )
             except ValueError as e:
                 # Gemini's schema transformer rejects JSON Schema features like
@@ -77,10 +84,14 @@ class ChatGoogle:
                 config.response_schema = None
 
         if response is None:
-            response = await self._client.aio.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
+            response = await retry_async(
+                lambda: self._client.aio.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                ),
+                self._retry_config,
+                label="google",
             )
 
         # Capture usage

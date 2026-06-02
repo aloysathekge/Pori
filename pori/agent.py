@@ -1,10 +1,22 @@
 import asyncio
+import inspect
 import json
 import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 from pydantic import BaseModel, Field
 
@@ -1395,8 +1407,47 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         )
         return results
 
-    async def run(self) -> Dict[str, Any]:
-        """Run the agent until the task is complete or max steps is reached."""
+    async def _invoke_step_callback(
+        self,
+        callback: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]],
+    ) -> None:
+        """Invoke a step lifecycle callback, tolerating sync or async callables.
+
+        The callback receives this Agent instance so observers (e.g. SSE
+        streaming in Pori Cloud, the CLI, custom monitors) can read live state:
+        `agent.state`, `agent.memory.tool_call_history`, the latest
+        `agent._run_metrics.steps[-1]`, current plan, reflection, etc. A failing
+        callback must never crash the agent run, so errors are logged and
+        swallowed.
+        """
+        if callback is None:
+            return
+        try:
+            result = callback(self)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as cb_err:
+            logger.debug(
+                f"Step callback raised, ignoring: {cb_err}",
+                extra={"task_id": self.task_id},
+            )
+
+    async def run(
+        self,
+        on_step_start: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
+        on_step_end: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
+    ) -> Dict[str, Any]:
+        """Run the agent until the task is complete or max steps is reached.
+
+        Args:
+            on_step_start: Optional callback invoked immediately before each
+                step executes. Receives this Agent instance. May be sync or
+                async. Exceptions are logged and ignored.
+            on_step_end: Optional callback invoked immediately after each step
+                executes (including any planning/reflection within the step).
+                Receives this Agent instance. May be sync or async. Exceptions
+                are logged and ignored.
+        """
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")
 
@@ -1471,8 +1522,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 )
                 break
 
+            # Notify observers that a step is about to start
+            await self._invoke_step_callback(on_step_start)
+
             # Execute step
             await self.step()
+
+            # Notify observers that the step finished (after plan/reflect)
+            await self._invoke_step_callback(on_step_end)
 
             # Stop immediately if current task became terminal during the step
             if self._current_task_terminal():

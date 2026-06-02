@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from .messages import BaseMessage
+from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -27,6 +28,10 @@ class ChatOpenAI:
         self._client = AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
         # Last usage metadata from the most recent call (for metrics)
         self.last_usage: dict[str, Any] | None = None
+        # Retry transient API failures (rate limits, timeouts, 5xx) with backoff.
+        # Subclasses (OpenRouter, Fireworks) that skip super().__init__ fall back
+        # to env defaults via getattr in ainvoke.
+        self._retry_config = RetryConfig.from_env()
 
     async def ainvoke(
         self,
@@ -44,7 +49,11 @@ class ChatOpenAI:
         }
 
         if output_format is None:
-            response = await self._client.chat.completions.create(**request)
+            response = await retry_async(
+                lambda: self._client.chat.completions.create(**request),
+                getattr(self, "_retry_config", None),
+                label="openai",
+            )
             # Capture usage for metrics if available
             try:
                 if getattr(response, "usage", None) is not None:
@@ -68,7 +77,11 @@ class ChatOpenAI:
                     "schema": output_format.model_json_schema(),
                 },
             }
-            response = await self._client.chat.completions.create(**request)
+            response = await retry_async(
+                lambda: self._client.chat.completions.create(**request),
+                getattr(self, "_retry_config", None),
+                label="openai",
+            )
 
             # Capture usage for metrics if available
             try:

@@ -63,18 +63,14 @@ class Orchestrator:
         )
         self.agents[task_id] = agent
 
-        # Create hooks for monitoring if provided
-        async def step_start_hook(agent: Agent):
-            if on_step_start:
-                on_step_start(agent)
-
-        async def step_end_hook(agent: Agent):
-            if on_step_end:
-                on_step_end(agent)
-
-        # Execute the task
+        # Execute the task, forwarding step lifecycle callbacks so observers
+        # (SSE streaming, CLI, monitors) receive real per-step events instead
+        # of having to poll agent state.
         try:
-            result = await agent.run()
+            result = await agent.run(
+                on_step_start=on_step_start,
+                on_step_end=on_step_end,
+            )
             return {
                 "task_id": task_id,
                 "success": result["completed"],
