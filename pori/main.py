@@ -359,12 +359,26 @@ async def main():
             f"with {len(team_config.members)} members)"
         )
 
-    # Define steps callback for monitoring
+    # Define step lifecycle callbacks for monitoring. These fire via the
+    # on_step_start/on_step_end hooks now wired into Agent.run() — proof that
+    # the agent emits real per-step events (not polling).
+    def on_step_start(agent: Agent):
+        print(f"\n--> Step {agent.state.n_steps + 1} starting...", flush=True)
+
     def on_step_end(agent: Agent):
-        step_msg = f"Completed step {agent.state.n_steps}"
-        print(f"Completed step {agent.state.n_steps}")
+        # Surface the most recent tool call this step produced, if any.
+        last_tool = ""
+        try:
+            history = agent.memory.tool_call_history
+            if history:
+                tc = history[-1]
+                status = "ok" if getattr(tc, "success", False) else "failed"
+                last_tool = f" | last tool: {tc.tool_name} ({status})"
+        except Exception:
+            pass
+        print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
         logger.info(
-            step_msg,
+            f"Completed step {agent.state.n_steps}{last_tool}",
             extra={
                 "task_id": getattr(agent, "task_id", "unknown"),
                 "step": agent.state.n_steps,
@@ -448,6 +462,8 @@ async def main():
                     reflection_mode=config.agent.reflection_mode,
                     context_window_tokens=config.agent.context_window_tokens,
                     context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                    validate_output=config.agent.validate_output,
+                    max_validation_retries=config.agent.max_validation_retries,
                 )
                 team = Team(
                     task=task,
@@ -498,7 +514,10 @@ async def main():
                         reflection_mode=config.agent.reflection_mode,
                         context_window_tokens=config.agent.context_window_tokens,
                         context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                        validate_output=config.agent.validate_output,
+                        max_validation_retries=config.agent.max_validation_retries,
                     ),
+                    on_step_start=on_step_start,
                     on_step_end=on_step_end,
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,

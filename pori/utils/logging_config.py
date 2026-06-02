@@ -95,6 +95,7 @@ def setup_logging(level=logging.INFO, include_http=False):
         "pori.orchestrator": logging.getLogger("pori.orchestrator"),
         "pori.tools": logging.getLogger("pori.tools"),
         "pori.memory": logging.getLogger("pori.memory"),
+        "pori.llm": logging.getLogger("pori.llm"),
         "pori.api": logging.getLogger("pori.api"),
     }
 
