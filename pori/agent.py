@@ -1772,3 +1772,18 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         """Stop the agent."""
         logger.info("Agent stopped", extra={"task_id": self.task_id})
         self.state.stopped = True
+
+    def result_summary(self) -> Dict[str, Any]:
+        """Return the public run result fields consumers should depend on."""
+        final = self.memory.get_final_answer() or {}
+        return {
+            "task": self.task,
+            "completed": self._current_task_terminal(),
+            "steps_taken": self.state.n_steps,
+            "final_answer": final.get("final_answer"),
+            "reasoning": final.get("reasoning"),
+            "metrics": (
+                self._run_metrics.summary() if self._run_metrics is not None else None
+            ),
+            "trace": self._trace.to_dict() if self._trace else None,
+        }

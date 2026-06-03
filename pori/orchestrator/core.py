@@ -71,10 +71,16 @@ class Orchestrator:
                 on_step_start=on_step_start,
                 on_step_end=on_step_end,
             )
+            summary = agent.result_summary()
             return {
                 "task_id": task_id,
                 "success": result["completed"],
                 "steps_taken": result["steps_taken"],
+                "final_answer": summary.get("final_answer"),
+                "reasoning": summary.get("reasoning"),
+                "metrics": summary.get("metrics"),
+                "trace": summary.get("trace"),
+                "summary": summary,
                 "result": result,
                 "agent": agent,  # Keep agent reference for accessing final answer
             }
