@@ -1,0 +1,25 @@
+{
+  "name": "pori-core-agent",
+  "scope": "repo",
+  "repo": "Pori/Pori",
+  "inherits": [
+    "../.agent/agent.json",
+    "../../agent-kit"
+  ],
+  "commands": [
+    ".agent/commands/explore.md",
+    ".agent/commands/verify.md"
+  ],
+  "rules": [
+    ".agent/rules/repo-safety.md",
+    ".agent/rules/source-of-truth.md",
+    ".agent/rules/verification.md",
+    ".agent/rules/progress-tracking.md"
+  ],
+  "skills": [
+    ".agent/skills/repo-workflow/SKILL.md"
+  ],
+  "approval_required": [
+    "env/credential changes, package publishing, production-impacting framework changes"
+  ]
+}
