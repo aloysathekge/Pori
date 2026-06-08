@@ -34,6 +34,7 @@ def build_orchestrator() -> Orchestrator:
         sqlite_path=memory_sqlite_path,
     )
     shared_memory = AgentMemory(
+        organization_id=os.getenv("PORI_MEMORY_ORGANIZATION_ID", "default_org"),
         user_id=os.getenv("PORI_MEMORY_USER_ID", "api_user"),
         agent_id=os.getenv("PORI_MEMORY_AGENT_ID", "api_agent"),
         session_id=os.getenv("PORI_MEMORY_SESSION_ID"),

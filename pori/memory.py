@@ -15,6 +15,18 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from pydantic import BaseModel, Field
 
+from .memory_contracts import (
+    ConflictPolicy,
+    MemoryCatalog,
+    MemoryHit,
+    MemoryKind,
+    MemoryProvenance,
+    MemoryRecord,
+    MemoryRetention,
+    MemoryScope,
+    MemorySensitivity,
+)
+
 DEFAULT_CORE_BLOCK_LIMIT = 2000
 LINE_NUMBER_REGEX = re.compile(r"\n\d+→ ")
 
@@ -298,6 +310,7 @@ class TaskState(BaseModel):
 
 class SerializableMemoryState(BaseModel):
     namespace: str
+    organization_id: str = "default_org"
     user_id: str
     agent_id: str
     session_id: str
@@ -313,15 +326,24 @@ class AgentMemory:
     def __init__(
         self,
         *,
+        organization_id: str = "default_org",
         user_id: str = "default_user",
         agent_id: str = "default_agent",
         session_id: Optional[str] = None,
         store: Optional[MemoryStore] = None,
     ):
+        self.organization_id = organization_id
         self.user_id = user_id
         self.agent_id = agent_id
         self.session_id = session_id or f"session_{uuid.uuid4().hex[:10]}"
-        self.namespace = f"{self.user_id}:{self.agent_id}:{self.session_id}"
+        self.scope = MemoryScope(
+            organization_id=self.organization_id,
+            user_id=self.user_id,
+            agent_id=self.agent_id,
+            session_id=self.session_id,
+        )
+        self.namespace = self.scope.namespace
+        self.legacy_namespace = f"{self.user_id}:{self.agent_id}:{self.session_id}"
 
         if store is None:
             backend = os.getenv("PORI_MEMORY_BACKEND", "memory")
@@ -339,6 +361,7 @@ class AgentMemory:
         self.current_task_id: Optional[str] = None
         self.experiences: List[Dict[str, Any]] = []
         self.archival_passages: List[Dict[str, Any]] = []
+        self.memory_records: List[MemoryRecord] = []
         self._summary_message_id: Optional[str] = None
         self._embedding_backend = (
             os.getenv("PORI_MEMORY_EMBEDDING_BACKEND", "hash").strip().lower()
@@ -386,6 +409,7 @@ class AgentMemory:
         return {
             "meta": {
                 "user_id": self.user_id,
+                "organization_id": self.organization_id,
                 "agent_id": self.agent_id,
                 "session_id": self.session_id,
                 "namespace": self.namespace,
@@ -402,6 +426,9 @@ class AgentMemory:
             "summaries": self._serialize_any(self.summaries),
             "experiences": self._serialize_any(self.experiences),
             "archival_passages": self._serialize_any(self.archival_passages),
+            "memory_records": [
+                record.model_dump(mode="json") for record in self.memory_records
+            ],
         }
 
     def _load_from_snapshot(self, snapshot: Dict[str, Any]) -> None:
@@ -425,12 +452,20 @@ class AgentMemory:
         self.summaries = snapshot.get("summaries") or []
         self.experiences = snapshot.get("experiences") or []
         self.archival_passages = snapshot.get("archival_passages") or []
+        self.memory_records = [
+            MemoryRecord.model_validate(record)
+            for record in (snapshot.get("memory_records") or [])
+        ]
 
         for collection in (self.experiences, self.archival_passages, self.summaries):
             self._hydrate_timestamps(collection)
+        if not self.memory_records:
+            self._migrate_legacy_records()
 
     def _load_from_store(self) -> None:
         snapshot = self.store.load(self.namespace)
+        if not snapshot:
+            snapshot = self.store.load(self.legacy_namespace)
         if not snapshot:
             return
         self._load_from_snapshot(snapshot)
@@ -444,6 +479,7 @@ class AgentMemory:
     def export_state(self) -> SerializableMemoryState:
         return SerializableMemoryState(
             namespace=self.namespace,
+            organization_id=self.organization_id,
             user_id=self.user_id,
             agent_id=self.agent_id,
             session_id=self.session_id,
@@ -466,6 +502,7 @@ class AgentMemory:
             else SerializableMemoryState.model_validate(state)
         )
         return cls(
+            organization_id=parsed.organization_id,
             user_id=parsed.user_id,
             agent_id=parsed.agent_id,
             session_id=parsed.session_id,
@@ -729,6 +766,187 @@ class AgentMemory:
         lexical_score = self._semantic_score(query, text)
         return max(0.0, min(1.0, (0.75 * embedding_score) + (0.25 * lexical_score)))
 
+    def _catalog(self) -> MemoryCatalog:
+        return MemoryCatalog(self.memory_records)
+
+    def _replace_catalog(self, catalog: MemoryCatalog) -> None:
+        self.memory_records = catalog.records()
+
+    def _migrate_legacy_records(self) -> None:
+        for experience in self.experiences:
+            text = str(experience.get("text", "")).strip()
+            if not text:
+                continue
+            meta = experience.get("meta") or {}
+            self.memory_records.append(
+                MemoryRecord(
+                    id=str(experience.get("id") or f"exp_{uuid.uuid4().hex[:10]}"),
+                    scope=MemoryScope(
+                        organization_id=self.organization_id,
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                    ),
+                    content=text,
+                    importance=int(experience.get("importance", 1)),
+                    provenance=MemoryProvenance(
+                        source=str(meta.get("source", "legacy_experience")),
+                        metadata=meta,
+                    ),
+                    created_at=self._safe_from_iso(experience.get("timestamp"))
+                    or datetime.now(),
+                    metadata={
+                        "legacy_collection": "experience",
+                        "embedding": experience.get("embedding"),
+                    },
+                )
+            )
+        for passage in self.archival_passages:
+            text = str(passage.get("text", "")).strip()
+            if not text:
+                continue
+            self.memory_records.append(
+                MemoryRecord(
+                    id=str(passage.get("id") or f"arch_{uuid.uuid4().hex[:10]}"),
+                    scope=MemoryScope(
+                        organization_id=self.organization_id,
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                    ),
+                    content=text,
+                    tags=[str(tag) for tag in (passage.get("tags") or [])],
+                    importance=int(passage.get("importance", 1)),
+                    provenance=MemoryProvenance(source="legacy_archival"),
+                    created_at=self._safe_from_iso(passage.get("timestamp"))
+                    or datetime.now(),
+                    metadata={
+                        "legacy_collection": "archival",
+                        "embedding": passage.get("embedding"),
+                    },
+                )
+            )
+
+    def add_memory_record(
+        self,
+        content: str,
+        *,
+        kind: MemoryKind = MemoryKind.SEMANTIC,
+        tags: Optional[List[str]] = None,
+        importance: int = 1,
+        confidence: float = 1.0,
+        sensitivity: MemorySensitivity = MemorySensitivity.INTERNAL,
+        provenance: Optional[MemoryProvenance] = None,
+        retention: Optional[MemoryRetention] = None,
+        conflict_key: Optional[str] = None,
+        conflict_policy: ConflictPolicy = ConflictPolicy.KEEP_BOTH,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        scope: Optional[MemoryScope] = None,
+    ) -> MemoryRecord:
+        record = MemoryRecord(
+            scope=scope
+            or MemoryScope(
+                organization_id=self.organization_id,
+                user_id=self.user_id,
+                agent_id=self.agent_id if agent_id is None else agent_id,
+                session_id=session_id,
+            ),
+            kind=kind,
+            content=content,
+            tags=tags or [],
+            importance=importance,
+            confidence=confidence,
+            sensitivity=sensitivity,
+            provenance=provenance or MemoryProvenance(),
+            retention=retention or MemoryRetention(),
+            conflict_key=conflict_key,
+            metadata=metadata or {},
+        )
+        catalog = self._catalog()
+        catalog.add(record, conflict_policy=conflict_policy)
+        self._replace_catalog(catalog)
+        self._persist()
+        return record
+
+    def delete_memory_record(self, record_id: str, *, hard: bool = False) -> bool:
+        catalog = self._catalog()
+        deleted = catalog.delete(record_id, self.scope, hard=hard)
+        if deleted:
+            self._replace_catalog(catalog)
+            self._persist()
+        return deleted
+
+    def export_memory_records(
+        self, *, include_deleted: bool = False
+    ) -> List[Dict[str, Any]]:
+        return [
+            record.model_dump(mode="json")
+            for record in self._catalog().export(
+                self.scope, include_deleted=include_deleted
+            )
+        ]
+
+    def prune_expired_memory(self) -> List[str]:
+        catalog = self._catalog()
+        expired = catalog.prune_expired()
+        if expired:
+            self._replace_catalog(catalog)
+            self._persist()
+        return expired
+
+    def search_memory_records(
+        self,
+        query: str,
+        *,
+        k: int = 5,
+        min_score: float = 0.0,
+        kinds: Optional[List[MemoryKind]] = None,
+        tags: Optional[List[str]] = None,
+        legacy_collection: Optional[str] = None,
+    ) -> List[MemoryHit]:
+        query_embedding = self._embed_text(query)
+
+        def scorer(record: MemoryRecord) -> MemoryHit:
+            embedding = record.metadata.get("embedding")
+            if not isinstance(embedding, list) or not embedding:
+                embedding = self._embed_text(record.content)
+                record.metadata["embedding"] = embedding
+            semantic = max(0.0, self._cosine_similarity(query_embedding, embedding))
+            lexical = self._semantic_score(query, record.content)
+            final = (0.75 * semantic) + (0.25 * lexical)
+            final = min(
+                1.0,
+                final + (0.03 * record.importance) + (0.02 * record.confidence),
+            )
+            matched_by = []
+            if semantic > 0:
+                matched_by.append("semantic")
+            if lexical > 0:
+                matched_by.append("lexical")
+            return MemoryHit(
+                record=record,
+                semantic_score=semantic,
+                lexical_score=lexical,
+                final_score=final,
+                matched_by=matched_by,
+            )
+
+        hits = self._catalog().search(
+            self.scope,
+            scorer,
+            k=max(k * 3, k),
+            kinds=kinds,
+            tags=tags,
+            min_score=min_score,
+        )
+        if legacy_collection:
+            hits = [
+                hit
+                for hit in hits
+                if hit.record.metadata.get("legacy_collection") == legacy_collection
+            ]
+        return hits[:k]
+
     def add_experience(
         self, text: str, importance: int = 1, meta: Optional[Dict[str, Any]] = None
     ) -> str:
@@ -743,30 +961,40 @@ class AgentMemory:
             "timestamp": datetime.now(),
         }
         self.experiences.append(experience)
+        record = MemoryRecord(
+            id=exp_id,
+            scope=MemoryScope(
+                organization_id=self.organization_id,
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+            ),
+            content=text,
+            importance=int(importance or 1),
+            provenance=MemoryProvenance(
+                source=str((meta or {}).get("source", "agent")),
+                metadata=meta or {},
+            ),
+            metadata={
+                "legacy_collection": "experience",
+                "embedding": embedding,
+            },
+        )
+        catalog = self._catalog()
+        catalog.add(record)
+        self._replace_catalog(catalog)
         self._persist()
         return exp_id
 
     def recall(
         self, query: str, k: int = 5, min_score: float = 0.0
     ) -> List[Tuple[str, str, float]]:
-        results: List[Tuple[str, str, float]] = []
-        query_embedding = self._embed_text(query)
-        for exp in self.experiences[-max(k * 4, 10) :]:
-            text = str(exp.get("text", ""))
-            exp_embedding = exp.get("embedding")
-            if not isinstance(exp_embedding, list) or not exp_embedding:
-                exp_embedding = self._embed_text(text)
-                exp["embedding"] = exp_embedding
-            embedding_score = max(
-                0.0, self._cosine_similarity(query_embedding, exp_embedding)
-            )
-            lexical_score = self._semantic_score(query, text)
-            score = (0.75 * embedding_score) + (0.25 * lexical_score)
-            score = min(1.0, score + (0.04 * int(exp.get("importance", 1))))
-            if score >= min_score:
-                results.append((str(exp.get("id")), text, score))
-        results.sort(key=lambda x: x[2], reverse=True)
-        return results[:k]
+        hits = self.search_memory_records(
+            query,
+            k=k,
+            min_score=min_score,
+            legacy_collection="experience",
+        )
+        return [(hit.record.id, hit.record.content, hit.final_score) for hit in hits]
 
     def conversation_search(
         self, query: str, limit: int = 10, roles: Optional[List[str]] = None
@@ -825,6 +1053,25 @@ class AgentMemory:
             },
         }
         self.archival_passages.append(rec)
+        record = MemoryRecord(
+            id=pid,
+            scope=MemoryScope(
+                organization_id=self.organization_id,
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+            ),
+            content=text,
+            tags=tags or [],
+            importance=int(importance or 1),
+            provenance=MemoryProvenance(source="agent"),
+            metadata={
+                "legacy_collection": "archival",
+                "embedding": embedding,
+            },
+        )
+        catalog = self._catalog()
+        catalog.add(record)
+        self._replace_catalog(catalog)
         self._persist()
         return pid
 
@@ -839,29 +1086,14 @@ class AgentMemory:
         if not q:
             return []
 
-        results: List[Tuple[str, str, float]] = []
-        query_embedding = self._embed_text(q)
-        for rec in self.archival_passages:
-            if tags:
-                rec_tags = {str(t) for t in (rec.get("tags") or [])}
-                if not rec_tags.intersection({str(t) for t in tags}):
-                    continue
-            text = str(rec.get("text", ""))
-            rec_embedding = rec.get("embedding")
-            if not isinstance(rec_embedding, list) or not rec_embedding:
-                rec_embedding = self._embed_text(text)
-                rec["embedding"] = rec_embedding
-            embedding_score = max(
-                0.0, self._cosine_similarity(query_embedding, rec_embedding)
-            )
-            lexical_score = self._semantic_score(q, text)
-            score = (0.8 * embedding_score) + (0.2 * lexical_score)
-            score = min(1.0, score + (0.03 * int(rec.get("importance", 1))))
-            if score >= min_score:
-                results.append((str(rec["id"]), text, score))
-
-        results.sort(key=lambda x: x[2], reverse=True)
-        return results[:k]
+        hits = self.search_memory_records(
+            q,
+            k=k,
+            min_score=min_score,
+            tags=tags,
+            legacy_collection="archival",
+        )
+        return [(hit.record.id, hit.record.content, hit.final_score) for hit in hits]
 
 
 __all__ = [
@@ -878,4 +1110,13 @@ __all__ = [
     "create_memory_store",
     "create_in_memory_store",
     "create_sqlite_memory_store",
+    "ConflictPolicy",
+    "MemoryCatalog",
+    "MemoryHit",
+    "MemoryKind",
+    "MemoryProvenance",
+    "MemoryRecord",
+    "MemoryRetention",
+    "MemoryScope",
+    "MemorySensitivity",
 ]
