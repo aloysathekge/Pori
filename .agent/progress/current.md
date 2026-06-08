@@ -2,16 +2,18 @@
 
 ## Active Task
 
-No active task recorded yet.
+Enabled multi-agent team mode in `config.yaml` for CLI use.
 
 ## Decisions Made
 
 - AGENTS.md is the canonical repo instruction file.
-- .agent/ holds Aloy repo-local rules, commands, skills, and progress memory.
+- `.agent/` holds Aloy repo-local rules, commands, skills, and progress memory.
+- CLI team mode: `research-team` with `delegate` mode and three members (researcher, analyst, writer).
 
 ## Important Discoveries
 
-- None recorded yet.
+- CLI only uses team mode when `config.yaml` has a non-empty `team.members` list.
+- Stale SQLite session memory can cause single-agent CLI to answer wrong prior questions; `/new` clears transient context.
 
 ## Blockers
 
@@ -19,4 +21,4 @@ No active task recorded yet.
 
 ## Next Session Should Start With
 
-Read AGENTS.md, .agent/agent.json, and this file before starting repo work.
+Restart `uv run pori` to pick up team config. Run `/new` before unrelated tasks to avoid memory contamination.

@@ -80,6 +80,7 @@ class MemoryConfig(BaseModel):
     sqlite_path: Optional[str] = Field(
         default=None, description="Path to SQLite DB when backend=sqlite"
     )
+    organization_id: str = Field(default="default_org")
     user_id: str = Field(default="default_user")
     agent_id: str = Field(default="default_agent")
     session_id: Optional[str] = Field(default=None)

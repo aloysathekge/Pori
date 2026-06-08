@@ -48,14 +48,12 @@ agent:
   context_window_reserve_tokens: 1200
 
 memory:
-  # memory (ephemeral) or sqlite (persistent)
-  #backend: sqlite
-  # Used when backend=sqlite
+  backend: sqlite
   sqlite_path: .pori/memory.db
-  user_id: default_user
-  agent_id: default_agent
-  # Optional stable session id. If omitted, a new session id is generated.
-  session_id: session_main
+  organization_id: test_org
+  user_id: alice
+  agent_id: assistant
+  session_id: manual_test
 
 # Prompts: override where prompt templates are loaded from (optional)
 # prompts:
@@ -78,6 +76,28 @@ sandbox:
 #     read_file: false                    # Safe: no approval needed (default if not listed)
 #   auto_approve_duplicates: true         # Skip re-asking for identical approved calls
 #   timeout_seconds: 300                  # Wait time for human response
+
+team:
+  name: research-team
+  mode: delegate
+  max_delegation_steps: 10
+  max_concurrent_members: 5
+  members:
+    - name: researcher
+      description: "Searches the web and gathers facts from official sources"
+      tools: [web_search, answer, done]
+      agent_settings:
+        max_steps: 8
+    - name: analyst
+      description: "Compares data, identifies patterns, and draws conclusions"
+      tools: [answer, done]
+      agent_settings:
+        max_steps: 8
+    - name: writer
+      description: "Writes clear, structured final summaries for the user"
+      tools: [answer, done]
+      agent_settings:
+        max_steps: 6
 
 # ============================================
 # Example configurations for different providers:

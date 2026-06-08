@@ -1,6 +1,17 @@
 import pytest
 
 from pori.memory import AgentMemory, create_memory_store
+from pori.memory_contracts import (
+    ConflictPolicy,
+    MemoryHit,
+    MemoryKind,
+    MemoryProvenance,
+    MemoryRetention,
+    MemoryScope,
+    MemorySensitivity,
+    MemoryStatus,
+    evaluate_retrieval,
+)
 
 
 def test_agent_memory_basic_flow(legacy_memory, test_task_id):
@@ -103,6 +114,37 @@ def test_memory_persistence_with_sqlite_store(tmp_path):
     assert "Persistent core note" in mem2.core_memory.get_block("notes").value
 
 
+def test_memory_loads_legacy_namespace_and_writes_new_scope(tmp_path):
+    db_path = tmp_path / "legacy-memory.db"
+    store = create_memory_store(backend="sqlite", sqlite_path=str(db_path))
+    store.save(
+        "u1:a1:s1",
+        {
+            "meta": {},
+            "experiences": [
+                {
+                    "id": "legacy-exp",
+                    "text": "Legacy deployment note",
+                    "importance": 2,
+                    "meta": {"source": "user"},
+                }
+            ],
+        },
+    )
+
+    memory = AgentMemory(
+        organization_id="org-1",
+        user_id="u1",
+        agent_id="a1",
+        session_id="s1",
+        store=store,
+    )
+
+    assert memory.recall("deployment")[0][0] == "legacy-exp"
+    memory.persist()
+    assert store.load("org-1:u1:a1:s1") is not None
+
+
 def test_memory_serializable_state_round_trip(legacy_memory):
     memory = legacy_memory
     memory.add_message("user", "hello")
@@ -203,3 +245,122 @@ def test_hydrate_timestamps_parses_iso_strings_in_place():
     assert items[1]["timestamp"] == datetime(2024, 1, 1)
     assert "timestamp" not in items[2]
     assert items[3] == "not a dict"
+
+
+def test_memory_records_are_scoped_and_do_not_leak_between_tenants():
+    memory = AgentMemory(
+        organization_id="org-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        session_id="session-a",
+    )
+    own = memory.add_memory_record(
+        "Customer prefers weekly reports",
+        provenance=MemoryProvenance(source="user", source_id="message-1"),
+    )
+    memory.memory_records.append(
+        own.model_copy(
+            update={
+                "id": "foreign-record",
+                "scope": MemoryScope(
+                    organization_id="org-b",
+                    user_id="user-b",
+                    agent_id="agent-a",
+                    session_id="session-a",
+                ),
+                "content": "Foreign tenant secret",
+            }
+        )
+    )
+
+    hits = memory.search_memory_records("reports secret", k=10)
+
+    assert [hit.record.id for hit in hits] == [own.id]
+    evaluation = evaluate_retrieval(hits, [own.id], memory.scope)
+    assert evaluation.recall_at_k == 1.0
+    assert evaluation.leaked_record_ids == []
+
+
+def test_memory_conflict_supersedes_previous_record():
+    memory = AgentMemory(
+        organization_id="org-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        session_id="session-a",
+    )
+    old = memory.add_memory_record(
+        "The preferred database is SQLite",
+        conflict_key="preferred-database",
+    )
+    new = memory.add_memory_record(
+        "The preferred database is PostgreSQL",
+        conflict_key="preferred-database",
+        conflict_policy=ConflictPolicy.SUPERSEDE,
+    )
+
+    records = {record.id: record for record in memory.memory_records}
+    assert records[old.id].status == MemoryStatus.SUPERSEDED
+    assert records[old.id].superseded_by == new.id
+    assert [hit.record.id for hit in memory.search_memory_records("database")] == [
+        new.id
+    ]
+
+
+def test_memory_retention_delete_export_and_sensitivity():
+    memory = AgentMemory(
+        organization_id="org-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        session_id="session-a",
+    )
+    expired = memory.add_memory_record(
+        "Temporary incident note",
+        retention=MemoryRetention(delete_after="2000-01-01T00:00:00Z"),
+    )
+    restricted = memory.add_memory_record(
+        "Payroll account details",
+        sensitivity=MemorySensitivity.RESTRICTED,
+        confidence=0.8,
+    )
+
+    assert memory.prune_expired_memory() == [expired.id]
+    exported = memory.export_memory_records()
+    assert [record["id"] for record in exported] == [restricted.id]
+
+    assert memory.delete_memory_record(restricted.id) is True
+    assert memory.search_memory_records("payroll") == []
+    deleted_export = memory.export_memory_records(include_deleted=True)
+    assert deleted_export[0]["status"] == "deleted"
+
+
+def test_retrieval_evaluation_reports_precision_and_rank():
+    scope = MemoryScope(
+        organization_id="org-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        session_id="session-a",
+    )
+    memory = AgentMemory(
+        organization_id=scope.organization_id,
+        user_id=scope.user_id,
+        agent_id=scope.agent_id or "agent-a",
+        session_id=scope.session_id,
+    )
+    first = memory.add_memory_record(
+        "Unrelated note",
+        kind=MemoryKind.SEMANTIC,
+    )
+    expected = memory.add_memory_record(
+        "Rollback checklist",
+        kind=MemoryKind.PROCEDURAL,
+    )
+    hits = [
+        MemoryHit(record=first, final_score=0.9),
+        MemoryHit(record=expected, final_score=0.8),
+    ]
+
+    evaluation = evaluate_retrieval(hits, [expected.id], scope)
+
+    assert evaluation.recall_at_k == 1.0
+    assert evaluation.precision_at_k == 0.5
+    assert evaluation.reciprocal_rank == 0.5

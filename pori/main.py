@@ -101,6 +101,14 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
                 tags = rec.get("tags", [])
                 print(f"  {text}" + (f"  tags={tags}" if tags else ""))
 
+            print(f"\nTyped memory records: {len(memory.memory_records)}")
+            for record in memory.memory_records:
+                preview = record.content[:80].replace("\n", " ")
+                print(
+                    f"  [{record.status.value}] [{record.kind.value}] "
+                    f"[{record.scope.namespace}] {preview}"
+                )
+
         elif subcmd == "clear":
             target = parts[2].lower() if len(parts) > 2 else "all"
             if target == "all":
@@ -110,6 +118,7 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
                 memory.tool_call_history.clear()
                 memory.summaries.clear()
                 memory.archival_passages.clear()
+                memory.memory_records.clear()
                 memory.state.clear()
                 if getattr(memory, "core_memory", None):
                     for block in memory.core_memory._blocks.values():
@@ -122,6 +131,11 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
                 print("Messages cleared.")
             elif target == "experiences":
                 memory.experiences.clear()
+                memory.memory_records = [
+                    record
+                    for record in memory.memory_records
+                    if record.metadata.get("legacy_collection") != "experience"
+                ]
                 memory._persist()
                 print("Experiences cleared.")
             elif target == "tasks":
@@ -130,6 +144,11 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
                 print("Tasks cleared.")
             elif target == "archival":
                 memory.archival_passages.clear()
+                memory.memory_records = [
+                    record
+                    for record in memory.memory_records
+                    if record.metadata.get("legacy_collection") != "archival"
+                ]
                 memory._persist()
                 print("Archival passages cleared.")
             else:
@@ -325,6 +344,7 @@ async def main():
         sqlite_path=memory_sqlite_path,
     )
     shared_memory = AgentMemory(
+        organization_id=getattr(config.memory, "organization_id", "default_org"),
         user_id=getattr(config.memory, "user_id", "default_user"),
         agent_id=getattr(config.memory, "agent_id", "default_agent"),
         session_id=getattr(config.memory, "session_id", None),
