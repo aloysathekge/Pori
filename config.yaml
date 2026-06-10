@@ -14,10 +14,16 @@
 
 
 llm:
-  provider: anthropic
-  model: claude-sonnet-4-5
-  temperature: 0.0
+  # Kimi via Fireworks (set FIREWORKS_API_KEY in .env)
+  provider: fireworks
+  model: accounts/fireworks/models/kimi-k2p6
+  temperature: 0.6
   max_tokens: 4096
+  extra_params:
+    top_p: 1
+    top_k: 40
+    presence_penalty: 0
+    frequency_penalty: 0
 
 #   # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
 #   temperature: 0.0
@@ -77,27 +83,7 @@ sandbox:
 #   auto_approve_duplicates: true         # Skip re-asking for identical approved calls
 #   timeout_seconds: 300                  # Wait time for human response
 
-team:
-  name: research-team
-  mode: delegate
-  max_delegation_steps: 10
-  max_concurrent_members: 5
-  members:
-    - name: researcher
-      description: "Searches the web and gathers facts from official sources"
-      tools: [web_search, answer, done]
-      agent_settings:
-        max_steps: 8
-    - name: analyst
-      description: "Compares data, identifies patterns, and draws conclusions"
-      tools: [answer, done]
-      agent_settings:
-        max_steps: 8
-    - name: writer
-      description: "Writes clear, structured final summaries for the user"
-      tools: [answer, done]
-      agent_settings:
-        max_steps: 6
+
 
 # ============================================
 # Example configurations for different providers:
