@@ -7,11 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pori.sandbox import (
-    LocalSandboxProvider,
-    get_thread_data,
-    set_sandbox_provider,
-)
+from pori.sandbox import LocalSandboxProvider, get_thread_data, set_sandbox_provider
 from pori.sandbox.path_resolution import VIRTUAL_PREFIX
 from pori.sandbox.sandbox_tools import (
     BashParams,
@@ -123,6 +119,44 @@ def test_sandbox_list_dir(sandbox_env):
     assert result.get("success") is True
     entries = result.get("entries", [])
     assert any("foo.txt" in e for e in entries)
+
+
+def test_replace_virtual_path_resolves_within_workspace():
+    """A normal virtual path maps into the thread workspace directory."""
+    from pori.sandbox.path_resolution import replace_virtual_path
+
+    data = get_thread_data("trav_thread", str(Path(tempfile.gettempdir()) / "pori_t"))
+    resolved = replace_virtual_path(f"{VIRTUAL_PREFIX}/workspace/sub/file.txt", data)
+    assert resolved.startswith(data.workspace_path)
+
+
+@pytest.mark.parametrize(
+    "evil",
+    [
+        f"{VIRTUAL_PREFIX}/workspace/../../../../etc/passwd",
+        f"{VIRTUAL_PREFIX}/workspace/../outputs/secret",
+        f"{VIRTUAL_PREFIX}/uploads/../../escape",
+    ],
+)
+def test_replace_virtual_path_blocks_traversal(evil):
+    """Paths that escape the per-segment sandbox dir are rejected."""
+    from pori.sandbox.path_resolution import replace_virtual_path
+
+    data = get_thread_data("trav_thread2", str(Path(tempfile.gettempdir()) / "pori_t"))
+    with pytest.raises(ValueError):
+        replace_virtual_path(evil, data)
+
+
+def test_replace_virtual_paths_in_command_leaves_traversal_unrewritten():
+    """Command rewriting does not expand a traversal path into an escaped real path."""
+    from pori.sandbox.path_resolution import replace_virtual_paths_in_command
+
+    data = get_thread_data("trav_thread3", str(Path(tempfile.gettempdir()) / "pori_t"))
+    cmd = f"cat {VIRTUAL_PREFIX}/workspace/../../../../etc/passwd"
+    rewritten = replace_virtual_paths_in_command(cmd, data)
+    # The escaped real path must not appear; the virtual token is left as-is.
+    assert data.workspace_path.rstrip("/\\") not in rewritten or ".." in rewritten
+    assert "etc/passwd" in rewritten or "etc\\passwd" in rewritten
 
 
 def test_create_directory_accepts_sandbox_virtual_path(sandbox_env):

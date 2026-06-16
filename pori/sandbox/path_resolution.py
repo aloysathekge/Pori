@@ -52,6 +52,26 @@ def get_thread_data(
     return data
 
 
+def _safe_join(base: str, suffix: str) -> str:
+    """
+    Join suffix onto base and guarantee the result stays within base.
+
+    Normalizes the joined path (collapsing any '..' segments) and verifies it is
+    base itself or a descendant. Raises ValueError on traversal that escapes base,
+    so a path like /mnt/user-data/workspace/../../etc cannot reach outside the
+    per-thread sandbox directory.
+    """
+    base_norm = os.path.normpath(base)
+    if not suffix:
+        return base_norm
+    candidate = os.path.normpath(os.path.join(base_norm, suffix))
+    if candidate != base_norm and not candidate.startswith(base_norm + os.sep):
+        raise ValueError(
+            f"Path traversal blocked: {suffix!r} escapes the sandbox directory"
+        )
+    return candidate
+
+
 def replace_virtual_path(
     path: str,
     thread_data: ThreadData,
@@ -60,6 +80,8 @@ def replace_virtual_path(
     """
     If path starts with prefix, map the first segment (workspace, uploads, outputs)
     to the corresponding path in thread_data; otherwise return path unchanged.
+
+    Raises ValueError if the path attempts to traverse outside the sandbox dir.
     """
     path = path.strip()
     if not path.startswith(prefix):
@@ -75,9 +97,7 @@ def replace_virtual_path(
     else:
         return path
     suffix = rest[len(segment) :].lstrip("/") if len(rest) > len(segment) else ""
-    if suffix:
-        return os.path.join(base, suffix).replace("/", os.sep)
-    return base
+    return _safe_join(base, suffix)
 
 
 # Pattern: prefix followed by optional path (e.g. /workspace, /workspace/foo/bar)
@@ -113,8 +133,11 @@ def replace_virtual_paths_in_command(
         else:
             return full
         tail = suffix[len(segment) :].lstrip("/") if len(suffix) > len(segment) else ""
-        if tail:
-            return os.path.join(base, tail).replace("/", os.sep)
-        return base
+        try:
+            return _safe_join(base, tail)
+        except ValueError:
+            # Leave a traversal attempt untouched rather than rewriting it to an
+            # escaped real path; the sandbox shell will then fail safely on it.
+            return full
 
     return _VIRTUAL_PATH_PATTERN.sub(replacer, command)

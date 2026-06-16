@@ -2,6 +2,17 @@
 
 ## Active Task
 
+Fixed two security issues found during a codebase review:
+- Replaced unsafe `eval()` in `pori/tools/standard/math_tools.py` with an AST-based
+  safe arithmetic evaluator (`evaluate_expression`), with an exponent guard.
+- Hardened `pori/sandbox/path_resolution.py` against path traversal: added
+  `_safe_join`, so `replace_virtual_path` now rejects `../` escapes and
+  `replace_virtual_paths_in_command` leaves traversal tokens unrewritten.
+- Added `tests/test_math_tools.py` and traversal tests in
+  `tests/test_sandbox_integration.py`. Full suite: 168 passed.
+
+## Previously: Active Task
+
 Enabled multi-agent team mode in `config.yaml` for CLI use.
 
 ## Decisions Made
