@@ -18,7 +18,9 @@ def _load_tool_plugins(registry) -> None:
     if hasattr(eps, "select"):
         selected = eps.select(group="pori.tools")
     else:  # pragma: no cover - legacy importlib_metadata API
-        selected = eps.get("pori.tools", [])  # type: ignore[arg-type]
+        # Access .get dynamically: on modern Python EntryPoints has no .get,
+        # and mypy's error code for this differs across versions.
+        selected = getattr(eps, "get")("pori.tools", [])
 
     for ep in selected:
         # Avoid recursively loading this package's own standard tools via entrypoint
