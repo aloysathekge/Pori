@@ -28,6 +28,54 @@ Not done (deferred, larger/riskier): full decomposition of the 486-line
 `execute_actions` and the Agent god-object; LLM-provider and API-layer tests;
 enabling mypy enforcement in CI (currently `|| true`).
 
+## Stabilization (in progress — before adding Agno features)
+
+Decision: stabilize the framework before building new primitives. Gates chosen:
+**strict** (failing coverage floor, blocking mypy, Python 3.10). First test-backfill
+target: **LLM providers**.
+
+Done this round:
+- **mypy: 0 errors** (was ~71). Fixed across config/agent/team/sandbox_tools/
+  filesystem_tools/llm providers/memory/registry/orchestrator/main/api/context/
+  math_tools. Mostly safe annotations + correct `cast`s + `BaseException` narrowing
+  in `asyncio.gather` result handling + a None-guard in `Team._run_nested_team`.
+- Added `types-PyYAML` to test extra; removed dead `ExecuteScriptParams`.
+- **CI made strict**: dropped `|| true` on mypy; added Python 3.10 to matrix;
+  added `fail_under = 65` coverage floor (no-regression baseline; ratchet up as
+  tests grow). Verified locally: 66.16% ≥ 65, gate passes.
+- Verified the `safe_path_operation` "destination-bypass" from the original review
+  is a FALSE POSITIVE — both branches validate.
+- 180 tests pass; black/isort clean.
+
+Still TODO for stability:
+- **S3 LLM provider tests** (chosen priority): mock anthropic/openai/google SDK
+  clients; cover message conversion, tool-call parsing, error handling. Currently
+  22–41%. Then ratchet `fail_under` upward.
+- CLI/main.py (0%), hitl.py (48%) backfill.
+- Resolve remaining ~11 `except: pass` outside already-hardened files.
+
+## Reference study: Agno
+
+Studied `references/agno` (Agno SDK, Apache-2.0) + its Pori-authored notes.
+Findings: Pori already implements the Team modes (ROUTER/BROADCAST/DELEGATE);
+the clearest capability gap is a **Workflow** primitive (deterministic step DAG),
+for which a Pori design note already exists. Wrote
+`.agent/reference-studies/workflow-adaptation.md` — maps Agno's Workflow design
+onto Pori's *actual* APIs (task-at-construction, dict run-result, blueprint
+workers via Orchestrator, Trace/MemoryStore reuse). No product code changed.
+Next-ranked gaps if pursued: structured RunOutput + `print_response`, then
+first-class Knowledge/RAG with pluggable vectordb backends.
+
+Deeper Agno study (db/session/run, knowledge/vectordb/reasoning/context/learn,
+os/tools/guardrails/tracing) produced a phased adoption roadmap:
+`.agent/reference-studies/agno-adoption-roadmap.md`. Recommended order:
+Phase 0 structured RunOutput + event stream (foundation, unblocks streaming/
+pause-resume) → Phase 4 PII + prompt-injection guardrails (quick win) →
+Phase 1 Workflow → Phase 2 session→run→message persistence → Phase 3 reasoning
+(native extended thinking) → Phase 5 RAG (RRF + reranker) → Phase 6+ AgentOS/OTel
+(deferred). Each phase: own branch, tests-first, CI green, progress updated.
+No product code changed yet — awaiting go-ahead on Phase 0.
+
 ## Previously: Active Task
 
 Enabled multi-agent team mode in `config.yaml` for CLI use.
