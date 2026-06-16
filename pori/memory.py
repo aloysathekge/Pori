@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -26,6 +27,8 @@ from .memory_contracts import (
     MemoryScope,
     MemorySensitivity,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CORE_BLOCK_LIMIT = 2000
 LINE_NUMBER_REGEX = re.compile(r"\n\d+→ ")
@@ -322,6 +325,17 @@ class SerializableMemoryState(BaseModel):
 
 class AgentMemory:
     _sentence_transformer_models: Dict[str, Any] = {}
+
+    # Weights for blending embedding-based (semantic) and lexical relevance
+    # scores into a single hybrid score. Kept here so all search paths stay in
+    # sync instead of repeating the literals.
+    _SEMANTIC_WEIGHT = 0.75
+    _LEXICAL_WEIGHT = 0.25
+
+    @classmethod
+    def _blend_scores(cls, semantic: float, lexical: float) -> float:
+        """Combine a semantic and a lexical score into one hybrid score."""
+        return (cls._SEMANTIC_WEIGHT * semantic) + (cls._LEXICAL_WEIGHT * lexical)
 
     def __init__(
         self,
@@ -711,19 +725,26 @@ class AgentMemory:
     def _sentence_transformer_embedding(self, text: str) -> Optional[List[float]]:
         try:
             from sentence_transformers import SentenceTransformer
-        except Exception:
+        except Exception as e:
+            logger.debug("sentence-transformers not available, using fallback: %s", e)
             return None
         model = self._sentence_transformer_models.get(self._embedding_model_name)
         if model is None:
             try:
                 model = SentenceTransformer(self._embedding_model_name)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "Failed to load embedding model %s: %s",
+                    self._embedding_model_name,
+                    e,
+                )
                 return None
             self._sentence_transformer_models[self._embedding_model_name] = model
         try:
             embedding = model.encode(text or "", normalize_embeddings=True)
             return [float(v) for v in embedding]
-        except Exception:
+        except Exception as e:
+            logger.debug("Embedding encode failed, using fallback: %s", e)
             return None
 
     def _embed_text(self, text: str) -> List[float]:
@@ -764,7 +785,7 @@ class AgentMemory:
             0.0, self._cosine_similarity(query_embedding, text_embedding)
         )
         lexical_score = self._semantic_score(query, text)
-        return max(0.0, min(1.0, (0.75 * embedding_score) + (0.25 * lexical_score)))
+        return max(0.0, min(1.0, self._blend_scores(embedding_score, lexical_score)))
 
     def _catalog(self) -> MemoryCatalog:
         return MemoryCatalog(self.memory_records)
@@ -913,7 +934,7 @@ class AgentMemory:
                 record.metadata["embedding"] = embedding
             semantic = max(0.0, self._cosine_similarity(query_embedding, embedding))
             lexical = self._semantic_score(query, record.content)
-            final = (0.75 * semantic) + (0.25 * lexical)
+            final = self._blend_scores(semantic, lexical)
             final = min(
                 1.0,
                 final + (0.03 * record.importance) + (0.02 * record.confidence),
@@ -1014,7 +1035,7 @@ class AgentMemory:
             semantic = max(
                 0.0, self._cosine_similarity(query_embedding, content_embedding)
             )
-            score = (0.75 * semantic) + (0.25 * lexical)
+            score = self._blend_scores(semantic, lexical)
             if score <= 0:
                 continue
             recency = (idx + 1) / max(1, len(self.messages))

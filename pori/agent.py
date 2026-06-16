@@ -1038,6 +1038,33 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             )
             return True, ""
 
+    def _reject_action(
+        self,
+        tool_name: str,
+        params: Any,
+        results: List[ActionResult],
+        reject_msg: str,
+        *,
+        log_level: str = "warning",
+    ) -> None:
+        """Record a rejected tool action and append a failed ActionResult.
+
+        Logs the rejection, persists a tool_call record for traceability, and
+        appends a failed ActionResult. The caller is responsible for
+        ``continue``-ing the action loop after invoking this.
+        """
+        log = getattr(logger, log_level, logger.warning)
+        log(reject_msg, extra={"task_id": self.task_id})
+        self.memory.add_tool_call(
+            tool_name=tool_name,
+            parameters=params,
+            result={"rejected": True, "message": reject_msg},
+            success=False,
+        )
+        results.append(
+            ActionResult(success=False, error=reject_msg, include_in_memory=True)
+        )
+
     async def execute_actions(
         self,
         actions: List[Dict[str, Any]],
@@ -1138,8 +1165,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                                 result=reused,
                                 success=True,
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                f"Failed to record reused tool call for {tool_name}: {e}",
+                                extra={"task_id": self.task_id},
+                            )
                         # Evaluate and append reused result
                         action_result = self.evaluator.evaluate_tool_result(
                             tool_name=tool_name, result=reused
@@ -1151,9 +1181,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         continue
                 # First time seeing this signature this step
                 seen_signatures_this_step.add(sig)
-            except Exception:
+            except Exception as e:
                 # If duplicate detection fails, proceed normally
-                pass
+                logger.debug(
+                    f"Duplicate detection failed for {tool_name}, proceeding: {e}",
+                    extra={"task_id": self.task_id},
+                )
 
             # Special handling for "done" tool
             if tool_name == "done":
@@ -1290,8 +1323,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                             self._approved_signatures.add(
                                 _make_signature(tool_name, params)
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                f"Failed to track approved signature for {tool_name}: {e}",
+                                extra={"task_id": self.task_id},
+                            )
                 # --- end HITL gate ---
 
                 # --- Memory deletion guards ---
@@ -1302,18 +1338,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                             f"Tool '{tool_name}' cannot satisfy a memory deletion request. "
                             "Use core_memory_replace, memory_rethink, or core_memory_rethink instead."
                         )
-                        logger.warning(reject_msg, extra={"task_id": self.task_id})
-                        self.memory.add_tool_call(
-                            tool_name=tool_name,
-                            parameters=params,
-                            result={"rejected": True, "message": reject_msg},
-                            success=False,
-                        )
-                        results.append(
-                            ActionResult(
-                                success=False, error=reject_msg, include_in_memory=True
-                            )
-                        )
+                        self._reject_action(tool_name, params, results, reject_msg)
                         continue
 
                 # Reject memory tools that attempt to write forbidden terms back
@@ -1327,18 +1352,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 if tool_name in memory_tools:
                     if self._params_write_forbidden_memory_terms(tool_name, params):
                         reject_msg = f"Tool '{tool_name}' would reintroduce terms the user asked to remove."
-                        logger.warning(reject_msg, extra={"task_id": self.task_id})
-                        self.memory.add_tool_call(
-                            tool_name=tool_name,
-                            parameters=params,
-                            result={"rejected": True, "message": reject_msg},
-                            success=False,
-                        )
-                        results.append(
-                            ActionResult(
-                                success=False, error=reject_msg, include_in_memory=True
-                            )
-                        )
+                        self._reject_action(tool_name, params, results, reject_msg)
                         continue
 
                 # Guard for answer: reject false deletion confirmations
@@ -1350,20 +1364,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                                 "using a core memory mutation tool (core_memory_replace, "
                                 "memory_rethink, or core_memory_rethink)."
                             )
-                            logger.warning(reject_msg, extra={"task_id": self.task_id})
-                            self.memory.add_tool_call(
-                                tool_name=tool_name,
-                                parameters=params,
-                                result={"rejected": True, "message": reject_msg},
-                                success=False,
-                            )
-                            results.append(
-                                ActionResult(
-                                    success=False,
-                                    error=reject_msg,
-                                    include_in_memory=True,
-                                )
-                            )
+                            self._reject_action(tool_name, params, results, reject_msg)
                             continue
                 # --- end Memory deletion guards ---
 
@@ -1381,18 +1382,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                             "The 'answer' tool requires a non-empty final_answer. "
                             "Provide a substantive answer to the user's question."
                         )
-                        logger.warning(reject_msg, extra={"task_id": self.task_id})
-                        self.memory.add_tool_call(
-                            tool_name=tool_name,
-                            parameters=params,
-                            result={"rejected": True, "message": reject_msg},
-                            success=False,
-                        )
-                        results.append(
-                            ActionResult(
-                                success=False, error=reject_msg, include_in_memory=True
-                            )
-                        )
+                        self._reject_action(tool_name, params, results, reject_msg)
                         continue
 
                     # 2) Semantic (opt-in via validate_output): LLM judges adequacy,
@@ -1412,19 +1402,8 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                                 f"{reason or 'inadequate'}. Revise and call 'answer' "
                                 "again with a corrected response."
                             )
-                            logger.info(reject_msg, extra={"task_id": self.task_id})
-                            self.memory.add_tool_call(
-                                tool_name=tool_name,
-                                parameters=params,
-                                result={"rejected": True, "message": reject_msg},
-                                success=False,
-                            )
-                            results.append(
-                                ActionResult(
-                                    success=False,
-                                    error=reject_msg,
-                                    include_in_memory=True,
-                                )
+                            self._reject_action(
+                                tool_name, params, results, reject_msg, log_level="info"
                             )
                             continue
                 # --- end Completion quality gate ---
@@ -1468,8 +1447,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                                 success=success,
                             )
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to record tool metrics for {tool_name}: {e}",
+                        extra={"task_id": self.task_id},
+                    )
 
                 # Record the tool call
                 self.memory.add_tool_call(
@@ -1484,8 +1466,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     results_by_signature_this_step[
                         _make_signature(tool_name, params)
                     ] = tool_result
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to cache result for {tool_name}: {e}",
+                        extra={"task_id": self.task_id},
+                    )
 
                 # Evaluate the result
                 action_result = self.evaluator.evaluate_tool_result(
@@ -1707,8 +1692,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     f"tool_calls={summary['tool_calls']}",
                     extra={"task_id": self.task_id},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f"Failed to log run metrics summary: {e}",
+                    extra={"task_id": self.task_id},
+                )
 
         # Post-check guardrails (output validation)
         if completed and self.guardrails:

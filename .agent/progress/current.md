@@ -2,14 +2,31 @@
 
 ## Active Task
 
-Fixed two security issues found during a codebase review:
+Codebase-review follow-ups. Full suite now 180 passed; black/isort clean; no
+new mypy errors introduced (all remaining mypy errors are pre-existing).
+
+Security (done earlier this session):
 - Replaced unsafe `eval()` in `pori/tools/standard/math_tools.py` with an AST-based
   safe arithmetic evaluator (`evaluate_expression`), with an exponent guard.
 - Hardened `pori/sandbox/path_resolution.py` against path traversal: added
   `_safe_join`, so `replace_virtual_path` now rejects `../` escapes and
   `replace_virtual_paths_in_command` leaves traversal tokens unrewritten.
 - Added `tests/test_math_tools.py` and traversal tests in
-  `tests/test_sandbox_integration.py`. Full suite: 168 passed.
+  `tests/test_sandbox_integration.py`.
+
+Quality / maintainability (this round):
+- `pori/agent.py`: extracted `Agent._reject_action(...)` helper and replaced 5
+  duplicated rejection blocks in `execute_actions` (behavior-preserving).
+- `pori/agent.py`: replaced 6 silent `except Exception: pass` with `logger.debug`.
+- `pori/memory.py`: added module logger; extracted `_SEMANTIC_WEIGHT`/
+  `_LEXICAL_WEIGHT` + `AgentMemory._blend_scores` and replaced the 3 hardcoded
+  `0.75*sem + 0.25*lex` sites; added debug logging on embedding fallbacks.
+- Added `tests/test_config.py` (12 tests) covering config resolution order,
+  validation failures, back-compat aliases, and the `create_llm` factory.
+
+Not done (deferred, larger/riskier): full decomposition of the 486-line
+`execute_actions` and the Agent god-object; LLM-provider and API-layer tests;
+enabling mypy enforcement in CI (currently `|| true`).
 
 ## Previously: Active Task
 
