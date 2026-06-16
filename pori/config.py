@@ -204,7 +204,7 @@ def create_llm(config: LLMConfig):
     provider = config.provider.lower()
 
     # Common parameters
-    common_params = {
+    common_params: Dict[str, Any] = {
         "model": config.model,
         "temperature": config.temperature,
     }

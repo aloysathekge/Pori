@@ -50,7 +50,7 @@ async def get_task_status_endpoint(task_id: str):
     status_info = get_task_status(task_id)
     return TaskStatusResponse(
         task_id=task_id,
-        status=status_info.get("status"),
+        status=status_info.get("status") or "unknown",
         details=status_info.get("error"),
     )
 

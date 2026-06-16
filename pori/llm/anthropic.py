@@ -1,7 +1,7 @@
 """Anthropic chat model."""
 
 import json
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
@@ -166,4 +166,4 @@ class StructuredWrapper(Generic[T]):
         result = await self._llm.ainvoke(messages, output_format=self._output_model)
         if self._include_raw:
             return {"parsed": result, "raw": None}
-        return result
+        return cast(T, result)

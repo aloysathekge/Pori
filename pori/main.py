@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from typing import List
+from typing import Any, List, cast
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ load_dotenv()
 from pathlib import Path
 
 from .agent import Agent, AgentSettings
-from .config import get_configured_llm
+from .config import LLMConfig, get_configured_llm
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
@@ -259,7 +259,7 @@ def _switch_model_interactive(current: "LLMConfig"):
             model = raw_m
 
     new_cfg = LLMConfig(
-        provider=provider,
+        provider=cast(Any, provider),
         model=model,
         temperature=current.temperature,
         max_tokens=current.max_tokens,

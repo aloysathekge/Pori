@@ -18,7 +18,7 @@ def _load_tool_plugins(registry) -> None:
     if hasattr(eps, "select"):
         selected = eps.select(group="pori.tools")
     else:  # pragma: no cover - legacy importlib_metadata API
-        selected = eps.get("pori.tools", [])
+        selected = eps.get("pori.tools", [])  # type: ignore[arg-type]
 
     for ep in selected:
         # Avoid recursively loading this package's own standard tools via entrypoint

@@ -116,13 +116,13 @@ def create_memory_store(
         path = sqlite_path or os.getenv("PORI_MEMORY_SQLITE_PATH") or ".pori/memory.db"
         return SQLiteMemoryStore(path)
 
+    selected: Any = []
     try:
         eps = metadata.entry_points()
-        selected = (
-            eps.select(group="pori.memory_stores")
-            if hasattr(eps, "select")
-            else eps.get("pori.memory_stores", [])
-        )
+        if hasattr(eps, "select"):
+            selected = eps.select(group="pori.memory_stores")
+        else:  # pragma: no cover - legacy importlib_metadata API
+            selected = eps.get("pori.memory_stores", [])  # type: ignore[attr-defined]
     except Exception:
         selected = []
 

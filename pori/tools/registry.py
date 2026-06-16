@@ -148,7 +148,7 @@ class ToolRegistry:
         }
 
         # Create fields for the dynamic model
-        model_fields = {}
+        model_fields: Dict[str, Any] = {}
         for name, info in available_tools.items():
             model_fields[name] = (Optional[info.param_model], None)
 

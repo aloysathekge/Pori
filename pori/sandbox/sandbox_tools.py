@@ -28,11 +28,11 @@ try:
         replace_virtual_paths_in_command,
     )
 except ImportError:
-    get_sandbox_provider = None
-    get_thread_data = None
-    replace_virtual_path = None
-    replace_virtual_paths_in_command = None
-    ThreadData = None
+    get_sandbox_provider = None  # type: ignore[assignment]
+    get_thread_data = None  # type: ignore[assignment]
+    replace_virtual_path = None  # type: ignore[assignment]
+    replace_virtual_paths_in_command = None  # type: ignore[assignment]
+    ThreadData = None  # type: ignore[assignment,misc]
     VIRTUAL_PREFIX = "/mnt/user-data"
 
 
@@ -95,8 +95,8 @@ def _ensure_sandbox_and_thread_dirs(
 def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a shell command via the active sandbox. For local sandbox, virtual paths in the command are rewritten to thread dirs."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
-    if err:
-        return {"success": False, "error": err}
+    if err or sandbox is None:
+        return {"success": False, "error": err or "Sandbox unavailable."}
     command = params.command
     if (
         sandbox_id == "local"
@@ -111,7 +111,9 @@ def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def _resolve_path_for_sandbox(path: str, sandbox_id: str, thread_data: Any) -> str:
+def _resolve_path_for_sandbox(
+    path: str, sandbox_id: Optional[str], thread_data: Any
+) -> str:
     """Resolve virtual path to real path when using local sandbox; otherwise return path as-is."""
     if (
         sandbox_id == "local"
@@ -142,8 +144,8 @@ def sandbox_read_file_tool(
 ) -> Dict[str, Any]:
     """Read file contents from the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
-    if err:
-        return {"success": False, "error": err}
+    if err or sandbox is None:
+        return {"success": False, "error": err or "Sandbox unavailable."}
     resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
     try:
         content = sandbox.read_file(resolved)
@@ -173,8 +175,8 @@ def sandbox_write_file_tool(
 ) -> Dict[str, Any]:
     """Write or append to a file in the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
-    if err:
-        return {"success": False, "error": err}
+    if err or sandbox is None:
+        return {"success": False, "error": err or "Sandbox unavailable."}
     resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
     try:
         sandbox.write_file(resolved, params.content, append=params.append)
@@ -207,8 +209,8 @@ def sandbox_list_dir_tool(
 ) -> Dict[str, Any]:
     """List directory contents in the sandbox; paths are resolved per-thread when using local sandbox."""
     sandbox, sandbox_id, thread_data, err = _ensure_sandbox_and_thread_dirs(context)
-    if err:
-        return {"success": False, "error": err}
+    if err or sandbox is None:
+        return {"success": False, "error": err or "Sandbox unavailable."}
     resolved = _resolve_path_for_sandbox(params.path, sandbox_id, thread_data)
     try:
         entries = sandbox.list_dir(resolved, max_depth=params.max_depth)

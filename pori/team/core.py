@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from pori.agent import Agent, AgentSettings
 from pori.hitl import HITLConfig, HITLHandler
 from pori.llm.base import BaseChatModel
-from pori.llm.messages import SystemMessage, UserMessage
+from pori.llm.messages import BaseMessage, SystemMessage, UserMessage
 from pori.memory import AgentMemory
 from pori.tools.registry import ToolRegistry
 
@@ -153,7 +153,7 @@ class Team:
         # Normalise exceptions
         member_results: List[MemberRunResult] = []
         for i, r in enumerate(results):
-            if isinstance(r, Exception):
+            if isinstance(r, BaseException):
                 member_results.append(
                     MemberRunResult(
                         member_name=member_configs[i].name,
@@ -289,7 +289,7 @@ class Team:
             )
 
             for step, result in zip(ready, batch_results):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     result = MemberRunResult(
                         member_name=step.member_name,
                         task=step.subtask,
@@ -343,7 +343,7 @@ class Team:
             f"Step {num} ({r.member_name}): {r.final_answer or r.error or '(no output)'}"
             for num, r in sorted(step_results.items())
         )
-        messages = [
+        messages: List[BaseMessage] = [
             SystemMessage(
                 content=(
                     "You are a result synthesiser. A multi-step plan was executed. "
@@ -472,6 +472,10 @@ class Team:
     ) -> MemberRunResult:
         """Create a nested Team for this member and run it."""
         tc = config.team_config
+        if tc is None:
+            raise ValueError(
+                f"Member '{config.name}' is a nested team but has no team_config"
+            )
 
         # Determine coordinator LLM for nested team
         if tc.coordinator_llm is not None:
