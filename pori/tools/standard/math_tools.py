@@ -1,5 +1,6 @@
 import ast
 import operator
+from typing import Any, Callable, Dict, Type
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ Registry = tool_registry()
 # Allowed operators for the safe arithmetic evaluator. Anything not listed here
 # (calls, names, attribute access, etc.) is rejected, so the tool cannot be used
 # to execute arbitrary code the way a bare eval() could.
-_BINARY_OPS = {
+_BINARY_OPS: Dict[Type[ast.operator], Callable[[Any, Any], Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -19,7 +20,7 @@ _BINARY_OPS = {
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
 }
-_UNARY_OPS = {
+_UNARY_OPS: Dict[Type[ast.unaryop], Callable[[Any], Any]] = {
     ast.UAdd: operator.pos,
     ast.USub: operator.neg,
 }
@@ -46,10 +47,10 @@ def _safe_eval(node: ast.AST):
             raise ValueError("Exponent too large")
         return op(left, right)
     if isinstance(node, ast.UnaryOp):
-        op = _UNARY_OPS.get(type(node.op))
-        if op is None:
+        unary_op = _UNARY_OPS.get(type(node.op))
+        if unary_op is None:
             raise ValueError(f"Unsupported operator: {type(node.op).__name__}")
-        return op(_safe_eval(node.operand))
+        return unary_op(_safe_eval(node.operand))
     raise ValueError(f"Unsupported expression element: {type(node).__name__}")
 
 

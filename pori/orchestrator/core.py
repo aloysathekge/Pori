@@ -110,9 +110,9 @@ class Orchestrator:
         results = await asyncio.gather(*task_futures, return_exceptions=True)
 
         # Process results, handling exceptions
-        processed_results = []
+        processed_results: List[Dict[str, Any]] = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 processed_results.append(
                     {
                         "task": tasks[i],

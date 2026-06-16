@@ -20,7 +20,13 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
-from pori.llm import AssistantMessage, BaseChatModel, SystemMessage, UserMessage
+from pori.llm import (
+    AssistantMessage,
+    BaseChatModel,
+    BaseMessage,
+    SystemMessage,
+    UserMessage,
+)
 
 from .evaluation import ActionResult, Evaluator
 from .hitl import (
@@ -448,7 +454,7 @@ class Agent:
 
                 def _coerce_to_output_json(obj: Any) -> Dict[str, Any]:
                     """Coerce various raw shapes into AgentOutput JSON shape."""
-                    default = {"current_state": {}, "action": []}
+                    default: Dict[str, Any] = {"current_state": {}, "action": []}
                     # Already a dict
                     if isinstance(obj, dict):
                         # Ensure required keys exist
@@ -520,9 +526,9 @@ class Agent:
             )
             raise ValueError(f"Failed to get action from LLM: {str(e)}")
 
-    def _build_messages(self) -> List[Any]:
+    def _build_messages(self) -> List[BaseMessage]:
         """Build the list of messages for the LLM."""
-        messages = []
+        messages: List[BaseMessage] = []
 
         # Add system message (include compiled core memory if present)
         system_content = self.system_message
@@ -532,7 +538,7 @@ class Agent:
                 system_content = system_content + "\n\n" + compiled
         messages.append(SystemMessage(content=system_content))
 
-        recent_structured = []
+        recent_structured: List[Dict[str, Any]] = []
         try:
             if hasattr(self.memory, "get_token_limited_messages"):
                 recent_structured = self.memory.get_token_limited_messages(

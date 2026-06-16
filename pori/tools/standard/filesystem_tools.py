@@ -21,14 +21,11 @@ from ..registry import tool_registry
 # Optional: resolve sandbox virtual paths when context has thread_id + sandbox_base_dir
 try:
     from pori.sandbox.path_resolution import VIRTUAL_PREFIX as SANDBOX_VIRTUAL_PREFIX
-    from pori.sandbox.path_resolution import (
-        get_thread_data,
-        replace_virtual_path,
-    )
+    from pori.sandbox.path_resolution import get_thread_data, replace_virtual_path
 except ImportError:
     SANDBOX_VIRTUAL_PREFIX = "/mnt/user-data"
-    get_thread_data = None
-    replace_virtual_path = None
+    get_thread_data = None  # type: ignore[assignment]
+    replace_virtual_path = None  # type: ignore[assignment]
 
 Registry = tool_registry()
 logger = logging.getLogger("pori.filesystem_tools")
@@ -182,16 +179,6 @@ class SearchFilesParams(BaseModel):
     max_results: int = Field(50, description="Maximum number of results")
 
 
-class ExecuteScriptParams(BaseModel):
-    script_path: str = Field(..., description="Path to the script file to execute")
-    args: List[str] = Field(
-        default_factory=list, description="Arguments to pass to the script"
-    )
-    working_dir: Optional[str] = Field(
-        None, description="Working directory for execution"
-    )
-
-
 # ============= Helper Functions =============
 
 
@@ -318,11 +305,12 @@ def get_file_info(path: Path) -> Dict[str, Any]:
 
 def format_bytes(bytes_count: int) -> str:
     """Format bytes in human readable format."""
+    size = float(bytes_count)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_count < 1024.0:
-            return f"{bytes_count:.1f}{unit}"
-        bytes_count /= 1024.0
-    return f"{bytes_count:.1f}PB"
+        if size < 1024.0:
+            return f"{size:.1f}{unit}"
+        size /= 1024.0
+    return f"{size:.1f}PB"
 
 
 # ============= Tool Implementations =============
@@ -601,7 +589,7 @@ def search_files_tool(params: SearchFilesParams, context: Dict[str, Any]):
         if not path.is_dir():
             return {"success": False, "error": f"Path is not a directory: {path}"}
 
-        results = []
+        results: List[Dict[str, Any]] = []
 
         # Use glob for pattern matching
         pattern = params.pattern
