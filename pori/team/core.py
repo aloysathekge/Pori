@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 from pori.agent import Agent, AgentSettings
@@ -9,6 +10,7 @@ from pori.hitl import HITLConfig, HITLHandler
 from pori.llm.base import BaseChatModel
 from pori.llm.messages import BaseMessage, SystemMessage, UserMessage
 from pori.memory import AgentMemory
+from pori.runtime import RunContext
 from pori.tools.registry import ToolRegistry
 
 from .models import (
@@ -45,6 +47,7 @@ class Team:
         max_delegation_steps: int = 10,
         max_concurrent_members: int = 5,
         name: str = "team",
+        run_context: Optional[RunContext] = None,
     ):
         self.task = task
         self.coordinator_llm = coordinator_llm
@@ -58,6 +61,28 @@ class Team:
         self.max_delegation_steps = max_delegation_steps
         self.max_concurrent_members = max_concurrent_members
         self.name = name
+        self.run_context = run_context or RunContext.local(
+            agent_id=name,
+            session_id=f"team-{uuid.uuid4().hex[:12]}",
+        )
+
+    def _child_run_context(self, member_name: str) -> RunContext:
+        return RunContext(
+            organization_id=self.run_context.organization_id,
+            user_id=self.run_context.user_id,
+            agent_id=member_name,
+            session_id=self.run_context.session_id,
+            run_id=f"{self.run_context.run_id}:{uuid.uuid4().hex[:12]}",
+            permissions=self.run_context.permissions,
+            credential_scope=self.run_context.credential_scope,
+            isolation_profile=self.run_context.isolation_profile,
+            budget=self.run_context.budget,
+            metadata=self.run_context.metadata
+            + (
+                ("parent_run_id", self.run_context.run_id),
+                ("team", self.name),
+            ),
+        )
 
     async def run(self) -> Dict[str, Any]:
         """Run the team. Returns the same shape as ``Agent.run()``."""
@@ -431,7 +456,13 @@ class Team:
             hitl_config = self.hitl_config
 
         # Fresh memory per member, seeded with user context (read-only)
-        member_memory = AgentMemory()
+        child_context = self._child_run_context(config.name)
+        member_memory = AgentMemory(
+            organization_id=child_context.organization_id,
+            user_id=child_context.user_id,
+            agent_id=child_context.agent_id,
+            session_id=child_context.session_id,
+        )
         if self.memory and self.memory.core_memory:
             member_memory.core_memory = self.memory.core_memory.clone_read_only()
 
@@ -445,6 +476,7 @@ class Team:
             hitl_handler=self.hitl_handler,
             hitl_config=hitl_config,
             system_prompt=config.system_prompt,
+            run_context=child_context,
         )
 
         result = await agent.run()
@@ -505,6 +537,7 @@ class Team:
             max_delegation_steps=tc.max_delegation_steps,
             max_concurrent_members=tc.max_concurrent_members,
             name=tc.name,
+            run_context=self._child_run_context(config.name),
         )
 
         result = await nested_team.run()

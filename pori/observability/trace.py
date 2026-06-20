@@ -57,6 +57,10 @@ class Trace:
     session_id: Optional[str] = None
     agent_id: Optional[str] = None
     team_id: Optional[str] = None
+    run_context: Optional[Dict[str, Any]] = None
+    prompt_fingerprint: Optional[str] = None
+    tool_surface_fingerprint: Optional[str] = None
+    execution_receipts: List[Dict[str, Any]] = field(default_factory=list)
 
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -135,6 +139,10 @@ class Trace:
             "name": self.name,
             "run_id": self.run_id,
             "agent_id": self.agent_id,
+            "run_context": self.run_context,
+            "prompt_fingerprint": self.prompt_fingerprint,
+            "tool_surface_fingerprint": self.tool_surface_fingerprint,
+            "execution_receipts": self.execution_receipts,
             "status": self.status.value,
             "duration": f"{self.duration_seconds:.3f}s",
             "total_spans": self.total_spans,

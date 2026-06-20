@@ -71,6 +71,13 @@ from .observability import (
     TraceStore,
 )
 from .orchestrator import Orchestrator
+from .runtime import (
+    ExecutionBudget,
+    ReceiptStatus,
+    RunContext,
+    ToolExecutionReceipt,
+    stable_fingerprint,
+)
 from .team import MemberConfig, Team, TeamConfig, TeamMode
 from .tools.registry import ToolExecutor, ToolInfo, ToolRegistry, tool_registry
 
@@ -110,6 +117,12 @@ __all__ = [
     "MemoryStatus",
     "RetrievalEvaluation",
     "evaluate_retrieval",
+    # Runtime contracts
+    "ExecutionBudget",
+    "ReceiptStatus",
+    "RunContext",
+    "ToolExecutionReceipt",
+    "stable_fingerprint",
     # Tools system
     "ToolRegistry",
     "ToolExecutor",

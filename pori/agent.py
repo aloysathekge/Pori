@@ -48,6 +48,13 @@ from .metrics import (
     estimate_llm_call_cost,
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
+from .runtime import (
+    ReceiptStatus,
+    RunContext,
+    ToolExecutionReceipt,
+    stable_fingerprint,
+    utc_now,
+)
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
 from .utils.prompt_loader import load_prompt
@@ -128,9 +135,26 @@ class Agent:
         hitl_config: Optional[HITLConfig] = None,
         guardrails: Optional[List] = None,
         system_prompt: Optional[str] = None,
+        run_context: Optional[RunContext] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
+        if run_context is not None:
+            self.run_context = run_context
+        elif isinstance(memory, AgentMemory):
+            self.run_context = RunContext(
+                organization_id=memory.organization_id,
+                user_id=memory.user_id,
+                agent_id=memory.agent_id,
+                session_id=memory.session_id,
+                run_id=self.task_id,
+            )
+        else:
+            self.run_context = RunContext.local(
+                run_id=self.task_id,
+                agent_id=self.task_id,
+            )
+        self.execution_receipts: List[ToolExecutionReceipt] = []
         self.sandbox_base_dir = sandbox_base_dir
 
         # Human-in-the-loop
@@ -153,6 +177,7 @@ class Agent:
         self.tools_registry = tools_registry
         self._custom_system_prompt = system_prompt
         self.tool_executor = ToolExecutor(tools_registry)
+        self.tool_surface_fingerprint = tools_registry.surface_fingerprint()
         self.settings = settings
 
         logger.info(
@@ -162,7 +187,33 @@ class Agent:
 
         # Initialize state components
         self.state = AgentState()
-        self.memory = memory if memory is not None else AgentMemory()
+        if isinstance(memory, AgentMemory):
+            expected_scope = (
+                self.run_context.organization_id,
+                self.run_context.user_id,
+                self.run_context.agent_id,
+                self.run_context.session_id,
+            )
+            actual_scope = (
+                memory.organization_id,
+                memory.user_id,
+                memory.agent_id,
+                memory.session_id,
+            )
+            if actual_scope != expected_scope:
+                raise ValueError(
+                    "AgentMemory scope must exactly match RunContext scope"
+                )
+            self.memory = memory
+        elif memory is not None:
+            self.memory = memory
+        else:
+            self.memory = AgentMemory(
+                organization_id=self.run_context.organization_id,
+                user_id=self.run_context.user_id,
+                agent_id=self.run_context.agent_id,
+                session_id=self.run_context.session_id,
+            )
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Metrics and trace for this agent run (initialized in run())
@@ -198,6 +249,8 @@ class Agent:
                 self._custom_system_prompt + "\n\n" + self.system_message
             )
 
+        self.prompt_fingerprint = stable_fingerprint(self.system_message)
+
         # Add system message to memory
         self.memory.add_message("system", self.system_message)
 
@@ -207,6 +260,31 @@ class Agent:
         # Only user facts (via core_memory/remember tools) should be stored as experiences.
 
         logger.debug("System message setup complete", extra={"task_id": self.task_id})
+
+    def _record_tool_receipt(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        status: ReceiptStatus,
+        *,
+        started_at: Optional[datetime] = None,
+        duration_seconds: float = 0.0,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ToolExecutionReceipt:
+        receipt = ToolExecutionReceipt(
+            run_id=self.run_context.run_id,
+            tool_name=tool_name,
+            status=status,
+            parameters_fingerprint=stable_fingerprint(params),
+            started_at=started_at or utc_now(),
+            finished_at=utc_now(),
+            duration_seconds=max(0.0, duration_seconds),
+            error=error,
+            metadata=metadata or {},
+        )
+        self.execution_receipts.append(receipt)
+        return receipt
 
     async def step(self) -> None:
         """Execute one step of the task."""
@@ -1067,6 +1145,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             result={"rejected": True, "message": reject_msg},
             success=False,
         )
+        self._record_tool_receipt(
+            tool_name,
+            params,
+            ReceiptStatus.REJECTED,
+            error=reject_msg,
+        )
         results.append(
             ActionResult(success=False, error=reject_msg, include_in_memory=True)
         )
@@ -1184,6 +1268,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         # Ensure signature recorded for this step
                         seen_signatures_this_step.add(sig)
                         results_by_signature_this_step[sig] = reused
+                        self._record_tool_receipt(
+                            tool_name,
+                            params,
+                            ReceiptStatus.REUSED,
+                            metadata={"reason": "duplicate"},
+                        )
                         continue
                 # First time seeing this signature this step
                 seen_signatures_this_step.add(sig)
@@ -1217,6 +1307,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                             success=False, error=reject_msg, include_in_memory=True
                         )
                     )
+                    self._record_tool_receipt(
+                        tool_name,
+                        params,
+                        ReceiptStatus.REJECTED,
+                        error=reject_msg,
+                    )
                     continue
 
                 logger.info(
@@ -1241,6 +1337,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     ActionResult(
                         success=is_successful, value=message, include_in_memory=True
                     )
+                )
+                self._record_tool_receipt(
+                    tool_name,
+                    params,
+                    ReceiptStatus.SUCCEEDED if is_successful else ReceiptStatus.FAILED,
+                    error=None if is_successful else message,
                 )
                 continue
 
@@ -1312,6 +1414,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                                     error=f"Rejected by human: {msg}",
                                     include_in_memory=True,
                                 )
+                            )
+                            self._record_tool_receipt(
+                                tool_name,
+                                params,
+                                ReceiptStatus.REJECTED,
+                                error=f"Rejected by human: {msg}",
                             )
                             continue
 
@@ -1422,6 +1530,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "state": self.state,
                     "thread_id": self.task_id,
                     "sandbox_base_dir": self.sandbox_base_dir,
+                    "run_context": self.run_context,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
@@ -1431,6 +1540,15 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 success = tool_result.get("success", False)
+                self._record_tool_receipt(
+                    tool_name,
+                    params,
+                    ReceiptStatus.SUCCEEDED if success else ReceiptStatus.FAILED,
+                    started_at=start_time,
+                    duration_seconds=execution_time,
+                    error=tool_result.get("error") if not success else None,
+                    metadata={"backend": self.tool_executor.__class__.__name__},
+                )
 
                 logger.info(
                     f"Tool {tool_name} executed in {execution_time:.2f}s - {'Success' if success else 'Failed'}",
@@ -1510,6 +1628,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         include_in_memory=True,
                     )
                 )
+                self._record_tool_receipt(
+                    tool_name,
+                    params,
+                    ReceiptStatus.FAILED,
+                    error=str(e),
+                )
 
         logger.info(
             f"Completed executing {len(actions)} actions",
@@ -1574,8 +1698,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         # Initialize trace
         self._trace = Trace(
             name=f"Agent.run",
-            run_id=self.task_id,
-            agent_id=self.task_id,
+            run_id=self.run_context.run_id,
+            session_id=self.run_context.session_id,
+            agent_id=self.run_context.agent_id,
+            run_context=self.run_context.model_dump(mode="json"),
+            prompt_fingerprint=self.prompt_fingerprint,
+            tool_surface_fingerprint=self.tool_surface_fingerprint,
             start_time=datetime.now(),
             input=self.task,
         )
@@ -1734,6 +1862,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         if self._trace:
             final = self.memory.get_final_answer()
             self._trace.output = str(final.get("final_answer", "")) if final else None
+            self._trace.execution_receipts = [
+                receipt.model_dump(mode="json") for receipt in self.execution_receipts
+            ]
             self._trace.finish()
 
         logger.info(
@@ -1750,6 +1881,10 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 self._run_metrics.summary() if self._run_metrics is not None else None
             ),
             "trace": self._trace.to_dict() if self._trace else None,
+            "run_context": self.run_context.model_dump(mode="json"),
+            "execution_receipts": [
+                receipt.model_dump(mode="json") for receipt in self.execution_receipts
+            ],
         }
 
     def pause(self) -> None:
