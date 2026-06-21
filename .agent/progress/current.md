@@ -2,6 +2,23 @@
 
 ## Active Task
 
+Hermes Release A is implemented on `feat/hermes-release-a` and awaiting review.
+It adds immutable `RunContext`, deterministic prompt/tool fingerprints, typed
+tool execution receipts, trace/result propagation, memory-scope enforcement,
+and parent/child identity propagation for teams and nested teams.
+
+Verification: 186 full-suite tests passed; focused Release A tests passed;
+mypy passed for 62 source files; Black/isort passed.
+
+## Release A Boundaries
+
+- Local orchestrators preserve their existing shared-memory behavior.
+- Explicit Cloud contexts create exactly scoped memory and reject mismatches.
+- Approvals and scanners remain defense in depth, not OS containment.
+- Changes are uncommitted on `feat/hermes-release-a`.
+
+## Previously Active Task
+
 Codebase-review follow-ups. Full suite now 180 passed; black/isort clean; no
 new mypy errors introduced (all remaining mypy errors are pre-existing).
 

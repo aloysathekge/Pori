@@ -15,6 +15,8 @@ from typing import (
 
 from pydantic import BaseModel, create_model
 
+from ..runtime import stable_fingerprint
+
 
 @dataclass
 class ToolInfo:
@@ -135,6 +137,18 @@ class ToolRegistry:
             descriptions.append(f"{name}({param_str}): {tool.description}")
 
         return "\n".join(descriptions)
+
+    def surface_fingerprint(self) -> str:
+        """Fingerprint the model-visible tool names, schemas, and descriptions."""
+        surface = [
+            {
+                "name": name,
+                "description": info.description,
+                "parameters": info.param_model.model_json_schema(),
+            }
+            for name, info in sorted(self.tools.items())
+        ]
+        return stable_fingerprint(surface)
 
     def create_tools_model(
         self, include_tools: Optional[List[str]] = None

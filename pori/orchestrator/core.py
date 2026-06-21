@@ -7,6 +7,7 @@ from pori.llm import BaseChatModel
 from ..agent import Agent, AgentSettings
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
+from ..runtime import RunContext
 from ..tools.registry import ToolRegistry
 
 
@@ -31,7 +32,7 @@ class Orchestrator:
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
-        self.shared_memory = shared_memory or AgentMemory()
+        self.shared_memory = shared_memory
 
     async def execute_task(
         self,
@@ -42,6 +43,7 @@ class Orchestrator:
         sandbox_base_dir: Optional[str] = None,
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
+        run_context: Optional[RunContext] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -49,6 +51,10 @@ class Orchestrator:
 
         # Create agent with default settings if none provided
         settings = agent_settings or AgentSettings()
+        memory = self.shared_memory
+        if memory is None and run_context is None:
+            memory = AgentMemory()
+            self.shared_memory = memory
 
         # Create and register the agent
         agent = Agent(
@@ -56,10 +62,11 @@ class Orchestrator:
             llm=self.llm,
             tools_registry=self.tools_registry,
             settings=settings,
-            memory=self.shared_memory,
+            memory=memory,
             sandbox_base_dir=sandbox_base_dir,
             hitl_handler=hitl_handler,
             hitl_config=hitl_config,
+            run_context=run_context,
         )
         self.agents[task_id] = agent
 
