@@ -6,6 +6,12 @@ __email__ = "sathekgealoy@gmail.com"
 
 # Main exports from the agent framework
 from .agent import Agent, AgentOutput, AgentSettings, AgentState
+from .capabilities import (
+    CapabilityGroup,
+    CapabilityPrerequisites,
+    EligibilityReport,
+    SkillEligibility,
+)
 
 # Rebuild Config now that TeamConfig is available (deferred forward ref)
 from .config import Config as _Config
@@ -71,6 +77,14 @@ from .observability import (
     TraceStore,
 )
 from .orchestrator import Orchestrator
+from .providers import (
+    PROVIDER_PROFILES,
+    ProviderDiagnostic,
+    ProviderProfile,
+    diagnose_provider,
+    get_provider_profile,
+    provider_profiles,
+)
 from .runtime import (
     ExecutionBudget,
     ReceiptStatus,
@@ -79,7 +93,15 @@ from .runtime import (
     stable_fingerprint,
 )
 from .team import MemberConfig, Team, TeamConfig, TeamMode
-from .tools.registry import ToolExecutor, ToolInfo, ToolRegistry, tool_registry
+from .tools.registry import (
+    CapabilityResolutionError,
+    CapabilitySnapshot,
+    CollisionPolicy,
+    ToolExecutor,
+    ToolInfo,
+    ToolRegistry,
+    tool_registry,
+)
 
 # Tool registrations
 from .tools.standard import register_all_tools
@@ -123,6 +145,19 @@ __all__ = [
     "RunContext",
     "ToolExecutionReceipt",
     "stable_fingerprint",
+    "CapabilityGroup",
+    "CapabilityPrerequisites",
+    "CapabilityResolutionError",
+    "CapabilitySnapshot",
+    "CollisionPolicy",
+    "EligibilityReport",
+    "SkillEligibility",
+    "PROVIDER_PROFILES",
+    "ProviderDiagnostic",
+    "ProviderProfile",
+    "diagnose_provider",
+    "get_provider_profile",
+    "provider_profiles",
     # Tools system
     "ToolRegistry",
     "ToolExecutor",

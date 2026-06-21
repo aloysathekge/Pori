@@ -568,16 +568,10 @@ class Team:
         required = {"answer", "done"}
         allowed = set(config.tools) | required
 
-        filtered = ToolRegistry()
-        for name, tool_info in self.tools_registry.tools.items():
-            if name in allowed:
-                filtered.register_tool(
-                    name=tool_info.name,
-                    param_model=tool_info.param_model,
-                    function=tool_info.function,
-                    description=tool_info.description,
-                )
-        return filtered
+        return self.tools_registry.filtered(
+            include_tools=allowed,
+            protect_kernel=False,
+        )
 
     @staticmethod
     def _error_result(message: str) -> Dict[str, Any]:
