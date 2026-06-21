@@ -1,10 +1,15 @@
 from importlib import metadata
 
+from pori.capabilities import CapabilityGroup, CapabilityPrerequisites
+
+from ..registry import CollisionPolicy, tool_registry
 from .core_tools import register_core_tools
 from .filesystem_tools import register_filesystem_tools
 from .internet_tools import register_internet_tools
 from .math_tools import register_math_tools
 from .number_tools import register_number_tool
+
+STANDARD_KERNEL_TOOLS = frozenset({"answer", "done", "ask_user", "think"})
 
 
 def _load_tool_plugins(registry) -> None:
@@ -44,4 +49,81 @@ def register_all_tools(registry):
     register_number_tool(registry)
     register_filesystem_tools(registry)
     register_internet_tools(registry)
+    canonical = tool_registry()
+    if registry is not canonical:
+        for info in canonical.tools.values():
+            registry.register_tool(
+                info.name,
+                info.param_model,
+                info.function,
+                info.description,
+                collision_policy=CollisionPolicy.KEEP,
+            )
+    _define_standard_groups(registry)
     _load_tool_plugins(registry)
+
+
+def _define_standard_groups(registry) -> None:
+    definitions = (
+        CapabilityGroup(
+            name="kernel",
+            description="Always-available control and completion tools.",
+            tool_names=STANDARD_KERNEL_TOOLS,
+            protected=True,
+        ),
+        CapabilityGroup(
+            name="memory",
+            description="Conversation, archival, and core-memory operations.",
+            tool_names=frozenset(
+                {
+                    "remember",
+                    "conversation_search",
+                    "archival_memory_insert",
+                    "archival_memory_search",
+                    "core_memory_read",
+                    "core_memory_append",
+                    "core_memory_replace",
+                    "core_memory_rethink",
+                    "memory_insert",
+                    "memory_rethink",
+                }
+            ),
+        ),
+        CapabilityGroup(
+            name="filesystem",
+            description="Bounded file and directory operations.",
+            tool_names=frozenset(
+                {
+                    "read_file",
+                    "write_file",
+                    "list_directory",
+                    "search_files",
+                    "file_info",
+                    "create_directory",
+                    "copy_file",
+                    "move_file",
+                    "delete_file",
+                }
+            ),
+            max_output_chars=50_000,
+        ),
+        CapabilityGroup(
+            name="internet",
+            description="Public web retrieval.",
+            tool_names=frozenset({"web_search"}),
+            prerequisites=CapabilityPrerequisites(
+                environment=("TAVILY_API_KEY",), modules=("tavily",)
+            ),
+            max_output_chars=50_000,
+        ),
+        CapabilityGroup(
+            name="math",
+            description="Deterministic calculation and number utilities.",
+            tool_names=frozenset(
+                {"calculate_tool", "fibonacci_generator", "random_generator"}
+            ),
+        ),
+    )
+    for group in definitions:
+        if group.name not in registry.groups:
+            registry.define_group(group)

@@ -174,10 +174,11 @@ class Agent:
 
         self.task = task
         self.llm = llm
-        self.tools_registry = tools_registry
+        self.capability_snapshot = tools_registry.snapshot()
+        self.tools_registry = self.capability_snapshot.to_registry()
         self._custom_system_prompt = system_prompt
-        self.tool_executor = ToolExecutor(tools_registry)
-        self.tool_surface_fingerprint = tools_registry.surface_fingerprint()
+        self.tool_executor = ToolExecutor(self.tools_registry)
+        self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
 
         logger.info(

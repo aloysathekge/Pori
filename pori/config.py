@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from pori.providers import diagnose_provider, get_provider_profile
 
 # Load environment variables
 load_dotenv()
@@ -22,9 +24,7 @@ load_dotenv()
 class LLMConfig(BaseModel):
     """Base configuration for LLM providers."""
 
-    provider: Literal[
-        "anthropic", "openai", "google", "azure", "openrouter", "fireworks"
-    ] = Field(description="LLM provider name")
+    provider: str = Field(description="LLM provider profile name or alias")
     model: str = Field(description="Model name/identifier")
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
@@ -32,6 +32,11 @@ class LLMConfig(BaseModel):
 
     # Provider-specific settings
     extra_params: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, value: str) -> str:
+        return get_provider_profile(value).name
 
 
 class AgentConfig(BaseModel):
@@ -201,7 +206,23 @@ def create_llm(config: LLMConfig):
         ValueError: If provider is not supported
         ImportError: If required provider package is not installed
     """
-    provider = config.provider.lower()
+    profile = get_provider_profile(config.provider)
+    provider = profile.name
+    diagnostic = diagnose_provider(provider, model=config.model)
+    if not diagnostic.available:
+        missing_credential = next(
+            (
+                reason.split(":", 1)[1]
+                for reason in diagnostic.reasons
+                if reason.startswith("missing_credential:")
+            ),
+            None,
+        )
+        if missing_credential:
+            raise ValueError(f"{missing_credential} environment variable is not set")
+        raise ValueError(
+            f"Provider '{provider}' is unavailable: {', '.join(diagnostic.reasons)}"
+        )
 
     # Common parameters
     common_params: Dict[str, Any] = {
@@ -218,36 +239,28 @@ def create_llm(config: LLMConfig):
     if provider == "anthropic":
         from pori.llm import ChatAnthropic
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+        api_key = os.getenv(profile.credential_environment[0])
 
         return ChatAnthropic(api_key=api_key, **common_params)
 
     elif provider == "openai":
         from pori.llm import ChatOpenAI
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set")
+        api_key = os.getenv(profile.credential_environment[0])
 
         return ChatOpenAI(api_key=api_key, **common_params)
 
     elif provider == "google":
         from pori.llm import ChatGoogle
 
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable is not set")
+        api_key = os.getenv(profile.credential_environment[0])
 
         return ChatGoogle(api_key=api_key, **common_params)
 
     elif provider == "openrouter":
         from pori.llm import ChatOpenRouter, is_select_sentinel, pick_openrouter_model
 
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+        api_key = os.getenv(profile.credential_environment[0])
 
         # If the config asks us to prompt (model: select / prompt / pick / ?),
         # or PORI_SELECT_MODEL=1 is set, run the interactive picker and
@@ -264,17 +277,11 @@ def create_llm(config: LLMConfig):
     elif provider == "fireworks":
         from pori.llm import ChatFireworks
 
-        api_key = os.getenv("FIREWORKS_API_KEY")
-        if not api_key:
-            raise ValueError("FIREWORKS_API_KEY environment variable is not set")
+        api_key = os.getenv(profile.credential_environment[0])
 
         return ChatFireworks(api_key=api_key, **common_params)
 
-    else:
-        raise ValueError(
-            f"Unsupported provider: {provider}. "
-            f"Supported providers: anthropic, openai, google, openrouter, fireworks"
-        )
+    raise AssertionError(f"No adapter dispatch for validated provider '{provider}'")
 
 
 def get_configured_llm(config_path: Optional[Union[str, Path]] = None):

@@ -11,9 +11,9 @@ Every record carries `organization_id`, `user_id`, and optional `agent_id` and
 with no agent or session is intentionally visible to narrower scopes belonging
 to that same user. Broader scopes cannot read another user's records.
 
-Pori Cloud currently derives `organization_id` as `user:{user_id}` from the
-authenticated identity. This is a safe personal tenant boundary until an
-organization membership and RBAC model is introduced.
+Pori Cloud derives `organization_id` from authenticated organization membership
+and RBAC. Persisted personal organizations retain backward-compatible local
+behavior, while shared organizations use explicit membership and policy.
 
 ## Record Policy
 

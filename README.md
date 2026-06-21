@@ -244,17 +244,26 @@ result["metrics"]
 Decorator-based registration with Pydantic validation:
 
 ```python
-from pori.tools.registry import Registry
+from pori import ToolRegistry
 from pydantic import BaseModel, Field
+
+registry = ToolRegistry()
 
 class SearchParams(BaseModel):
     query: str = Field(description="Search query")
 
-@Registry.tool(name="my_search", description="Search for information")
+@registry.tool(name="my_search", description="Search for information")
 def my_search(params: SearchParams, context: dict):
     results = do_search(params.query)
     return {"success": True, "result": results}
 ```
+
+Registries resolve to an immutable `CapabilitySnapshot` when an agent is
+created. Capability groups declare prerequisites and output bounds, protected
+kernel tools cannot be removed accidentally, and unavailable integrations do
+not enter the model-visible schema. `SkillEligibility` checks required tools,
+credentials, platforms, and model capabilities before full skill instructions
+are loaded.
 
 **Built-in tools:**
 
@@ -285,6 +294,11 @@ llm = create_llm(LLMConfig(provider="google", model="gemini-2.5-flash"))
 
 All providers support structured output, tool calling, and streaming.
 
+Provider names, aliases, credential environment variables, defaults, known
+models, adapter dependencies, and capability flags live in declarative
+`ProviderProfile` records. `diagnose_provider()` uses the same profile checks as
+`create_llm()` and reports credential presence without returning secret values.
+
 ---
 
 ## Architecture
@@ -296,6 +310,8 @@ pori/
 ├── metrics.py            # Token usage, cost tracking, run metrics
 ├── evaluation.py         # Action result evaluation, task completion
 ├── config.py             # YAML + env configuration
+├── capabilities.py       # Capability groups and skill eligibility
+├── providers.py          # Declarative provider profiles and diagnostics
 ├── orchestrator/         # Task lifecycle, concurrency, shared memory
 ├── team/                 # Multi-agent coordination (router, broadcast, delegate)
 ├── eval/                 # Evaluation framework + guardrails
@@ -311,7 +327,7 @@ pori/
 │   └── exporters.py      # Telemetry export (Console, extensible)
 ├── llm/                  # LLM providers (Anthropic, OpenAI, Google)
 ├── tools/                # Tool system with Pydantic validation
-│   ├── registry.py       # Tool registration + execution
+│   ├── registry.py       # Registration, immutable snapshots, execution bounds
 │   └── standard/         # Built-in tools (web, math, files, memory)
 └── prompts/              # System prompts
 ```
