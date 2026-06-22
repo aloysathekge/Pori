@@ -15,6 +15,12 @@ from .capabilities import (
 
 # Rebuild Config now that TeamConfig is available (deferred forward ref)
 from .config import Config as _Config
+from .context import (
+    ContextDiagnostics,
+    ContextEngine,
+    ContextWindow,
+    DefaultContextEngine,
+)
 from .eval import (
     AccuracyEval,
     AccuracyResult,
@@ -85,12 +91,21 @@ from .providers import (
     get_provider_profile,
     provider_profiles,
 )
+from .retrieval import RetrievalEvidence, fuse_retrieval
 from .runtime import (
     ExecutionBudget,
     ReceiptStatus,
     RunContext,
     ToolExecutionReceipt,
     stable_fingerprint,
+)
+from .sessions import (
+    SessionExport,
+    SessionMessage,
+    SessionRecord,
+    SessionRepository,
+    SessionSearchHit,
+    SQLiteSessionRepository,
 )
 from .team import MemberConfig, Team, TeamConfig, TeamMode
 from .tools.registry import (
@@ -152,12 +167,24 @@ __all__ = [
     "CollisionPolicy",
     "EligibilityReport",
     "SkillEligibility",
+    "ContextDiagnostics",
+    "ContextEngine",
+    "ContextWindow",
+    "DefaultContextEngine",
     "PROVIDER_PROFILES",
     "ProviderDiagnostic",
     "ProviderProfile",
     "diagnose_provider",
     "get_provider_profile",
     "provider_profiles",
+    "RetrievalEvidence",
+    "fuse_retrieval",
+    "SQLiteSessionRepository",
+    "SessionExport",
+    "SessionMessage",
+    "SessionRecord",
+    "SessionRepository",
+    "SessionSearchHit",
     # Tools system
     "ToolRegistry",
     "ToolExecutor",

@@ -61,6 +61,7 @@ class Trace:
     prompt_fingerprint: Optional[str] = None
     tool_surface_fingerprint: Optional[str] = None
     execution_receipts: List[Dict[str, Any]] = field(default_factory=list)
+    context_diagnostics: Optional[Dict[str, Any]] = None
 
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -143,6 +144,7 @@ class Trace:
             "prompt_fingerprint": self.prompt_fingerprint,
             "tool_surface_fingerprint": self.tool_surface_fingerprint,
             "execution_receipts": self.execution_receipts,
+            "context_diagnostics": self.context_diagnostics,
             "status": self.status.value,
             "duration": f"{self.duration_seconds:.3f}s",
             "total_spans": self.total_spans,

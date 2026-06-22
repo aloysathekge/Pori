@@ -28,6 +28,7 @@ from pori.llm import (
     UserMessage,
 )
 
+from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
 from .evaluation import ActionResult, Evaluator
 from .hitl import (
     ActionRequest,
@@ -48,6 +49,7 @@ from .metrics import (
     estimate_llm_call_cost,
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
+from .retrieval import RetrievalEvidence
 from .runtime import (
     ReceiptStatus,
     RunContext,
@@ -136,6 +138,7 @@ class Agent:
         guardrails: Optional[List] = None,
         system_prompt: Optional[str] = None,
         run_context: Optional[RunContext] = None,
+        context_engine: Optional[ContextEngine] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -215,6 +218,14 @@ class Agent:
                 agent_id=self.run_context.agent_id,
                 session_id=self.run_context.session_id,
             )
+        self.context_engine = context_engine or DefaultContextEngine()
+        self.context_diagnostics: Optional[ContextDiagnostics] = None
+        self._frozen_core_memory = (
+            self.memory.core_memory.compile()
+            if getattr(self.memory, "core_memory", None)
+            else ""
+        )
+        self._frozen_retrieval_evidence = self._capture_retrieval_evidence(task)
         self.evaluator = Evaluator(max_retries=settings.max_failures)
 
         # Metrics and trace for this agent run (initialized in run())
@@ -250,7 +261,12 @@ class Agent:
                 self._custom_system_prompt + "\n\n" + self.system_message
             )
 
-        self.prompt_fingerprint = stable_fingerprint(self.system_message)
+        self.prompt_fingerprint = stable_fingerprint(
+            {
+                "system_message": self.system_message,
+                "frozen_core_memory": self._frozen_core_memory,
+            }
+        )
 
         # Add system message to memory
         self.memory.add_message("system", self.system_message)
@@ -611,20 +627,20 @@ class Agent:
 
         # Add system message (include compiled core memory if present)
         system_content = self.system_message
-        if getattr(self.memory, "core_memory", None):
-            compiled = self.memory.core_memory.compile()
-            if compiled:
-                system_content = system_content + "\n\n" + compiled
+        if self._frozen_core_memory:
+            system_content = system_content + "\n\n" + self._frozen_core_memory
         messages.append(SystemMessage(content=system_content))
 
         recent_structured: List[Dict[str, Any]] = []
         try:
             if hasattr(self.memory, "get_token_limited_messages"):
-                recent_structured = self.memory.get_token_limited_messages(
+                context_window = self.context_engine.build(
+                    self.memory,
                     max_tokens=self.settings.context_window_tokens,
                     reserve_tokens=self.settings.context_window_reserve_tokens,
-                    include_summary_message=True,
                 )
+                recent_structured = list(context_window.messages)
+                self.context_diagnostics = context_window.diagnostics
             else:
                 recent_structured = self.memory.get_recent_messages_structured(10)
         except Exception as msg_err:
@@ -648,59 +664,50 @@ class Agent:
         context = self._get_current_context()
         messages.append(UserMessage(content=context))
 
-        # Inject retrieved long-term knowledge via semantic recall
-        try:
-            # Prefer last user message as recall query if present
-            try:
-                recent_msgs = self.memory.get_recent_messages_structured(5)
-                last_user = next(
-                    (
-                        m["content"]
-                        for m in reversed(recent_msgs)
-                        if m.get("role") == "user"
-                    ),
-                    self.task,
+        if self._frozen_retrieval_evidence:
+            facts = "\n".join(
+                f"- [{item.source_type}:{item.source_id}] {item.content}"
+                for item in self._frozen_retrieval_evidence[:3]
+            )
+            messages.append(
+                UserMessage(
+                    content=(
+                        "Retrieved Knowledge (frozen for this run):\n"
+                        f"{facts}\n\nUse only relevant evidence for the current task; "
+                        "preserve its source identity and verify dates and context."
+                    )
                 )
-                recall_query = last_user or self.task
-            except Exception as recall_err:
-                logger.debug(
-                    f"Recall query extraction failed, using task: {recall_err}",
-                    extra={"task_id": self.task_id},
-                )
-                recall_query = self.task
-
-            retrieved = self.memory.recall(query=recall_query, k=5, min_score=0.35)
-            if retrieved:
-                # Filter out items that look like prior final answers
-                filtered = []
-                for _, text, _score in retrieved:
-                    tx = str(text)
-                    if '"final_answer"' in tx or "Final answer" in tx:
-                        continue
-                    filtered.append(tx)
-                if filtered:
-                    top = filtered[:3]
-                    facts = "\n".join([f"- {t}" for t in top])
-                    guidance = (
-                        "Use relevant background facts below to answer the CURRENT question. "
-                        "Do not copy prior final answers verbatim; verify dates/contexts."
-                    )
-                    logger.info(
-                        "Retrieved knowledge (top):\n" + "\n".join(top),
-                        extra={"task_id": self.task_id},
-                    )
-                    messages.append(
-                        UserMessage(
-                            content=f"Retrieved Knowledge (for reference):\n{facts}\n\n{guidance}"
-                        )
-                    )
-        except Exception as recall_err:
-            logger.debug(
-                f"Semantic recall unavailable or failed: {recall_err}",
-                extra={"task_id": self.task_id},
             )
 
         return messages
+
+    def _capture_retrieval_evidence(self, query: str) -> List[RetrievalEvidence]:
+        """Freeze durable recall so writes become visible on the next run."""
+        try:
+            retrieved = self.memory.recall(query=query, k=5, min_score=0.35)
+        except Exception as exc:
+            logger.debug(
+                "Semantic recall unavailable during run snapshot: %s",
+                exc,
+                extra={"task_id": self.task_id},
+            )
+            return []
+        evidence = []
+        for record_id, content, score in retrieved:
+            text = str(content)
+            if '"final_answer"' in text or "Final answer" in text:
+                continue
+            evidence.append(
+                RetrievalEvidence(
+                    source_type="memory",
+                    source_id=record_id,
+                    session_id=self.run_context.session_id,
+                    content=text,
+                    score=max(0.0, float(score)),
+                    provenance={"scope": self.memory.scope.namespace},
+                )
+            )
+        return evidence
 
     def _get_current_context(self) -> str:
         """Get the current context for the LLM."""
@@ -1866,6 +1873,11 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             self._trace.execution_receipts = [
                 receipt.model_dump(mode="json") for receipt in self.execution_receipts
             ]
+            self._trace.context_diagnostics = (
+                self.context_diagnostics.model_dump(mode="json")
+                if self.context_diagnostics
+                else None
+            )
             self._trace.finish()
 
         logger.info(

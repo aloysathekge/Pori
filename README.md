@@ -311,7 +311,10 @@ pori/
 ├── evaluation.py         # Action result evaluation, task completion
 ├── config.py             # YAML + env configuration
 ├── capabilities.py       # Capability groups and skill eligibility
+├── context.py            # Context-window policy and inclusion diagnostics
 ├── providers.py          # Declarative provider profiles and diagnostics
+├── retrieval.py          # Provenance-preserving retrieval fusion
+├── sessions.py           # Session lifecycle contracts and local SQLite store
 ├── orchestrator/         # Task lifecycle, concurrency, shared memory
 ├── team/                 # Multi-agent coordination (router, broadcast, delegate)
 ├── eval/                 # Evaluation framework + guardrails
@@ -352,6 +355,18 @@ AgentMemory
 ├── Tool Call History — full execution log
 └── MemoryStore (pluggable: in-memory, SQLite, Postgres, custom)
 ```
+
+### Durable Continuity
+
+`DefaultContextEngine` preserves Pori's existing token-window behavior while
+making inclusion, compaction, summary use, and recent-tail preservation
+inspectable. Core memory and retrieved long-term evidence are frozen when a run
+starts; writes remain durable but enter prompts only on the next run.
+
+`SessionRepository` defines resume, search, export, delete, and branch lineage.
+`SQLiteSessionRepository` is the local reference implementation. Session search
+and typed long-term memory can be merged with `fuse_retrieval()` without losing
+source IDs, session IDs, scores, or provenance.
 
 ---
 
