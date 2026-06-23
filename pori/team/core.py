@@ -10,7 +10,7 @@ from pori.hitl import HITLConfig, HITLHandler
 from pori.llm.base import BaseChatModel
 from pori.llm.messages import BaseMessage, SystemMessage, UserMessage
 from pori.memory import AgentMemory
-from pori.runtime import RunContext
+from pori.runtime import BudgetLedger, CancellationToken, RunContext
 from pori.tools.registry import ToolRegistry
 
 from .models import (
@@ -48,6 +48,8 @@ class Team:
         max_concurrent_members: int = 5,
         name: str = "team",
         run_context: Optional[RunContext] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
+        cancellation_token: Optional[CancellationToken] = None,
     ):
         self.task = task
         self.coordinator_llm = coordinator_llm
@@ -65,6 +67,8 @@ class Team:
             agent_id=name,
             session_id=f"team-{uuid.uuid4().hex[:12]}",
         )
+        self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
+        self.cancellation_token = cancellation_token or CancellationToken()
 
     def _child_run_context(self, member_name: str) -> RunContext:
         return RunContext(
@@ -477,6 +481,8 @@ class Team:
             hitl_config=hitl_config,
             system_prompt=config.system_prompt,
             run_context=child_context,
+            budget_ledger=self.budget_ledger,
+            cancellation_token=self.cancellation_token,
         )
 
         result = await agent.run()
@@ -538,6 +544,8 @@ class Team:
             max_concurrent_members=tc.max_concurrent_members,
             name=tc.name,
             run_context=self._child_run_context(config.name),
+            budget_ledger=self.budget_ledger,
+            cancellation_token=self.cancellation_token,
         )
 
         result = await nested_team.run()
