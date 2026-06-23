@@ -657,6 +657,7 @@ async def main():
         shared_memory=shared_memory,
         skill_catalog=skill_catalog,
         skill_limit=skill_limit,
+        evolution_repository=evolution_repository,
     )
 
     # HITL: check if enabled in config

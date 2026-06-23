@@ -30,6 +30,7 @@ from pori.llm import (
 
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
 from .evaluation import ActionResult, Evaluator
+from .evolution import EvolutionRepository
 from .hitl import (
     ActionRequest,
     ApprovalRequest,
@@ -149,6 +150,7 @@ class Agent:
         model_capabilities: Optional[frozenset[str]] = None,
         budget_ledger: Optional[BudgetLedger] = None,
         cancellation_token: Optional[CancellationToken] = None,
+        evolution_repository: Optional[EvolutionRepository] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -235,6 +237,7 @@ class Agent:
         self.model_capabilities = model_capabilities or frozenset()
         self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
         self.cancellation_token = cancellation_token or CancellationToken()
+        self.evolution_repository = evolution_repository
         self.selected_skill_summaries: Tuple[SkillSummary, ...] = ()
         self.selected_skills: Tuple[SelectedSkill, ...] = ()
         if self.skill_catalog is not None:
@@ -1585,6 +1588,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "thread_id": self.task_id,
                     "sandbox_base_dir": self.sandbox_base_dir,
                     "run_context": self.run_context,
+                    "evolution_repository": self.evolution_repository,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
