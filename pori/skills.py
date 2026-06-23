@@ -417,6 +417,17 @@ def _append_skill_config(
     return f"{instructions.rstrip()}{rendered}"
 
 
+def _skill_instruction_loader(
+    instructions: str,
+    declarations: Tuple[SkillConfigDeclaration, ...],
+    config_values: dict[str, Any],
+) -> Callable[[], str]:
+    def load() -> str:
+        return _append_skill_config(instructions, declarations, config_values)
+
+    return load
+
+
 def _summary_from_body(body: str) -> str:
     for line in body.splitlines():
         stripped = line.strip(" #\t")
@@ -561,8 +572,10 @@ def load_skill_catalog_from_directories(
             try:
                 catalog.register(
                     manifest,
-                    lambda instructions=instructions, declarations=config_declarations: (
-                        _append_skill_config(instructions, declarations, skill_config)
+                    _skill_instruction_loader(
+                        instructions,
+                        config_declarations,
+                        skill_config,
                     ),
                     root_path=skill_dir,
                     config_declarations=config_declarations,

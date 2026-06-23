@@ -73,6 +73,11 @@ memory:
 #   max_instruction_chars: 50000
 #   skill_limit: 3
 
+# Evolution: governed self-evolution proposal state (optional)
+# evolution:
+#   enabled: true
+#   path: ./.pori/evolution.json
+
 # Sandbox: isolated shell and file environment per task (optional)
 # sandbox:
 #   enabled: true

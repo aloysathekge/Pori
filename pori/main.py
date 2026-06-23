@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 from typing import Any, List, Optional, Tuple, cast
@@ -13,6 +14,7 @@ from pathlib import Path
 
 from .agent import Agent, AgentSettings
 from .config import Config, LLMConfig, get_configured_llm
+from .evolution import EvolutionEvalResult, EvolutionProposal, FileEvolutionRepository
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
@@ -31,6 +33,16 @@ logger = logging.getLogger("pori.main")
 
 
 # Define some example tools
+
+
+def _load_cli_evolution_repository(config: Config) -> Optional[FileEvolutionRepository]:
+    evolution_config = getattr(config, "evolution", None)
+    if not evolution_config or not evolution_config.enabled:
+        return None
+    path = Path(evolution_config.path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return FileEvolutionRepository(path.resolve())
 
 
 def _load_cli_skill_catalog(config: Config) -> Optional[SkillCatalog]:
@@ -145,6 +157,126 @@ def _print_skill_detail(
     print("\nUse /skill <name> <linked-file> to print a linked file.")
 
 
+def _print_evolution_help() -> None:
+    print(
+        "Usage:\n"
+        "  /evolution list\n"
+        "  /evolution show <proposal-id>\n"
+        "  /evolution propose <proposal.json>\n"
+        "  /evolution eval <proposal-id> <results.json>\n"
+        "  /evolution approve <proposal-id> [reviewer]\n"
+        "  /evolution reject <proposal-id> [reviewer]\n"
+        "  /evolution activate <proposal-id> [reviewer]\n"
+        "  /evolution active <target>\n"
+        "  /evolution rollback <target> [reviewer]"
+    )
+
+
+def _print_evolution_proposal(proposal: EvolutionProposal) -> None:
+    print(f"\n=== Evolution Proposal: {proposal.proposal_id} ===")
+    print(f"Status: {proposal.status.value}")
+    print(f"Target: {proposal.target}")
+    print(f"Artifact: {proposal.artifact_kind.value}")
+    print(
+        f"Version: {proposal.current_version or '(none)'} -> {proposal.proposed_version}"
+    )
+    print(f"Title: {proposal.title}")
+    print(f"Summary: {proposal.summary}")
+    print(f"Fingerprint: {proposal.content_fingerprint}")
+    print(f"Eval cases: {len(proposal.eval_cases)}")
+    print(f"Eval results: {len(proposal.eval_results)}")
+    if proposal.approved_by:
+        print(f"Reviewer: {proposal.approved_by}")
+
+
+def _path_from_cli(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _handle_evolution_command(
+    command: str,
+    repository: Optional[FileEvolutionRepository],
+) -> None:
+    if repository is None:
+        print("Evolution governance is disabled.")
+        return
+    parts = command.strip().split()
+    if len(parts) < 2:
+        _print_evolution_help()
+        return
+    subcmd = parts[1].lower()
+    try:
+        if subcmd == "list":
+            proposals = repository.list()
+            if not proposals:
+                print("No evolution proposals.")
+                return
+            print("\n=== Evolution Proposals ===")
+            for proposal in proposals:
+                print(
+                    f"  {proposal.proposal_id} [{proposal.status.value}] "
+                    f"{proposal.target} -> {proposal.proposed_version}: {proposal.title}"
+                )
+        elif subcmd == "show" and len(parts) >= 3:
+            _print_evolution_proposal(repository.get(parts[2]))
+        elif subcmd == "propose" and len(parts) >= 3:
+            proposal = EvolutionProposal(
+                **json.loads(_path_from_cli(parts[2]).read_text(encoding="utf-8"))
+            )
+            saved = repository.submit(proposal)
+            print(f"Submitted proposal {saved.proposal_id}.")
+        elif subcmd == "eval" and len(parts) >= 4:
+            raw = json.loads(_path_from_cli(parts[3]).read_text(encoding="utf-8"))
+            raw_results = raw.get("results", raw) if isinstance(raw, dict) else raw
+            results = tuple(EvolutionEvalResult(**item) for item in raw_results)
+            updated = repository.record_evaluations(parts[2], results)
+            print(
+                f"Recorded {len(updated.eval_results)} eval result(s) "
+                f"for {updated.proposal_id}."
+            )
+        elif subcmd == "approve" and len(parts) >= 3:
+            reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
+            approved = repository.approve(parts[2], reviewer=reviewer)
+            print(f"Approved proposal {approved.proposal_id}.")
+        elif subcmd == "reject" and len(parts) >= 3:
+            reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
+            rejected = repository.reject(parts[2], reviewer=reviewer)
+            print(f"Rejected proposal {rejected.proposal_id}.")
+        elif subcmd == "activate" and len(parts) >= 3:
+            reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
+            activated = repository.activate(parts[2], activated_by=reviewer)
+            print(
+                f"Activated {activated.target} at version {activated.version} "
+                f"from {activated.proposal_id}."
+            )
+        elif subcmd == "active" and len(parts) >= 3:
+            active_activation = repository.active(parts[2])
+            if active_activation is None:
+                print(f"No active evolution proposal for {parts[2]}.")
+            else:
+                print(
+                    f"{active_activation.target}: {active_activation.version} "
+                    f"({active_activation.proposal_id})"
+                )
+        elif subcmd == "rollback" and len(parts) >= 3:
+            reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
+            restored = repository.rollback(parts[2], rolled_back_by=reviewer)
+            if restored is None:
+                print(f"Rolled back {parts[2]}; no prior active version remains.")
+            else:
+                print(
+                    f"Rolled back {parts[2]}; restored {restored.version} "
+                    f"from {restored.proposal_id}."
+                )
+        else:
+            _print_evolution_help()
+    except Exception as e:
+        print(f"Evolution error: {e}")
+
+
 def _resolve_skill_command(
     skill_catalog: Optional[SkillCatalog],
     command: str,
@@ -168,6 +300,7 @@ def _handle_cli_command(
     *,
     skill_catalog: Optional[SkillCatalog] = None,
     registry: Optional[ToolRegistry] = None,
+    evolution_repository: Optional[FileEvolutionRepository] = None,
 ) -> None:
     """Handle slash commands like /memory, /memory clear, etc."""
     parts = command.strip().split()
@@ -311,10 +444,14 @@ def _handle_cli_command(
             file_path = parts[2] if len(parts) > 2 else None
             _print_skill_detail(skill_catalog, registry, parts[1], file_path)
 
+    elif cmd == "/evolution":
+        _handle_evolution_command(command, evolution_repository)
+
     else:
         print(f"Unknown command: {cmd}")
         print(
-            "Available commands: /memory, /model, /new, /skills, /skill, /reload-skills"
+            "Available commands: /memory, /model, /new, /skills, "
+            "/skill, /evolution, /reload-skills"
         )
 
 
@@ -508,6 +645,10 @@ async def main():
     if skill_catalog is not None:
         logger.info(f"Loaded {len(skill_catalog.manifests())} local skill(s)")
 
+    evolution_repository = _load_cli_evolution_repository(config)
+    if evolution_repository is not None:
+        logger.info(f"Evolution repository path: {evolution_repository.path}")
+
     # Create orchestrator
     logger.info("Creating orchestrator")
     orchestrator = Orchestrator(
@@ -644,6 +785,7 @@ async def main():
                     shared_memory,
                     skill_catalog=skill_catalog,
                     registry=registry,
+                    evolution_repository=evolution_repository,
                 )
                 continue
 
