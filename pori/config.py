@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from dotenv import load_dotenv
@@ -119,6 +119,18 @@ class PromptsConfig(BaseModel):
     )
 
 
+class SkillsConfig(BaseModel):
+    """Configuration for local progressive skill loading."""
+
+    enabled: bool = Field(default=True)
+    directories: List[str] = Field(
+        default_factory=list,
+        description="Directories scanned recursively for local SKILL.md files.",
+    )
+    max_instruction_chars: int = Field(default=50_000, ge=1)
+    skill_limit: int = Field(default=3, ge=0)
+
+
 class Config(BaseModel):
     """Main configuration container."""
 
@@ -128,6 +140,7 @@ class Config(BaseModel):
     sandbox: Optional[SandboxConfig] = Field(default=None)
     hitl: Optional[HITLConfig] = Field(default=None)
     prompts: Optional[PromptsConfig] = Field(default=None)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     team: Optional[TeamConfig] = Field(default=None)
 
 

@@ -1,10 +1,9 @@
 import asyncio
 import logging
 import os
-from typing import Any, List, cast
+from typing import Any, List, Optional, Tuple, cast
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 
 # Load environment variables
 load_dotenv()
@@ -13,12 +12,13 @@ load_dotenv()
 from pathlib import Path
 
 from .agent import Agent, AgentSettings
-from .config import LLMConfig, get_configured_llm
+from .config import Config, LLMConfig, get_configured_llm
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
-from .team import Team, TeamMode
-from .tools.registry import tool_registry
+from .skills import SkillCatalog, load_skill_catalog_from_directories
+from .team import Team
+from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
 
 # Configure logging
@@ -33,7 +33,62 @@ logger = logging.getLogger("pori.main")
 # Define some example tools
 
 
-def _handle_cli_command(command: str, memory: AgentMemory) -> None:
+def _load_cli_skill_catalog(config: Config) -> Optional[SkillCatalog]:
+    skills_config = getattr(config, "skills", None)
+    if not skills_config or not skills_config.enabled or not skills_config.directories:
+        return None
+    return load_skill_catalog_from_directories(
+        skills_config.directories,
+        max_instruction_chars=skills_config.max_instruction_chars,
+    )
+
+
+def _print_skill_catalog(
+    skill_catalog: Optional[SkillCatalog],
+    registry: ToolRegistry,
+) -> None:
+    if skill_catalog is None or not skill_catalog.manifests():
+        print("No local skills configured.")
+        print("Add a skills.directories entry in config.yaml, then run /reload-skills.")
+        return
+
+    print("\n=== Local Skills ===")
+    for item in skill_catalog.summaries(registry.snapshot()):
+        status = (
+            "available" if item.eligible else f"ineligible: {', '.join(item.reasons)}"
+        )
+        tags = f" [{', '.join(item.tags)}]" if item.tags else ""
+        print(f"  {item.skill_id}{tags} - {status}")
+        print(f"    {item.summary}")
+    print(
+        "\nUse /<skill-slug> your task to force a skill for the next single-agent run."
+    )
+
+
+def _resolve_skill_command(
+    skill_catalog: Optional[SkillCatalog],
+    command: str,
+) -> Optional[Tuple[str, str]]:
+    if skill_catalog is None:
+        return None
+    parts = command.strip().split(maxsplit=1)
+    if not parts:
+        return None
+    requested = parts[0][1:].lower()
+    task = parts[1].strip() if len(parts) > 1 else ""
+    for manifest in skill_catalog.manifests():
+        if requested in {manifest.slug, manifest.skill_id.lower()}:
+            return manifest.skill_id, task
+    return None
+
+
+def _handle_cli_command(
+    command: str,
+    memory: AgentMemory,
+    *,
+    skill_catalog: Optional[SkillCatalog] = None,
+    registry: Optional[ToolRegistry] = None,
+) -> None:
     """Handle slash commands like /memory, /memory clear, etc."""
     parts = command.strip().split()
     cmd = parts[0].lower()
@@ -161,9 +216,15 @@ def _handle_cli_command(command: str, memory: AgentMemory) -> None:
                 "Usage: /memory [list|clear [all|messages|experiences|tasks|archival]]"
             )
 
+    elif cmd == "/skills":
+        if registry is None:
+            print("No tool registry available.")
+        else:
+            _print_skill_catalog(skill_catalog, registry)
+
     else:
         print(f"Unknown command: {cmd}")
-        print("Available commands: /memory, /model, /new")
+        print("Available commands: /memory, /model, /new, /skills, /reload-skills")
 
 
 # Small curated per-provider lists used by /model. Users can also type a
@@ -351,12 +412,19 @@ async def main():
         store=memory_store,
     )
 
+    skill_catalog = _load_cli_skill_catalog(config)
+    skill_limit = getattr(getattr(config, "skills", None), "skill_limit", 3)
+    if skill_catalog is not None:
+        logger.info(f"Loaded {len(skill_catalog.manifests())} local skill(s)")
+
     # Create orchestrator
     logger.info("Creating orchestrator")
     orchestrator = Orchestrator(
         llm=llm,
         tools_registry=registry,
         shared_memory=shared_memory,
+        skill_catalog=skill_catalog,
+        skill_limit=skill_limit,
     )
 
     # HITL: check if enabled in config
@@ -433,9 +501,12 @@ async def main():
             logger.warning("Empty task provided, skipping")
             continue
 
+        selected_skill_ids = None
+
         # CLI commands
         if task.startswith("/"):
-            if task.strip().split()[0].lower() == "/model":
+            command_name = task.strip().split()[0].lower()
+            if command_name == "/model":
                 import sys as _sys
 
                 _sys.stdout.flush()
@@ -458,8 +529,32 @@ async def main():
                     print("  Model unchanged.", flush=True)
                 continue
 
-            _handle_cli_command(task, shared_memory)
-            continue
+            if command_name == "/reload-skills":
+                try:
+                    skill_catalog = _load_cli_skill_catalog(config)
+                    orchestrator.skill_catalog = skill_catalog
+                    count = len(skill_catalog.manifests()) if skill_catalog else 0
+                    print(f"Reloaded {count} local skill(s).")
+                except Exception as e:
+                    print(f"Failed to reload skills: {e}")
+                continue
+
+            skill_command = _resolve_skill_command(skill_catalog, task)
+            if skill_command is not None:
+                skill_id, task = skill_command
+                if not task:
+                    print(f"Provide a task after /{skill_id.split('@', 1)[0]}.")
+                    continue
+                selected_skill_ids = [skill_id]
+                print(f"Using skill: {skill_id}")
+            else:
+                _handle_cli_command(
+                    task,
+                    shared_memory,
+                    skill_catalog=skill_catalog,
+                    registry=registry,
+                )
+                continue
 
         # Inline any @path file references the user typed (e.g. @main.py).
         expanded_task, ref_notes = expand_file_refs(task)
@@ -474,6 +569,9 @@ async def main():
 
         try:
             if use_team:
+                if selected_skill_ids:
+                    print("Explicit skill commands run in single-agent mode.")
+                    continue
                 # Execute via Team
                 logger.info("Starting team execution")
                 agent_defaults = AgentSettings(
@@ -542,6 +640,7 @@ async def main():
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,
+                    selected_skill_ids=selected_skill_ids,
                 )
 
                 logger.info(

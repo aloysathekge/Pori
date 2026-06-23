@@ -117,6 +117,7 @@ from .skills import (
     SkillCatalog,
     SkillManifest,
     SkillSummary,
+    load_skill_catalog_from_directories,
     render_selected_skills,
 )
 from .team import MemberConfig, Team, TeamConfig, TeamMode
@@ -206,6 +207,7 @@ __all__ = [
     "SkillCatalog",
     "SkillManifest",
     "SkillSummary",
+    "load_skill_catalog_from_directories",
     "render_selected_skills",
     # Tools system
     "ToolRegistry",

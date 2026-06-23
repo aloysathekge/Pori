@@ -29,6 +29,7 @@ class Orchestrator:
         tools_registry: ToolRegistry,
         shared_memory: Optional[AgentMemory] = None,
         skill_catalog: Optional[SkillCatalog] = None,
+        skill_limit: int = 3,
     ):
         self.llm = llm
         self.tools_registry = tools_registry
@@ -36,6 +37,7 @@ class Orchestrator:
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.shared_memory = shared_memory
         self.skill_catalog = skill_catalog
+        self.skill_limit = skill_limit
 
     async def execute_task(
         self,
@@ -72,6 +74,7 @@ class Orchestrator:
             hitl_config=hitl_config,
             run_context=run_context,
             skill_catalog=self.skill_catalog,
+            skill_limit=self.skill_limit,
             selected_skill_ids=selected_skill_ids,
         )
         self.agents[task_id] = agent

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, Mapping, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from .capabilities import EligibilityReport, SkillEligibility
+from .capabilities import SkillEligibility
 from .runtime import stable_fingerprint
 from .tools.registry import CapabilitySnapshot
 
@@ -197,7 +199,121 @@ def render_selected_skills(skills: Iterable[SelectedSkill]) -> str:
     return "\n\n".join(sections)
 
 
+_SKIP_SCAN_DIRS = frozenset(
+    {".git", ".hg", ".svn", ".venv", "venv", "__pycache__", "node_modules"}
+)
+
+
+def _normalize_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]+", "-", value.strip().lower().replace("_", "-"))
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if len(slug) < 3:
+        slug = f"{slug or 'skill'}-skill"
+    return slug[:64].strip("-")
+
+
+def _as_tuple(value: Any) -> Tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, Iterable):
+        items = [str(item).strip() for item in value]
+    else:
+        items = [str(value).strip()]
+    return tuple(item for item in items if item)
+
+
+def _read_skill_file(path: Path) -> tuple[dict[str, Any], str]:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        return {}, text
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}, text
+    raw_metadata = yaml.safe_load(parts[1]) or {}
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    return metadata, parts[2].strip()
+
+
+def _summary_from_body(body: str) -> str:
+    for line in body.splitlines():
+        stripped = line.strip(" #\t")
+        if stripped:
+            return stripped[:500]
+    return "Local Pori skill"
+
+
+def _iter_skill_files(directory: Path) -> Iterable[Path]:
+    if not directory.exists() or not directory.is_dir():
+        return
+    for child in sorted(directory.rglob("SKILL.md")):
+        if any(part in _SKIP_SCAN_DIRS for part in child.parts):
+            continue
+        yield child
+
+
+def load_skill_catalog_from_directories(
+    directories: Iterable[str | Path],
+    *,
+    max_instruction_chars: int = 50_000,
+) -> SkillCatalog:
+    """Build a skill catalog from local SKILL.md packages."""
+
+    catalog = SkillCatalog(max_instruction_chars=max_instruction_chars)
+    for directory in directories:
+        base_dir = Path(directory).expanduser()
+        if not base_dir.is_absolute():
+            base_dir = Path.cwd() / base_dir
+        for skill_file in _iter_skill_files(base_dir.resolve()):
+            metadata, instructions = _read_skill_file(skill_file)
+            skill_dir = skill_file.parent
+            nested = (
+                metadata.get("pori") if isinstance(metadata.get("pori"), dict) else {}
+            )
+            slug = _normalize_slug(
+                str(metadata.get("slug") or metadata.get("name") or skill_dir.name)
+            )
+            manifest = SkillManifest(
+                slug=slug,
+                name=str(metadata.get("name") or slug.replace("-", " ").title()),
+                version=str(metadata.get("version") or "1"),
+                summary=str(
+                    metadata.get("summary")
+                    or metadata.get("description")
+                    or _summary_from_body(instructions)
+                )[:500],
+                tags=_as_tuple(metadata.get("tags") or nested.get("tags")),
+                required_tools=frozenset(
+                    _as_tuple(
+                        metadata.get("required_tools") or nested.get("required_tools")
+                    )
+                ),
+                required_credentials=_as_tuple(
+                    metadata.get("required_credentials")
+                    or metadata.get("required_environment_variables")
+                    or nested.get("required_credentials")
+                ),
+                required_platforms=_as_tuple(
+                    metadata.get("required_platforms")
+                    or nested.get("required_platforms")
+                ),
+                required_model_capabilities=frozenset(
+                    _as_tuple(
+                        metadata.get("required_model_capabilities")
+                        or nested.get("required_model_capabilities")
+                    )
+                ),
+                source=f"local:{skill_dir}",
+                sensitivity=str(metadata.get("sensitivity") or "internal"),
+                instructions_fingerprint=metadata.get("instructions_fingerprint"),
+            )
+            catalog.register(manifest, instructions)
+    return catalog
+
+
 __all__ = [
+    "load_skill_catalog_from_directories",
     "SelectedSkill",
     "SkillCatalog",
     "SkillManifest",

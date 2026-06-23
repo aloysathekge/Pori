@@ -58,6 +58,14 @@ memory:
 # prompts:
 #   base_dir: ./prompts
 
+# Skills: local progressive skills loaded from SKILL.md files (optional)
+# skills:
+#   enabled: true
+#   directories:
+#     - ./.pori/skills
+#   max_instruction_chars: 50000
+#   skill_limit: 3
+
 # Sandbox: isolated shell and file environment per task (optional)
 # sandbox:
 #   enabled: true
