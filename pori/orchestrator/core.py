@@ -8,6 +8,7 @@ from ..agent import Agent, AgentSettings
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
 from ..runtime import RunContext
+from ..skills import SkillCatalog
 from ..tools.registry import ToolRegistry
 
 
@@ -27,12 +28,14 @@ class Orchestrator:
         llm: BaseChatModel,
         tools_registry: ToolRegistry,
         shared_memory: Optional[AgentMemory] = None,
+        skill_catalog: Optional[SkillCatalog] = None,
     ):
         self.llm = llm
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.shared_memory = shared_memory
+        self.skill_catalog = skill_catalog
 
     async def execute_task(
         self,
@@ -44,6 +47,7 @@ class Orchestrator:
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
         run_context: Optional[RunContext] = None,
+        selected_skill_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -67,6 +71,8 @@ class Orchestrator:
             hitl_handler=hitl_handler,
             hitl_config=hitl_config,
             run_context=run_context,
+            skill_catalog=self.skill_catalog,
+            selected_skill_ids=selected_skill_ids,
         )
         self.agents[task_id] = agent
 

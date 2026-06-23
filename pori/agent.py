@@ -51,12 +51,16 @@ from .metrics import (
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .retrieval import RetrievalEvidence
 from .runtime import (
+    BudgetExceeded,
+    BudgetLedger,
+    CancellationToken,
     ReceiptStatus,
     RunContext,
     ToolExecutionReceipt,
     stable_fingerprint,
     utc_now,
 )
+from .skills import SkillCatalog, SkillSummary, render_selected_skills
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
 from .utils.prompt_loader import load_prompt
@@ -139,6 +143,12 @@ class Agent:
         system_prompt: Optional[str] = None,
         run_context: Optional[RunContext] = None,
         context_engine: Optional[ContextEngine] = None,
+        skill_catalog: Optional[SkillCatalog] = None,
+        skill_limit: int = 3,
+        selected_skill_ids: Optional[List[str]] = None,
+        model_capabilities: Optional[frozenset[str]] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
+        cancellation_token: Optional[CancellationToken] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -220,6 +230,24 @@ class Agent:
             )
         self.context_engine = context_engine or DefaultContextEngine()
         self.context_diagnostics: Optional[ContextDiagnostics] = None
+        self.skill_catalog = skill_catalog
+        self.skill_limit = skill_limit
+        self.model_capabilities = model_capabilities or frozenset()
+        self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
+        self.cancellation_token = cancellation_token or CancellationToken()
+        self.selected_skill_summaries: Tuple[SkillSummary, ...] = ()
+        self.selected_skills = ()
+        if self.skill_catalog is not None:
+            self.selected_skill_summaries = self.skill_catalog.select(
+                task,
+                self.capability_snapshot,
+                model_capabilities=self.model_capabilities,
+                limit=skill_limit,
+                explicit_skill_ids=selected_skill_ids,
+            )
+            self.selected_skills = self.skill_catalog.load_selected(
+                self.selected_skill_summaries
+            )
         self._frozen_core_memory = (
             self.memory.core_memory.compile()
             if getattr(self.memory, "core_memory", None)
@@ -261,10 +289,23 @@ class Agent:
                 self._custom_system_prompt + "\n\n" + self.system_message
             )
 
+        selected_skill_prompt = render_selected_skills(self.selected_skills)
+        if selected_skill_prompt:
+            self.system_message = (
+                self.system_message + "\n\n# Selected Skills\n" + selected_skill_prompt
+            )
+
         self.prompt_fingerprint = stable_fingerprint(
             {
                 "system_message": self.system_message,
                 "frozen_core_memory": self._frozen_core_memory,
+                "selected_skills": [
+                    {
+                        "skill_id": skill.manifest.skill_id,
+                        "fingerprint": skill.fingerprint,
+                    }
+                    for skill in self.selected_skills
+                ],
             }
         )
 
@@ -402,6 +443,11 @@ class Agent:
                     duration_seconds=llm_duration,
                 )
                 step_metrics.llm_calls.append(llm_metrics)
+                self.budget_ledger.consume_tokens(tokens.total_tokens)
+                if cost is not None:
+                    self.budget_ledger.consume_cost(cost)
+            except BudgetExceeded:
+                raise
             except Exception as metrics_err:
                 logger.debug(
                     f"Failed to record LLM call metrics: {metrics_err}",
@@ -1735,6 +1781,24 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
         for step_count in range(self.settings.max_steps):
             # Check control flags
+            if self.cancellation_token.cancelled:
+                logger.info("Agent cancelled", extra={"task_id": self.task_id})
+                self.state.stopped = True
+                break
+
+            try:
+                self.budget_ledger.consume_step()
+            except BudgetExceeded as exc:
+                logger.warning(
+                    "Stopping because budget was exhausted: %s",
+                    exc,
+                    extra={"task_id": self.task_id},
+                )
+                current_task = self.memory.tasks.get(self.task_id)
+                if current_task:
+                    current_task.status = "failed"
+                break
+
             if self.state.stopped:
                 logger.info("Agent stopped by request", extra={"task_id": self.task_id})
                 print("Agent stopped")
@@ -1772,7 +1836,18 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             await self._invoke_step_callback(on_step_start)
 
             # Execute step
-            await self.step()
+            try:
+                await self.step()
+            except BudgetExceeded as exc:
+                logger.warning(
+                    "Stopping because budget was exhausted during step: %s",
+                    exc,
+                    extra={"task_id": self.task_id},
+                )
+                current_task = self.memory.tasks.get(self.task_id)
+                if current_task:
+                    current_task.status = "failed"
+                break
 
             # Notify observers that the step finished (after plan/reflect)
             await self._invoke_step_callback(on_step_end)
@@ -1898,6 +1973,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "execution_receipts": [
                 receipt.model_dump(mode="json") for receipt in self.execution_receipts
             ],
+            "budget_usage": self.budget_ledger.snapshot(),
         }
 
     def pause(self) -> None:
