@@ -200,8 +200,17 @@ def render_selected_skills(skills: Iterable[SelectedSkill]) -> str:
 
 
 _SKIP_SCAN_DIRS = frozenset(
-    {".git", ".hg", ".svn", ".venv", "venv", "__pycache__", "node_modules"}
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "node_modules",
+    }
 )
+_SKILL_SUPPORT_DIRS = frozenset({"references", "templates", "assets", "scripts"})
 
 
 def _normalize_slug(value: str) -> str:
@@ -236,6 +245,78 @@ def _read_skill_file(path: Path) -> tuple[dict[str, Any], str]:
     return metadata, parts[2].strip()
 
 
+def _nested_mapping(metadata: dict[str, Any], key: str) -> dict[str, Any]:
+    value = metadata.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _pori_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    nested = _nested_mapping(metadata, "pori")
+    frontmatter_metadata = _nested_mapping(metadata, "metadata")
+    nested_metadata = _nested_mapping(frontmatter_metadata, "pori")
+    return {**nested_metadata, **nested}
+
+
+def _extract_config_declarations(
+    metadata: dict[str, Any]
+) -> Tuple[dict[str, Any], ...]:
+    raw = _pori_metadata(metadata).get("config")
+    if raw is None:
+        return ()
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return ()
+    declarations = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key", "")).strip()
+        description = str(item.get("description", "")).strip()
+        if not key or not description or key in seen:
+            continue
+        declarations.append(dict(item))
+        seen.add(key)
+    return tuple(declarations)
+
+
+def _resolve_config_value(config: dict[str, Any], dotted_key: str) -> Any:
+    current: Any = config
+    for part in dotted_key.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _render_skill_config(
+    declarations: Iterable[dict[str, Any]],
+    config_values: dict[str, Any],
+) -> str:
+    lines = []
+    for declaration in declarations:
+        key = str(declaration["key"])
+        value = _resolve_config_value(config_values, key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            value = declaration.get("default", "")
+        lines.append(f"  {key} = {value if value != '' else '(not set)'}")
+    if not lines:
+        return ""
+    return "\n\n[Skill config]\n" + "\n".join(lines) + "\n[/Skill config]"
+
+
+def _append_skill_config(
+    instructions: str,
+    declarations: Iterable[dict[str, Any]],
+    config_values: dict[str, Any],
+) -> str:
+    rendered = _render_skill_config(declarations, config_values)
+    if not rendered:
+        return instructions
+    return f"{instructions.rstrip()}{rendered}"
+
+
 def _summary_from_body(body: str) -> str:
     for line in body.splitlines():
         stripped = line.strip(" #\t")
@@ -250,17 +331,36 @@ def _iter_skill_files(directory: Path) -> Iterable[Path]:
     for child in sorted(directory.rglob("SKILL.md")):
         if any(part in _SKIP_SCAN_DIRS for part in child.parts):
             continue
+        if _is_skill_support_path(child):
+            continue
         yield child
+
+
+def _is_skill_support_path(path: Path) -> bool:
+    parts = path.parts
+    for index, part in enumerate(parts[:-1]):
+        if part not in _SKILL_SUPPORT_DIRS or index == 0:
+            continue
+        skill_root = Path(*parts[:index])
+        if (skill_root / "SKILL.md").exists():
+            return True
+    return False
 
 
 def load_skill_catalog_from_directories(
     directories: Iterable[str | Path],
     *,
+    disabled: Iterable[str] = (),
+    config_values: Optional[dict[str, Any]] = None,
     max_instruction_chars: int = 50_000,
 ) -> SkillCatalog:
     """Build a skill catalog from local SKILL.md packages."""
 
     catalog = SkillCatalog(max_instruction_chars=max_instruction_chars)
+    disabled_names = {
+        str(item).strip().lower() for item in disabled if str(item).strip()
+    }
+    skill_config = config_values or {}
     for directory in directories:
         base_dir = Path(directory).expanduser()
         if not base_dir.is_absolute():
@@ -268,15 +368,17 @@ def load_skill_catalog_from_directories(
         for skill_file in _iter_skill_files(base_dir.resolve()):
             metadata, instructions = _read_skill_file(skill_file)
             skill_dir = skill_file.parent
-            nested = (
-                metadata.get("pori") if isinstance(metadata.get("pori"), dict) else {}
-            )
+            nested = _pori_metadata(metadata)
             slug = _normalize_slug(
                 str(metadata.get("slug") or metadata.get("name") or skill_dir.name)
             )
+            name = str(metadata.get("name") or slug.replace("-", " ").title())
+            if slug.lower() in disabled_names or name.lower() in disabled_names:
+                continue
+            config_declarations = _extract_config_declarations(metadata)
             manifest = SkillManifest(
                 slug=slug,
-                name=str(metadata.get("name") or slug.replace("-", " ").title()),
+                name=name,
                 version=str(metadata.get("version") or "1"),
                 summary=str(
                     metadata.get("summary")
@@ -308,7 +410,15 @@ def load_skill_catalog_from_directories(
                 sensitivity=str(metadata.get("sensitivity") or "internal"),
                 instructions_fingerprint=metadata.get("instructions_fingerprint"),
             )
-            catalog.register(manifest, instructions)
+            try:
+                catalog.register(
+                    manifest,
+                    lambda instructions=instructions, declarations=config_declarations: (
+                        _append_skill_config(instructions, declarations, skill_config)
+                    ),
+                )
+            except ValueError:
+                continue
     return catalog
 
 

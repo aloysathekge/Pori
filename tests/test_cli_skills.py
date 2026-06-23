@@ -4,7 +4,12 @@ from pori import (
     SkillManifest,
     load_skill_catalog_from_directories,
 )
-from pori.main import _handle_cli_command, _resolve_skill_command
+from pori.config import Config, LLMConfig, SkillsConfig
+from pori.main import (
+    _handle_cli_command,
+    _load_cli_skill_catalog,
+    _resolve_skill_command,
+)
 
 
 def test_load_skill_catalog_from_local_skill_file(tmp_path, tool_registry):
@@ -41,6 +46,74 @@ Always inspect source-of-truth files before editing.
     selected = catalog.load("repo-workflow@2")
     assert "Always inspect source-of-truth" in selected.instructions
     assert "required_tools" not in selected.instructions
+
+
+def test_skill_loader_skips_disabled_skills_and_injects_declared_config(tmp_path):
+    enabled_dir = tmp_path / "skills" / "repo-workflow"
+    enabled_dir.mkdir(parents=True)
+    (enabled_dir / "SKILL.md").write_text(
+        """---
+name: Repo Workflow
+description: Work safely in a repository
+metadata:
+  pori:
+    config:
+      - key: github.default_owner
+        description: Default GitHub owner/org
+        default: fallback-owner
+---
+
+Use the configured GitHub owner when relevant.
+""",
+        encoding="utf-8",
+    )
+    disabled_dir = tmp_path / "skills" / "old-skill"
+    disabled_dir.mkdir(parents=True)
+    (disabled_dir / "SKILL.md").write_text(
+        """---
+name: Old Skill
+description: Disabled skill
+---
+
+Do not load me.
+""",
+        encoding="utf-8",
+    )
+
+    catalog = load_skill_catalog_from_directories(
+        [tmp_path / "skills"],
+        disabled=["old-skill"],
+        config_values={"github": {"default_owner": "aloysathekge"}},
+    )
+
+    assert [manifest.slug for manifest in catalog.manifests()] == ["repo-workflow"]
+    selected = catalog.load("repo-workflow@1")
+    assert "github.default_owner = aloysathekge" in selected.instructions
+
+
+def test_cli_skill_catalog_uses_default_project_skills_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    skill_dir = tmp_path / ".pori" / "skills" / "local-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: Local Skill
+description: Default local skill
+---
+
+Use local project knowledge.
+""",
+        encoding="utf-8",
+    )
+    config = Config(
+        llm=LLMConfig(provider="anthropic", model="test-model"),
+        skills=SkillsConfig(),
+    )
+
+    catalog = _load_cli_skill_catalog(config)
+
+    assert catalog is not None
+    assert [manifest.slug for manifest in catalog.manifests()] == ["local-skill"]
 
 
 def test_skills_command_prints_catalog(capsys, tool_registry):

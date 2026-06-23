@@ -123,10 +123,20 @@ class SkillsConfig(BaseModel):
     """Configuration for local progressive skill loading."""
 
     enabled: bool = Field(default=True)
+    default_dir: str = Field(
+        default="./.pori/skills",
+        description="Default project-local directory scanned for SKILL.md files.",
+    )
     directories: List[str] = Field(
         default_factory=list,
-        description="Directories scanned recursively for local SKILL.md files.",
+        description="Additional directories scanned recursively for local SKILL.md files.",
     )
+    external_dirs: List[str] = Field(
+        default_factory=list,
+        description="External skill directories scanned after local directories.",
+    )
+    disabled: List[str] = Field(default_factory=list)
+    config: Dict[str, Any] = Field(default_factory=dict)
     max_instruction_chars: int = Field(default=50_000, ge=1)
     skill_limit: int = Field(default=3, ge=0)
 

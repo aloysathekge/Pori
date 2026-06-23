@@ -61,8 +61,15 @@ memory:
 # Skills: local progressive skills loaded from SKILL.md files (optional)
 # skills:
 #   enabled: true
-#   directories:
-#     - ./.pori/skills
+#   default_dir: ./.pori/skills
+#   directories: []
+#   external_dirs:
+#     - ~/pori-skills
+#   disabled:
+#     - old-skill
+#   config:
+#     github:
+#       default_owner: aloysathekge
 #   max_instruction_chars: 50000
 #   skill_limit: 3
 

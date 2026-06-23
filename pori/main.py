@@ -35,10 +35,30 @@ logger = logging.getLogger("pori.main")
 
 def _load_cli_skill_catalog(config: Config) -> Optional[SkillCatalog]:
     skills_config = getattr(config, "skills", None)
-    if not skills_config or not skills_config.enabled or not skills_config.directories:
+    if not skills_config or not skills_config.enabled:
         return None
+    directories = [
+        skills_config.default_dir,
+        *skills_config.directories,
+        *skills_config.external_dirs,
+    ]
+    resolved_directories = []
+    seen = set()
+    for directory in directories:
+        path = Path(directory).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        path = path.resolve()
+        if path in seen:
+            continue
+        seen.add(path)
+        resolved_directories.append(path)
+    if resolved_directories:
+        resolved_directories[0].mkdir(parents=True, exist_ok=True)
     return load_skill_catalog_from_directories(
-        skills_config.directories,
+        resolved_directories,
+        disabled=skills_config.disabled,
+        config_values=skills_config.config,
         max_instruction_chars=skills_config.max_instruction_chars,
     )
 
@@ -49,7 +69,7 @@ def _print_skill_catalog(
 ) -> None:
     if skill_catalog is None or not skill_catalog.manifests():
         print("No local skills configured.")
-        print("Add a skills.directories entry in config.yaml, then run /reload-skills.")
+        print("Add SKILL.md packages under .pori/skills, then run /reload-skills.")
         return
 
     print("\n=== Local Skills ===")
