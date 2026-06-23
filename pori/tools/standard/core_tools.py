@@ -3,9 +3,11 @@ Core tools required for agent operation.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, Field
+
+from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
 
 from ..registry import tool_registry
 
@@ -369,6 +371,62 @@ def memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
 def core_memory_rethink_tool(params: MemoryRethinkParams, context: Dict[str, Any]):
     """Backwards-compatible alias for full core memory rewrites."""
     return memory_rethink_tool(params, context)
+
+
+class EvolutionProposalParams(BaseModel):
+    artifact_kind: Literal["skill", "prompt", "policy", "eval", "code", "config"]
+    target: str = Field(..., description="Artifact target, e.g. skills/brainstorming")
+    title: str = Field(..., description="Short proposal title")
+    summary: str = Field(..., description="One-paragraph summary of the change")
+    rationale: str = Field(..., description="Why this change should improve Pori")
+    proposed_version: str = Field(..., description="Version label for the proposal")
+    proposed_content: str = Field(..., description="Proposed artifact content")
+    eval_cases: list[EvolutionEvalCase] = Field(
+        ..., description="Evaluation cases that must pass before approval"
+    )
+    current_version: str | None = Field(default=None)
+    supersedes_proposal_id: str | None = Field(default=None)
+
+
+@Registry.tool(
+    name="propose_evolution",
+    description=(
+        "Create an inert governed self-evolution proposal with eval cases. "
+        "This never applies, approves, or activates the change."
+    ),
+)
+def propose_evolution_tool(
+    params: EvolutionProposalParams,
+    context: Dict[str, Any],
+) -> Dict[str, Any]:
+    repository = context.get("evolution_repository") if context else None
+    if repository is None:
+        return {"success": False, "error": "Evolution repository not available"}
+    try:
+        proposal = EvolutionProposal(
+            artifact_kind=EvolutionArtifactKind(params.artifact_kind),
+            target=params.target,
+            title=params.title,
+            summary=params.summary,
+            rationale=params.rationale,
+            current_version=params.current_version,
+            proposed_version=params.proposed_version,
+            proposed_content=params.proposed_content,
+            eval_cases=tuple(params.eval_cases),
+            supersedes_proposal_id=params.supersedes_proposal_id,
+        )
+        saved = repository.submit(proposal)
+        return {
+            "success": True,
+            "proposal_id": saved.proposal_id,
+            "status": saved.status.value,
+            "target": saved.target,
+            "proposed_version": saved.proposed_version,
+            "content_fingerprint": saved.content_fingerprint,
+            "next_step": "Run evals, then review with /evolution approve before activation.",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def register_core_tools(registry=None):

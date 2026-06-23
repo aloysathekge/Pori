@@ -123,6 +123,11 @@ def _define_standard_groups(registry) -> None:
                 {"calculate_tool", "fibonacci_generator", "random_generator"}
             ),
         ),
+        CapabilityGroup(
+            name="evolution",
+            description="Governed self-evolution proposal drafting.",
+            tool_names=frozenset({"propose_evolution"}),
+        ),
     )
     for group in definitions:
         if group.name not in registry.groups:

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 
+from pori.evolution import EvolutionRepository
 from pori.memory import AgentMemory
 
 
@@ -65,3 +66,76 @@ def test_core_memory_insert_and_rethink_tools():
     )
     assert rethink["success"] is True
     assert memory.core_memory.get_block("notes").value == "fresh memory"
+
+
+def test_propose_evolution_tool_submits_inert_proposal():
+    from pori.tools.registry import ToolExecutor, tool_registry
+    from pori.tools.standard import register_all_tools
+
+    registry = tool_registry()
+    register_all_tools(registry)
+    repository = EvolutionRepository()
+    executor = ToolExecutor(registry)
+
+    result = executor.execute_tool(
+        "propose_evolution",
+        {
+            "artifact_kind": "skill",
+            "target": "skills/brainstorming",
+            "title": "Improve brainstorming",
+            "summary": "Ask questions before implementation.",
+            "rationale": "Repeated build tasks need design-before-build behavior.",
+            "current_version": "0",
+            "proposed_version": "1",
+            "proposed_content": "Ask one clarifying question first.",
+            "eval_cases": [
+                {
+                    "name": "asks-before-coding",
+                    "input": "Build a sync workflow",
+                    "expected": "A clarifying question first",
+                    "criteria": "The answer asks a clarifying question first.",
+                }
+            ],
+        },
+        context={"evolution_repository": repository},
+    )
+
+    assert result["success"] is True
+    proposal_id = result["result"]["proposal_id"]
+    proposal = repository.get(proposal_id)
+    assert proposal.status.value == "proposed"
+    assert proposal.target == "skills/brainstorming"
+
+
+def test_propose_evolution_tool_requires_repository():
+    from pori.tools.registry import ToolExecutor, tool_registry
+    from pori.tools.standard import register_all_tools
+
+    registry = tool_registry()
+    register_all_tools(registry)
+    executor = ToolExecutor(registry)
+
+    result = executor.execute_tool(
+        "propose_evolution",
+        {
+            "artifact_kind": "skill",
+            "target": "skills/brainstorming",
+            "title": "Improve brainstorming",
+            "summary": "Ask questions before implementation.",
+            "rationale": "Repeated build tasks need design-before-build behavior.",
+            "proposed_version": "1",
+            "proposed_content": "Ask one clarifying question first.",
+            "eval_cases": [
+                {
+                    "name": "asks-before-coding",
+                    "input": "Build a sync workflow",
+                    "criteria": "The answer asks a clarifying question first.",
+                }
+            ],
+        },
+        context={},
+    )
+
+    assert result["success"] is True
+    assert result["result"]["success"] is False
+    assert "repository not available" in result["result"]["error"]

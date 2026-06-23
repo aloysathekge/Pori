@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from pori.llm import BaseChatModel
 
 from ..agent import Agent, AgentSettings
+from ..evolution import EvolutionRepository
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
 from ..runtime import RunContext
@@ -30,6 +31,7 @@ class Orchestrator:
         shared_memory: Optional[AgentMemory] = None,
         skill_catalog: Optional[SkillCatalog] = None,
         skill_limit: int = 3,
+        evolution_repository: Optional[EvolutionRepository] = None,
     ):
         self.llm = llm
         self.tools_registry = tools_registry
@@ -38,6 +40,7 @@ class Orchestrator:
         self.shared_memory = shared_memory
         self.skill_catalog = skill_catalog
         self.skill_limit = skill_limit
+        self.evolution_repository = evolution_repository
 
     async def execute_task(
         self,
@@ -76,6 +79,7 @@ class Orchestrator:
             skill_catalog=self.skill_catalog,
             skill_limit=self.skill_limit,
             selected_skill_ids=selected_skill_ids,
+            evolution_repository=self.evolution_repository,
         )
         self.agents[task_id] = agent
 
