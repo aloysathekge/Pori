@@ -152,7 +152,7 @@ class EvolutionRepository:
         status: Optional[EvolutionProposalStatus] = None,
         target: Optional[str] = None,
     ) -> Tuple[EvolutionProposal, ...]:
-        proposals = self._proposals.values()
+        proposals: Iterable[EvolutionProposal] = self._proposals.values()
         if status is not None:
             proposals = [
                 proposal for proposal in proposals if proposal.status == status

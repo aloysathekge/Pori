@@ -60,7 +60,7 @@ from .runtime import (
     stable_fingerprint,
     utc_now,
 )
-from .skills import SkillCatalog, SkillSummary, render_selected_skills
+from .skills import SelectedSkill, SkillCatalog, SkillSummary, render_selected_skills
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
 from .utils.prompt_loader import load_prompt
@@ -236,7 +236,7 @@ class Agent:
         self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
         self.cancellation_token = cancellation_token or CancellationToken()
         self.selected_skill_summaries: Tuple[SkillSummary, ...] = ()
-        self.selected_skills = ()
+        self.selected_skills: Tuple[SelectedSkill, ...] = ()
         if self.skill_catalog is not None:
             self.selected_skill_summaries = self.skill_catalog.select(
                 task,

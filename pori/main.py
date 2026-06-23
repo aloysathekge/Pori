@@ -247,19 +247,19 @@ def _handle_evolution_command(
             print(f"Rejected proposal {rejected.proposal_id}.")
         elif subcmd == "activate" and len(parts) >= 3:
             reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
-            activation = repository.activate(parts[2], activated_by=reviewer)
+            activated = repository.activate(parts[2], activated_by=reviewer)
             print(
-                f"Activated {activation.target} at version {activation.version} "
-                f"from {activation.proposal_id}."
+                f"Activated {activated.target} at version {activated.version} "
+                f"from {activated.proposal_id}."
             )
         elif subcmd == "active" and len(parts) >= 3:
-            activation = repository.active(parts[2])
-            if activation is None:
+            active_activation = repository.active(parts[2])
+            if active_activation is None:
                 print(f"No active evolution proposal for {parts[2]}.")
             else:
                 print(
-                    f"{activation.target}: {activation.version} "
-                    f"({activation.proposal_id})"
+                    f"{active_activation.target}: {active_activation.version} "
+                    f"({active_activation.proposal_id})"
                 )
         elif subcmd == "rollback" and len(parts) >= 3:
             reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
