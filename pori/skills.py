@@ -60,6 +60,27 @@ class SkillSummary(BaseModel):
     reasons: Tuple[str, ...] = ()
 
 
+class SkillLinkedFile(BaseModel):
+    """A supporting file packaged with a local skill."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    kind: str = "file"
+    size_bytes: int = Field(default=0, ge=0)
+
+
+class SkillConfigDeclaration(BaseModel):
+    """A config value declared by skill frontmatter."""
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    description: str
+    default: Any = None
+    prompt: Optional[str] = None
+
+
 class SelectedSkill(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -68,10 +89,23 @@ class SelectedSkill(BaseModel):
     fingerprint: str
 
 
+class SkillFileView(BaseModel):
+    """Loaded content for a skill's main instructions or linked file."""
+
+    model_config = ConfigDict(frozen=True)
+
+    manifest: SkillManifest
+    path: str
+    content: str
+    linked_files: Tuple[SkillLinkedFile, ...] = ()
+
+
 @dataclass(frozen=True)
 class _SkillEntry:
     manifest: SkillManifest
     loader: Callable[[], str]
+    root_path: Optional[Path] = None
+    config_declarations: Tuple[SkillConfigDeclaration, ...] = ()
 
 
 class SkillCatalog:
@@ -85,11 +119,19 @@ class SkillCatalog:
         self,
         manifest: SkillManifest,
         instructions: str | Callable[[], str],
+        *,
+        root_path: Optional[Path] = None,
+        config_declarations: Iterable[SkillConfigDeclaration] = (),
     ) -> None:
         if manifest.skill_id in self._entries:
             raise ValueError(f"Skill '{manifest.skill_id}' is already registered")
         loader = instructions if callable(instructions) else lambda: instructions
-        self._entries[manifest.skill_id] = _SkillEntry(manifest, loader)
+        self._entries[manifest.skill_id] = _SkillEntry(
+            manifest,
+            loader,
+            root_path=root_path,
+            config_declarations=tuple(config_declarations),
+        )
 
     def manifests(self) -> Tuple[SkillManifest, ...]:
         return tuple(entry.manifest for _, entry in sorted(self._entries.items()))
@@ -187,6 +229,57 @@ class SkillCatalog:
     ) -> Tuple[SelectedSkill, ...]:
         return tuple(self.load(summary.skill_id) for summary in summaries)
 
+    def resolve_skill_id(self, identifier: str) -> str:
+        requested = identifier.strip().lower()
+        for skill_id, entry in self._entries.items():
+            manifest = entry.manifest
+            if requested in {skill_id.lower(), manifest.slug.lower()}:
+                return skill_id
+        raise ValueError(f"Unknown skill '{identifier}'")
+
+    def linked_files(self, skill_id: str) -> Tuple[SkillLinkedFile, ...]:
+        entry = self._entry_for(skill_id)
+        if entry.root_path is None:
+            return ()
+        return tuple(_iter_linked_files(entry.root_path))
+
+    def config_declarations(self, skill_id: str) -> Tuple[SkillConfigDeclaration, ...]:
+        return self._entry_for(skill_id).config_declarations
+
+    def view_file(
+        self, skill_id: str, file_path: Optional[str] = None
+    ) -> SkillFileView:
+        entry = self._entry_for(skill_id)
+        if file_path is None or not file_path.strip():
+            selected = self.load(skill_id)
+            return SkillFileView(
+                manifest=entry.manifest,
+                path="SKILL.md",
+                content=selected.instructions,
+                linked_files=self.linked_files(skill_id),
+            )
+
+        if entry.root_path is None:
+            raise ValueError(f"Skill '{skill_id}' has no local directory")
+        path = _resolve_linked_file(entry.root_path, file_path)
+        content = path.read_text(encoding="utf-8")
+        if len(content) > self.max_instruction_chars:
+            raise ValueError(
+                f"Skill file '{file_path}' exceeds {self.max_instruction_chars} characters"
+            )
+        return SkillFileView(
+            manifest=entry.manifest,
+            path=_relative_posix(entry.root_path, path),
+            content=content,
+            linked_files=self.linked_files(skill_id),
+        )
+
+    def _entry_for(self, skill_id: str) -> _SkillEntry:
+        try:
+            return self._entries[skill_id]
+        except KeyError as exc:
+            raise ValueError(f"Unknown skill '{skill_id}'") from exc
+
 
 def render_selected_skills(skills: Iterable[SelectedSkill]) -> str:
     sections = []
@@ -259,7 +352,7 @@ def _pori_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 def _extract_config_declarations(
     metadata: dict[str, Any]
-) -> Tuple[dict[str, Any], ...]:
+) -> Tuple[SkillConfigDeclaration, ...]:
     raw = _pori_metadata(metadata).get("config")
     if raw is None:
         return ()
@@ -276,7 +369,14 @@ def _extract_config_declarations(
         description = str(item.get("description", "")).strip()
         if not key or not description or key in seen:
             continue
-        declarations.append(dict(item))
+        declarations.append(
+            SkillConfigDeclaration(
+                key=key,
+                description=description,
+                default=item.get("default"),
+                prompt=item.get("prompt"),
+            )
+        )
         seen.add(key)
     return tuple(declarations)
 
@@ -291,15 +391,15 @@ def _resolve_config_value(config: dict[str, Any], dotted_key: str) -> Any:
 
 
 def _render_skill_config(
-    declarations: Iterable[dict[str, Any]],
+    declarations: Iterable[SkillConfigDeclaration],
     config_values: dict[str, Any],
 ) -> str:
     lines = []
     for declaration in declarations:
-        key = str(declaration["key"])
+        key = declaration.key
         value = _resolve_config_value(config_values, key)
         if value is None or (isinstance(value, str) and not value.strip()):
-            value = declaration.get("default", "")
+            value = declaration.default or ""
         lines.append(f"  {key} = {value if value != '' else '(not set)'}")
     if not lines:
         return ""
@@ -308,7 +408,7 @@ def _render_skill_config(
 
 def _append_skill_config(
     instructions: str,
-    declarations: Iterable[dict[str, Any]],
+    declarations: Iterable[SkillConfigDeclaration],
     config_values: dict[str, Any],
 ) -> str:
     rendered = _render_skill_config(declarations, config_values)
@@ -334,6 +434,54 @@ def _iter_skill_files(directory: Path) -> Iterable[Path]:
         if _is_skill_support_path(child):
             continue
         yield child
+
+
+def _relative_posix(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def _linked_file_kind(path: str) -> str:
+    first = path.split("/", 1)[0]
+    if first in _SKILL_SUPPORT_DIRS:
+        return first
+    return "file"
+
+
+def _iter_linked_files(skill_root: Path) -> Iterable[SkillLinkedFile]:
+    if not skill_root.exists() or not skill_root.is_dir():
+        return
+    for child in sorted(skill_root.rglob("*")):
+        if child.is_dir():
+            continue
+        if child.name == "SKILL.md":
+            continue
+        if any(part in _SKIP_SCAN_DIRS for part in child.parts):
+            continue
+        rel_path = _relative_posix(skill_root, child)
+        yield SkillLinkedFile(
+            path=rel_path,
+            kind=_linked_file_kind(rel_path),
+            size_bytes=child.stat().st_size,
+        )
+
+
+def _resolve_linked_file(skill_root: Path, file_path: str) -> Path:
+    candidate = Path(file_path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError("Skill file path must stay within the skill directory")
+    resolved_root = skill_root.resolve()
+    resolved = (resolved_root / candidate).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(
+            "Skill file path must stay within the skill directory"
+        ) from exc
+    if not resolved.exists() or not resolved.is_file():
+        raise ValueError(f"Skill file '{file_path}' not found")
+    if resolved.name == "SKILL.md":
+        raise ValueError("Use view_file(skill_id) to load SKILL.md")
+    return resolved
 
 
 def _is_skill_support_path(path: Path) -> bool:
@@ -416,6 +564,8 @@ def load_skill_catalog_from_directories(
                     lambda instructions=instructions, declarations=config_declarations: (
                         _append_skill_config(instructions, declarations, skill_config)
                     ),
+                    root_path=skill_dir,
+                    config_declarations=config_declarations,
                 )
             except ValueError:
                 continue
@@ -424,6 +574,9 @@ def load_skill_catalog_from_directories(
 
 __all__ = [
     "load_skill_catalog_from_directories",
+    "SkillConfigDeclaration",
+    "SkillFileView",
+    "SkillLinkedFile",
     "SelectedSkill",
     "SkillCatalog",
     "SkillManifest",

@@ -85,6 +85,66 @@ def _print_skill_catalog(
     )
 
 
+def _print_skill_detail(
+    skill_catalog: Optional[SkillCatalog],
+    registry: ToolRegistry,
+    identifier: str,
+    file_path: Optional[str] = None,
+) -> None:
+    if skill_catalog is None:
+        print("No local skills configured.")
+        return
+    try:
+        skill_id = skill_catalog.resolve_skill_id(identifier)
+        view = skill_catalog.view_file(skill_id, file_path)
+    except Exception as e:
+        print(f"Skill error: {e}")
+        return
+
+    if file_path:
+        print(f"\n=== {view.manifest.name}: {view.path} ===")
+        print(view.content)
+        return
+
+    summary = next(
+        item
+        for item in skill_catalog.summaries(registry.snapshot())
+        if item.skill_id == skill_id
+    )
+    status = (
+        "available" if summary.eligible else f"ineligible: {', '.join(summary.reasons)}"
+    )
+    print(f"\n=== Skill: {view.manifest.name} ===")
+    print(f"ID: {view.manifest.skill_id}")
+    print(f"Status: {status}")
+    print(f"Source: {view.manifest.source}")
+    if view.manifest.tags:
+        print(f"Tags: {', '.join(view.manifest.tags)}")
+    print(f"Summary: {view.manifest.summary}")
+
+    declarations = skill_catalog.config_declarations(skill_id)
+    if declarations:
+        print("\nConfig:")
+        for declaration in declarations:
+            default = (
+                f" (default: {declaration.default})"
+                if declaration.default is not None
+                else ""
+            )
+            print(f"  {declaration.key}: {declaration.description}{default}")
+
+    if view.linked_files:
+        print("\nLinked files:")
+        for linked_file in view.linked_files:
+            print(
+                f"  {linked_file.path} "
+                f"({linked_file.kind}, {linked_file.size_bytes} bytes)"
+            )
+    else:
+        print("\nLinked files: none")
+    print("\nUse /skill <name> <linked-file> to print a linked file.")
+
+
 def _resolve_skill_command(
     skill_catalog: Optional[SkillCatalog],
     command: str,
@@ -242,9 +302,20 @@ def _handle_cli_command(
         else:
             _print_skill_catalog(skill_catalog, registry)
 
+    elif cmd == "/skill":
+        if registry is None:
+            print("No tool registry available.")
+        elif len(parts) < 2:
+            print("Usage: /skill <name-or-id> [linked-file]")
+        else:
+            file_path = parts[2] if len(parts) > 2 else None
+            _print_skill_detail(skill_catalog, registry, parts[1], file_path)
+
     else:
         print(f"Unknown command: {cmd}")
-        print("Available commands: /memory, /model, /new, /skills, /reload-skills")
+        print(
+            "Available commands: /memory, /model, /new, /skills, /skill, /reload-skills"
+        )
 
 
 # Small curated per-provider lists used by /model. Users can also type a
