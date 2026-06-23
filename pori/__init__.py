@@ -37,6 +37,16 @@ from .eval import (
     TopicGuardrail,
 )
 from .evaluation import ActionResult, Evaluator
+from .evolution import (
+    EvolutionActivation,
+    EvolutionArtifactKind,
+    EvolutionEvalCase,
+    EvolutionEvalResult,
+    EvolutionProposal,
+    EvolutionProposalStatus,
+    EvolutionRepository,
+    FileEvolutionRepository,
+)
 from .hitl import (
     AutoApproveHandler,
     CLIHITLHandler,
@@ -224,6 +234,14 @@ __all__ = [
     # Evaluation
     "ActionResult",
     "Evaluator",
+    "EvolutionActivation",
+    "EvolutionArtifactKind",
+    "EvolutionEvalCase",
+    "EvolutionEvalResult",
+    "FileEvolutionRepository",
+    "EvolutionProposal",
+    "EvolutionProposalStatus",
+    "EvolutionRepository",
     # Eval framework
     "BaseEval",
     "EvalResult",

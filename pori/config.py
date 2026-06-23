@@ -141,6 +141,16 @@ class SkillsConfig(BaseModel):
     skill_limit: int = Field(default=3, ge=0)
 
 
+class EvolutionConfig(BaseModel):
+    """Configuration for governed self-evolution proposal state."""
+
+    enabled: bool = Field(default=True)
+    path: str = Field(
+        default="./.pori/evolution.json",
+        description="JSON file used to persist governed evolution proposals.",
+    )
+
+
 class Config(BaseModel):
     """Main configuration container."""
 
@@ -151,6 +161,7 @@ class Config(BaseModel):
     hitl: Optional[HITLConfig] = Field(default=None)
     prompts: Optional[PromptsConfig] = Field(default=None)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     team: Optional[TeamConfig] = Field(default=None)
 
 
