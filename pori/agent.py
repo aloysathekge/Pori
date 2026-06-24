@@ -342,6 +342,7 @@ class Agent:
         started_at: Optional[datetime] = None,
         duration_seconds: float = 0.0,
         error: Optional[str] = None,
+        artifacts: Optional[List[Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ToolExecutionReceipt:
         receipt = ToolExecutionReceipt(
@@ -353,10 +354,49 @@ class Agent:
             finished_at=utc_now(),
             duration_seconds=max(0.0, duration_seconds),
             error=error,
+            artifacts=artifacts or [],
             metadata=metadata or {},
         )
         self.execution_receipts.append(receipt)
         return receipt
+
+    def _extract_tool_artifacts(
+        self, tool_name: str, params: Dict[str, Any], tool_result: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Extract user-visible artifacts from successful tool results."""
+        if not tool_result.get("success") or tool_name not in {
+            "write_file",
+            "sandbox_write_file",
+        }:
+            return []
+        result = tool_result.get("result")
+        if not isinstance(result, dict):
+            return []
+        path = (
+            params.get("file_path")
+            or params.get("path")
+            or result.get("path")
+            or result.get("file_path")
+        )
+        file_info = result.get("file_info")
+        if not path and isinstance(file_info, dict):
+            path = file_info.get("path")
+        artifact: Dict[str, Any] = {
+            "kind": "file",
+            "tool_name": tool_name,
+            "path": path or "(path unavailable)",
+            "operation": "append" if bool(params.get("append")) else "write",
+        }
+        bytes_written = result.get("bytes_written")
+        if isinstance(bytes_written, int):
+            artifact["bytes_written"] = bytes_written
+        return [artifact]
+
+    def _run_artifacts(self) -> List[Dict[str, Any]]:
+        artifacts: List[Dict[str, Any]] = []
+        for receipt in self.execution_receipts:
+            artifacts.extend(receipt.artifacts)
+        return artifacts
 
     async def step(self) -> None:
         """Execute one step of the task."""
@@ -1741,6 +1781,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 success = tool_result.get("success", False)
+                artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,
                     params,
@@ -1748,6 +1789,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     started_at=start_time,
                     duration_seconds=execution_time,
                     error=tool_result.get("error") if not success else None,
+                    artifacts=artifacts,
                     metadata={"backend": self.tool_executor.__class__.__name__},
                 )
 
@@ -2123,6 +2165,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "execution_receipts": [
                 receipt.model_dump(mode="json") for receipt in self.execution_receipts
             ],
+            "artifacts": self._run_artifacts(),
             "budget_usage": self.budget_ledger.snapshot(),
         }
 
@@ -2153,6 +2196,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             "selected_skills": [
                 skill.manifest.skill_id for skill in self.selected_skills
             ],
+            "artifacts": self._run_artifacts(),
             "metrics": (
                 self._run_metrics.summary() if self._run_metrics is not None else None
             ),

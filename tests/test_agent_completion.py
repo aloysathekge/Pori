@@ -317,6 +317,43 @@ class TestMemoryDeletionGuards:
 class TestTerminalBehavior:
     """Tests for proper terminal behavior after task completion."""
 
+    def test_result_summary_reports_written_artifacts(
+        self, basic_registry, event_loop, tmp_path
+    ):
+        memory = AgentMemory()
+        agent = Agent(
+            task="Create a lesson file",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+        path = tmp_path / "lesson.html"
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "write_file": {
+                            "file_path": str(path),
+                            "content": "<html>lesson</html>",
+                        }
+                    }
+                ]
+            )
+        )
+
+        artifacts = agent.result_summary()["artifacts"]
+        assert artifacts == [
+            {
+                "kind": "file",
+                "tool_name": "write_file",
+                "path": str(path),
+                "operation": "write",
+                "bytes_written": 19,
+            }
+        ]
+
     def test_answer_rejected_when_file_claim_lacks_write_receipt(
         self, basic_registry, event_loop
     ):

@@ -99,6 +99,7 @@ class Orchestrator:
                 "final_answer": summary.get("final_answer"),
                 "reasoning": summary.get("reasoning"),
                 "selected_skills": summary.get("selected_skills", []),
+                "artifacts": summary.get("artifacts", []),
                 "metrics": summary.get("metrics"),
                 "trace": summary.get("trace"),
                 "summary": summary,
