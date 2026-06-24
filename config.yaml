@@ -18,7 +18,7 @@ llm:
   provider: fireworks
   model: accounts/fireworks/models/kimi-k2p6
   temperature: 0.6
-  max_tokens: 4096
+  max_tokens: 8192
   extra_params:
     top_p: 1
     top_k: 40
@@ -64,6 +64,9 @@ memory:
 # Prompts: override where prompt templates are loaded from (optional)
 # prompts:
 #   base_dir: ./prompts
+
+skills:
+  enabled: true
 
 Sandbox: isolated shell and file environment per task (optional)
 sandbox:

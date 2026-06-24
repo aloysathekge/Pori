@@ -3,12 +3,20 @@
 from typing import Any, Generic, TypeVar, cast
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .messages import BaseMessage
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class StructuredOutputParseError(ValueError):
+    """Raised when a structured response is present but invalid JSON/schema."""
+
+    def __init__(self, message: str, *, raw_content: Any = None):
+        super().__init__(message)
+        self.raw_content = raw_content
 
 
 class ChatOpenAI:
@@ -97,7 +105,13 @@ class ChatOpenAI:
                 self.last_usage = None
 
             content = response.choices[0].message.content
-            return output_format.model_validate_json(content)
+            try:
+                return output_format.model_validate_json(content)
+            except ValidationError as exc:
+                raise StructuredOutputParseError(
+                    f"Structured output parse failed: {exc}",
+                    raw_content=content,
+                ) from exc
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False
@@ -111,7 +125,7 @@ class StructuredWrapper(Generic[T]):
 
     def __init__(
         self,
-        llm: ChatOpenAI,
+        llm: Any,
         output_model: type[T],
         include_raw: bool = False,
     ):
@@ -121,7 +135,12 @@ class StructuredWrapper(Generic[T]):
 
     async def ainvoke(self, messages: list[BaseMessage]) -> dict[str, Any] | T:
         """Invoke with structured output."""
-        result = await self._llm.ainvoke(messages, output_format=self._output_model)
+        try:
+            result = await self._llm.ainvoke(messages, output_format=self._output_model)
+        except StructuredOutputParseError as exc:
+            if self._include_raw:
+                return {"parsed": None, "raw": exc.raw_content, "error": str(exc)}
+            raise
         if self._include_raw:
             return {"parsed": result, "raw": None}
         return cast(T, result)

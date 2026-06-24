@@ -108,6 +108,117 @@ class EvolutionProposal(BaseModel):
         observed = {result.case_name for result in self.eval_results if result.passed}
         return expected.issubset(observed)
 
+    @property
+    def missing_eval_cases(self) -> Tuple[str, ...]:
+        expected = {case.name for case in self.eval_cases}
+        passed = {result.case_name for result in self.eval_results if result.passed}
+        return tuple(sorted(expected.difference(passed)))
+
+    @property
+    def passed_eval_count(self) -> int:
+        expected = {case.name for case in self.eval_cases}
+        passed = {
+            result.case_name
+            for result in self.eval_results
+            if result.passed and result.case_name in expected
+        }
+        return len(passed)
+
+    def review_summary(self) -> "EvolutionReviewSummary":
+        """Return the compact review state humans need before approval."""
+
+        return EvolutionReviewSummary(
+            proposal_id=self.proposal_id,
+            status=self.status,
+            artifact_kind=self.artifact_kind,
+            target=self.target,
+            title=self.title,
+            summary=self.summary,
+            current_version=self.current_version,
+            proposed_version=self.proposed_version,
+            eval_case_count=len(self.eval_cases),
+            eval_result_count=len(self.eval_results),
+            passed_eval_count=self.passed_eval_count,
+            missing_eval_cases=self.missing_eval_cases,
+            evaluations_passed=self.evaluations_passed,
+            content_fingerprint=self.content_fingerprint,
+            approved_by=self.approved_by,
+            activated_at=self.activated_at,
+            created_at=self.created_at,
+        )
+
+
+class EvolutionReviewSummary(BaseModel):
+    """Compact reviewer-facing summary for one governed proposal."""
+
+    model_config = ConfigDict(frozen=True)
+
+    proposal_id: str
+    status: EvolutionProposalStatus
+    artifact_kind: EvolutionArtifactKind
+    target: str
+    title: str
+    summary: str
+    current_version: Optional[str] = None
+    proposed_version: str
+    eval_case_count: int
+    eval_result_count: int
+    passed_eval_count: int
+    missing_eval_cases: Tuple[str, ...] = ()
+    evaluations_passed: bool
+    content_fingerprint: str
+    approved_by: Optional[str] = None
+    activated_at: Optional[str] = None
+    created_at: str
+
+
+def run_local_evolution_evals(
+    proposal: EvolutionProposal,
+    *,
+    evaluator: str = "local-eval-runner",
+) -> Tuple[EvolutionEvalResult, ...]:
+    """Run deterministic local checks for proposal eval cases.
+
+    Local checks intentionally stay narrow: they only pass cases whose expected
+    text appears in the proposed content. Cases without expected text still need
+    a human or model judge.
+    """
+
+    content = _normalize_eval_text(proposal.proposed_content)
+    results: List[EvolutionEvalResult] = []
+    for case in proposal.eval_cases:
+        if not case.expected:
+            results.append(
+                EvolutionEvalResult(
+                    case_name=case.name,
+                    passed=False,
+                    reason="No expected text was provided; manual review is required.",
+                    evaluator=evaluator,
+                )
+            )
+            continue
+        expected = _normalize_eval_text(case.expected)
+        passed = bool(expected and expected in content)
+        reason = (
+            "Expected text was found in the proposed content."
+            if passed
+            else "Expected text was not found in the proposed content."
+        )
+        results.append(
+            EvolutionEvalResult(
+                case_name=case.name,
+                passed=passed,
+                score=1.0 if passed else 0.0,
+                reason=reason,
+                evaluator=evaluator,
+            )
+        )
+    return tuple(results)
+
+
+def _normalize_eval_text(value: str) -> str:
+    return " ".join(value.casefold().split())
+
 
 class EvolutionActivation(BaseModel):
     """Version activation record for one target."""
@@ -162,6 +273,17 @@ class EvolutionRepository:
                 proposal for proposal in proposals if proposal.target == target
             ]
         return tuple(sorted(proposals, key=lambda proposal: proposal.created_at))
+
+    def review_summaries(
+        self,
+        *,
+        status: Optional[EvolutionProposalStatus] = None,
+        target: Optional[str] = None,
+    ) -> Tuple[EvolutionReviewSummary, ...]:
+        return tuple(
+            proposal.review_summary()
+            for proposal in self.list(status=status, target=target)
+        )
 
     def record_evaluations(
         self,
@@ -389,5 +511,7 @@ __all__ = [
     "FileEvolutionRepository",
     "EvolutionProposal",
     "EvolutionProposalStatus",
+    "EvolutionReviewSummary",
     "EvolutionRepository",
+    "run_local_evolution_evals",
 ]

@@ -25,11 +25,18 @@ class SkillManifest(BaseModel):
     version: str = Field(min_length=1, max_length=64)
     summary: str = Field(min_length=1, max_length=500)
     tags: Tuple[str, ...] = ()
+    category: str = "local"
+    author: str = ""
+    license: str = ""
+    commands: Tuple[str, ...] = ()
+    argument_hint: str = ""
     required_tools: frozenset[str] = frozenset()
     required_credentials: Tuple[str, ...] = ()
     required_platforms: Tuple[str, ...] = ()
     required_model_capabilities: frozenset[str] = frozenset()
     source: str = "local"
+    source_url: str = ""
+    install_command: str = ""
     sensitivity: str = "internal"
     instructions_fingerprint: Optional[str] = None
 
@@ -58,6 +65,50 @@ class SkillSummary(BaseModel):
     tags: Tuple[str, ...]
     eligible: bool
     reasons: Tuple[str, ...] = ()
+
+
+class SkillIndexEntry(BaseModel):
+    """Searchable, Hermes-style metadata for a skill without instructions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    skill_id: str
+    slug: str
+    name: str
+    version: str
+    summary: str
+    tags: Tuple[str, ...]
+    category: str
+    author: str
+    license: str
+    commands: Tuple[str, ...]
+    argument_hint: str
+    source: str
+    source_url: str
+    install_command: str
+    eligible: bool
+    reasons: Tuple[str, ...] = ()
+
+
+class SkillSearchHit(BaseModel):
+    """One ranked skill-index match for a user request."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entry: SkillIndexEntry
+    score: int
+    matched_terms: Tuple[str, ...] = ()
+
+
+class SkillInvocation(BaseModel):
+    """A selected skill plus the user's meaningful invocation text."""
+
+    model_config = ConfigDict(frozen=True)
+
+    skill_id: str
+    invocation_text: str
+    missing_argument: bool = False
+    argument_hint: str = ""
 
 
 class SkillLinkedFile(BaseModel):
@@ -160,6 +211,42 @@ class SkillCatalog:
             )
         return tuple(summaries)
 
+    def index(
+        self,
+        snapshot: CapabilitySnapshot,
+        *,
+        model_capabilities: frozenset[str] = frozenset(),
+    ) -> Tuple[SkillIndexEntry, ...]:
+        """Return searchable metadata for all known skills."""
+
+        entries = []
+        for manifest in self.manifests():
+            report = manifest.eligibility().evaluate(
+                available_tools=snapshot.tool_names,
+                model_capabilities=model_capabilities,
+            )
+            entries.append(
+                SkillIndexEntry(
+                    skill_id=manifest.skill_id,
+                    slug=manifest.slug,
+                    name=manifest.name,
+                    version=manifest.version,
+                    summary=manifest.summary,
+                    tags=manifest.tags,
+                    category=manifest.category,
+                    author=manifest.author,
+                    license=manifest.license,
+                    commands=manifest.commands,
+                    argument_hint=manifest.argument_hint,
+                    source=manifest.source,
+                    source_url=manifest.source_url,
+                    install_command=manifest.install_command,
+                    eligible=report.eligible,
+                    reasons=report.reasons,
+                )
+            )
+        return tuple(entries)
+
     @staticmethod
     def _terms(value: str) -> frozenset[str]:
         return frozenset(re.findall(r"[a-z0-9]+", value.lower()))
@@ -181,19 +268,16 @@ class SkillCatalog:
                 raise ValueError(f"Unknown skills: {', '.join(sorted(unknown))}")
             selected = [item for item in summaries if item.skill_id in requested]
         else:
-            query_terms = self._terms(query)
-            ranked = []
-            for item in summaries:
-                manifest = self._entries[item.skill_id].manifest
-                metadata_terms = self._terms(
-                    " ".join(
-                        (manifest.slug, manifest.name, manifest.summary, *manifest.tags)
-                    )
+            summary_by_id = {item.skill_id: item for item in summaries}
+            selected = [
+                summary_by_id[hit.entry.skill_id]
+                for hit in self.search(
+                    query,
+                    snapshot,
+                    model_capabilities=model_capabilities,
+                    limit=limit,
                 )
-                score = len(query_terms.intersection(metadata_terms))
-                if score:
-                    ranked.append((score, item.skill_id, item))
-            selected = [item for _, _, item in sorted(ranked, reverse=True)]
+            ]
         ineligible = [item for item in selected if not item.eligible]
         if ineligible:
             details = "; ".join(
@@ -201,6 +285,61 @@ class SkillCatalog:
             )
             raise ValueError(f"Selected skills are ineligible: {details}")
         return tuple(selected[: max(0, limit)])
+
+    def search(
+        self,
+        query: str,
+        snapshot: CapabilitySnapshot,
+        *,
+        model_capabilities: frozenset[str] = frozenset(),
+        limit: int = 10,
+        min_score: int = 1,
+    ) -> Tuple[SkillSearchHit, ...]:
+        """Search the skill index by slug, name, summary, tags, and commands."""
+
+        query_terms = self._terms(query)
+        if not query_terms:
+            return ()
+        hits = []
+        for entry in self.index(snapshot, model_capabilities=model_capabilities):
+            metadata = " ".join(
+                (
+                    entry.slug,
+                    entry.name,
+                    entry.summary,
+                    entry.category,
+                    *entry.tags,
+                    *entry.commands,
+                )
+            )
+            metadata_terms = self._terms(metadata)
+            matched = query_terms.intersection(metadata_terms)
+            score = len(matched)
+            lowered_query = query.casefold()
+            if entry.slug.casefold() in lowered_query:
+                score += 8
+            if entry.name.casefold() in lowered_query:
+                score += 6
+            if any(tag.casefold() in lowered_query for tag in entry.tags):
+                score += 3
+            if score >= min_score:
+                hits.append(
+                    SkillSearchHit(
+                        entry=entry,
+                        score=score,
+                        matched_terms=tuple(sorted(matched)),
+                    )
+                )
+        ranked = sorted(
+            hits,
+            key=lambda hit: (
+                hit.score,
+                hit.entry.eligible,
+                hit.entry.skill_id,
+            ),
+            reverse=True,
+        )
+        return tuple(ranked[: max(0, limit)])
 
     def load(self, skill_id: str) -> SelectedSkill:
         try:
@@ -236,6 +375,19 @@ class SkillCatalog:
             if requested in {skill_id.lower(), manifest.slug.lower()}:
                 return skill_id
         raise ValueError(f"Unknown skill '{identifier}'")
+
+    def build_invocation(self, skill_id: str, task: str) -> SkillInvocation:
+        entry = self._entry_for(skill_id)
+        invocation_text = _skill_invocation_text(entry.manifest, task)
+        return SkillInvocation(
+            skill_id=skill_id,
+            invocation_text=invocation_text,
+            missing_argument=bool(
+                entry.manifest.argument_hint
+                and _missing_invocation_argument(invocation_text)
+            ),
+            argument_hint=entry.manifest.argument_hint,
+        )
 
     def linked_files(self, skill_id: str) -> Tuple[SkillLinkedFile, ...]:
         entry = self._entry_for(skill_id)
@@ -417,6 +569,45 @@ def _append_skill_config(
     return f"{instructions.rstrip()}{rendered}"
 
 
+def _skill_invocation_text(manifest: SkillManifest, task: str) -> str:
+    text = " ".join(task.strip().split())
+    if not text:
+        return ""
+    removable = {
+        manifest.slug.casefold(),
+        manifest.name.casefold(),
+        *(command.casefold() for command in manifest.commands),
+    }
+    normalized = text.casefold()
+    for phrase in sorted((item for item in removable if item), key=len, reverse=True):
+        normalized = re.sub(rf"\b{re.escape(phrase)}\b", " ", normalized)
+    normalized = re.sub(
+        r"\b(i|me|my|you|want|would|like|please|can|could|to|the|a|an)\b",
+        " ",
+        normalized,
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _missing_invocation_argument(invocation_text: str) -> bool:
+    text = invocation_text.strip().casefold()
+    if not text:
+        return True
+    vague_terms = {
+        "something",
+        "anything",
+        "thing",
+        "stuff",
+        "whatever",
+        "something new",
+        "anything else",
+    }
+    if text in vague_terms:
+        return True
+    return len(text.split()) < 1
+
+
 def _skill_instruction_loader(
     instructions: str,
     declarations: Tuple[SkillConfigDeclaration, ...],
@@ -545,6 +736,22 @@ def load_skill_catalog_from_directories(
                     or _summary_from_body(instructions)
                 )[:500],
                 tags=_as_tuple(metadata.get("tags") or nested.get("tags")),
+                category=str(
+                    metadata.get("category") or nested.get("category") or "local"
+                ),
+                author=str(metadata.get("author") or nested.get("author") or ""),
+                license=str(metadata.get("license") or nested.get("license") or ""),
+                commands=_as_tuple(
+                    metadata.get("commands")
+                    or metadata.get("command")
+                    or nested.get("commands")
+                ),
+                argument_hint=str(
+                    metadata.get("argument-hint")
+                    or metadata.get("argument_hint")
+                    or nested.get("argument_hint")
+                    or ""
+                ),
                 required_tools=frozenset(
                     _as_tuple(
                         metadata.get("required_tools") or nested.get("required_tools")
@@ -566,6 +773,18 @@ def load_skill_catalog_from_directories(
                     )
                 ),
                 source=f"local:{skill_dir}",
+                source_url=str(
+                    metadata.get("source_url")
+                    or metadata.get("url")
+                    or nested.get("source_url")
+                    or ""
+                ),
+                install_command=str(
+                    metadata.get("install_command")
+                    or metadata.get("installCmd")
+                    or nested.get("install_command")
+                    or f"copy {skill_dir} into .pori/skills"
+                ),
                 sensitivity=str(metadata.get("sensitivity") or "internal"),
                 instructions_fingerprint=metadata.get("instructions_fingerprint"),
             )
@@ -589,7 +808,10 @@ __all__ = [
     "load_skill_catalog_from_directories",
     "SkillConfigDeclaration",
     "SkillFileView",
+    "SkillIndexEntry",
+    "SkillInvocation",
     "SkillLinkedFile",
+    "SkillSearchHit",
     "SelectedSkill",
     "SkillCatalog",
     "SkillManifest",

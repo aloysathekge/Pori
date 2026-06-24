@@ -7,10 +7,16 @@ from pori import (
 )
 from pori.config import Config, LLMConfig, SkillsConfig
 from pori.main import (
+    _format_tool_call_parameters,
     _handle_cli_command,
     _load_cli_skill_catalog,
+    _missing_skill_argument_message,
+    _resolve_auto_skill_selection,
     _resolve_skill_command,
+    _resume_pending_skill_task,
+    _summarize_written_artifacts,
 )
+from pori.memory import ToolCallRecord
 
 
 def test_load_skill_catalog_from_local_skill_file(tmp_path, tool_registry):
@@ -23,6 +29,13 @@ slug: repo-workflow
 version: 2
 summary: Work safely in a repository
 tags: [repo, workflow]
+category: software-development
+author: Pori
+license: MIT
+commands: [inspect, verify]
+source_url: https://example.com/repo-workflow
+install_command: pori skills install repo-workflow
+argument-hint: Which repository task should this skill perform?
 required_tools: [test_tool]
 ---
 
@@ -40,6 +53,15 @@ Always inspect source-of-truth files before editing.
     assert manifests[0].skill_id == "repo-workflow@2"
     assert manifests[0].source.startswith("local:")
     assert manifests[0].required_tools == frozenset({"test_tool"})
+    assert manifests[0].category == "software-development"
+    assert manifests[0].author == "Pori"
+    assert manifests[0].license == "MIT"
+    assert manifests[0].commands == ("inspect", "verify")
+    assert manifests[0].source_url == "https://example.com/repo-workflow"
+    assert manifests[0].install_command == "pori skills install repo-workflow"
+    assert (
+        manifests[0].argument_hint == "Which repository task should this skill perform?"
+    )
 
     summaries = catalog.summaries(tool_registry.snapshot())
     assert summaries[0].eligible is True
@@ -47,6 +69,64 @@ Always inspect source-of-truth files before editing.
     selected = catalog.load("repo-workflow@2")
     assert "Always inspect source-of-truth" in selected.instructions
     assert "required_tools" not in selected.instructions
+
+
+def test_cli_summarizes_written_artifacts_and_redacts_content():
+    calls = [
+        ToolCallRecord(
+            tool_name="sandbox_write_file",
+            parameters={
+                "path": "/mnt/user-data/workspace/lessons/division.html",
+                "content": "<html>lesson</html>",
+            },
+            result={
+                "success": True,
+                "path": "/mnt/user-data/workspace/lessons/division.html",
+                "bytes_written": 19,
+            },
+            success=True,
+            task_id="task_1",
+        )
+    ]
+
+    artifacts = _summarize_written_artifacts(calls)
+    params = _format_tool_call_parameters(calls[0].parameters)
+
+    assert artifacts == [
+        "sandbox_write_file: wrote /mnt/user-data/workspace/lessons/division.html (19 bytes)"
+    ]
+    assert "'content': '<19 chars>'" in params
+    assert "<html>lesson</html>" not in params
+
+
+def test_skill_catalog_builds_hermes_style_index_and_searches(tool_registry):
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept, within this workspace.",
+            tags=("learning", "productivity"),
+            category="productivity",
+            commands=("teach", "lesson"),
+            source="local:.pori/skills/teach",
+            install_command="copy teach into .pori/skills",
+        ),
+        "Teach interactively.",
+    )
+
+    index = catalog.index(tool_registry.snapshot())
+    hits = catalog.search(
+        "teach me multiplication like I am starting from zero",
+        tool_registry.snapshot(),
+    )
+
+    assert index[0].skill_id == "teach@1"
+    assert index[0].category == "productivity"
+    assert index[0].install_command == "copy teach into .pori/skills"
+    assert hits[0].entry.skill_id == "teach@1"
+    assert "teach" in hits[0].matched_terms
 
 
 def test_skill_loader_skips_disabled_skills_and_injects_declared_config(tmp_path):
@@ -203,6 +283,34 @@ def test_skills_command_prints_catalog(capsys, tool_registry):
     output = capsys.readouterr().out
     assert "repo-workflow@1" in output
     assert "available" in output
+    assert "source:" in output
+
+
+def test_skills_command_searches_catalog(capsys, tool_registry):
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept",
+            tags=("learning",),
+            install_command="copy teach into .pori/skills",
+        ),
+        "Teach interactively.",
+    )
+
+    _handle_cli_command(
+        "/skills multiplication teach",
+        AgentMemory(),
+        skill_catalog=catalog,
+        registry=tool_registry,
+    )
+
+    output = capsys.readouterr().out
+    assert "=== Skill Search: multiplication teach ===" in output
+    assert "teach@1" in output
+    assert "install: copy teach into .pori/skills" in output
 
 
 def test_skill_command_prints_detail_and_linked_file(capsys, tmp_path, tool_registry):
@@ -261,3 +369,77 @@ def test_resolve_skill_command_matches_slug_and_preserves_task():
         "inspect files",
     )
     assert _resolve_skill_command(catalog, "/missing inspect files") is None
+
+
+def test_auto_skill_selection_matches_natural_teaching_request(tool_registry):
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="teach",
+            version="1",
+            summary="Teach the user a new skill or concept, within this workspace.",
+        ),
+        "Teach the user interactively.",
+    )
+
+    assert _resolve_auto_skill_selection(
+        catalog,
+        tool_registry,
+        "teach me multiplication like I am starting from zero",
+        skill_limit=3,
+    ) == ("teach@1",)
+
+
+def test_missing_skill_argument_message_is_metadata_driven():
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="workshop",
+            name="Workshop",
+            version="1",
+            summary="Run a structured workshop",
+            commands=("workshop",),
+            argument_hint="What topic should the workshop cover?",
+        ),
+        "Run the workshop.",
+    )
+
+    message = _missing_skill_argument_message(
+        catalog,
+        ["workshop@1"],
+        "please workshop something",
+    )
+
+    assert message is not None
+    assert "workshop@1: What topic should the workshop cover?" in message
+    assert (
+        _missing_skill_argument_message(
+            catalog,
+            ["workshop@1"],
+            "please workshop API design",
+        )
+        is None
+    )
+
+
+def test_pending_skill_invocation_resumes_with_user_detail():
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept",
+            argument_hint="What would you like to learn about?",
+        ),
+        "Teach interactively.",
+    )
+    selected = ["teach@1"]
+    pending_task = "I want you to teach me something"
+
+    resumed = _resume_pending_skill_task(pending_task, "basic 1+1")
+
+    assert resumed == "I want you to teach me basic 1+1"
+    assert _missing_skill_argument_message(catalog, selected, resumed) is None
+    assert catalog.build_invocation("teach@1", resumed).invocation_text == "basic 1+1"

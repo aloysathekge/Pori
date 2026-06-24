@@ -8,6 +8,7 @@ from pori import (
     EvolutionProposalStatus,
     EvolutionRepository,
     FileEvolutionRepository,
+    run_local_evolution_evals,
 )
 from pori.main import _handle_evolution_command
 
@@ -71,6 +72,50 @@ def test_failed_evaluations_block_approval():
     assert evaluated.status == EvolutionProposalStatus.EVALUATED
     with pytest.raises(ValueError, match="all eval cases pass"):
         repo.approve(proposal.proposal_id, reviewer="human")
+
+
+def test_review_summary_reports_eval_readiness():
+    repo = EvolutionRepository()
+    proposal = repo.submit(_proposal())
+
+    initial_summary = proposal.review_summary()
+
+    assert initial_summary.eval_case_count == 1
+    assert initial_summary.eval_result_count == 0
+    assert initial_summary.passed_eval_count == 0
+    assert initial_summary.missing_eval_cases == ("asks-before-coding",)
+    assert initial_summary.evaluations_passed is False
+
+    evaluated = repo.record_evaluations(
+        proposal.proposal_id,
+        (
+            EvolutionEvalResult(
+                case_name="asks-before-coding",
+                passed=True,
+                score=1.0,
+                reason="The response asked a clarifying question first.",
+            ),
+        ),
+    )
+    ready_summary = evaluated.review_summary()
+
+    assert ready_summary.eval_result_count == 1
+    assert ready_summary.passed_eval_count == 1
+    assert ready_summary.missing_eval_cases == ()
+    assert ready_summary.evaluations_passed is True
+
+
+def test_local_evolution_eval_runner_checks_expected_text():
+    proposal = _proposal()
+
+    results = run_local_evolution_evals(proposal)
+
+    assert len(results) == 1
+    assert results[0].case_name == "asks-before-coding"
+    assert results[0].passed is False
+    assert results[0].score == 0.0
+    assert results[0].evaluator == "local-eval-runner"
+    assert "not found" in results[0].reason
 
 
 def test_governed_activation_requires_eval_and_review():
@@ -183,3 +228,42 @@ def test_evolution_cli_flow_from_json_files(tmp_path, capsys):
     assert "Approved proposal evo_test" in output
     assert "Activated skills/brainstorming" in output
     assert "skills/brainstorming: 1 (evo_test)" in output
+
+
+def test_evolution_cli_review_output_shows_missing_eval_state(tmp_path, capsys):
+    repo = FileEvolutionRepository(tmp_path / "evolution.json")
+    repo.submit(_proposal())
+
+    _handle_evolution_command("/evolution list", repo)
+    _handle_evolution_command("/evolution show evo_test", repo)
+
+    output = capsys.readouterr().out
+    assert "evo_test [proposed] skills/brainstorming -> 1 evals=0/1" in output
+    assert "Passed evals: 0/1" in output
+    assert "Missing evals: asks-before-coding" in output
+
+
+def test_evolution_cli_local_eval_can_unlock_approval(tmp_path, capsys):
+    repo = FileEvolutionRepository(tmp_path / "evolution.json")
+    proposal = _proposal()
+    proposal = proposal.model_copy(
+        update={
+            "eval_cases": (
+                EvolutionEvalCase(
+                    name="mentions-clarifying-question",
+                    input="Build a new sync workflow",
+                    expected="clarifying question",
+                    criteria="The proposed content must preserve clarification.",
+                ),
+            )
+        }
+    )
+    repo.submit(proposal)
+
+    _handle_evolution_command("/evolution eval-local evo_test", repo)
+    _handle_evolution_command("/evolution approve evo_test reviewer", repo)
+
+    output = capsys.readouterr().out
+    assert "Recorded 1 local eval result(s) for evo_test; passed 1/1" in output
+    assert "Approved proposal evo_test" in output
+    assert repo.get("evo_test").evaluations_passed is True

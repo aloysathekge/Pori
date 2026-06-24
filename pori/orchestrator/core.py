@@ -98,6 +98,7 @@ class Orchestrator:
                 "steps_taken": result["steps_taken"],
                 "final_answer": summary.get("final_answer"),
                 "reasoning": summary.get("reasoning"),
+                "selected_skills": summary.get("selected_skills", []),
                 "metrics": summary.get("metrics"),
                 "trace": summary.get("trace"),
                 "summary": summary,
