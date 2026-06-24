@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import which
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 import yaml
@@ -30,6 +34,10 @@ class SkillManifest(BaseModel):
     license: str = ""
     commands: Tuple[str, ...] = ()
     argument_hint: str = ""
+    provenance: str = "local"
+    trust_level: str = "local"
+    required_commands: Tuple[str, ...] = ()
+    setup_help: str = ""
     required_tools: frozenset[str] = frozenset()
     required_credentials: Tuple[str, ...] = ()
     required_platforms: Tuple[str, ...] = ()
@@ -37,6 +45,7 @@ class SkillManifest(BaseModel):
     source: str = "local"
     source_url: str = ""
     install_command: str = ""
+    readiness_warnings: Tuple[str, ...] = ()
     sensitivity: str = "internal"
     instructions_fingerprint: Optional[str] = None
 
@@ -83,11 +92,30 @@ class SkillIndexEntry(BaseModel):
     license: str
     commands: Tuple[str, ...]
     argument_hint: str
+    provenance: str
+    trust_level: str
+    required_commands: Tuple[str, ...]
+    setup_help: str
     source: str
     source_url: str
     install_command: str
+    readiness: str = "ready"
+    readiness_reasons: Tuple[str, ...] = ()
     eligible: bool
     reasons: Tuple[str, ...] = ()
+
+
+class SkillReadiness(BaseModel):
+    """Computed setup and safety readiness for a skill."""
+
+    model_config = ConfigDict(frozen=True)
+
+    skill_id: str
+    status: str
+    reasons: Tuple[str, ...] = ()
+    missing_credentials: Tuple[str, ...] = ()
+    missing_commands: Tuple[str, ...] = ()
+    warnings: Tuple[str, ...] = ()
 
 
 class SkillSearchHit(BaseModel):
@@ -109,6 +137,44 @@ class SkillInvocation(BaseModel):
     invocation_text: str
     missing_argument: bool = False
     argument_hint: str = ""
+
+
+class SkillBundle(BaseModel):
+    """A named group of skills that can be invoked together."""
+
+    model_config = ConfigDict(frozen=True)
+
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    skills: Tuple[str, ...]
+    instruction: str = ""
+    source: str = "local"
+
+
+class SkillInstallPreview(BaseModel):
+    """Metadata preview for an installable skill source."""
+
+    model_config = ConfigDict(frozen=True)
+
+    slug: str
+    name: str
+    version: str
+    summary: str
+    source: str
+    has_support_files: bool = False
+
+
+class SkillInstallResult(BaseModel):
+    """Result of installing a skill into a local skill directory."""
+
+    model_config = ConfigDict(frozen=True)
+
+    slug: str
+    name: str
+    version: str
+    installed_path: str
+    replaced: bool = False
 
 
 class SkillLinkedFile(BaseModel):
@@ -225,6 +291,7 @@ class SkillCatalog:
                 available_tools=snapshot.tool_names,
                 model_capabilities=model_capabilities,
             )
+            readiness = self.readiness(manifest.skill_id)
             entries.append(
                 SkillIndexEntry(
                     skill_id=manifest.skill_id,
@@ -238,14 +305,55 @@ class SkillCatalog:
                     license=manifest.license,
                     commands=manifest.commands,
                     argument_hint=manifest.argument_hint,
+                    provenance=manifest.provenance,
+                    trust_level=manifest.trust_level,
+                    required_commands=manifest.required_commands,
+                    setup_help=manifest.setup_help,
                     source=manifest.source,
                     source_url=manifest.source_url,
                     install_command=manifest.install_command,
+                    readiness=readiness.status,
+                    readiness_reasons=readiness.reasons,
                     eligible=report.eligible,
                     reasons=report.reasons,
                 )
             )
         return tuple(entries)
+
+    def readiness(self, skill_id: str) -> SkillReadiness:
+        entry = self._entry_for(skill_id)
+        manifest = entry.manifest
+        missing_credentials = tuple(
+            credential
+            for credential in manifest.required_credentials
+            if not os.getenv(credential)
+        )
+        missing_commands = tuple(
+            command for command in manifest.required_commands if which(command) is None
+        )
+        warnings = tuple(manifest.readiness_warnings)
+        reasons = []
+        if missing_credentials:
+            reasons.append(
+                "missing credentials: " + ", ".join(sorted(missing_credentials))
+            )
+        if missing_commands:
+            reasons.append("missing commands: " + ", ".join(sorted(missing_commands)))
+        if warnings:
+            reasons.extend(warnings)
+        status = "ready"
+        if warnings:
+            status = "review_needed"
+        if missing_credentials or missing_commands:
+            status = "setup_needed"
+        return SkillReadiness(
+            skill_id=manifest.skill_id,
+            status=status,
+            reasons=tuple(reasons),
+            missing_credentials=missing_credentials,
+            missing_commands=missing_commands,
+            warnings=warnings,
+        )
 
     @staticmethod
     def _terms(value: str) -> frozenset[str]:
@@ -433,6 +541,38 @@ class SkillCatalog:
             raise ValueError(f"Unknown skill '{skill_id}'") from exc
 
 
+class SkillBundleCatalog:
+    """Local YAML skill bundles that resolve to multiple skill ids."""
+
+    def __init__(self, bundles: Iterable[SkillBundle] = ()):
+        self._bundles: Dict[str, SkillBundle] = {}
+        for bundle in bundles:
+            self.register(bundle)
+
+    def register(self, bundle: SkillBundle) -> None:
+        if bundle.slug in self._bundles:
+            raise ValueError(f"Skill bundle '{bundle.slug}' is already registered")
+        self._bundles[bundle.slug] = bundle
+
+    def bundles(self) -> Tuple[SkillBundle, ...]:
+        return tuple(bundle for _, bundle in sorted(self._bundles.items()))
+
+    def resolve(self, identifier: str) -> SkillBundle:
+        requested = identifier.strip().lower().replace("_", "-")
+        if requested.startswith("/"):
+            requested = requested[1:]
+        for bundle in self._bundles.values():
+            if requested in {bundle.slug, bundle.name.lower().replace(" ", "-")}:
+                return bundle
+        raise ValueError(f"Unknown skill bundle '{identifier}'")
+
+    def resolve_skill_ids(
+        self, identifier: str, skill_catalog: SkillCatalog
+    ) -> Tuple[str, ...]:
+        bundle = self.resolve(identifier)
+        return tuple(skill_catalog.resolve_skill_id(skill) for skill in bundle.skills)
+
+
 def render_selected_skills(skills: Iterable[SelectedSkill]) -> str:
     sections = []
     for skill in skills:
@@ -456,6 +596,15 @@ _SKIP_SCAN_DIRS = frozenset(
     }
 )
 _SKILL_SUPPORT_DIRS = frozenset({"references", "templates", "assets", "scripts"})
+_INJECTION_PATTERNS = (
+    "ignore previous instructions",
+    "ignore all previous",
+    "disregard your instructions",
+    "forget your instructions",
+    "system prompt:",
+    "<system>",
+    "you are now",
+)
 
 
 def _normalize_slug(value: str) -> str:
@@ -464,6 +613,28 @@ def _normalize_slug(value: str) -> str:
     if len(slug) < 3:
         slug = f"{slug or 'skill'}-skill"
     return slug[:64].strip("-")
+
+
+def _load_bundle_file(path: Path) -> Optional[SkillBundle]:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    skills = _as_tuple(raw.get("skills"))
+    if not skills:
+        return None
+    name = str(raw.get("name") or path.stem).strip()
+    slug = _normalize_slug(str(raw.get("slug") or name or path.stem))
+    return SkillBundle(
+        slug=slug,
+        name=name or slug,
+        description=str(raw.get("description") or "").strip(),
+        skills=skills,
+        instruction=str(raw.get("instruction") or "").strip(),
+        source=f"local:{path}",
+    )
 
 
 def _as_tuple(value: Any) -> Tuple[str, ...]:
@@ -478,8 +649,41 @@ def _as_tuple(value: Any) -> Tuple[str, ...]:
     return tuple(item for item in items if item)
 
 
+def _setup_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    setup = metadata.get("setup")
+    return setup if isinstance(setup, dict) else {}
+
+
+def _extract_required_commands(metadata: dict[str, Any]) -> Tuple[str, ...]:
+    prereqs = metadata.get("prerequisites")
+    if isinstance(prereqs, dict):
+        return _as_tuple(prereqs.get("commands"))
+    return _as_tuple(
+        metadata.get("required_commands")
+        or _pori_metadata(metadata).get("required_commands")
+    )
+
+
+def _extract_setup_help(metadata: dict[str, Any]) -> str:
+    setup = _setup_metadata(metadata)
+    return str(setup.get("help") or _pori_metadata(metadata).get("setup_help") or "")
+
+
+def _scan_skill_warnings(text: str) -> Tuple[str, ...]:
+    lowered = text.casefold()
+    warnings = []
+    for pattern in _INJECTION_PATTERNS:
+        if pattern in lowered:
+            warnings.append(f"review warning: contains '{pattern}'")
+    return tuple(warnings)
+
+
 def _read_skill_file(path: Path) -> tuple[dict[str, Any], str]:
     text = path.read_text(encoding="utf-8")
+    return _read_skill_text(text)
+
+
+def _read_skill_text(text: str) -> tuple[dict[str, Any], str]:
     if not text.startswith("---"):
         return {}, text
     parts = text.split("---", 2)
@@ -488,6 +692,153 @@ def _read_skill_file(path: Path) -> tuple[dict[str, Any], str]:
     raw_metadata = yaml.safe_load(parts[1]) or {}
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     return metadata, parts[2].strip()
+
+
+def _manifest_preview_from_source(
+    source: str,
+    metadata: dict[str, Any],
+    instructions: str,
+    *,
+    fallback_name: str,
+    has_support_files: bool,
+) -> SkillInstallPreview:
+    nested = _pori_metadata(metadata)
+    slug = _normalize_slug(
+        str(metadata.get("slug") or metadata.get("name") or fallback_name)
+    )
+    name = str(metadata.get("name") or slug.replace("-", " ").title())
+    summary = str(
+        metadata.get("summary")
+        or metadata.get("description")
+        or nested.get("summary")
+        or _summary_from_body(instructions)
+    )[:500]
+    return SkillInstallPreview(
+        slug=slug,
+        name=name,
+        version=str(metadata.get("version") or "1"),
+        summary=summary,
+        source=source,
+        has_support_files=has_support_files,
+    )
+
+
+def _read_remote_skill_text(source: str) -> str:
+    with urllib.request.urlopen(source, timeout=20) as response:
+        body = response.read()
+    return body.decode("utf-8")
+
+
+def inspect_skill_source(source: str) -> SkillInstallPreview:
+    """Preview metadata for a local path or direct SKILL.md URL."""
+
+    raw_source = source.strip()
+    if not raw_source:
+        raise ValueError("Skill source is required")
+    if raw_source.startswith(("http://", "https://")):
+        text = _read_remote_skill_text(raw_source)
+        metadata, instructions = _read_skill_text(text)
+        fallback = Path(raw_source.rstrip("/")).stem or "remote-skill"
+        return _manifest_preview_from_source(
+            raw_source,
+            metadata,
+            instructions,
+            fallback_name=fallback,
+            has_support_files=False,
+        )
+
+    path = Path(raw_source).expanduser()
+    if path.is_dir():
+        skill_file = path / "SKILL.md"
+        if not skill_file.exists():
+            raise ValueError(f"Skill directory has no SKILL.md: {path}")
+        metadata, instructions = _read_skill_file(skill_file)
+        return _manifest_preview_from_source(
+            str(path),
+            metadata,
+            instructions,
+            fallback_name=path.name,
+            has_support_files=any(
+                child.is_file() and child.name != "SKILL.md"
+                for child in path.rglob("*")
+            ),
+        )
+    if path.is_file():
+        metadata, instructions = _read_skill_file(path)
+        fallback = path.parent.name if path.name == "SKILL.md" else path.stem
+        return _manifest_preview_from_source(
+            str(path),
+            metadata,
+            instructions,
+            fallback_name=fallback,
+            has_support_files=False,
+        )
+    raise ValueError(f"Skill source not found: {source}")
+
+
+def install_skill_source(
+    source: str,
+    target_dir: Path | str,
+    *,
+    overwrite: bool = False,
+) -> SkillInstallResult:
+    """Install a local skill path or direct SKILL.md URL into target_dir."""
+
+    preview = inspect_skill_source(source)
+    root = Path(target_dir).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    destination = (root / preview.slug).resolve()
+    try:
+        destination.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Skill destination must stay within target directory") from exc
+
+    replaced = destination.exists()
+    if replaced:
+        if not overwrite:
+            raise ValueError(f"Skill '{preview.slug}' is already installed")
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    raw_source = source.strip()
+    if raw_source.startswith(("http://", "https://")):
+        (destination / "SKILL.md").write_text(
+            _read_remote_skill_text(raw_source),
+            encoding="utf-8",
+        )
+    else:
+        path = Path(raw_source).expanduser()
+        if path.is_dir():
+            shutil.rmtree(destination)
+            shutil.copytree(path, destination)
+        elif path.is_file():
+            shutil.copy2(path, destination / "SKILL.md")
+        else:
+            raise ValueError(f"Skill source not found: {source}")
+
+    return SkillInstallResult(
+        slug=preview.slug,
+        name=preview.name,
+        version=preview.version,
+        installed_path=str(destination),
+        replaced=replaced,
+    )
+
+
+def uninstall_skill_from_directory(identifier: str, target_dir: Path | str) -> str:
+    """Remove a project-local installed skill by slug or directory name."""
+
+    slug = _normalize_slug(identifier)
+    root = Path(target_dir).expanduser().resolve()
+    destination = (root / slug).resolve()
+    try:
+        destination.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Skill destination must stay within target directory") from exc
+    if not destination.exists() or not (destination / "SKILL.md").exists():
+        raise ValueError(f"Installed skill '{slug}' not found")
+    shutil.rmtree(destination)
+    return str(destination)
 
 
 def _nested_mapping(metadata: dict[str, Any], key: str) -> dict[str, Any]:
@@ -752,6 +1103,14 @@ def load_skill_catalog_from_directories(
                     or nested.get("argument_hint")
                     or ""
                 ),
+                provenance=str(
+                    metadata.get("provenance") or nested.get("provenance") or "local"
+                ),
+                trust_level=str(
+                    metadata.get("trust_level") or nested.get("trust_level") or "local"
+                ),
+                required_commands=_extract_required_commands(metadata),
+                setup_help=_extract_setup_help(metadata),
                 required_tools=frozenset(
                     _as_tuple(
                         metadata.get("required_tools") or nested.get("required_tools")
@@ -760,6 +1119,11 @@ def load_skill_catalog_from_directories(
                 required_credentials=_as_tuple(
                     metadata.get("required_credentials")
                     or metadata.get("required_environment_variables")
+                    or (
+                        metadata.get("prerequisites", {}).get("env_vars")
+                        if isinstance(metadata.get("prerequisites"), dict)
+                        else None
+                    )
                     or nested.get("required_credentials")
                 ),
                 required_platforms=_as_tuple(
@@ -785,6 +1149,7 @@ def load_skill_catalog_from_directories(
                     or nested.get("install_command")
                     or f"copy {skill_dir} into .pori/skills"
                 ),
+                readiness_warnings=_scan_skill_warnings(instructions),
                 sensitivity=str(metadata.get("sensitivity") or "internal"),
                 instructions_fingerprint=metadata.get("instructions_fingerprint"),
             )
@@ -804,10 +1169,32 @@ def load_skill_catalog_from_directories(
     return catalog
 
 
+def load_skill_bundles_from_directory(directory: Path | str) -> SkillBundleCatalog:
+    """Build a bundle catalog from project-local YAML bundle files."""
+
+    root = Path(directory).expanduser()
+    bundles = []
+    if root.exists() and root.is_dir():
+        for pattern in ("*.yaml", "*.yml"):
+            for path in sorted(root.glob(pattern)):
+                bundle = _load_bundle_file(path)
+                if bundle is not None:
+                    bundles.append(bundle)
+    return SkillBundleCatalog(bundles)
+
+
 __all__ = [
+    "inspect_skill_source",
+    "install_skill_source",
     "load_skill_catalog_from_directories",
+    "load_skill_bundles_from_directory",
+    "uninstall_skill_from_directory",
+    "SkillBundle",
+    "SkillBundleCatalog",
     "SkillConfigDeclaration",
     "SkillFileView",
+    "SkillInstallPreview",
+    "SkillInstallResult",
     "SkillIndexEntry",
     "SkillInvocation",
     "SkillLinkedFile",
@@ -815,6 +1202,7 @@ __all__ = [
     "SelectedSkill",
     "SkillCatalog",
     "SkillManifest",
+    "SkillReadiness",
     "SkillSummary",
     "render_selected_skills",
 ]

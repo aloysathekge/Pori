@@ -3,15 +3,18 @@ from pori import (
     SkillCatalog,
     SkillLinkedFile,
     SkillManifest,
+    load_skill_bundles_from_directory,
     load_skill_catalog_from_directories,
 )
 from pori.config import Config, LLMConfig, SkillsConfig
 from pori.main import (
     _format_tool_call_parameters,
     _handle_cli_command,
+    _handle_skills_lifecycle_command,
     _load_cli_skill_catalog,
     _missing_skill_argument_message,
     _resolve_auto_skill_selection,
+    _resolve_skill_bundle_command,
     _resolve_skill_command,
     _resume_pending_skill_task,
     _summarize_written_artifacts,
@@ -36,7 +39,14 @@ commands: [inspect, verify]
 source_url: https://example.com/repo-workflow
 install_command: pori skills install repo-workflow
 argument-hint: Which repository task should this skill perform?
+provenance: url
+trust_level: untrusted
 required_tools: [test_tool]
+prerequisites:
+  env_vars: [PORI_TEST_MISSING_SECRET]
+  commands: [pori-missing-command]
+setup:
+  help: Install pori-missing-command and configure PORI_TEST_MISSING_SECRET.
 ---
 
 # Repo Workflow
@@ -59,12 +69,25 @@ Always inspect source-of-truth files before editing.
     assert manifests[0].commands == ("inspect", "verify")
     assert manifests[0].source_url == "https://example.com/repo-workflow"
     assert manifests[0].install_command == "pori skills install repo-workflow"
+    assert manifests[0].provenance == "url"
+    assert manifests[0].trust_level == "untrusted"
+    assert manifests[0].required_credentials == ("PORI_TEST_MISSING_SECRET",)
+    assert manifests[0].required_commands == ("pori-missing-command",)
+    assert (
+        manifests[0].setup_help
+        == "Install pori-missing-command and configure PORI_TEST_MISSING_SECRET."
+    )
     assert (
         manifests[0].argument_hint == "Which repository task should this skill perform?"
     )
+    readiness = catalog.readiness("repo-workflow@2")
+    assert readiness.status == "setup_needed"
+    assert readiness.missing_credentials == ("PORI_TEST_MISSING_SECRET",)
+    assert readiness.missing_commands == ("pori-missing-command",)
 
     summaries = catalog.summaries(tool_registry.snapshot())
-    assert summaries[0].eligible is True
+    assert summaries[0].eligible is False
+    assert summaries[0].reasons == ("missing_credential:PORI_TEST_MISSING_SECRET",)
 
     selected = catalog.load("repo-workflow@2")
     assert "Always inspect source-of-truth" in selected.instructions
@@ -352,6 +375,70 @@ Ask clarifying questions.
     assert "Use a sketch." in file_view
 
 
+def test_skills_lifecycle_installs_inspects_and_uninstalls_local_package(
+    capsys, tmp_path, tool_registry
+):
+    source = tmp_path / "source" / "teach"
+    (source / "references").mkdir(parents=True)
+    (source / "SKILL.md").write_text(
+        """---
+name: Teach
+description: Teach concepts interactively
+version: 2
+---
+
+Guide the learner.
+""",
+        encoding="utf-8",
+    )
+    (source / "references" / "division.md").write_text(
+        "Division examples.",
+        encoding="utf-8",
+    )
+    install_dir = tmp_path / "project" / ".pori" / "skills"
+    config = Config(
+        llm=LLMConfig(provider="anthropic", model="test-model"),
+        skills=SkillsConfig(default_dir=str(install_dir)),
+    )
+
+    inspected = _handle_skills_lifecycle_command(
+        f"/skills inspect {source}",
+        config=config,
+        skill_catalog=None,
+        registry=tool_registry,
+    )
+    inspect_output = capsys.readouterr().out
+    assert inspected is True
+    assert "Teach (teach@2)" in inspect_output
+    assert "Support files: yes" in inspect_output
+
+    installed = _handle_skills_lifecycle_command(
+        f"/skills install {source}",
+        config=config,
+        skill_catalog=None,
+        registry=tool_registry,
+    )
+    install_output = capsys.readouterr().out
+    assert installed is True
+    assert "Installed Teach (teach@2)" in install_output
+    assert (install_dir / "teach" / "SKILL.md").exists()
+    assert (install_dir / "teach" / "references" / "division.md").exists()
+
+    catalog = load_skill_catalog_from_directories([install_dir])
+    assert [manifest.skill_id for manifest in catalog.manifests()] == ["teach@2"]
+
+    uninstalled = _handle_skills_lifecycle_command(
+        "/skills uninstall teach",
+        config=config,
+        skill_catalog=catalog,
+        registry=tool_registry,
+    )
+    uninstall_output = capsys.readouterr().out
+    assert uninstalled is True
+    assert "Uninstalled teach" in uninstall_output
+    assert not (install_dir / "teach").exists()
+
+
 def test_resolve_skill_command_matches_slug_and_preserves_task():
     catalog = SkillCatalog()
     catalog.register(
@@ -369,6 +456,53 @@ def test_resolve_skill_command_matches_slug_and_preserves_task():
         "inspect files",
     )
     assert _resolve_skill_command(catalog, "/missing inspect files") is None
+
+
+def test_skill_bundle_catalog_loads_yaml_and_resolves_command(tmp_path):
+    bundle_dir = tmp_path / "skill-bundles"
+    bundle_dir.mkdir()
+    (bundle_dir / "backend-dev.yaml").write_text(
+        """name: Backend Dev
+description: Backend workflow bundle
+skills:
+  - repo-workflow
+  - test-driven
+instruction: Keep changes focused.
+""",
+        encoding="utf-8",
+    )
+    bundles = load_skill_bundles_from_directory(bundle_dir)
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="repo-workflow",
+            name="Repo Workflow",
+            version="1",
+            summary="Work safely in a repo",
+        ),
+        "Follow repo rules.",
+    )
+    catalog.register(
+        SkillManifest(
+            slug="test-driven",
+            name="Test Driven",
+            version="1",
+            summary="Write tests first",
+        ),
+        "Use tests.",
+    )
+
+    resolved = _resolve_skill_bundle_command(
+        catalog,
+        bundles,
+        "/backend-dev implement feature",
+    )
+
+    assert [bundle.slug for bundle in bundles.bundles()] == ["backend-dev"]
+    assert resolved == (
+        ["repo-workflow@1", "test-driven@1"],
+        "implement feature",
+    )
 
 
 def test_auto_skill_selection_matches_natural_teaching_request(tool_registry):

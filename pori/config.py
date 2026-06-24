@@ -135,6 +135,10 @@ class SkillsConfig(BaseModel):
         default_factory=list,
         description="External skill directories scanned after local directories.",
     )
+    bundles_dir: str = Field(
+        default="./.pori/skill-bundles",
+        description="Project-local directory scanned for skill bundle YAML files.",
+    )
     disabled: List[str] = Field(default_factory=list)
     config: Dict[str, Any] = Field(default_factory=dict)
     max_instruction_chars: int = Field(default=50_000, ge=1)

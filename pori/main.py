@@ -24,7 +24,15 @@ from .evolution import (
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
-from .skills import SkillCatalog, load_skill_catalog_from_directories
+from .skills import (
+    SkillBundleCatalog,
+    SkillCatalog,
+    inspect_skill_source,
+    install_skill_source,
+    load_skill_bundles_from_directory,
+    load_skill_catalog_from_directories,
+    uninstall_skill_from_directory,
+)
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -79,6 +87,30 @@ def _load_cli_skill_catalog(config: Config) -> Optional[SkillCatalog]:
         config_values=skills_config.config,
         max_instruction_chars=skills_config.max_instruction_chars,
     )
+
+
+def _load_cli_skill_bundles(config: Config) -> Optional[SkillBundleCatalog]:
+    skills_config = getattr(config, "skills", None)
+    if not skills_config or not skills_config.enabled:
+        return None
+    path = Path(skills_config.bundles_dir).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    path.mkdir(parents=True, exist_ok=True)
+    return load_skill_bundles_from_directory(path.resolve())
+
+
+def _cli_skill_default_dir(config: Optional[Config]) -> Path:
+    skills_config = getattr(config, "skills", None) if config is not None else None
+    directory = (
+        getattr(skills_config, "default_dir", "./.pori/skills")
+        if skills_config is not None
+        else "./.pori/skills"
+    )
+    path = Path(directory).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.resolve()
 
 
 def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
@@ -137,6 +169,7 @@ def _print_skill_catalog(
     skill_catalog: Optional[SkillCatalog],
     registry: ToolRegistry,
     query: str = "",
+    bundle_catalog: Optional[SkillBundleCatalog] = None,
 ) -> None:
     if skill_catalog is None or not skill_catalog.manifests():
         print("No local skills configured.")
@@ -164,6 +197,9 @@ def _print_skill_catalog(
             )
             print(f"    {item.summary}")
             print(f"    source: {item.source}")
+            print(f"    readiness: {item.readiness}")
+            if item.readiness_reasons:
+                print(f"    readiness details: {', '.join(item.readiness_reasons)}")
             if item.install_command:
                 print(f"    install: {item.install_command}")
         return
@@ -178,10 +214,19 @@ def _print_skill_catalog(
         print(f"    {item.summary}")
         print(f"    category: {item.category}")
         print(f"    source: {item.source}")
+        print(f"    provenance: {item.provenance} ({item.trust_level})")
+        print(f"    readiness: {item.readiness}")
+        if item.readiness_reasons:
+            print(f"    readiness details: {', '.join(item.readiness_reasons)}")
         if item.commands:
             print(f"    commands: {', '.join(item.commands)}")
         if item.install_command:
             print(f"    install: {item.install_command}")
+    if bundle_catalog is not None and bundle_catalog.bundles():
+        print("\n=== Skill Bundles ===")
+        for bundle in bundle_catalog.bundles():
+            print(f"  /{bundle.slug} - {bundle.description or bundle.name}")
+            print(f"    skills: {', '.join(bundle.skills)}")
     print(
         "\nUse /skills <query> to search, or /<skill-slug> your task to force a skill."
     )
@@ -227,6 +272,11 @@ def _print_skill_detail(
         print(f"License: {view.manifest.license}")
     if view.manifest.source_url:
         print(f"Source URL: {view.manifest.source_url}")
+    print(f"Provenance: {view.manifest.provenance} ({view.manifest.trust_level})")
+    readiness = skill_catalog.readiness(skill_id)
+    print(f"Readiness: {readiness.status}")
+    if readiness.reasons:
+        print(f"Readiness details: {', '.join(readiness.reasons)}")
     if view.manifest.commands:
         print(f"Commands: {', '.join(view.manifest.commands)}")
     if view.manifest.install_command:
@@ -256,6 +306,73 @@ def _print_skill_detail(
     else:
         print("\nLinked files: none")
     print("\nUse /skill <name> <linked-file> to print a linked file.")
+
+
+def _handle_skills_lifecycle_command(
+    command: str,
+    *,
+    config: Optional[Config],
+    skill_catalog: Optional[SkillCatalog],
+    registry: ToolRegistry,
+    bundle_catalog: Optional[SkillBundleCatalog] = None,
+) -> bool:
+    parts = command.strip().split()
+    if len(parts) < 2 or parts[0].lower() != "/skills":
+        return False
+    subcommand = parts[1].lower()
+    if subcommand not in {"inspect", "install", "uninstall", "check"}:
+        return False
+
+    target_dir = _cli_skill_default_dir(config)
+    try:
+        if subcommand == "inspect":
+            if len(parts) < 3:
+                print("Usage: /skills inspect <path-or-skill-md-url>")
+                return True
+            preview = inspect_skill_source(" ".join(parts[2:]))
+            print(f"Skill: {preview.name} ({preview.slug}@{preview.version})")
+            print(f"Summary: {preview.summary}")
+            print(f"Source: {preview.source}")
+            print(f"Support files: {'yes' if preview.has_support_files else 'no'}")
+            return True
+
+        if subcommand == "install":
+            if len(parts) < 3:
+                print("Usage: /skills install <path-or-skill-md-url> [--force]")
+                return True
+            force = "--force" in parts[2:]
+            source = " ".join(part for part in parts[2:] if part != "--force")
+            result = install_skill_source(source, target_dir, overwrite=force)
+            action = "Reinstalled" if result.replaced else "Installed"
+            print(
+                f"{action} {result.name} "
+                f"({result.slug}@{result.version}) -> {result.installed_path}"
+            )
+            print("Run /reload-skills to use the updated catalog.")
+            return True
+
+        if subcommand == "uninstall":
+            if len(parts) != 3:
+                print("Usage: /skills uninstall <skill-slug>")
+                return True
+            removed = uninstall_skill_from_directory(parts[2], target_dir)
+            print(f"Uninstalled {parts[2]} from {removed}")
+            print("Run /reload-skills to use the updated catalog.")
+            return True
+
+        if skill_catalog is None:
+            print("No local skills configured.")
+            return True
+        print(
+            f"Skills directory: {target_dir}\n"
+            f"Installed skills: {len(skill_catalog.manifests())}\n"
+            f"Skill bundles: {len(bundle_catalog.bundles()) if bundle_catalog else 0}"
+        )
+        _print_skill_catalog(skill_catalog, registry, bundle_catalog=bundle_catalog)
+        return True
+    except Exception as e:
+        print(f"Skill {subcommand} error: {e}")
+        return True
 
 
 def _print_evolution_help() -> None:
@@ -416,6 +533,25 @@ def _resolve_skill_command(
     return None
 
 
+def _resolve_skill_bundle_command(
+    skill_catalog: Optional[SkillCatalog],
+    bundle_catalog: Optional[SkillBundleCatalog],
+    command: str,
+) -> Optional[Tuple[List[str], str]]:
+    if skill_catalog is None or bundle_catalog is None:
+        return None
+    parts = command.strip().split(maxsplit=1)
+    if not parts:
+        return None
+    requested = parts[0][1:].lower().replace("_", "-")
+    task = parts[1].strip() if len(parts) > 1 else ""
+    try:
+        skill_ids = list(bundle_catalog.resolve_skill_ids(requested, skill_catalog))
+    except ValueError:
+        return None
+    return skill_ids, task
+
+
 def _resolve_auto_skill_selection(
     skill_catalog: Optional[SkillCatalog],
     registry: ToolRegistry,
@@ -475,7 +611,9 @@ def _handle_cli_command(
     command: str,
     memory: AgentMemory,
     *,
+    config: Optional[Config] = None,
     skill_catalog: Optional[SkillCatalog] = None,
+    bundle_catalog: Optional[SkillBundleCatalog] = None,
     registry: Optional[ToolRegistry] = None,
     evolution_repository: Optional[FileEvolutionRepository] = None,
 ) -> None:
@@ -609,9 +747,17 @@ def _handle_cli_command(
     elif cmd == "/skills":
         if registry is None:
             print("No tool registry available.")
+        elif _handle_skills_lifecycle_command(
+            command,
+            config=config,
+            skill_catalog=skill_catalog,
+            registry=registry,
+            bundle_catalog=bundle_catalog,
+        ):
+            pass
         else:
             query = command.split(maxsplit=1)[1] if len(parts) > 1 else ""
-            _print_skill_catalog(skill_catalog, registry, query)
+            _print_skill_catalog(skill_catalog, registry, query, bundle_catalog)
 
     elif cmd == "/skill":
         if registry is None:
@@ -819,9 +965,12 @@ async def main():
     )
 
     skill_catalog = _load_cli_skill_catalog(config)
+    bundle_catalog = _load_cli_skill_bundles(config)
     skill_limit = getattr(getattr(config, "skills", None), "skill_limit", 3)
     if skill_catalog is not None:
         logger.info(f"Loaded {len(skill_catalog.manifests())} local skill(s)")
+    if bundle_catalog is not None and bundle_catalog.bundles():
+        logger.info(f"Loaded {len(bundle_catalog.bundles())} skill bundle(s)")
 
     evolution_repository = _load_cli_evolution_repository(config)
     if evolution_repository is not None:
@@ -960,15 +1109,32 @@ async def main():
             if command_name == "/reload-skills":
                 try:
                     skill_catalog = _load_cli_skill_catalog(config)
+                    bundle_catalog = _load_cli_skill_bundles(config)
                     orchestrator.skill_catalog = skill_catalog
                     count = len(skill_catalog.manifests()) if skill_catalog else 0
-                    print(f"Reloaded {count} local skill(s).")
+                    bundle_count = (
+                        len(bundle_catalog.bundles()) if bundle_catalog else 0
+                    )
+                    print(
+                        f"Reloaded {count} local skill(s) and "
+                        f"{bundle_count} skill bundle(s)."
+                    )
                 except Exception as e:
                     print(f"Failed to reload skills: {e}")
                 continue
 
-            skill_command = _resolve_skill_command(skill_catalog, task)
-            if skill_command is not None:
+            bundle_command = _resolve_skill_bundle_command(
+                skill_catalog, bundle_catalog, task
+            )
+            if bundle_command is not None:
+                selected_skill_ids, task = bundle_command
+                if not task:
+                    print("Provide a task after the skill bundle command.")
+                    continue
+                print(f"Using skills: {', '.join(selected_skill_ids)}")
+            else:
+                skill_command = _resolve_skill_command(skill_catalog, task)
+            if selected_skill_ids is None and skill_command is not None:
                 skill_id, task = skill_command
                 if not task:
                     print(f"Provide a task after /{skill_id.split('@', 1)[0]}.")
@@ -979,7 +1145,9 @@ async def main():
                 _handle_cli_command(
                     task,
                     shared_memory,
+                    config=config,
                     skill_catalog=skill_catalog,
+                    bundle_catalog=bundle_catalog,
                     registry=registry,
                     evolution_repository=evolution_repository,
                 )

@@ -8,8 +8,11 @@ from .filesystem_tools import register_filesystem_tools
 from .internet_tools import register_internet_tools
 from .math_tools import register_math_tools
 from .number_tools import register_number_tool
+from .skills_tools import register_skill_tools
 
-STANDARD_KERNEL_TOOLS = frozenset({"answer", "done", "ask_user", "think"})
+STANDARD_KERNEL_TOOLS = frozenset(
+    {"answer", "done", "ask_user", "think", "skills_list", "skill_view"}
+)
 
 
 def _load_tool_plugins(registry) -> None:
@@ -49,6 +52,7 @@ def register_all_tools(registry):
     register_number_tool(registry)
     register_filesystem_tools(registry)
     register_internet_tools(registry)
+    register_skill_tools(registry)
     canonical = tool_registry()
     if registry is not canonical:
         for info in canonical.tools.values():

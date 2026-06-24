@@ -1729,6 +1729,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "sandbox_base_dir": self.sandbox_base_dir,
                     "run_context": self.run_context,
                     "evolution_repository": self.evolution_repository,
+                    "skill_catalog": self.skill_catalog,
+                    "capability_snapshot": self.capability_snapshot,
+                    "tools_registry": self.tools_registry,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
