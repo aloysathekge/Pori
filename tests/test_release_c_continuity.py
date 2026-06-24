@@ -42,9 +42,15 @@ def test_agent_freezes_core_and_retrieved_memory_for_one_run(mock_llm, tool_regi
     memory.add_experience("release checklist beta", importance=5)
     messages = agent._build_messages()
     rendered = "\n".join(message.content for message in messages)
+    memory_context = next(
+        message.content
+        for message in messages
+        if "recalled memory context" in message.content
+    )
 
-    assert "Original preference" in messages[0].content
-    assert "Changed mid-run" not in messages[0].content
+    assert "Original preference" not in messages[0].content
+    assert "Original preference" in memory_context
+    assert "Changed mid-run" not in memory_context
     assert original_id in rendered
     assert "release checklist beta" not in rendered
 

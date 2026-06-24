@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Any, List, Optional, Tuple, cast
 
 from dotenv import load_dotenv
@@ -14,7 +15,12 @@ from pathlib import Path
 
 from .agent import Agent, AgentSettings
 from .config import Config, LLMConfig, get_configured_llm
-from .evolution import EvolutionEvalResult, EvolutionProposal, FileEvolutionRepository
+from .evolution import (
+    EvolutionEvalResult,
+    EvolutionProposal,
+    FileEvolutionRepository,
+    run_local_evolution_evals,
+)
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .orchestrator import Orchestrator
@@ -75,25 +81,109 @@ def _load_cli_skill_catalog(config: Config) -> Optional[SkillCatalog]:
     )
 
 
+def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
+    """Return display lines for successful file-writing tool calls."""
+    artifact_lines: List[str] = []
+    for call in tool_calls:
+        if not getattr(call, "success", False):
+            continue
+        tool_name = getattr(call, "tool_name", "")
+        if tool_name not in {"write_file", "sandbox_write_file"}:
+            continue
+        params = getattr(call, "parameters", {}) or {}
+        result = getattr(call, "result", {}) or {}
+        if not isinstance(params, dict):
+            params = {}
+        if not isinstance(result, dict):
+            result = {}
+
+        path = (
+            params.get("file_path")
+            or params.get("path")
+            or result.get("path")
+            or result.get("file_path")
+        )
+        if not path:
+            file_info = result.get("file_info")
+            if isinstance(file_info, dict):
+                path = file_info.get("path")
+        if not path:
+            path = "(path unavailable)"
+
+        byte_count = result.get("bytes_written")
+        append = bool(params.get("append"))
+        action = "appended" if append else "wrote"
+        detail = f"{tool_name}: {action} {path}"
+        if isinstance(byte_count, int):
+            detail += f" ({byte_count} bytes)"
+        artifact_lines.append(detail)
+    return artifact_lines
+
+
+def _format_tool_call_parameters(parameters: Any) -> str:
+    """Compact tool parameters for CLI display without dumping file contents."""
+    if not isinstance(parameters, dict):
+        return str(parameters)
+    display: dict[str, Any] = {}
+    for key, value in parameters.items():
+        if key == "content" and isinstance(value, str):
+            display[key] = f"<{len(value)} chars>"
+        else:
+            display[key] = value
+    return str(display)
+
+
 def _print_skill_catalog(
     skill_catalog: Optional[SkillCatalog],
     registry: ToolRegistry,
+    query: str = "",
 ) -> None:
     if skill_catalog is None or not skill_catalog.manifests():
         print("No local skills configured.")
         print("Add SKILL.md packages under .pori/skills, then run /reload-skills.")
         return
 
+    if query.strip():
+        print(f"\n=== Skill Search: {query.strip()} ===")
+        hits = skill_catalog.search(query, registry.snapshot())
+        if not hits:
+            print("No matching local skills.")
+            return
+        for hit in hits:
+            item = hit.entry
+            status = (
+                "available"
+                if item.eligible
+                else f"ineligible: {', '.join(item.reasons)}"
+            )
+            tags = f" [{', '.join(item.tags)}]" if item.tags else ""
+            matched = ", ".join(hit.matched_terms) if hit.matched_terms else "none"
+            print(
+                f"  {item.skill_id}{tags} - {status} "
+                f"(score={hit.score}, matched={matched})"
+            )
+            print(f"    {item.summary}")
+            print(f"    source: {item.source}")
+            if item.install_command:
+                print(f"    install: {item.install_command}")
+        return
+
     print("\n=== Local Skills ===")
-    for item in skill_catalog.summaries(registry.snapshot()):
+    for item in skill_catalog.index(registry.snapshot()):
         status = (
             "available" if item.eligible else f"ineligible: {', '.join(item.reasons)}"
         )
         tags = f" [{', '.join(item.tags)}]" if item.tags else ""
         print(f"  {item.skill_id}{tags} - {status}")
         print(f"    {item.summary}")
+        print(f"    category: {item.category}")
+        print(f"    source: {item.source}")
+        if item.commands:
+            print(f"    commands: {', '.join(item.commands)}")
+        if item.install_command:
+            print(f"    install: {item.install_command}")
     print(
-        "\nUse /<skill-slug> your task to force a skill for the next single-agent run."
+        "\nUse /skills <query> to search, or /<skill-slug> your task to force a skill."
     )
 
 
@@ -130,6 +220,17 @@ def _print_skill_detail(
     print(f"ID: {view.manifest.skill_id}")
     print(f"Status: {status}")
     print(f"Source: {view.manifest.source}")
+    print(f"Category: {view.manifest.category}")
+    if view.manifest.author:
+        print(f"Author: {view.manifest.author}")
+    if view.manifest.license:
+        print(f"License: {view.manifest.license}")
+    if view.manifest.source_url:
+        print(f"Source URL: {view.manifest.source_url}")
+    if view.manifest.commands:
+        print(f"Commands: {', '.join(view.manifest.commands)}")
+    if view.manifest.install_command:
+        print(f"Install: {view.manifest.install_command}")
     if view.manifest.tags:
         print(f"Tags: {', '.join(view.manifest.tags)}")
     print(f"Summary: {view.manifest.summary}")
@@ -164,6 +265,7 @@ def _print_evolution_help() -> None:
         "  /evolution show <proposal-id>\n"
         "  /evolution propose <proposal.json>\n"
         "  /evolution eval <proposal-id> <results.json>\n"
+        "  /evolution eval-local <proposal-id> [evaluator]\n"
         "  /evolution approve <proposal-id> [reviewer]\n"
         "  /evolution reject <proposal-id> [reviewer]\n"
         "  /evolution activate <proposal-id> [reviewer]\n"
@@ -173,6 +275,7 @@ def _print_evolution_help() -> None:
 
 
 def _print_evolution_proposal(proposal: EvolutionProposal) -> None:
+    review = proposal.review_summary()
     print(f"\n=== Evolution Proposal: {proposal.proposal_id} ===")
     print(f"Status: {proposal.status.value}")
     print(f"Target: {proposal.target}")
@@ -183,8 +286,13 @@ def _print_evolution_proposal(proposal: EvolutionProposal) -> None:
     print(f"Title: {proposal.title}")
     print(f"Summary: {proposal.summary}")
     print(f"Fingerprint: {proposal.content_fingerprint}")
-    print(f"Eval cases: {len(proposal.eval_cases)}")
-    print(f"Eval results: {len(proposal.eval_results)}")
+    print(f"Eval cases: {review.eval_case_count}")
+    print(f"Eval results: {review.eval_result_count}")
+    print(f"Passed evals: {review.passed_eval_count}/{review.eval_case_count}")
+    if review.missing_eval_cases:
+        print(f"Missing evals: {', '.join(review.missing_eval_cases)}")
+    else:
+        print("Missing evals: none")
     if proposal.approved_by:
         print(f"Reviewer: {proposal.approved_by}")
 
@@ -216,9 +324,12 @@ def _handle_evolution_command(
                 return
             print("\n=== Evolution Proposals ===")
             for proposal in proposals:
+                review = proposal.review_summary()
                 print(
                     f"  {proposal.proposal_id} [{proposal.status.value}] "
-                    f"{proposal.target} -> {proposal.proposed_version}: {proposal.title}"
+                    f"{proposal.target} -> {proposal.proposed_version} "
+                    f"evals={review.passed_eval_count}/{review.eval_case_count}: "
+                    f"{proposal.title}"
                 )
         elif subcmd == "show" and len(parts) >= 3:
             _print_evolution_proposal(repository.get(parts[2]))
@@ -236,6 +347,17 @@ def _handle_evolution_command(
             print(
                 f"Recorded {len(updated.eval_results)} eval result(s) "
                 f"for {updated.proposal_id}."
+            )
+        elif subcmd == "eval-local" and len(parts) >= 3:
+            evaluator = parts[3] if len(parts) >= 4 else "local-eval-runner"
+            proposal = repository.get(parts[2])
+            results = run_local_evolution_evals(proposal, evaluator=evaluator)
+            updated = repository.record_evaluations(parts[2], results)
+            review = updated.review_summary()
+            print(
+                f"Recorded {len(updated.eval_results)} local eval result(s) "
+                f"for {updated.proposal_id}; "
+                f"passed {review.passed_eval_count}/{review.eval_case_count}."
             )
         elif subcmd == "approve" and len(parts) >= 3:
             reviewer = parts[3] if len(parts) >= 4 else "local-reviewer"
@@ -292,6 +414,61 @@ def _resolve_skill_command(
         if requested in {manifest.slug, manifest.skill_id.lower()}:
             return manifest.skill_id, task
     return None
+
+
+def _resolve_auto_skill_selection(
+    skill_catalog: Optional[SkillCatalog],
+    registry: ToolRegistry,
+    task: str,
+    *,
+    skill_limit: int,
+) -> Tuple[str, ...]:
+    if skill_catalog is None:
+        return ()
+    selected = skill_catalog.search(
+        task,
+        registry.snapshot(),
+        limit=skill_limit,
+    )
+    return tuple(hit.entry.skill_id for hit in selected if hit.entry.eligible)
+
+
+def _missing_skill_argument_message(
+    skill_catalog: Optional[SkillCatalog],
+    selected_skill_ids: Optional[List[str]],
+    task: str,
+) -> Optional[str]:
+    if skill_catalog is None or not selected_skill_ids:
+        return None
+    invocations = [
+        skill_catalog.build_invocation(skill_id, task)
+        for skill_id in selected_skill_ids
+    ]
+    missing = [item for item in invocations if item.missing_argument]
+    if not missing:
+        return None
+    prompts = []
+    for invocation in missing:
+        hint = invocation.argument_hint or "What should this skill work on?"
+        prompts.append(f"{invocation.skill_id}: {hint}")
+    return "Skill needs more detail before it can run:\n  " + "\n  ".join(prompts)
+
+
+def _resume_pending_skill_task(base_task: Optional[str], detail: str) -> str:
+    base = base_task or ""
+    clean_detail = detail.strip()
+    if not base:
+        return clean_detail
+    replaced = re.sub(
+        r"\b(something|anything|a thing|something new|stuff|whatever)\b",
+        clean_detail,
+        base,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    if replaced != base:
+        return " ".join(replaced.split())
+    return f"{base} {clean_detail}".strip()
 
 
 def _handle_cli_command(
@@ -433,7 +610,8 @@ def _handle_cli_command(
         if registry is None:
             print("No tool registry available.")
         else:
-            _print_skill_catalog(skill_catalog, registry)
+            query = command.split(maxsplit=1)[1] if len(parts) > 1 else ""
+            _print_skill_catalog(skill_catalog, registry, query)
 
     elif cmd == "/skill":
         if registry is None:
@@ -714,11 +892,18 @@ async def main():
             f"(Memory backend: {memory_backend}; session namespace={shared_memory.namespace})"
         )
 
+    pending_skill_ids: Optional[List[str]] = None
+    pending_skill_task: Optional[str] = None
+
     # Interactive loop for tasks
     while True:
         print("\n Pori at your service!")
         try:
-            task = input(f"How can I help you today? enter q to exit \n").strip()
+            if pending_skill_ids:
+                prompt = "Skill detail needed. Enter detail, /cancel, or q to exit \n"
+            else:
+                prompt = "How can I help you today? enter q to exit \n"
+            task = input(prompt).strip()
         except EOFError:
             logger.info("Input closed (EOF)")
             print("\nGoodbye!")
@@ -730,14 +915,24 @@ async def main():
             print("Goodbye!")
             break
 
+        if task.lower() == "/cancel" and pending_skill_ids:
+            pending_skill_ids = None
+            pending_skill_task = None
+            print("Cancelled pending skill invocation.")
+            continue
+
         if not task:
             logger.warning("Empty task provided, skipping")
             continue
 
-        selected_skill_ids = None
+        selected_skill_ids = pending_skill_ids
+        if pending_skill_ids:
+            task = _resume_pending_skill_task(pending_skill_task, task)
+            pending_skill_ids = None
+            pending_skill_task = None
 
         # CLI commands
-        if task.startswith("/"):
+        if task.startswith("/") and selected_skill_ids is None:
             command_name = task.strip().split()[0].lower()
             if command_name == "/model":
                 import sys as _sys
@@ -789,6 +984,29 @@ async def main():
                     evolution_repository=evolution_repository,
                 )
                 continue
+
+        if selected_skill_ids is None:
+            selected_skill_ids = list(
+                _resolve_auto_skill_selection(
+                    skill_catalog,
+                    registry,
+                    task,
+                    skill_limit=skill_limit,
+                )
+            )
+            if selected_skill_ids:
+                print(f"Using skill: {', '.join(selected_skill_ids)}")
+
+        missing_skill_argument = _missing_skill_argument_message(
+            skill_catalog,
+            selected_skill_ids,
+            task,
+        )
+        if missing_skill_argument:
+            print(f"\n{missing_skill_argument}")
+            pending_skill_ids = selected_skill_ids
+            pending_skill_task = task
+            continue
 
         # Inline any @path file references the user typed (e.g. @main.py).
         expanded_task, ref_notes = expand_file_refs(task)
@@ -885,6 +1103,9 @@ async def main():
                 print(f"Task: {task}")
                 print(f"Success: {result['success']}")
                 print(f"Steps taken: {result['steps_taken']}")
+                selected_skills = result.get("selected_skills") or []
+                if selected_skills:
+                    print(f"Skills used: {', '.join(selected_skills)}")
 
                 # Show basic run metrics if available
                 metrics = result.get("result", {}).get("metrics")
@@ -933,11 +1154,19 @@ async def main():
                     tool_calls_count = len(calls_this_task)
                     logger.info(f"Tool calls made (this task): {tool_calls_count}")
 
+                    artifact_lines = _summarize_written_artifacts(calls_this_task)
+                    if artifact_lines:
+                        print("\nArtifacts written (this task):")
+                        for line in artifact_lines:
+                            print(f"  - {line}")
+
                     print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
                         status = "+" if tool_call.success else "x"
                         print(
-                            f"  {i}. {tool_call.tool_name}({tool_call.parameters}) -> {status}"
+                            f"  {i}. {tool_call.tool_name}("
+                            f"{_format_tool_call_parameters(tool_call.parameters)}) "
+                            f"-> {status}"
                         )
 
                         log_level = (

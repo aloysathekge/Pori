@@ -2,6 +2,7 @@ import pytest
 
 from pori import (
     Agent,
+    AgentMemory,
     BudgetExceeded,
     BudgetLedger,
     CancellationToken,
@@ -82,6 +83,90 @@ def test_selected_skill_enters_agent_prompt_without_loading_others(
     assert loaded == {"selected": 1, "other": 0}
     assert "Always identify rollback" in agent.system_message
     assert "visual design language" not in agent.system_message
+    assert agent.result_summary()["selected_skills"] == ["database-migration@1"]
+
+
+def test_agent_run_result_reports_selected_skills(mock_llm, tool_registry):
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept",
+        ),
+        "Teach the user interactively.",
+    )
+
+    agent = Agent(
+        task="teach me multiplication",
+        llm=mock_llm,
+        tools_registry=tool_registry,
+        skill_catalog=catalog,
+    )
+
+    assert agent.result_summary()["selected_skills"] == ["teach@1"]
+
+
+def test_memory_context_is_fenced_below_current_task(mock_llm, tool_registry):
+    memory = AgentMemory()
+    memory.core_memory.update_block_value(
+        "human",
+        "The user's favourite cricketer is Quinton de Kock.",
+    )
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept",
+        ),
+        "Teach the requested topic.",
+    )
+
+    agent = Agent(
+        task="teach me something about science",
+        llm=mock_llm,
+        tools_registry=tool_registry,
+        memory=memory,
+        skill_catalog=catalog,
+    )
+    messages = agent._build_messages()
+
+    assert "Quinton de Kock" not in messages[0].content
+    assert any("<memory-context>" in message.content for message in messages)
+    assert messages[-1].content.startswith("CURRENT TASK (highest priority):")
+    assert "teach me something about science" in messages[-1].content
+
+
+def test_skill_invocation_reports_missing_argument():
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="workshop",
+            name="Workshop",
+            version="1",
+            summary="Run a structured workshop",
+            commands=("workshop",),
+            argument_hint="What topic should the workshop cover?",
+        ),
+        "Run the workshop.",
+    )
+
+    vague = catalog.build_invocation(
+        "workshop@1",
+        "please workshop something",
+    )
+    specific = catalog.build_invocation(
+        "workshop@1",
+        "please workshop API design",
+    )
+
+    assert vague.missing_argument is True
+    assert vague.argument_hint == "What topic should the workshop cover?"
+    assert specific.missing_argument is False
+    assert specific.invocation_text == "api design"
 
 
 def test_ineligible_selected_skill_is_rejected(tool_registry):
