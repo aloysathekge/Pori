@@ -355,9 +355,13 @@ class Agent:
         tool_names = self.capability_snapshot.tool_names
         if not {"skills_list", "skill_view"}.issubset(tool_names):
             return ""
-        entries = self.skill_catalog.index(
-            self.capability_snapshot,
-            model_capabilities=self.model_capabilities,
+        entries = tuple(
+            entry
+            for entry in self.skill_catalog.index(
+                self.capability_snapshot,
+                model_capabilities=self.model_capabilities,
+            )
+            if not entry.model_invocation_disabled
         )
         if not entries:
             return ""
@@ -507,11 +511,12 @@ class Agent:
             for artifact in artifacts
             if artifact.get("path")
         }
-        by_receipt = {
-            str(artifact.get("receipt_id", "")).strip(): artifact
-            for artifact in artifacts
-            if artifact.get("receipt_id")
-        }
+        by_receipt: Dict[str, List[Dict[str, Any]]] = {}
+        for artifact in artifacts:
+            receipt_id = str(artifact.get("receipt_id", "")).strip()
+            if receipt_id:
+                by_receipt.setdefault(receipt_id, []).append(artifact)
+
         errors: List[str] = []
         for index, reference in enumerate(references, start=1):
             if not isinstance(reference, dict):
@@ -519,10 +524,15 @@ class Agent:
                 continue
             path = str(reference.get("path", "")).strip()
             receipt_id = str(reference.get("receipt_id", "") or "").strip()
-            matched = None
+            if not path and not receipt_id:
+                errors.append(
+                    f"artifact_references[{index}] must include a path or receipt_id."
+                )
+                continue
+            receipt_group = None
             if receipt_id:
-                matched = by_receipt.get(receipt_id)
-                if matched is None:
+                receipt_group = by_receipt.get(receipt_id)
+                if not receipt_group:
                     errors.append(
                         f"artifact_references[{index}] receipt_id '{receipt_id}' "
                         "does not match a successful artifact receipt."
@@ -536,17 +546,12 @@ class Agent:
                         "written in this run."
                     )
                     continue
-                if matched is not None and path_match is not matched:
+                if receipt_group is not None and path_match not in receipt_group:
                     errors.append(
                         f"artifact_references[{index}] path '{path}' does not "
                         f"belong to receipt_id '{receipt_id}'."
                     )
                     continue
-                matched = path_match
-            if matched is None:
-                errors.append(
-                    f"artifact_references[{index}] must include a path or receipt_id."
-                )
         return errors
 
     async def step(self) -> None:
@@ -1241,15 +1246,16 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             self.task,
             self.capability_snapshot,
             model_capabilities=self.model_capabilities,
-            limit=1,
+            limit=5,
             min_score=self._SKILL_NUDGE_MIN_SCORE,
         )
-        if not hits:
-            return None
-        entry = hits[0].entry
-        if not entry.eligible:
-            return None
-        return entry.skill_id
+        for hit in hits:
+            entry = hit.entry
+            # Honor `disable-model-invocation`: such skills are user-invoked only
+            # (slash command / explicit selection), never auto-loaded by the model.
+            if entry.eligible and not entry.model_invocation_disabled:
+                return entry.skill_id
+        return None
 
     def _tool_side_effects(self, tool_name: str) -> Tuple[Any, ...]:
         """Return the declared side effects for a tool, empty if unknown."""

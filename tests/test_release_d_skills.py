@@ -186,6 +186,43 @@ async def test_explicit_skill_workflow_request_must_load_skill_before_answer(moc
 
 
 @pytest.mark.asyncio
+async def test_skill_with_model_invocation_disabled_is_not_nudged(mock_llm):
+    """`disable-model-invocation` skills are user-invoked only, never auto-loaded."""
+    registry = ToolRegistry()
+    register_all_tools(registry)
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a new skill or concept",
+            tags=("learning",),
+            model_invocation_disabled=True,
+        ),
+        "Teach step by step.",
+    )
+    memory = AgentMemory()
+    agent = Agent(
+        task="Teach me division step by step simply",
+        llm=mock_llm,
+        tools_registry=registry,
+        memory=memory,
+        skill_catalog=catalog,
+    )
+
+    # Not advertised to the model, and not forced before answering.
+    assert "teach@1" not in agent.system_message
+    assert agent._required_skill_view_before_answer() is None
+
+    await agent.execute_actions(
+        [{"answer": {"final_answer": "Division is sharing.", "reasoning": "Direct."}}]
+    )
+    answer_calls = [tc for tc in memory.tool_call_history if tc.tool_name == "answer"]
+    assert answer_calls[0].success is True
+
+
+@pytest.mark.asyncio
 async def test_explicit_skill_workflow_answer_allowed_after_skill_view(mock_llm):
     registry = ToolRegistry()
     register_all_tools(registry)

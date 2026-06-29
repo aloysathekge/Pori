@@ -565,6 +565,55 @@ class TestTerminalBehavior:
             }
         ]
 
+    def test_answer_accepts_reference_to_one_of_many_receipt_artifacts(
+        self, basic_registry, event_loop
+    ):
+        """A receipt with multiple artifacts validates any of its paths."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="create the lesson files",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+        receipt = agent._record_tool_receipt(
+            "write_file",
+            {"file_path": "lessons/", "content": "..."},
+            ReceiptStatus.SUCCEEDED,
+            artifacts=[
+                {"kind": "file", "path": "lessons/a.html", "operation": "write"},
+                {"kind": "file", "path": "lessons/b.html", "operation": "write"},
+            ],
+        )
+
+        # Reference the FIRST artifact by path + receipt_id (the old code matched
+        # only the last artifact per receipt and would falsely reject this).
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "answer": {
+                            "final_answer": "Lessons ready.",
+                            "reasoning": "Both files written under one receipt.",
+                            "artifact_references": [
+                                {
+                                    "path": "lessons/a.html",
+                                    "receipt_id": receipt.receipt_id,
+                                }
+                            ],
+                        }
+                    }
+                ]
+            )
+        )
+
+        answer_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "answer"
+        ]
+        assert answer_calls[-1].success is True
+        assert memory.get_state("final_answer") is not None
+
     def test_get_next_action_retries_invalid_structured_json(
         self, basic_registry, event_loop
     ):
