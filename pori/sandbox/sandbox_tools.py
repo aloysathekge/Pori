@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
-from pori.tools.registry import tool_registry
+from pori.tools.registry import SideEffect, tool_registry
 
 Registry = tool_registry()
 
@@ -169,6 +169,7 @@ class SandboxWriteFileParams(BaseModel):
     name="sandbox_write_file",
     param_model=SandboxWriteFileParams,
     description=f"Write text to a file in the sandbox. Use {VIRTUAL_PREFIX}/workspace for scratch, {VIRTUAL_PREFIX}/outputs for results.",
+    side_effects=(SideEffect.FILESYSTEM_WRITE,),
 )
 def sandbox_write_file_tool(
     params: SandboxWriteFileParams, context: Dict[str, Any]

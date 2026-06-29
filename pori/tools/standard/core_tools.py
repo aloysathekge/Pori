@@ -15,12 +15,29 @@ Registry = tool_registry()
 logger = logging.getLogger("pori.core_tools")
 
 
+class AnswerArtifactReference(BaseModel):
+    path: str = Field(
+        ..., description="Path of an artifact actually written during this run."
+    )
+    receipt_id: str | None = Field(
+        default=None,
+        description="Optional runtime receipt id proving the artifact was written.",
+    )
+
+
 class AnswerParams(BaseModel):
     final_answer: str = Field(
         ..., description="The final answer to the user's question"
     )
     reasoning: str = Field(
         ..., description="Brief explanation of how you arrived at this answer"
+    )
+    artifact_references: list[AnswerArtifactReference] = Field(
+        default_factory=list,
+        description=(
+            "UI-visible artifacts referenced by this answer. Only include "
+            "artifacts listed in Runtime Facts for this run."
+        ),
     )
 
 
@@ -33,6 +50,9 @@ def answer_tool(params: AnswerParams, context: Dict[str, Any]) -> Dict[str, Any]
     answer = {
         "final_answer": params.final_answer,
         "reasoning": params.reasoning or "No additional reasoning provided.",
+        "artifact_references": [
+            reference.model_dump() for reference in params.artifact_references
+        ],
     }
 
     logger.info(f"Answer tool called with final answer: {params.final_answer}")

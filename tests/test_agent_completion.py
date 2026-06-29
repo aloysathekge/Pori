@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult
 from pori.memory import AgentMemory, ToolCallRecord
+from pori.runtime import ReceiptStatus
+from pori.tools.policy import ToolAuthorizationPolicy
 from pori.tools.registry import ToolExecutor, ToolRegistry
 
 
@@ -344,20 +346,93 @@ class TestTerminalBehavior:
         )
 
         artifacts = agent.result_summary()["artifacts"]
-        assert artifacts == [
-            {
-                "kind": "file",
-                "tool_name": "write_file",
-                "path": str(path),
-                "operation": "write",
-                "bytes_written": 19,
-            }
-        ]
+        assert len(artifacts) == 1
+        assert artifacts[0] == {
+            "kind": "file",
+            "tool_name": "write_file",
+            "path": str(path),
+            "operation": "write",
+            "bytes_written": 19,
+            "receipt_id": artifacts[0]["receipt_id"],
+        }
+        assert artifacts[0]["receipt_id"].startswith("rcpt_")
 
-    def test_answer_rejected_when_file_claim_lacks_write_receipt(
+    def test_file_write_allowed_by_default(self, basic_registry, event_loop, tmp_path):
+        """By default the model is trusted to write files; receipts keep it honest."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="Teach me division step by step simply",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+        path = tmp_path / "styles.css"
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "write_file": {
+                            "file_path": str(path),
+                            "content": "body { color: red; }",
+                        }
+                    }
+                ]
+            )
+        )
+
+        write_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "write_file"
+        ]
+        assert len(write_calls) == 1
+        assert write_calls[0].success is True
+        assert path.exists()
+
+    def test_strict_policy_blocks_file_write_without_request(
+        self, basic_registry, event_loop, tmp_path
+    ):
+        """Opt-in strict mode still blocks writes the task did not ask for."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="Teach me division step by step simply",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+            tool_authorization_policy=ToolAuthorizationPolicy(
+                require_artifact_intent=True
+            ),
+        )
+        path = tmp_path / "lessons"
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "create_directory": {
+                            "directory_path": str(path),
+                            "parents": True,
+                        }
+                    }
+                ]
+            )
+        )
+
+        directory_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "create_directory"
+        ]
+        assert len(directory_calls) == 1
+        assert directory_calls[0].success is False
+        assert "did not explicitly ask for a file artifact" in str(
+            directory_calls[0].result
+        )
+        assert not path.exists()
+
+    def test_answer_prose_file_claim_is_not_a_runtime_artifact(
         self, basic_registry, event_loop
     ):
-        """Answers cannot claim file delivery without a current-task write."""
+        """Prose alone is not the source of truth for UI-visible artifacts."""
         memory = AgentMemory()
         agent = Agent(
             task="teach me division and create an HTML lesson file",
@@ -387,14 +462,14 @@ class TestTerminalBehavior:
             tc for tc in memory.tool_call_history if tc.tool_name == "answer"
         ]
         assert len(answer_calls) == 1
-        assert answer_calls[0].success is False
-        assert "file-writing tool call" in str(answer_calls[0].result)
-        assert memory.get_state("final_answer") is None
+        assert answer_calls[0].success is True
+        assert memory.get_state("final_answer") is not None
+        assert agent.result_summary()["artifacts"] == []
 
-    def test_answer_accepts_file_claim_after_write_receipt(
+    def test_answer_rejects_artifact_reference_without_write_receipt(
         self, basic_registry, event_loop
     ):
-        """A successful current-task write_file call satisfies file provenance."""
+        """UI-visible artifact references must match runtime receipts."""
         memory = AgentMemory()
         agent = Agent(
             task="teach me division and create an HTML lesson file",
@@ -402,15 +477,6 @@ class TestTerminalBehavior:
             tools_registry=basic_registry,
             settings=AgentSettings(max_steps=2),
             memory=memory,
-        )
-        memory.add_tool_call(
-            tool_name="write_file",
-            parameters={
-                "file_path": "lessons/division.html",
-                "content": "<html></html>",
-            },
-            result={"message": "Wrote file successfully"},
-            success=True,
         )
 
         event_loop.run_until_complete(
@@ -423,6 +489,63 @@ class TestTerminalBehavior:
                                 "interactive HTML file at lessons/division.html."
                             ),
                             "reasoning": "The requested file has been created.",
+                            "artifact_references": [{"path": "lessons/division.html"}],
+                        }
+                    }
+                ]
+            )
+        )
+
+        answer_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "answer"
+        ]
+        assert len(answer_calls) == 1
+        assert answer_calls[0].success is False
+        assert "Invalid artifact_references" in str(answer_calls[0].result)
+        assert memory.get_state("final_answer") is None
+
+    def test_answer_accepts_artifact_reference_after_write_receipt(
+        self, basic_registry, event_loop
+    ):
+        """A successful current-task write_file receipt satisfies artifact refs."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="teach me division and create an HTML lesson file",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+        receipt = agent._record_tool_receipt(
+            "write_file",
+            {"file_path": "lessons/division.html", "content": "<html></html>"},
+            ReceiptStatus.SUCCEEDED,
+            artifacts=[
+                {
+                    "kind": "file",
+                    "tool_name": "write_file",
+                    "path": "lessons/division.html",
+                    "operation": "write",
+                }
+            ],
+        )
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "answer": {
+                            "final_answer": (
+                                "Your division lesson is ready. See the attached "
+                                "artifact."
+                            ),
+                            "reasoning": "The runtime receipt proves the artifact.",
+                            "artifact_references": [
+                                {
+                                    "path": "lessons/division.html",
+                                    "receipt_id": receipt.receipt_id,
+                                }
+                            ],
                         }
                     }
                 ]
@@ -433,7 +556,14 @@ class TestTerminalBehavior:
             tc for tc in memory.tool_call_history if tc.tool_name == "answer"
         ]
         assert answer_calls[-1].success is True
-        assert memory.get_state("final_answer") is not None
+        final = memory.get_state("final_answer")
+        assert final is not None
+        assert final["artifact_references"] == [
+            {
+                "path": "lessons/division.html",
+                "receipt_id": receipt.receipt_id,
+            }
+        ]
 
     def test_get_next_action_retries_invalid_structured_json(
         self, basic_registry, event_loop

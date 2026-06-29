@@ -61,7 +61,14 @@ from .runtime import (
     stable_fingerprint,
     utc_now,
 )
-from .skills import SelectedSkill, SkillCatalog, SkillSummary, render_selected_skills
+from .skills import (
+    SelectedSkill,
+    SkillCatalog,
+    SkillIndexEntry,
+    SkillSummary,
+    render_selected_skills,
+)
+from .tools.policy import AuthorizationDecision, ToolAuthorizationPolicy
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
 from .utils.prompt_loader import load_prompt
@@ -162,6 +169,7 @@ class Agent:
         budget_ledger: Optional[BudgetLedger] = None,
         cancellation_token: Optional[CancellationToken] = None,
         evolution_repository: Optional[EvolutionRepository] = None,
+        tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -249,9 +257,12 @@ class Agent:
         self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
         self.cancellation_token = cancellation_token or CancellationToken()
         self.evolution_repository = evolution_repository
+        self.tool_authorization_policy = (
+            tool_authorization_policy or ToolAuthorizationPolicy()
+        )
         self.selected_skill_summaries: Tuple[SkillSummary, ...] = ()
         self.selected_skills: Tuple[SelectedSkill, ...] = ()
-        if self.skill_catalog is not None:
+        if self.skill_catalog is not None and selected_skill_ids:
             self.selected_skill_summaries = self.skill_catalog.select(
                 task,
                 self.capability_snapshot,
@@ -303,6 +314,10 @@ class Agent:
                 self._custom_system_prompt + "\n\n" + self.system_message
             )
 
+        available_skill_prompt = self._render_available_skills_prompt()
+        if available_skill_prompt:
+            self.system_message = self.system_message + "\n\n" + available_skill_prompt
+
         selected_skill_prompt = render_selected_skills(self.selected_skills)
         if selected_skill_prompt:
             self.system_message = (
@@ -333,6 +348,64 @@ class Agent:
 
         logger.debug("System message setup complete", extra={"task_id": self.task_id})
 
+    def _render_available_skills_prompt(self) -> str:
+        """Render Hermes-style skill metadata without loading skill instructions."""
+        if self.skill_catalog is None:
+            return ""
+        tool_names = self.capability_snapshot.tool_names
+        if not {"skills_list", "skill_view"}.issubset(tool_names):
+            return ""
+        entries = self.skill_catalog.index(
+            self.capability_snapshot,
+            model_capabilities=self.model_capabilities,
+        )
+        if not entries:
+            return ""
+
+        def _entry_line(entry: SkillIndexEntry) -> str:
+            tags = f" tags={', '.join(entry.tags)}" if entry.tags else ""
+            commands = (
+                f" commands=/{', /'.join(entry.commands)}" if entry.commands else ""
+            )
+            readiness = (
+                f" readiness={entry.readiness}" if entry.readiness != "ready" else ""
+            )
+            eligibility = (
+                " eligible"
+                if entry.eligible
+                else f" unavailable={', '.join(entry.reasons)}"
+            )
+            return (
+                f"- {entry.skill_id}: {entry.summary}"
+                f"{tags}{commands}{readiness} ({eligibility})"
+            )
+
+        lines = [
+            "# Available Skills",
+            "Skills are available on demand through the skills_list and skill_view tools.",
+            (
+                "Before performing an actionable task, if a listed skill is relevant, "
+                "load it with skill_view and follow its instructions."
+            ),
+            (
+                "For explicit learning/workflow requests such as 'teach me', "
+                "'step by step', 'as a course', 'lesson', or 'workshop', load the "
+                "matching skill before answering when one is available."
+            ),
+            (
+                "Do not load a skill for small talk, meta questions about whether to "
+                "use a skill, or follow-up answers unless the current task actually "
+                "needs that skill."
+            ),
+            "Explicitly selected skills, if any, are injected separately under Selected Skills.",
+        ]
+        lines.extend(_entry_line(entry) for entry in entries[:20])
+        if len(entries) > 20:
+            lines.append(
+                f"- ... {len(entries) - 20} more skill(s); call skills_list to search."
+            )
+        return "\n".join(lines)
+
     def _record_tool_receipt(
         self,
         tool_name: str,
@@ -345,6 +418,7 @@ class Agent:
         artifacts: Optional[List[Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ToolExecutionReceipt:
+        receipt_artifacts = [dict(artifact) for artifact in artifacts or []]
         receipt = ToolExecutionReceipt(
             run_id=self.run_context.run_id,
             tool_name=tool_name,
@@ -354,9 +428,11 @@ class Agent:
             finished_at=utc_now(),
             duration_seconds=max(0.0, duration_seconds),
             error=error,
-            artifacts=artifacts or [],
+            artifacts=receipt_artifacts,
             metadata=metadata or {},
         )
+        for artifact in receipt.artifacts:
+            artifact.setdefault("receipt_id", receipt.receipt_id)
         self.execution_receipts.append(receipt)
         return receipt
 
@@ -397,6 +473,81 @@ class Agent:
         for receipt in self.execution_receipts:
             artifacts.extend(receipt.artifacts)
         return artifacts
+
+    def _runtime_fact_summary(self) -> Dict[str, Any]:
+        """Return runtime-owned facts the model may cite but not invent."""
+        return {
+            "artifacts_written": self._run_artifacts(),
+            "tool_receipts": [
+                {
+                    "receipt_id": receipt.receipt_id,
+                    "tool_name": receipt.tool_name,
+                    "status": receipt.status.value,
+                    "artifacts": receipt.artifacts,
+                    "error": receipt.error,
+                }
+                for receipt in self.execution_receipts[-10:]
+            ],
+            "selected_skills": [
+                skill.manifest.skill_id for skill in self.selected_skills
+            ],
+            "final_answer_present": self.memory.get_state("final_answer") is not None,
+        }
+
+    def _artifact_reference_errors(self, references: Any) -> List[str]:
+        """Validate final-answer artifact references against receipt evidence."""
+        if references in (None, "", []):
+            return []
+        if not isinstance(references, list):
+            return ["artifact_references must be a list when provided."]
+
+        artifacts = self._run_artifacts()
+        by_path = {
+            str(artifact.get("path", "")).strip().lower(): artifact
+            for artifact in artifacts
+            if artifact.get("path")
+        }
+        by_receipt = {
+            str(artifact.get("receipt_id", "")).strip(): artifact
+            for artifact in artifacts
+            if artifact.get("receipt_id")
+        }
+        errors: List[str] = []
+        for index, reference in enumerate(references, start=1):
+            if not isinstance(reference, dict):
+                errors.append(f"artifact_references[{index}] must be an object.")
+                continue
+            path = str(reference.get("path", "")).strip()
+            receipt_id = str(reference.get("receipt_id", "") or "").strip()
+            matched = None
+            if receipt_id:
+                matched = by_receipt.get(receipt_id)
+                if matched is None:
+                    errors.append(
+                        f"artifact_references[{index}] receipt_id '{receipt_id}' "
+                        "does not match a successful artifact receipt."
+                    )
+                    continue
+            if path:
+                path_match = by_path.get(path.lower())
+                if path_match is None:
+                    errors.append(
+                        f"artifact_references[{index}] path '{path}' was not "
+                        "written in this run."
+                    )
+                    continue
+                if matched is not None and path_match is not matched:
+                    errors.append(
+                        f"artifact_references[{index}] path '{path}' does not "
+                        f"belong to receipt_id '{receipt_id}'."
+                    )
+                    continue
+                matched = path_match
+            if matched is None:
+                errors.append(
+                    f"artifact_references[{index}] must include a path or receipt_id."
+                )
+        return errors
 
     async def step(self) -> None:
         """Execute one step of the task."""
@@ -877,6 +1028,12 @@ class Agent:
                 for t in self.memory.tool_call_history[-5:]  # Last 5 tool calls
             ]
         )
+        runtime_facts = json.dumps(
+            self._runtime_fact_summary(),
+            ensure_ascii=True,
+            default=str,
+            indent=2,
+        )
 
         # Check if we have tool results but no final answer yet
         has_tool_results = len(self.memory.tool_call_history) > 0
@@ -900,6 +1057,14 @@ Current Plan (follow these steps; revise only if needed):
 
 Recent Actions:
 {recent_tools}
+
+Runtime Facts (source of truth for UI-visible outputs):
+{runtime_facts}
+
+When using the answer tool, put any UI-visible created files in
+artifact_references using paths/receipt_ids from Runtime Facts. If Runtime Facts
+has no matching artifact, do not add an artifact reference; explain limitations
+in final_answer as normal text.
 
 Please decide on the next action to take to accomplish the task."""
 
@@ -1046,73 +1211,61 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 return True
         return False
 
-    def _task_requests_file_artifact(self) -> bool:
-        """Return True when the user asks Pori to create or write a file artifact."""
-        task_lower = self.task.lower()
-        artifact_terms = {
-            "file",
-            "html",
-            "page",
-            "document",
-            "report",
-            "lesson",
-            "worksheet",
-            "artifact",
-        }
-        write_terms = {
-            "create",
-            "write",
-            "save",
-            "build",
-            "generate",
-            "make",
-            "export",
-        }
-        return any(term in task_lower for term in artifact_terms) and any(
-            term in task_lower for term in write_terms
-        )
-
-    def _answer_claims_file_artifact_delivered(self, answer_text: str) -> bool:
-        """Return True if a final answer claims a requested file artifact exists."""
-        answer_lower = answer_text.lower()
-        artifact_terms = {
-            "file",
-            "html",
-            "page",
-            "document",
-            "report",
-            "lesson",
-            "worksheet",
-            "artifact",
-            ".html",
-            ".md",
-            ".txt",
-            ".json",
-        }
-        delivery_terms = {
-            "created",
-            "wrote",
-            "saved",
-            "generated",
-            "built",
-            "exported",
-            "ready",
-        }
-        return any(term in answer_lower for term in artifact_terms) and any(
-            term in answer_lower for term in delivery_terms
-        )
-
-    def _current_task_has_successful_file_write(self) -> bool:
-        """Return True if this task has a successful file-writing tool call."""
-        write_tools = {"write_file", "sandbox_write_file"}
+    def _current_task_has_loaded_skill(self) -> bool:
+        """Return True if this task loaded a skill at runtime or explicitly."""
+        if self.selected_skills:
+            return True
         for tc in self.memory.tool_call_history:
             if (
                 getattr(tc, "task_id", None) == self.task_id
-                and getattr(tc, "tool_name", None) in write_tools
+                and getattr(tc, "tool_name", None) == "skill_view"
                 and getattr(tc, "success", False)
             ):
                 return True
         return False
+
+    # A skill is only nudged when the task references the skill's own declared
+    # identity strongly enough to clear the catalog search score (slug/name/
+    # command boosts), rather than matching a hardcoded list of English phrases.
+    _SKILL_NUDGE_MIN_SCORE = 6
+
+    def _required_skill_view_before_answer(self) -> Optional[str]:
+        """Return a skill id when this task should load a skill before answering.
+
+        Catalog-driven: the trigger is a high-confidence match against a skill's
+        own metadata, not a fixed set of workflow phrases.
+        """
+        if self.skill_catalog is None or self._current_task_has_loaded_skill():
+            return None
+        hits = self.skill_catalog.search(
+            self.task,
+            self.capability_snapshot,
+            model_capabilities=self.model_capabilities,
+            limit=1,
+            min_score=self._SKILL_NUDGE_MIN_SCORE,
+        )
+        if not hits:
+            return None
+        entry = hits[0].entry
+        if not entry.eligible:
+            return None
+        return entry.skill_id
+
+    def _tool_side_effects(self, tool_name: str) -> Tuple[Any, ...]:
+        """Return the declared side effects for a tool, empty if unknown."""
+        try:
+            return self.capability_snapshot.get_tool(tool_name).side_effects
+        except ValueError:
+            info = self.tools_registry.tools.get(tool_name)
+            return info.side_effects if info is not None else ()
+
+    def _authorize_side_effects(self, tool_name: str) -> AuthorizationDecision:
+        """Authorize a tool call against its declared side effects."""
+        return self.tool_authorization_policy.authorize(
+            tool_name=tool_name,
+            side_effects=self._tool_side_effects(tool_name),
+            task=self.task,
+        )
 
     def _memory_deletion_forbidden_terms(self) -> list:
         """Extract terms from the task that the user explicitly wants removed.
@@ -1571,6 +1724,13 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
             # For regular tools, execute and evaluate
             try:
+                authorization = self._authorize_side_effects(tool_name)
+                if not authorization.allowed:
+                    self._reject_action(
+                        tool_name, params, results, authorization.reason
+                    )
+                    continue
+
                 # --- HITL approval gate ---
                 if self.hitl_handler and self.hitl_config and self.hitl_config.enabled:
                     interrupt_cfg = self._get_interrupt_config(tool_name)
@@ -1722,16 +1882,26 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                         self._reject_action(tool_name, params, results, reject_msg)
                         continue
 
-                    if (
-                        self._task_requests_file_artifact()
-                        and self._answer_claims_file_artifact_delivered(answer_text)
-                        and not self._current_task_has_successful_file_write()
-                    ):
+                    required_skill_id = self._required_skill_view_before_answer()
+                    if required_skill_id:
                         reject_msg = (
-                            "Cannot claim a file artifact was created without a "
-                            "successful file-writing tool call in the current task. "
-                            "Use write_file first, or answer honestly that no file "
-                            "was created."
+                            "This task matches an available skill workflow. Load "
+                            f"{required_skill_id} with skill_view before answering, "
+                            "then follow the loaded skill instructions."
+                        )
+                        self._reject_action(tool_name, params, results, reject_msg)
+                        continue
+
+                    artifact_reference_errors = self._artifact_reference_errors(
+                        params.get("artifact_references")
+                        if isinstance(params, dict)
+                        else None
+                    )
+                    if artifact_reference_errors:
+                        reject_msg = (
+                            "Invalid artifact_references in final answer. "
+                            "Only reference artifacts present in Runtime Facts: "
+                            + "; ".join(artifact_reference_errors)
                         )
                         self._reject_action(tool_name, params, results, reject_msg)
                         continue
