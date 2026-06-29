@@ -8,6 +8,7 @@ from pori import (
 )
 from pori.config import Config, LLMConfig, SkillsConfig
 from pori.main import (
+    _console_safe_text,
     _format_tool_call_parameters,
     _handle_cli_command,
     _handle_skills_lifecycle_command,
@@ -17,6 +18,7 @@ from pori.main import (
     _resolve_skill_bundle_command,
     _resolve_skill_command,
     _resume_pending_skill_task,
+    _summarize_loaded_skills,
     _summarize_written_artifacts,
 )
 from pori.memory import ToolCallRecord
@@ -120,6 +122,31 @@ def test_cli_summarizes_written_artifacts_and_redacts_content():
     ]
     assert "'content': '<19 chars>'" in params
     assert "<html>lesson</html>" not in params
+
+
+def test_cli_summarizes_runtime_loaded_skills():
+    calls = [
+        ToolCallRecord(
+            tool_name="skill_view",
+            parameters={"skill": "teach@1"},
+            result={"success": True, "result": {"skill_id": "teach@1"}},
+            success=True,
+            task_id="task_1",
+        ),
+        ToolCallRecord(
+            tool_name="skill_view",
+            parameters={"skill": "teach@1"},
+            result={"success": True, "result": {"skill_id": "teach@1"}},
+            success=True,
+            task_id="task_1",
+        ),
+    ]
+
+    assert _summarize_loaded_skills(calls) == ["teach@1"]
+
+
+def test_console_safe_text_replaces_unprintable_characters_for_legacy_codepages():
+    assert _console_safe_text("12 − 3 = 9 ÷ 3", encoding="cp1252") == "12 ? 3 = 9 ÷ 3"
 
 
 def test_skill_catalog_builds_hermes_style_index_and_searches(tool_registry):
@@ -505,7 +532,7 @@ instruction: Keep changes focused.
     )
 
 
-def test_auto_skill_selection_matches_natural_teaching_request(tool_registry):
+def test_auto_skill_selection_does_not_activate_natural_teaching_request(tool_registry):
     catalog = SkillCatalog()
     catalog.register(
         SkillManifest(
@@ -517,12 +544,15 @@ def test_auto_skill_selection_matches_natural_teaching_request(tool_registry):
         "Teach the user interactively.",
     )
 
-    assert _resolve_auto_skill_selection(
-        catalog,
-        tool_registry,
-        "teach me multiplication like I am starting from zero",
-        skill_limit=3,
-    ) == ("teach@1",)
+    assert (
+        _resolve_auto_skill_selection(
+            catalog,
+            tool_registry,
+            "teach me multiplication like I am starting from zero",
+            skill_limit=3,
+        )
+        == ()
+    )
 
 
 def test_missing_skill_argument_message_is_metadata_driven():

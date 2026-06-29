@@ -33,6 +33,16 @@ class CollisionPolicy(str, Enum):
     REPLACE = "replace"
 
 
+class SideEffect(str, Enum):
+    """Declarative classes of externally observable tool side effects.
+
+    Tools advertise these so authorization and policy code can reason about a
+    call's blast radius without hardcoding tool-name sets at the call site.
+    """
+
+    FILESYSTEM_WRITE = "filesystem:write"
+
+
 class CapabilityResolutionError(ValueError):
     pass
 
@@ -45,6 +55,7 @@ class ToolInfo:
     param_model: Type[BaseModel]
     function: Callable
     description: str
+    side_effects: Tuple[SideEffect, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +89,7 @@ class CapabilitySnapshot:
                 info.param_model,
                 info.function,
                 info.description,
+                side_effects=info.side_effects,
             )
         for group in self.groups:
             included = group.tool_names.intersection(self.tool_names)
@@ -123,6 +135,7 @@ class ToolRegistry:
         function: Callable,
         description: str,
         *,
+        side_effects: Iterable[SideEffect] = (),
         collision_policy: Optional[CollisionPolicy] = None,
     ) -> None:
         """Register a tool implementation using an explicit collision policy."""
@@ -137,6 +150,7 @@ class ToolRegistry:
             param_model=param_model,
             function=function,
             description=description,
+            side_effects=tuple(side_effects),
         )
 
     def define_group(self, group: CapabilityGroup) -> None:
@@ -155,6 +169,8 @@ class ToolRegistry:
         name: Optional[str] = None,
         param_model: Optional[Type[BaseModel]] = None,
         description: str = "",
+        *,
+        side_effects: Iterable[SideEffect] = (),
     ):
         """Decorator for registering tools."""
 
@@ -180,6 +196,7 @@ class ToolRegistry:
                 param_model=derived_param_model,
                 function=func,
                 description=description,
+                side_effects=side_effects,
             )
             return func
 
@@ -368,6 +385,7 @@ __all__ = [
     "CapabilityResolutionError",
     "CapabilitySnapshot",
     "CollisionPolicy",
+    "SideEffect",
     "ToolExecutor",
     "ToolInfo",
     "ToolRegistry",
