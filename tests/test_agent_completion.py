@@ -12,6 +12,7 @@ from pori.memory import AgentMemory, ToolCallRecord
 from pori.runtime import ReceiptStatus
 from pori.tools.policy import ToolAuthorizationPolicy
 from pori.tools.registry import ToolExecutor, ToolRegistry
+from pori.tools.standard.filesystem_tools import fs_config
 
 
 class MockLLMResponse:
@@ -320,8 +321,11 @@ class TestTerminalBehavior:
     """Tests for proper terminal behavior after task completion."""
 
     def test_result_summary_reports_written_artifacts(
-        self, basic_registry, event_loop, tmp_path
+        self, basic_registry, event_loop, tmp_path, monkeypatch
     ):
+        # Allow writes under tmp_path on every platform (CI tmp dirs live outside
+        # home/cwd, which the filesystem-safety check would otherwise reject).
+        monkeypatch.setattr(fs_config, "current_dir", tmp_path.resolve())
         memory = AgentMemory()
         agent = Agent(
             task="Create a lesson file",
@@ -357,8 +361,11 @@ class TestTerminalBehavior:
         }
         assert artifacts[0]["receipt_id"].startswith("rcpt_")
 
-    def test_file_write_allowed_by_default(self, basic_registry, event_loop, tmp_path):
+    def test_file_write_allowed_by_default(
+        self, basic_registry, event_loop, tmp_path, monkeypatch
+    ):
         """By default the model is trusted to write files; receipts keep it honest."""
+        monkeypatch.setattr(fs_config, "current_dir", tmp_path.resolve())
         memory = AgentMemory()
         agent = Agent(
             task="Teach me division step by step simply",
