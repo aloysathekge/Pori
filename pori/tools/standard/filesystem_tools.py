@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, validator
 
-from ..registry import tool_registry
+from ..registry import SideEffect, tool_registry
 
 # Optional: resolve sandbox virtual paths when context has thread_id + sandbox_base_dir
 try:
@@ -385,6 +385,7 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
     name="write_file",
     param_model=WriteFileParams,
     description="Write content to a file",
+    side_effects=(SideEffect.FILESYSTEM_WRITE,),
 )
 @safe_path_operation
 def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
@@ -550,6 +551,7 @@ def file_info_tool(params: FileInfoParams, context: Dict[str, Any]):
     name="create_directory",
     param_model=CreateDirectoryParams,
     description="Create a new directory",
+    side_effects=(SideEffect.FILESYSTEM_WRITE,),
 )
 @safe_path_operation
 def create_directory_tool(params: CreateDirectoryParams, context: Dict[str, Any]):

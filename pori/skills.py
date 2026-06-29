@@ -48,6 +48,7 @@ class SkillManifest(BaseModel):
     readiness_warnings: Tuple[str, ...] = ()
     sensitivity: str = "internal"
     instructions_fingerprint: Optional[str] = None
+    model_invocation_disabled: bool = False
 
     @property
     def skill_id(self) -> str:
@@ -103,6 +104,7 @@ class SkillIndexEntry(BaseModel):
     readiness_reasons: Tuple[str, ...] = ()
     eligible: bool
     reasons: Tuple[str, ...] = ()
+    model_invocation_disabled: bool = False
 
 
 class SkillReadiness(BaseModel):
@@ -316,6 +318,7 @@ class SkillCatalog:
                     readiness_reasons=readiness.reasons,
                     eligible=report.eligible,
                     reasons=report.reasons,
+                    model_invocation_disabled=manifest.model_invocation_disabled,
                 )
             )
         return tuple(entries)
@@ -635,6 +638,12 @@ def _load_bundle_file(path: Path) -> Optional[SkillBundle]:
         instruction=str(raw.get("instruction") or "").strip(),
         source=f"local:{path}",
     )
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return bool(value)
 
 
 def _as_tuple(value: Any) -> Tuple[str, ...]:
@@ -1152,6 +1161,11 @@ def load_skill_catalog_from_directories(
                 readiness_warnings=_scan_skill_warnings(instructions),
                 sensitivity=str(metadata.get("sensitivity") or "internal"),
                 instructions_fingerprint=metadata.get("instructions_fingerprint"),
+                model_invocation_disabled=_as_bool(
+                    metadata.get("disable-model-invocation")
+                    or metadata.get("disable_model_invocation")
+                    or nested.get("disable_model_invocation")
+                ),
             )
             try:
                 catalog.register(

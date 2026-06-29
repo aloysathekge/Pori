@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import sys
 from typing import Any, List, Optional, Tuple, cast
 
 from dotenv import load_dotenv
@@ -44,6 +45,26 @@ from .utils.prompt_loader import set_prompts_dir
 
 loggers = setup_logging(level=logging.INFO, include_http=True)
 logger = logging.getLogger("pori.main")
+
+
+def _console_safe_text(value: Any, encoding: Optional[str] = None) -> str:
+    """Return text that can be written to the current console encoding."""
+    text = str(value)
+    target_encoding = encoding or getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        return text.encode(target_encoding, errors="replace").decode(
+            target_encoding,
+            errors="replace",
+        )
+    except LookupError:
+        return text.encode("utf-8", errors="replace").decode(
+            "utf-8",
+            errors="replace",
+        )
+
+
+def _safe_print(value: Any = "", *, flush: bool = False) -> None:
+    print(_console_safe_text(value), flush=flush)
 
 
 # Define some example tools
@@ -150,6 +171,37 @@ def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
             detail += f" ({byte_count} bytes)"
         artifact_lines.append(detail)
     return artifact_lines
+
+
+def _summarize_loaded_skills(tool_calls: List[Any]) -> List[str]:
+    """Return skill ids loaded by the agent at runtime through skill_view."""
+    loaded: List[str] = []
+    seen: set[str] = set()
+    for call in tool_calls:
+        if not getattr(call, "success", False):
+            continue
+        if getattr(call, "tool_name", "") != "skill_view":
+            continue
+        params = getattr(call, "parameters", {}) or {}
+        result = getattr(call, "result", {}) or {}
+        if not isinstance(params, dict):
+            params = {}
+        if not isinstance(result, dict):
+            result = {}
+        inner_result = result.get("result")
+        if not isinstance(inner_result, dict):
+            inner_result = {}
+        skill_id = (
+            inner_result.get("skill_id")
+            or params.get("skill")
+            or inner_result.get("name")
+            or "(unknown skill)"
+        )
+        skill_id = str(skill_id)
+        if skill_id not in seen:
+            seen.add(skill_id)
+            loaded.append(skill_id)
+    return loaded
 
 
 def _format_tool_call_parameters(parameters: Any) -> str:
@@ -559,14 +611,13 @@ def _resolve_auto_skill_selection(
     *,
     skill_limit: int,
 ) -> Tuple[str, ...]:
-    if skill_catalog is None:
-        return ()
-    selected = skill_catalog.search(
-        task,
-        registry.snapshot(),
-        limit=skill_limit,
-    )
-    return tuple(hit.entry.skill_id for hit in selected if hit.entry.eligible)
+    """Natural language does not activate skills before the agent runs.
+
+    Hermes keeps skill choice model-mediated: slash commands explicitly select
+    skills, while normal tasks receive skill metadata and can load instructions
+    with skill_view when the task actually needs them.
+    """
+    return ()
 
 
 def _missing_skill_argument_message(
@@ -1237,7 +1288,7 @@ async def main():
 
                 final_answer = fs.get("final_answer")
                 if final_answer:
-                    print(f"\nFINAL ANSWER:\n  {final_answer}")
+                    _safe_print(f"\nFINAL ANSWER:\n  {final_answer}")
                 else:
                     print("\nNO FINAL ANSWER FOUND")
 
@@ -1304,9 +1355,9 @@ async def main():
                     if final_answer:
                         logger.info("Final answer provided")
                         print("\nFINAL ANSWER:")
-                        print(f"  {final_answer['final_answer']}")
+                        _safe_print(f"  {final_answer['final_answer']}")
                         if final_answer.get("reasoning"):
-                            print(f"\n  Reasoning: {final_answer['reasoning']}")
+                            _safe_print(f"\n  Reasoning: {final_answer['reasoning']}")
                         print(
                             "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
                         )
@@ -1326,12 +1377,16 @@ async def main():
                     if artifact_lines:
                         print("\nArtifacts written (this task):")
                         for line in artifact_lines:
-                            print(f"  - {line}")
+                            _safe_print(f"  - {line}")
+
+                    loaded_skills = _summarize_loaded_skills(calls_this_task)
+                    if loaded_skills:
+                        print(f"\nSkills loaded: {', '.join(loaded_skills)}")
 
                     print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
                         status = "+" if tool_call.success else "x"
-                        print(
+                        _safe_print(
                             f"  {i}. {tool_call.tool_name}("
                             f"{_format_tool_call_parameters(tool_call.parameters)}) "
                             f"-> {status}"
@@ -1347,7 +1402,7 @@ async def main():
 
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)
-            print(f"Error executing task: {e}")
+            _safe_print(f"Error executing task: {e}")
 
 
 if __name__ == "__main__":
