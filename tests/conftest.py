@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from pori import AgentMemory, TaskState
 from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult, Evaluator
-from pori.llm import AssistantMessage, SystemMessage, UserMessage
+from pori.llm import AssistantMessage, SystemMessage, ToolTurn, UserMessage
 from pori.orchestrator import Orchestrator
 from pori.tools.registry import ToolInfo, ToolRegistry
 
@@ -75,6 +75,17 @@ class MockLLM:
         response = self.responses[self.response_index]
         self.response_index = (self.response_index + 1) % len(self.responses)
         return response
+
+    async def ainvoke_tools(self, messages, tools):
+        """Native tool-calling: derive a ToolTurn from the queued response."""
+        from tests._native_mock import tool_turn_from_response
+
+        self.ainvoke_calls.append(messages)
+        if not self.responses:
+            return ToolTurn()
+        response = self.responses[self.response_index]
+        self.response_index = (self.response_index + 1) % len(self.responses)
+        return tool_turn_from_response(response)
 
 
 @pytest.fixture

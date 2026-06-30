@@ -184,7 +184,6 @@ class Agent:
         tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
         soul_path: Optional[str] = None,
         load_project_context: bool = False,
-        tool_calling: str = "envelope",
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -228,7 +227,6 @@ class Agent:
         self._custom_system_prompt = system_prompt
         self._soul_path = soul_path
         self._load_project_context = load_project_context
-        self._tool_calling = tool_calling
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -317,23 +315,16 @@ class Agent:
         """Set up the system message for the agent."""
         logger.debug("Setting up system message", extra={"task_id": self.task_id})
 
-        # Get tool descriptions for the prompt
-        tool_descriptions = self.tools_registry.get_tool_descriptions()
         tool_count = len(self.tools_registry.tools)
         logger.info(f"Available tools: {tool_count}", extra={"task_id": self.task_id})
 
         # Assemble the system prompt from cache-ordered tiers:
-        #   stable   -> default identity + core operating rules + tool guidance
+        #   stable   -> default identity + core operating rules
         #   context  -> caller-supplied custom prompt
         #   volatile -> available-skills index + selected-skill instructions
-        # Native tool-calling sends tool schemas via the provider API, so its
-        # prompt omits the JSON envelope + textual tool descriptions.
-        if self._tool_calling == "native":
-            core_instructions = load_prompt("system/agent_core_native.md")
-        else:
-            core_instructions = load_prompt("system/agent_core.md").replace(
-                "{tool_descriptions}", tool_descriptions
-            )
+        # Tool schemas are sent natively via the provider API, so the prompt
+        # carries no JSON envelope or textual tool descriptions.
+        core_instructions = load_prompt("system/agent_core.md")
         # Identity: a user SOUL.md persona if present (re-read per task), else
         # the neutral default identity.
         tiers = SystemPromptTiers()
@@ -807,158 +798,30 @@ class Agent:
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
-    async def _get_next_action_native(self, messages: List[Any]) -> AgentOutput:
-        """Native tool-calling: provider returns real tool calls + text.
-
-        Each tool call maps to the internal ``{name: arguments}`` action dict so
-        the downstream execution path is unchanged; the assistant text becomes
-        ``next_goal`` (the activity line).
-        """
-        tools = self.tools_registry.tool_schemas()
-        turn = await self.llm.ainvoke_tools(messages, tools)
-        action: List[Dict[str, Any]] = [
-            {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
-        ]
-        current_state: Dict[str, str] = {"next_goal": turn.text} if turn.text else {}
-        return AgentOutput(current_state=current_state, action=action)
-
     async def get_next_action(self) -> AgentOutput:
-        """Get next action from LLM based on current state."""
-        logger.debug("Building messages for LLM", extra={"task_id": self.task_id})
+        """Get the next action from the LLM via native tool-calling.
 
-        # Build messages for the LLM
+        The provider returns real tool calls plus assistant text; each tool
+        call maps to the internal {name: arguments} action dict, and the text
+        becomes the activity line (next_goal).
+        """
         messages = self._build_messages()
-        message_count = len(messages)
         logger.debug(
-            f"Built {message_count} messages for LLM", extra={"task_id": self.task_id}
+            f"Built {len(messages)} messages for LLM",
+            extra={"task_id": self.task_id},
         )
-
-        # Native tool-calling path: ask the provider for real tool calls and map
-        # them onto the internal AgentOutput. The assistant text becomes the
-        # activity line (next_goal); the JSON envelope and recovery are skipped.
-        if self._tool_calling == "native":
-            return await self._get_next_action_native(messages)
-
-        # Create dynamic model for the LLM response
-        output_model = self._create_output_model()
-
-        # Get response from LLM
         try:
-            logger.debug("Calling LLM for next action", extra={"task_id": self.task_id})
-            structured_llm = self.llm.with_structured_output(
-                output_model, include_raw=True
+            tools = self.tools_registry.tool_schemas()
+            turn = await self.llm.ainvoke_tools(messages, tools)
+            action: List[Dict[str, Any]] = [
+                {call.name: dict(call.arguments)}
+                for call in turn.tool_calls
+                if call.name
+            ]
+            current_state: Dict[str, str] = (
+                {"next_goal": turn.text} if turn.text else {}
             )
-            response = await structured_llm.ainvoke(messages)
-
-            # Parse the response
-            parsed_output = response.get("parsed")
-            if not parsed_output:
-                logger.warning(
-                    "Structured output failed, attempting to parse raw response",
-                    extra={"task_id": self.task_id},
-                )
-                # Attempt to parse raw response if structured output failed
-                raw = response.get("raw")
-                raw_content = getattr(raw, "content", raw)
-
-                def _coerce_to_output_json(obj: Any) -> Dict[str, Any]:
-                    """Coerce various raw shapes into AgentOutput JSON shape."""
-                    default: Dict[str, Any] = {"current_state": {}, "action": []}
-                    # Already a dict
-                    if isinstance(obj, dict):
-                        # Ensure required keys exist
-                        if "current_state" not in obj:
-                            obj["current_state"] = obj.get("state", {}) or {}
-                        if "action" not in obj:
-                            obj["action"] = obj.get("actions", []) or []
-                        return obj
-                    # String → try JSON
-                    if isinstance(obj, str):
-                        try:
-                            parsed = json.loads(obj)
-                            return _coerce_to_output_json(parsed)
-                        except Exception:
-                            return default
-                    # List handling
-                    if isinstance(obj, list):
-                        if not obj:
-                            return default
-                        # Common LC message.content shape: list of {type, text}
-                        if all(isinstance(x, dict) and "text" in x for x in obj):
-                            combined = "\n".join(str(x.get("text", "")) for x in obj)
-                            try:
-                                parsed = json.loads(combined)
-                                return _coerce_to_output_json(parsed)
-                            except Exception:
-                                return default
-                        # If it's a list of action dicts, wrap
-                        if all(isinstance(x, dict) for x in obj):
-                            first = obj[0]
-                            if "current_state" in first or "action" in first:
-                                return _coerce_to_output_json(first)
-                            # Heuristic: list of tool calls like [{tool: {...}}, ...]
-                            if all(
-                                len(x.keys()) == 1
-                                and isinstance(list(x.values())[0], (dict, list))
-                                for x in obj
-                            ):
-                                return {"current_state": {}, "action": obj}
-                            return default
-                        # List of strings → try parse first
-                        if all(isinstance(x, str) for x in obj):
-                            try:
-                                parsed = json.loads(obj[0])
-                                return _coerce_to_output_json(parsed)
-                            except Exception:
-                                return default
-                        return default
-                    # Fallback: try str-JSON
-                    try:
-                        parsed = json.loads(str(obj))
-                        return _coerce_to_output_json(parsed)
-                    except Exception:
-                        return default
-
-                parsed_json = _coerce_to_output_json(raw_content)
-                if not parsed_json.get("action") and raw_content:
-                    logger.info(
-                        "Retrying structured output after invalid JSON",
-                        extra={"task_id": self.task_id},
-                    )
-                    retry_messages = [
-                        *messages,
-                        UserMessage(
-                            content=(
-                                "Your previous response was invalid or incomplete "
-                                "JSON for the required AgentOutput schema. Retry now "
-                                "with complete valid JSON only. Keep file contents "
-                                "shorter, or split large writes into multiple smaller "
-                                "actions."
-                            )
-                        ),
-                    ]
-                    retry_response = await structured_llm.ainvoke(retry_messages)
-                    parsed_output = retry_response.get("parsed")
-                    if parsed_output:
-                        logger.debug(
-                            "Successfully parsed retried LLM response",
-                            extra={"task_id": self.task_id},
-                        )
-                        return parsed_output
-                    retry_raw = retry_response.get("raw")
-                    raw_content = getattr(retry_raw, "content", retry_raw)
-                    parsed_json = _coerce_to_output_json(raw_content)
-                    if not parsed_json.get("action"):
-                        raise ValueError(
-                            "Structured output was invalid after one retry"
-                        )
-                parsed_output = output_model(**parsed_json)
-
-            logger.debug(
-                "Successfully parsed LLM response", extra={"task_id": self.task_id}
-            )
-            return parsed_output
-
+            return AgentOutput(current_state=current_state, action=action)
         except Exception as e:
             logger.error(
                 f"Failed to get action from LLM: {str(e)}",
@@ -1378,10 +1241,6 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     if term in val_lower:
                         return True
         return False
-
-    def _create_output_model(self) -> Type[BaseModel]:
-        """Create the output model for the LLM's response."""
-        return AgentOutput
 
     def _get_interrupt_config(self, tool_name: str) -> Optional[Any]:
         """Check if a tool requires HITL approval."""

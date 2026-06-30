@@ -47,6 +47,14 @@ class MockLLMForHITL:
         self._output_model = output_model
         return self
 
+    async def ainvoke_tools(self, messages, tools):
+        from pori.llm import ToolCall, ToolTurn
+
+        return ToolTurn(
+            text="test",
+            tool_calls=[ToolCall(name=self._tool_name, arguments=self._params)],
+        )
+
     async def ainvoke(self, messages):
         from pori.agent import PlanOutput, ReflectOutput
 

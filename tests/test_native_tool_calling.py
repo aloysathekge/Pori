@@ -173,7 +173,6 @@ def test_native_branch_maps_tool_calls_to_actions():
         tools_registry=_registry(),
         settings=AgentSettings(max_steps=2),
         memory=AgentMemory(),
-        tool_calling="native",
     )
     out = asyncio.run(agent.get_next_action())
     assert out.action == [{"write_file": {"file_path": "a", "content": "x"}}]
@@ -201,7 +200,6 @@ def test_native_mode_end_to_end_answer():
         tools_registry=_registry(),
         settings=AgentSettings(max_steps=3),
         memory=memory,
-        tool_calling="native",
     )
     result = asyncio.run(agent.run())
     assert result["completed"] is True
@@ -335,39 +333,16 @@ def test_gemini_schema_sanitizer_strips_unsupported_keys():
 # --- B.4: native prompt + config flag ---------------------------------------
 
 
-def test_native_prompt_omits_json_envelope():
+def test_prompt_is_native_only():
     agent = Agent(
         task="t",
         llm=_NativeMockLLM([]),
         tools_registry=_registry(),
         settings=AgentSettings(max_steps=2),
         memory=AgentMemory(),
-        tool_calling="native",
     )
     sm = agent.system_message
     assert "JSON Output Format" not in sm
     assert "{tool_descriptions}" not in sm
     assert "native tool-calling ability" in sm
     assert "Workflow" in sm  # workflow/rules retained
-
-
-def test_envelope_prompt_keeps_json_format():
-    agent = Agent(
-        task="t",
-        llm=_NativeMockLLM([]),
-        tools_registry=_registry(),
-        settings=AgentSettings(max_steps=2),
-        memory=AgentMemory(),
-    )
-    assert "JSON Output Format" in agent.system_message
-
-
-def test_llm_config_tool_calling_flag():
-    from pori.config import LLMConfig
-
-    # Native is the default; envelope is the explicit fallback.
-    assert LLMConfig(provider="anthropic", model="x").tool_calling == "native"
-    assert (
-        LLMConfig(provider="anthropic", model="x", tool_calling="envelope").tool_calling
-        == "envelope"
-    )

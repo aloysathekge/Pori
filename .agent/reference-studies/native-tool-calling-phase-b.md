@@ -131,17 +131,22 @@ assistant text instead of an envelope field).
   `Agent`. **Live-verified end-to-end on Kimi/Fireworks**: native tool calls →
   actions → execution → receipts → activity line from assistant text. Tests +
   live run green; envelope still the default.
-- **B.5 (done — product default flipped)** — `config.llm.tool_calling` now
-  defaults to **native**, so the CLI/product uses provider tool-calling by
-  default (verified resolving to native from `config.yaml`). The library
-  `Agent`/`Orchestrator` defaults stay `envelope` for backward-compat, which also
-  avoids rewriting ~90 mock literals. **The envelope path is kept as a supported
-  fallback** (selectable via the flag) rather than deleted — it is the
-  compatibility path for models without native tool-calling.
-  - *Deferred (optional B.6):* fully flip the library default and delete the
-    envelope path + `_coerce_to_output_json` + retry. This is a one-way door that
-    drops support for non-tool-calling models, so it is left as an explicit
-    follow-up decision.
+- **B.5 + B.6 (done — envelope fully removed)** — native tool-calling is now the
+  **only** path. The `tool_calling` flag is gone (config/agent/orchestrator/CLI);
+  `get_next_action` is native-only; `_coerce_to_output_json`, the retry-on-bad-JSON
+  logic, and `_create_output_model` are deleted; the envelope `agent_core.md` was
+  replaced by the native prompt (renamed). `AgentOutput` is kept as the internal
+  action representation that the native branch produces. `with_structured_output`
+  remains for the genuine structured-extraction calls (`PlanOutput`/`ReflectOutput`/
+  `CompletionValidation`).
+  - Tests migrated via a shared `tests/_native_mock.py` helper that turns the
+    existing `{current_state, action}` mock responses into `ToolTurn`s — so the
+    ~90 action literals were **not** rewritten; each mock just gained an
+    `ainvoke_tools`. Envelope-only tests (JSON recovery/retry, the flag, the
+    envelope prompt) were deleted. 316 tests pass; live CLI run on Kimi verified.
+  - **Note:** dropping the envelope means a model without native tool-calling can
+    no longer be used. That was the accepted trade for a leaner, more reliable
+    contract.
 
 ## 5. Blast radius & risks
 
