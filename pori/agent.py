@@ -183,6 +183,7 @@ class Agent:
         evolution_repository: Optional[EvolutionRepository] = None,
         tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
         soul_path: Optional[str] = None,
+        soul_text: Optional[str] = None,
         load_project_context: bool = False,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
@@ -226,6 +227,7 @@ class Agent:
         self.tools_registry = self.capability_snapshot.to_registry()
         self._custom_system_prompt = system_prompt
         self._soul_path = soul_path
+        self._soul_text = soul_text
         self._load_project_context = load_project_context
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
@@ -328,7 +330,9 @@ class Agent:
         # Identity: a user SOUL.md persona if present (re-read per task), else
         # the neutral default identity.
         tiers = SystemPromptTiers()
-        tiers.stable.append(resolve_identity(self._soul_path))
+        tiers.stable.append(
+            resolve_identity(self._soul_path, soul_text=self._soul_text)
+        )
         tiers.stable.append(core_instructions)
 
         if self._custom_system_prompt:

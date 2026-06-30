@@ -33,6 +33,7 @@ class Orchestrator:
         skill_limit: int = 3,
         evolution_repository: Optional[EvolutionRepository] = None,
         soul_path: Optional[str] = None,
+        soul_text: Optional[str] = None,
         load_project_context: bool = False,
     ):
         self.llm = llm
@@ -44,6 +45,7 @@ class Orchestrator:
         self.skill_limit = skill_limit
         self.evolution_repository = evolution_repository
         self.soul_path = soul_path
+        self.soul_text = soul_text
         self.load_project_context = load_project_context
 
     async def execute_task(
@@ -85,6 +87,7 @@ class Orchestrator:
             selected_skill_ids=selected_skill_ids,
             evolution_repository=self.evolution_repository,
             soul_path=self.soul_path,
+            soul_text=self.soul_text,
             load_project_context=self.load_project_context,
         )
         self.agents[task_id] = agent

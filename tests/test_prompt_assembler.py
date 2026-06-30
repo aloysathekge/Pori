@@ -107,6 +107,37 @@ def test_resolve_identity_ignores_comments_only_soul(tmp_path):
     assert resolve_identity(cwd=tmp_path) == DEFAULT_IDENTITY
 
 
+def test_resolve_identity_uses_inline_soul_text(tmp_path):
+    # Inline SOUL content (DB-backed in a hosted context) wins over file lookup.
+    (tmp_path / "SOUL.md").write_text("You are the project file persona.")
+    assert (
+        resolve_identity(cwd=tmp_path, soul_text="You are a terse hosted persona.")
+        == "You are a terse hosted persona."
+    )
+
+
+def test_resolve_identity_inline_comments_only_falls_through(tmp_path):
+    assert (
+        resolve_identity(cwd=tmp_path, soul_text="<!-- nothing -->\n# Heading\n")
+        == DEFAULT_IDENTITY
+    )
+
+
+def test_agent_uses_inline_soul_text(registry):
+    from pori.agent import Agent, AgentSettings
+    from pori.memory import AgentMemory
+
+    agent = Agent(
+        task="t",
+        llm=object(),
+        tools_registry=registry,
+        settings=AgentSettings(max_steps=1),
+        memory=AgentMemory(),
+        soul_text="You are Nova, a blunt code reviewer.",
+    )
+    assert "You are Nova, a blunt code reviewer." in agent.system_message
+
+
 def test_resolve_identity_uses_explicit_soul_path(tmp_path):
     persona = tmp_path / "custom.md"
     persona.write_text("You are a concise expert.")

@@ -66,11 +66,13 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _SHIPPED_SOUL = Path(__file__).parent / "system" / "SOUL.md"
 
 
-def _read_persona(path: Path) -> str:
-    """Return the persona text from a SOUL.md (comments + headings stripped)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+def _persona_from_text(text: str) -> str:
+    """Return persona text from raw SOUL content (HTML comments stripped).
+
+    Yields ``""`` when only comments/headings remain, so a template or
+    comments-only file falls through to the default identity.
+    """
+    if not text:
         return ""
     text = _HTML_COMMENT.sub("", text)
     has_persona = any(
@@ -79,16 +81,30 @@ def _read_persona(path: Path) -> str:
     return text.strip() if has_persona else ""
 
 
+def _read_persona(path: Path) -> str:
+    """Return the persona text from a SOUL.md (comments + headings stripped)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return _persona_from_text(text)
+
+
 def resolve_identity(
     soul_path: Optional[str] = None,
     cwd: Optional[Path] = None,
+    soul_text: Optional[str] = None,
 ) -> str:
-    """Resolve the agent identity: a user SOUL.md persona, else DEFAULT_IDENTITY.
+    """Resolve the agent identity: a user SOUL persona, else DEFAULT_IDENTITY.
 
-    Resolution order (first with real content wins): project ``./SOUL.md`` ->
-    ``soul_path`` -> shipped template (comments-only). The file is read fresh on
-    each call, so editing it takes effect on the next task without a restart.
+    Resolution order (first with real content wins): inline ``soul_text`` (e.g.
+    a DB-stored SOUL document in a hosted/multi-tenant context) -> project
+    ``./SOUL.md`` -> ``soul_path`` -> shipped template (comments-only). Files are
+    read fresh on each call, so editing one takes effect on the next task.
     """
+    inline = _persona_from_text(soul_text or "")
+    if inline:
+        return inline
     base = Path(cwd) if cwd else Path.cwd()
     candidates = [base / "SOUL.md"]
     if soul_path:
