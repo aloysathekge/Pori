@@ -1039,6 +1039,7 @@ async def main():
         evolution_repository=evolution_repository,
         soul_path=config.agent.soul_path,
         load_project_context=config.agent.load_project_context,
+        tool_calling=config.llm.tool_calling,
     )
 
     # HITL: check if enabled in config

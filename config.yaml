@@ -17,6 +17,7 @@ llm:
   # Kimi via Fireworks (set FIREWORKS_API_KEY in .env)
   provider: fireworks
   model: accounts/fireworks/models/kimi-k2p6
+  # tool_calling: native   # opt in to provider tool-calling (proven on Kimi)
   temperature: 0.6
   max_tokens: 8192
   extra_params:

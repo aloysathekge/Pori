@@ -1,0 +1,372 @@
+"""Phase B native tool-calling: type/schema foundations + native path (B.1, B.2)."""
+
+import asyncio
+
+from pori.agent import Agent, AgentSettings
+from pori.llm import (
+    AssistantMessage,
+    SystemMessage,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+    UserMessage,
+)
+from pori.memory import AgentMemory
+from pori.tools.registry import ToolRegistry
+from pori.tools.standard import register_all_tools
+
+
+def _registry():
+    r = ToolRegistry()
+    register_all_tools(r)
+    return r
+
+
+# --- B.1: types + schemas ---------------------------------------------------
+
+
+def test_tool_call_defaults():
+    tc = ToolCall(name="write_file")
+    assert tc.name == "write_file"
+    assert tc.id == ""
+    assert tc.arguments == {}
+
+
+def test_assistant_message_carries_tool_calls():
+    msg = AssistantMessage(
+        content="Writing the file",
+        tool_calls=[ToolCall(id="t1", name="write_file", arguments={"path": "a"})],
+    )
+    assert msg.role == "assistant"
+    assert msg.tool_calls[0].name == "write_file"
+    assert AssistantMessage(content="hi").tool_calls == []
+
+
+def test_tool_result_message():
+    msg = ToolResultMessage(tool_call_id="t1", content="wrote a")
+    assert msg.role == "tool"
+    assert msg.tool_call_id == "t1"
+
+
+def test_tool_turn_holds_text_and_calls():
+    turn = ToolTurn(
+        text="Saving the report",
+        tool_calls=[ToolCall(name="write_file", arguments={"path": "r.md"})],
+    )
+    assert turn.text == "Saving the report"
+    assert turn.tool_calls[0].arguments["path"] == "r.md"
+    assert ToolTurn().tool_calls == []
+
+
+def test_registry_tool_schemas_shape():
+    schemas = _registry().tool_schemas()
+    by_name = {s["name"]: s for s in schemas}
+    wf = by_name["write_file"]
+    assert set(wf) == {"name", "description", "input_schema"}
+    assert wf["description"]
+    assert wf["input_schema"]["type"] == "object"
+    assert "file_path" in wf["input_schema"]["properties"]
+
+
+# --- B.2: Anthropic native parsing ------------------------------------------
+
+
+class _Block:
+    def __init__(self, type, **kw):
+        self.type = type
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+class _Resp:
+    def __init__(self, content, usage=None):
+        self.content = content
+        self.usage = usage
+
+
+class _FakeMessages:
+    def __init__(self, resp):
+        self._resp = resp
+        self.last_kwargs = None
+
+    async def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return self._resp
+
+
+class _FakeClient:
+    def __init__(self, resp):
+        self.messages = _FakeMessages(resp)
+
+
+def test_anthropic_ainvoke_tools_parses_text_and_tool_use():
+    from pori.llm.anthropic import ChatAnthropic
+
+    llm = ChatAnthropic(api_key="x", model="claude-test")
+    llm._client = _FakeClient(
+        _Resp(
+            [
+                _Block("text", text="Saving the file"),
+                _Block(
+                    "tool_use", id="tu1", name="write_file", input={"file_path": "a"}
+                ),
+            ]
+        )
+    )
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [SystemMessage(content="sys"), UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.text == "Saving the file"
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "write_file"
+    assert turn.tool_calls[0].arguments == {"file_path": "a"}
+    # system + tools were forwarded to the API.
+    sent = llm._client.messages.last_kwargs
+    assert sent["system"] == "sys"
+    assert sent["tools"][0]["name"] == "write_file"
+
+
+# --- B.2: agent native branch -----------------------------------------------
+
+
+class _NativeMockLLM:
+    def __init__(self, turns):
+        self._turns = turns
+        self.i = 0
+        self.model = "mock"
+        self.last_usage = None
+
+    async def ainvoke_tools(self, messages, tools):
+        turn = self._turns[min(self.i, len(self._turns) - 1)]
+        self.i += 1
+        return turn
+
+    def with_structured_output(self, *a, **k):  # pragma: no cover - native skips this
+        raise AssertionError("native mode must not use structured output")
+
+
+def test_native_branch_maps_tool_calls_to_actions():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Writing the file",
+                tool_calls=[
+                    ToolCall(
+                        name="write_file", arguments={"file_path": "a", "content": "x"}
+                    )
+                ],
+            )
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+        tool_calling="native",
+    )
+    out = asyncio.run(agent.get_next_action())
+    assert out.action == [{"write_file": {"file_path": "a", "content": "x"}}]
+    assert out.current_state == {"next_goal": "Writing the file"}
+
+
+def test_native_mode_end_to_end_answer():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Answering the user",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "42", "reasoning": "because"},
+                    )
+                ],
+            )
+        ]
+    )
+    memory = AgentMemory()
+    agent = Agent(
+        task="what is the answer?",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=3),
+        memory=memory,
+        tool_calling="native",
+    )
+    result = asyncio.run(agent.run())
+    assert result["completed"] is True
+    assert memory.get_state("final_answer")["final_answer"] == "42"
+    # The assistant text became the activity line.
+    assert agent.state.current_activity == "Answering the user"
+
+
+# --- B.3: OpenAI / Fireworks / Google native --------------------------------
+
+
+class _OAIFunc:
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+
+class _OAIToolCall:
+    def __init__(self, id, name, arguments):
+        self.id = id
+        self.function = _OAIFunc(name, arguments)
+
+
+class _OAIMessage:
+    def __init__(self, content, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _OAIChoice:
+    def __init__(self, message):
+        self.message = message
+
+
+class _OAIResp:
+    def __init__(self, choices, usage=None):
+        self.choices = choices
+        self.usage = usage
+
+
+class _OAICompletions:
+    def __init__(self, resp):
+        self._resp = resp
+        self.last_kwargs = None
+
+    async def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return self._resp
+
+
+class _OAIClient:
+    def __init__(self, resp):
+        self.chat = type("Chat", (), {"completions": _OAICompletions(resp)})()
+
+
+def _openai_resp_with_tool_call():
+    return _OAIResp(
+        [
+            _OAIChoice(
+                _OAIMessage(
+                    content="Saving the file",
+                    tool_calls=[_OAIToolCall("c1", "write_file", '{"file_path": "a"}')],
+                )
+            )
+        ]
+    )
+
+
+def test_openai_ainvoke_tools_parses_tool_calls():
+    from pori.llm.openai import ChatOpenAI
+
+    llm = ChatOpenAI(api_key="x", model="gpt-test")
+    llm._client = _OAIClient(_openai_resp_with_tool_call())
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [SystemMessage(content="sys"), UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.text == "Saving the file"
+    assert turn.tool_calls[0].name == "write_file"
+    assert turn.tool_calls[0].arguments == {"file_path": "a"}
+    sent = llm._client.chat.completions.last_kwargs
+    assert sent["tools"][0]["function"]["name"] == "write_file"
+    assert sent["tool_choice"] == "auto"
+
+
+def test_fireworks_inherits_native_tool_calling():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/models/kimi-k2p6")
+    llm._client = _OAIClient(_openai_resp_with_tool_call())
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.tool_calls[0].name == "write_file"
+
+
+def test_gemini_schema_sanitizer_strips_unsupported_keys():
+    from pori.llm.google import _sanitize_gemini_schema
+
+    cleaned = _sanitize_gemini_schema(
+        {
+            "title": "X",
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"a": {"title": "A", "type": "string"}},
+        }
+    )
+    assert "title" not in cleaned
+    assert "additionalProperties" not in cleaned
+    assert "title" not in cleaned["properties"]["a"]
+    assert cleaned["properties"]["a"]["type"] == "string"
+
+
+# --- B.4: native prompt + config flag ---------------------------------------
+
+
+def test_native_prompt_omits_json_envelope():
+    agent = Agent(
+        task="t",
+        llm=_NativeMockLLM([]),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+        tool_calling="native",
+    )
+    sm = agent.system_message
+    assert "JSON Output Format" not in sm
+    assert "{tool_descriptions}" not in sm
+    assert "native tool-calling ability" in sm
+    assert "Workflow" in sm  # workflow/rules retained
+
+
+def test_envelope_prompt_keeps_json_format():
+    agent = Agent(
+        task="t",
+        llm=_NativeMockLLM([]),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+    )
+    assert "JSON Output Format" in agent.system_message
+
+
+def test_llm_config_tool_calling_flag():
+    from pori.config import LLMConfig
+
+    assert LLMConfig(provider="anthropic", model="x").tool_calling == "envelope"
+    assert (
+        LLMConfig(provider="anthropic", model="x", tool_calling="native").tool_calling
+        == "native"
+    )
