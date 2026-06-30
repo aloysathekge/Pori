@@ -4,10 +4,10 @@ Source studied: `references/hermes-agent/agent/system_prompt.py` (Hermes's
 3-tier prompt assembler) and `references/claude-code` (layered context +
 system-reminders), against Pori's `pori/prompts/system/agent_core.md`.
 
-Status: **Phase A.1 implemented** (the tiered assembler + neutral default
-identity — `pori/prompts/assembler.py`, behaviour-preserving); A.2/A.3 and Phase
-B remain proposals. Sequenced after the Phase 1 planning work
-(`planning-architecture.md`).
+Status: **Phase A.1 and A.2 (SOUL.md identity) implemented**
+(`pori/prompts/assembler.py`, behaviour-preserving). A.2's plan/memory
+re-injection already existed from Phase 1. A.3 and Phase B remain proposals.
+Sequenced after the Phase 1 planning work (`planning-architecture.md`).
 
 License note: principles and interfaces only; nothing is copied from Hermes or
 Claude Code source.
@@ -180,11 +180,13 @@ LLM spine, not the prompt.
   prompt) → volatile(skills); identity removed from `agent_core.md` to avoid
   duplication. Behaviour-preserving (293 tests). Tests in
   `tests/test_prompt_assembler.py`.
-- **Phase A.2** — reminder channel + volatile tier: hot-reloaded `SOUL.md`
-  (empty template + override-first resolution), re-inject the live `PlanStore`
-  each turn, move memory + selected skills into volatile. Tests: empty SOUL.md
-  falls back to default identity; project SOUL.md overrides; plan re-injected with
-  completed items dropped; stable prefix unchanged across turns.
+- **Phase A.2 (done — SOUL.md)** — `resolve_identity()` resolves the stable
+  identity from a user persona: project `./SOUL.md` -> `config.agent.soul_path` ->
+  shipped empty template (comments-only -> default identity). Re-read per task
+  (no restart). Wired through `Agent(soul_path=...)` and the orchestrator/CLI.
+  Tests in `tests/test_prompt_assembler.py`. The live plan/memory re-injection
+  that A.2 also called for already shipped in Phase 1 (per-step plan block +
+  `<memory-context>` fence), so a dedicated reminder channel is optional polish.
 - **Phase A.3** — project-context discovery (`AGENTS.md`/`CLAUDE.md`).
 - **Phase B** — native tool-calling behind a flag; then remove envelope.
 - Standard gates each phase: `uv run pytest`, `black`, `isort`, `mypy`.

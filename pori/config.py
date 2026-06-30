@@ -44,6 +44,13 @@ class AgentConfig(BaseModel):
 
     max_steps: int = Field(default=10, ge=1)
     enable_memory: bool = Field(default=True)
+    soul_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional path to a SOUL.md persona file. Overrides the default "
+            "identity; project ./SOUL.md takes precedence when present."
+        ),
+    )
     planning_mode: Literal["auto", "always", "never"] = Field(
         default="never",
         description=(

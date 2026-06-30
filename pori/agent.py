@@ -51,7 +51,7 @@ from .metrics import (
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
-from .prompts import DEFAULT_IDENTITY, SystemPromptTiers, build_system_prompt
+from .prompts import SystemPromptTiers, build_system_prompt, resolve_identity
 from .retrieval import RetrievalEvidence
 from .runtime import (
     BudgetExceeded,
@@ -177,6 +177,7 @@ class Agent:
         cancellation_token: Optional[CancellationToken] = None,
         evolution_repository: Optional[EvolutionRepository] = None,
         tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
+        soul_path: Optional[str] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -218,6 +219,7 @@ class Agent:
         self.capability_snapshot = tools_registry.snapshot()
         self.tools_registry = self.capability_snapshot.to_registry()
         self._custom_system_prompt = system_prompt
+        self._soul_path = soul_path
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -318,8 +320,10 @@ class Agent:
         core_instructions = load_prompt("system/agent_core.md").replace(
             "{tool_descriptions}", tool_descriptions
         )
+        # Identity: a user SOUL.md persona if present (re-read per task), else
+        # the neutral default identity.
         tiers = SystemPromptTiers()
-        tiers.stable.append(DEFAULT_IDENTITY)
+        tiers.stable.append(resolve_identity(self._soul_path))
         tiers.stable.append(core_instructions)
 
         if self._custom_system_prompt:

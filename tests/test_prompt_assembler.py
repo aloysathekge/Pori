@@ -4,7 +4,12 @@ import pytest
 
 from pori.agent import Agent, AgentSettings
 from pori.memory import AgentMemory
-from pori.prompts import DEFAULT_IDENTITY, SystemPromptTiers, build_system_prompt
+from pori.prompts import (
+    DEFAULT_IDENTITY,
+    SystemPromptTiers,
+    build_system_prompt,
+    resolve_identity,
+)
 from pori.tools.registry import ToolRegistry
 from pori.tools.standard import register_all_tools
 
@@ -82,3 +87,54 @@ def test_agent_prompt_tier_order_identity_before_custom(registry):
     assert sm.index("You are Pori") < sm.index("CUSTOM_RULE_XYZ")
     # Identity is not duplicated by the old agent_core.md line.
     assert sm.count("You are Pori") == 1
+
+
+# --- SOUL.md identity resolution (Phase A.2) --------------------------------
+
+
+def test_resolve_identity_defaults_when_no_soul(tmp_path):
+    assert resolve_identity(cwd=tmp_path) == DEFAULT_IDENTITY
+
+
+def test_resolve_identity_uses_project_soul(tmp_path):
+    (tmp_path / "SOUL.md").write_text("You are a witty pirate assistant.")
+    assert resolve_identity(cwd=tmp_path) == "You are a witty pirate assistant."
+
+
+def test_resolve_identity_ignores_comments_only_soul(tmp_path):
+    (tmp_path / "SOUL.md").write_text("# Persona\n<!-- only comments -->\n")
+    assert resolve_identity(cwd=tmp_path) == DEFAULT_IDENTITY
+
+
+def test_resolve_identity_uses_explicit_soul_path(tmp_path):
+    persona = tmp_path / "custom.md"
+    persona.write_text("You are a concise expert.")
+    empty = tmp_path / "empty"
+    assert (
+        resolve_identity(soul_path=str(persona), cwd=empty)
+        == "You are a concise expert."
+    )
+
+
+def test_project_soul_takes_precedence_over_explicit_path(tmp_path):
+    (tmp_path / "SOUL.md").write_text("You are the project persona.")
+    other = tmp_path / "other.md"
+    other.write_text("You are the explicit persona.")
+    assert resolve_identity(soul_path=str(other), cwd=tmp_path) == (
+        "You are the project persona."
+    )
+
+
+def test_agent_uses_soul_persona(registry, tmp_path):
+    persona = tmp_path / "soul.md"
+    persona.write_text("You are a laconic robot.")
+    agent = Agent(
+        task="t",
+        llm=_StubLLM(),
+        tools_registry=registry,
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+        soul_path=str(persona),
+    )
+    assert agent.system_message.startswith("You are a laconic robot.")
+    assert "You are Pori" not in agent.system_message
