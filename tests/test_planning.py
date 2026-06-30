@@ -165,3 +165,8 @@ def test_agent_default_makes_no_side_planning_call(registry, event_loop):
     result = event_loop.run_until_complete(agent.run())
     assert result["completed"] is True
     assert agent.plan_store.items()[0].content == "answer the user"
+    # The plan is exposed in the run-result contract (for Cloud/UI consumers).
+    assert result["plan"] == [
+        {"id": "1", "content": "answer the user", "status": "pending"}
+    ]
+    assert agent.result_summary()["plan"] == result["plan"]

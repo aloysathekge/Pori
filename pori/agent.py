@@ -2358,6 +2358,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 receipt.model_dump(mode="json") for receipt in self.execution_receipts
             ],
             "artifacts": self._run_artifacts(),
+            "plan": self._plan_snapshot(),
             "budget_usage": self.budget_ledger.snapshot(),
         }
 
@@ -2376,6 +2377,10 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         logger.info("Agent stopped", extra={"task_id": self.task_id})
         self.state.stopped = True
 
+    def _plan_snapshot(self) -> List[Dict[str, Any]]:
+        """Return the model-owned plan (update_plan) items as serializable dicts."""
+        return [item.model_dump() for item in self.plan_store.items()]
+
     def result_summary(self) -> Dict[str, Any]:
         """Return the public run result fields consumers should depend on."""
         final = self.memory.get_final_answer() or {}
@@ -2389,6 +2394,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 skill.manifest.skill_id for skill in self.selected_skills
             ],
             "artifacts": self._run_artifacts(),
+            "plan": self._plan_snapshot(),
             "metrics": (
                 self._run_metrics.summary() if self._run_metrics is not None else None
             ),
