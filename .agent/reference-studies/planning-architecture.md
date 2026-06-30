@@ -3,9 +3,9 @@
 Source studied: `references/hermes-agent` (Hermes) and `references/claude-code`
 (Claude Code public distribution), plus Pori's own `pori/agent.py`.
 
-Status: **proposal / design** — no Pori product code is changed by this document.
-Phase 0 (an orthogonal crash fix) ships alongside it; Phases 1–2 are not yet
-implemented.
+Status: **Phase 0 and Phase 1 implemented**; Phase 2 (plan-mode permission gate)
+remains a proposal. See `pori/planning.py`, `pori/tools/standard/planning_tools.py`
+(the `update_plan` tool), and `tests/test_planning.py`.
 
 License note: per the reference rules we extract *principles and interfaces*,
 not code. Nothing below is copied from Hermes or Claude Code source; the
@@ -115,7 +115,14 @@ Fold Plan and Reflect into the **main reasoning loop** via a model-driven plan t
 The model plans with the same context it acts with (which already includes core
 memory), and owns its own updates.
 
-### Phase 1 — model-driven `update_plan` tool
+### Phase 1 — model-driven `update_plan` tool (implemented)
+
+Shipped as: `PlanStore`/`PlanItem` (`pori/planning.py`), the always-available
+`update_plan` kernel tool (`pori/tools/standard/planning_tools.py`), wired into the
+agent's tool context and step prompt; `planning_mode`/`reflection_mode` now default
+to `"never"` (the legacy side LLM calls remain opt-in via `"auto"`/`"always"`).
+
+Original design notes:
 
 - New stateful tool registered in `pori/tools/standard/`:
   `update_plan(todos, merge=False)` backed by a per-run `PlanStore` (mirrors the

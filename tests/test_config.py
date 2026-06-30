@@ -83,10 +83,12 @@ class TestAgentConfigBackCompat:
         cfg = AgentConfig(enable_reflection=False)
         assert cfg.reflection_mode == "never"
 
-    def test_modes_default_to_auto(self):
+    def test_modes_default_to_never(self):
+        # Planning is model-driven via the update_plan tool by default; the
+        # separate planning/reflection LLM calls are opt-in.
         cfg = AgentConfig()
-        assert cfg.planning_mode == "auto"
-        assert cfg.reflection_mode == "auto"
+        assert cfg.planning_mode == "never"
+        assert cfg.reflection_mode == "never"
 
 
 class TestCreateLLM:

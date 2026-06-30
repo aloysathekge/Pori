@@ -50,6 +50,7 @@ from .metrics import (
     estimate_llm_call_cost,
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
+from .planning import PlanStore
 from .retrieval import RetrievalEvidence
 from .runtime import (
     BudgetExceeded,
@@ -97,8 +98,10 @@ class AgentSettings(BaseModel):
     retry_delay: int = 2
     summary_interval: int = 5
     validate_output: bool = False
-    planning_mode: Literal["auto", "always", "never"] = "auto"
-    reflection_mode: Literal["auto", "always", "never"] = "auto"
+    # Default is "never": planning is model-driven via the update_plan tool.
+    # "auto"/"always" re-enable the legacy separate planning/reflection LLM calls.
+    planning_mode: Literal["auto", "always", "never"] = "never"
+    reflection_mode: Literal["auto", "always", "never"] = "never"
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
     # When validate_output is True, an LLM judge checks each proposed final
@@ -260,6 +263,8 @@ class Agent:
         self.tool_authorization_policy = (
             tool_authorization_policy or ToolAuthorizationPolicy()
         )
+        # Model-owned, run-scoped todo list (maintained via the update_plan tool).
+        self.plan_store = PlanStore()
         self.selected_skill_summaries: Tuple[SkillSummary, ...] = ()
         self.selected_skills: Tuple[SelectedSkill, ...] = ()
         if self.skill_catalog is not None and selected_skill_ids:
@@ -1046,12 +1051,9 @@ class Agent:
             t.tool_name == "done" for t in self.memory.tool_call_history
         )
 
-        # Include current plan (trim to first 5 steps for brevity)
-        plan_lines = (
-            "\n".join([f"- {s}" for s in self.state.current_plan[:5]])
-            if self.state.current_plan
-            else "(no plan yet)"
-        )
+        # Include the current plan. Prefer the model-owned todo list (update_plan);
+        # fall back to the legacy side-call plan when planning_mode is forced on.
+        plan_lines = self._render_plan_for_prompt()
 
         context_prompt = f"""
 Current Status:
@@ -1089,6 +1091,19 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         """Return True if the current task is in a terminal state (completed or failed)."""
         status = self._current_task_status()
         return status in ("completed", "failed")
+
+    def _render_plan_for_prompt(self) -> str:
+        """Render the active plan for the step prompt.
+
+        Prefers the model-owned todo list (update_plan); falls back to the legacy
+        side-call plan only when planning_mode/reflection_mode are forced on.
+        """
+        rendered = self.plan_store.format_for_prompt()
+        if rendered:
+            return rendered
+        if self.state.current_plan:
+            return "\n".join([f"- {s}" for s in self.state.current_plan[:5]])
+        return "(no plan yet)"
 
     def _should_plan(self) -> bool:
         """Decide whether this task should pay for a separate planning call."""
@@ -1948,6 +1963,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "skill_catalog": self.skill_catalog,
                     "capability_snapshot": self.capability_snapshot,
                     "tools_registry": self.tools_registry,
+                    "plan_store": self.plan_store,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
