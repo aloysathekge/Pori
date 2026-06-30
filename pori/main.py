@@ -1037,6 +1037,7 @@ async def main():
         skill_catalog=skill_catalog,
         skill_limit=skill_limit,
         evolution_repository=evolution_repository,
+        soul_path=config.agent.soul_path,
     )
 
     # HITL: check if enabled in config

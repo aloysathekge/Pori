@@ -32,6 +32,7 @@ class Orchestrator:
         skill_catalog: Optional[SkillCatalog] = None,
         skill_limit: int = 3,
         evolution_repository: Optional[EvolutionRepository] = None,
+        soul_path: Optional[str] = None,
     ):
         self.llm = llm
         self.tools_registry = tools_registry
@@ -41,6 +42,7 @@ class Orchestrator:
         self.skill_catalog = skill_catalog
         self.skill_limit = skill_limit
         self.evolution_repository = evolution_repository
+        self.soul_path = soul_path
 
     async def execute_task(
         self,
@@ -80,6 +82,7 @@ class Orchestrator:
             skill_limit=self.skill_limit,
             selected_skill_ids=selected_skill_ids,
             evolution_repository=self.evolution_repository,
+            soul_path=self.soul_path,
         )
         self.agents[task_id] = agent
 
