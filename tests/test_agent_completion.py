@@ -572,6 +572,82 @@ class TestTerminalBehavior:
             }
         ]
 
+    def test_answer_accepts_receipt_id_only_reference(self, basic_registry, event_loop):
+        """Referencing an artifact by receipt_id alone (no path) is valid."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="create an HTML lesson file",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+        receipt = agent._record_tool_receipt(
+            "write_file",
+            {"file_path": "lessons/division.html", "content": "<html></html>"},
+            ReceiptStatus.SUCCEEDED,
+            artifacts=[{"kind": "file", "path": "lessons/division.html"}],
+        )
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "answer": {
+                            "final_answer": "Lesson ready.",
+                            "reasoning": "Receipt proves it.",
+                            "artifact_references": [
+                                {
+                                    "receipt_id": receipt.receipt_id,
+                                    "description": "vowels script",
+                                }
+                            ],
+                        }
+                    }
+                ]
+            )
+        )
+
+        answer_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "answer"
+        ]
+        assert answer_calls[-1].success is True
+        assert memory.get_state("final_answer") is not None
+
+    def test_answer_rejects_reference_with_neither_path_nor_receipt(
+        self, basic_registry, event_loop
+    ):
+        """An empty reference is rejected gracefully, not via a hard ValidationError."""
+        memory = AgentMemory()
+        agent = Agent(
+            task="create an HTML lesson file",
+            llm=MockLLM([]),
+            tools_registry=basic_registry,
+            settings=AgentSettings(max_steps=2),
+            memory=memory,
+        )
+
+        event_loop.run_until_complete(
+            agent.execute_actions(
+                [
+                    {
+                        "answer": {
+                            "final_answer": "Done.",
+                            "reasoning": "No real artifact.",
+                            "artifact_references": [{"description": "a file"}],
+                        }
+                    }
+                ]
+            )
+        )
+
+        answer_calls = [
+            tc for tc in memory.tool_call_history if tc.tool_name == "answer"
+        ]
+        assert answer_calls[-1].success is False
+        assert "Invalid artifact_references" in str(answer_calls[-1].result)
+        assert memory.get_state("final_answer") is None
+
     def test_answer_accepts_reference_to_one_of_many_receipt_artifacts(
         self, basic_registry, event_loop
     ):

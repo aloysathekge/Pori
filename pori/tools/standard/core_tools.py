@@ -16,12 +16,20 @@ logger = logging.getLogger("pori.core_tools")
 
 
 class AnswerArtifactReference(BaseModel):
-    path: str = Field(
-        ..., description="Path of an artifact actually written during this run."
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Path of an artifact actually written during this run. Provide this "
+            "and/or receipt_id (at least one); both are preferred."
+        ),
     )
     receipt_id: str | None = Field(
         default=None,
-        description="Optional runtime receipt id proving the artifact was written.",
+        description="Runtime receipt id proving the artifact was written.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional short description of what the artifact is.",
     )
 
 
@@ -51,7 +59,8 @@ def answer_tool(params: AnswerParams, context: Dict[str, Any]) -> Dict[str, Any]
         "final_answer": params.final_answer,
         "reasoning": params.reasoning or "No additional reasoning provided.",
         "artifact_references": [
-            reference.model_dump() for reference in params.artifact_references
+            reference.model_dump(exclude_none=True)
+            for reference in params.artifact_references
         ],
     }
 

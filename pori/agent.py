@@ -522,8 +522,8 @@ class Agent:
             if not isinstance(reference, dict):
                 errors.append(f"artifact_references[{index}] must be an object.")
                 continue
-            path = str(reference.get("path", "")).strip()
-            receipt_id = str(reference.get("receipt_id", "") or "").strip()
+            path = str(reference.get("path") or "").strip()
+            receipt_id = str(reference.get("receipt_id") or "").strip()
             if not path and not receipt_id:
                 errors.append(
                     f"artifact_references[{index}] must include a path or receipt_id."
