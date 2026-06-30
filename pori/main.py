@@ -1388,6 +1388,22 @@ async def main():
                     if loaded_skills:
                         print(f"\nSkills loaded: {', '.join(loaded_skills)}")
 
+                    plan_items = getattr(
+                        getattr(agent, "plan_store", None), "items", lambda: ()
+                    )()
+                    if plan_items:
+                        marks = {
+                            "completed": "[x]",
+                            "in_progress": "[>]",
+                            "pending": "[ ]",
+                            "cancelled": "[~]",
+                        }
+                        print("\nPlan (this task):")
+                        for item in plan_items:
+                            _safe_print(
+                                f"  {marks.get(item.status, '[ ]')} {item.content}"
+                            )
+
                     print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
                         status = "+" if tool_call.success else "x"
