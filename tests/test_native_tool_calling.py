@@ -346,3 +346,45 @@ def test_prompt_is_native_only():
     assert "{tool_descriptions}" not in sm
     assert "native tool-calling ability" in sm
     assert "Workflow" in sm  # workflow/rules retained
+
+
+def test_text_only_turn_becomes_answer():
+    """A reply with text but no tool calls is treated as the final answer."""
+    llm = _NativeMockLLM(
+        [ToolTurn(text="The files were deleted; nothing to show.", tool_calls=[])]
+    )
+    out = asyncio.run(
+        Agent(
+            task="show me the todo",
+            llm=llm,
+            tools_registry=_registry(),
+            settings=AgentSettings(max_steps=2),
+            memory=AgentMemory(),
+        ).get_next_action()
+    )
+    assert out.action == [
+        {
+            "answer": {
+                "final_answer": "The files were deleted; nothing to show.",
+                "reasoning": "Direct response.",
+            }
+        }
+    ]
+
+
+def test_text_only_turn_completes_run():
+    llm = _NativeMockLLM(
+        [ToolTurn(text="Nothing to show — they were deleted.", tool_calls=[])]
+    )
+    memory = AgentMemory()
+    result = asyncio.run(
+        Agent(
+            task="show me the todo",
+            llm=llm,
+            tools_registry=_registry(),
+            settings=AgentSettings(max_steps=3),
+            memory=memory,
+        ).run()
+    )
+    assert result["completed"] is True
+    assert "deleted" in memory.get_state("final_answer")["final_answer"]
