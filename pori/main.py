@@ -1038,6 +1038,7 @@ async def main():
         skill_limit=skill_limit,
         evolution_repository=evolution_repository,
         soul_path=config.agent.soul_path,
+        load_project_context=config.agent.load_project_context,
     )
 
     # HITL: check if enabled in config

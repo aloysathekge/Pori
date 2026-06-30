@@ -51,6 +51,13 @@ class AgentConfig(BaseModel):
             "identity; project ./SOUL.md takes precedence when present."
         ),
     )
+    load_project_context: bool = Field(
+        default=True,
+        description=(
+            "Auto-load project instruction files (AGENTS.md, CLAUDE.md, "
+            ".cursorrules) from the working directory into the system prompt."
+        ),
+    )
     planning_mode: Literal["auto", "always", "never"] = Field(
         default="never",
         description=(
