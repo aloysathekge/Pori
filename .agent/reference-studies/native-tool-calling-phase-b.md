@@ -131,9 +131,17 @@ assistant text instead of an envelope field).
   `Agent`. **Live-verified end-to-end on Kimi/Fireworks**: native tool calls →
   actions → execution → receipts → activity line from assistant text. Tests +
   live run green; envelope still the default.
-- **B.5** — flip default to native; migrate `conftest.py` mock + ~90 hardcoded
-  `AgentOutput` literals; delete the envelope path, `_coerce_to_output_json`, and
-  the retry logic.
+- **B.5 (done — product default flipped)** — `config.llm.tool_calling` now
+  defaults to **native**, so the CLI/product uses provider tool-calling by
+  default (verified resolving to native from `config.yaml`). The library
+  `Agent`/`Orchestrator` defaults stay `envelope` for backward-compat, which also
+  avoids rewriting ~90 mock literals. **The envelope path is kept as a supported
+  fallback** (selectable via the flag) rather than deleted — it is the
+  compatibility path for models without native tool-calling.
+  - *Deferred (optional B.6):* fully flip the library default and delete the
+    envelope path + `_coerce_to_output_json` + retry. This is a one-way door that
+    drops support for non-tool-calling models, so it is left as an explicit
+    follow-up decision.
 
 ## 5. Blast radius & risks
 

@@ -30,11 +30,11 @@ class LLMConfig(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     tool_calling: Literal["envelope", "native"] = Field(
-        default="envelope",
+        default="native",
         description=(
-            "How the agent talks to the model: 'envelope' (legacy JSON action "
-            "envelope) or 'native' (provider tool-calling). Requires a model that "
-            "supports native tool-calling."
+            "How the agent talks to the model: 'native' (provider tool-calling, "
+            "the default) or 'envelope' (legacy JSON action envelope — a fallback "
+            "for models without native tool-calling)."
         ),
     )
 

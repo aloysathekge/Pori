@@ -365,8 +365,9 @@ def test_envelope_prompt_keeps_json_format():
 def test_llm_config_tool_calling_flag():
     from pori.config import LLMConfig
 
-    assert LLMConfig(provider="anthropic", model="x").tool_calling == "envelope"
+    # Native is the default; envelope is the explicit fallback.
+    assert LLMConfig(provider="anthropic", model="x").tool_calling == "native"
     assert (
-        LLMConfig(provider="anthropic", model="x", tool_calling="native").tool_calling
-        == "native"
+        LLMConfig(provider="anthropic", model="x", tool_calling="envelope").tool_calling
+        == "envelope"
     )
