@@ -4,8 +4,10 @@ Source studied: `references/hermes-agent/agent/system_prompt.py` (Hermes's
 3-tier prompt assembler) and `references/claude-code` (layered context +
 system-reminders), against Pori's `pori/prompts/system/agent_core.md`.
 
-Status: **proposal / design** — no prompt/runtime code is changed by this
-document. Sequenced after the Phase 1 planning work (`planning-architecture.md`).
+Status: **Phase A.1 implemented** (the tiered assembler + neutral default
+identity — `pori/prompts/assembler.py`, behaviour-preserving); A.2/A.3 and Phase
+B remain proposals. Sequenced after the Phase 1 planning work
+(`planning-architecture.md`).
 
 License note: principles and interfaces only; nothing is copied from Hermes or
 Claude Code source.
@@ -173,9 +175,11 @@ LLM spine, not the prompt.
 
 ## 6. Phasing & verification
 
-- **Phase A.1** — `assembler.py` with the three tiers; move `agent_core.md` content
-  into the stable default-identity + operating-rule blocks; keep behaviour
-  identical. Tests: prompt contains identity/workflow/tools; tier order.
+- **Phase A.1 (done)** — `pori/prompts/assembler.py` with the three tiers +
+  `DEFAULT_IDENTITY`; agent assembles stable(identity + core) → context(custom
+  prompt) → volatile(skills); identity removed from `agent_core.md` to avoid
+  duplication. Behaviour-preserving (293 tests). Tests in
+  `tests/test_prompt_assembler.py`.
 - **Phase A.2** — reminder channel + volatile tier: hot-reloaded `SOUL.md`
   (empty template + override-first resolution), re-inject the live `PlanStore`
   each turn, move memory + selected skills into volatile. Tests: empty SOUL.md

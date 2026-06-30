@@ -51,6 +51,7 @@ from .metrics import (
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
+from .prompts import DEFAULT_IDENTITY, SystemPromptTiers, build_system_prompt
 from .retrieval import RetrievalEvidence
 from .runtime import (
     BudgetExceeded,
@@ -310,27 +311,29 @@ class Agent:
         tool_count = len(self.tools_registry.tools)
         logger.info(f"Available tools: {tool_count}", extra={"task_id": self.task_id})
 
-        # Load prompt template from file and fill in dynamic values
-        prompt_template = load_prompt("system/agent_core.md")
-        self.system_message = prompt_template.replace(
+        # Assemble the system prompt from cache-ordered tiers:
+        #   stable   -> default identity + core operating rules + tool guidance
+        #   context  -> caller-supplied custom prompt
+        #   volatile -> available-skills index + selected-skill instructions
+        core_instructions = load_prompt("system/agent_core.md").replace(
             "{tool_descriptions}", tool_descriptions
         )
+        tiers = SystemPromptTiers()
+        tiers.stable.append(DEFAULT_IDENTITY)
+        tiers.stable.append(core_instructions)
 
-        # Prepend custom system prompt if provided
         if self._custom_system_prompt:
-            self.system_message = (
-                self._custom_system_prompt + "\n\n" + self.system_message
-            )
+            tiers.context.append(self._custom_system_prompt)
 
         available_skill_prompt = self._render_available_skills_prompt()
         if available_skill_prompt:
-            self.system_message = self.system_message + "\n\n" + available_skill_prompt
+            tiers.volatile.append(available_skill_prompt)
 
         selected_skill_prompt = render_selected_skills(self.selected_skills)
         if selected_skill_prompt:
-            self.system_message = (
-                self.system_message + "\n\n# Selected Skills\n" + selected_skill_prompt
-            )
+            tiers.volatile.append("# Selected Skills\n" + selected_skill_prompt)
+
+        self.system_message = build_system_prompt(tiers)
 
         self.prompt_fingerprint = stable_fingerprint(
             {
