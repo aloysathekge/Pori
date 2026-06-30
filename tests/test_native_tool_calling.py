@@ -330,3 +330,43 @@ def test_gemini_schema_sanitizer_strips_unsupported_keys():
     assert "additionalProperties" not in cleaned
     assert "title" not in cleaned["properties"]["a"]
     assert cleaned["properties"]["a"]["type"] == "string"
+
+
+# --- B.4: native prompt + config flag ---------------------------------------
+
+
+def test_native_prompt_omits_json_envelope():
+    agent = Agent(
+        task="t",
+        llm=_NativeMockLLM([]),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+        tool_calling="native",
+    )
+    sm = agent.system_message
+    assert "JSON Output Format" not in sm
+    assert "{tool_descriptions}" not in sm
+    assert "native tool-calling ability" in sm
+    assert "Workflow" in sm  # workflow/rules retained
+
+
+def test_envelope_prompt_keeps_json_format():
+    agent = Agent(
+        task="t",
+        llm=_NativeMockLLM([]),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+    )
+    assert "JSON Output Format" in agent.system_message
+
+
+def test_llm_config_tool_calling_flag():
+    from pori.config import LLMConfig
+
+    assert LLMConfig(provider="anthropic", model="x").tool_calling == "envelope"
+    assert (
+        LLMConfig(provider="anthropic", model="x", tool_calling="native").tool_calling
+        == "native"
+    )

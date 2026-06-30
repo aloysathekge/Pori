@@ -326,9 +326,14 @@ class Agent:
         #   stable   -> default identity + core operating rules + tool guidance
         #   context  -> caller-supplied custom prompt
         #   volatile -> available-skills index + selected-skill instructions
-        core_instructions = load_prompt("system/agent_core.md").replace(
-            "{tool_descriptions}", tool_descriptions
-        )
+        # Native tool-calling sends tool schemas via the provider API, so its
+        # prompt omits the JSON envelope + textual tool descriptions.
+        if self._tool_calling == "native":
+            core_instructions = load_prompt("system/agent_core_native.md")
+        else:
+            core_instructions = load_prompt("system/agent_core.md").replace(
+                "{tool_descriptions}", tool_descriptions
+            )
         # Identity: a user SOUL.md persona if present (re-read per task), else
         # the neutral default identity.
         tiers = SystemPromptTiers()

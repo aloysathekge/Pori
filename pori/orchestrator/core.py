@@ -34,6 +34,7 @@ class Orchestrator:
         evolution_repository: Optional[EvolutionRepository] = None,
         soul_path: Optional[str] = None,
         load_project_context: bool = False,
+        tool_calling: str = "envelope",
     ):
         self.llm = llm
         self.tools_registry = tools_registry
@@ -45,6 +46,7 @@ class Orchestrator:
         self.evolution_repository = evolution_repository
         self.soul_path = soul_path
         self.load_project_context = load_project_context
+        self.tool_calling = tool_calling
 
     async def execute_task(
         self,
@@ -86,6 +88,7 @@ class Orchestrator:
             evolution_repository=self.evolution_repository,
             soul_path=self.soul_path,
             load_project_context=self.load_project_context,
+            tool_calling=self.tool_calling,
         )
         self.agents[task_id] = agent
 

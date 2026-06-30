@@ -125,8 +125,12 @@ assistant text instead of an envelope field).
   Kimi/OpenAI path is the verified one (B.1 spike + unit tests); the Google path
   is implemented but not yet live-verified (no Gemini key) — envelope remains its
   fallback via the flag.
-- **B.4** — native-variant prompt (strip the JSON envelope sections); wire the
-  config flag end-to-end (CLI/orchestrator).
+- **B.4 (done)** — `agent_core_native.md` (no JSON envelope / `{tool_descriptions}`;
+  adds native tool-call + one-line status guidance); agent picks the prompt by
+  mode. `config.llm.tool_calling` threaded through orchestrator -> CLI ->
+  `Agent`. **Live-verified end-to-end on Kimi/Fireworks**: native tool calls →
+  actions → execution → receipts → activity line from assistant text. Tests +
+  live run green; envelope still the default.
 - **B.5** — flip default to native; migrate `conftest.py` mock + ~90 hardcoded
   `AgentOutput` literals; delete the envelope path, `_coerce_to_output_json`, and
   the retry logic.
