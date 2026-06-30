@@ -818,6 +818,18 @@ class Agent:
                 for call in turn.tool_calls
                 if call.name
             ]
+            # A text-only reply (no tool call) is the model answering the user
+            # directly. Treat it as the final answer so the run completes instead
+            # of stalling on an empty step.
+            if not action and turn.text.strip():
+                action = [
+                    {
+                        "answer": {
+                            "final_answer": turn.text.strip(),
+                            "reasoning": "Direct response.",
+                        }
+                    }
+                ]
             current_state: Dict[str, str] = (
                 {"next_goal": turn.text} if turn.text else {}
             )
