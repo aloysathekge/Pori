@@ -1964,7 +1964,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 tool_context = {
                     "memory": self.memory,
                     "state": self.state,
-                    "thread_id": self.task_id,
+                    "thread_id": self._sandbox_thread_id(),
                     "sandbox_base_dir": self.sandbox_base_dir,
                     "run_context": self.run_context,
                     "evolution_repository": self.evolution_repository,
@@ -1972,6 +1972,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "capability_snapshot": self.capability_snapshot,
                     "tools_registry": self.tools_registry,
                     "plan_store": self.plan_store,
+                    "task_id": self.task_id,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
@@ -2388,6 +2389,15 @@ REMINDER: You have gathered information using tools. Now analyze the results and
     def _plan_snapshot(self) -> List[Dict[str, Any]]:
         """Return the model-owned plan (update_plan) items as serializable dicts."""
         return [item.model_dump() for item in self.plan_store.items()]
+
+    def _sandbox_thread_id(self) -> str:
+        """Sandbox workspace key — the session, so files persist across tasks.
+
+        Keying on the session (not the per-task id) means files created in one
+        task are visible to follow-up tasks in the same session (e.g. a CLI
+        conversation). Falls back to the task id when no session is set.
+        """
+        return self.run_context.session_id or self.task_id
 
     def result_summary(self) -> Dict[str, Any]:
         """Return the public run result fields consumers should depend on."""

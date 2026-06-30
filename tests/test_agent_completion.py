@@ -825,3 +825,27 @@ class TestTerminalBehavior:
         # Action call count should be exactly 1 (no extra calls after completion)
         assert action_call_count == 1
         assert result["steps_taken"] == 1
+
+
+def test_sandbox_thread_keyed_to_session(basic_registry):
+    """Two tasks in the same session share one sandbox workspace."""
+    memory = AgentMemory()
+    a1 = Agent(
+        task="first task",
+        llm=MockLLM([]),
+        tools_registry=basic_registry,
+        settings=AgentSettings(max_steps=2),
+        memory=memory,
+    )
+    a2 = Agent(
+        task="second task",
+        llm=MockLLM([]),
+        tools_registry=basic_registry,
+        settings=AgentSettings(max_steps=2),
+        memory=memory,
+    )
+
+    # Distinct tasks, but the sandbox is keyed to the shared session.
+    assert a1.task_id != a2.task_id
+    assert a1._sandbox_thread_id() == a2._sandbox_thread_id()
+    assert a1._sandbox_thread_id() == a1.run_context.session_id
