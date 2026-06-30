@@ -49,6 +49,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
+from .observability import build_tool_preview
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
 from .prompts import (
@@ -638,9 +639,18 @@ class Agent:
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
 
             # Capture the model's intent for this step as the live activity line.
+            # If the model gave no intent sentence (it just called a tool — common
+            # for `answer`), describe the action itself so the line reflects THIS
+            # step instead of going stale and repeating the previous one.
             next_goal = (model_output.current_state or {}).get("next_goal", "")
             if next_goal and next_goal.strip():
                 self.state.current_activity = next_goal.strip()
+            elif model_output.action:
+                last = model_output.action[-1]
+                name, params = next(iter(last.items()))
+                self.state.current_activity = build_tool_preview(
+                    name, params if isinstance(params, dict) else {}
+                )
             if llm_span:
                 llm_span.attributes["duration_seconds"] = llm_duration
                 llm_span.finish()

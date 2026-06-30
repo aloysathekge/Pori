@@ -388,3 +388,39 @@ def test_text_only_turn_completes_run():
     )
     assert result["completed"] is True
     assert "deleted" in memory.get_state("final_answer")["final_answer"]
+
+
+def test_activity_is_fresh_per_step_when_model_gives_no_text():
+    """A tool-only step (no next_goal) shows its own action, not a stale line."""
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Listing the workspace",
+                tool_calls=[
+                    ToolCall(
+                        name="list_directory",
+                        arguments={"directory_path": "/mnt/user-data/workspace"},
+                    )
+                ],
+            ),
+            ToolTurn(
+                text="",  # no intent sentence — just calls answer
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "done", "reasoning": "r"},
+                    )
+                ],
+            ),
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=3),
+        memory=AgentMemory(),
+    )
+    asyncio.run(agent.run())
+    # The answer step describes itself instead of repeating step 1's line.
+    assert agent.state.current_activity == "Writing the answer"
