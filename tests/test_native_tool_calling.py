@@ -208,3 +208,125 @@ def test_native_mode_end_to_end_answer():
     assert memory.get_state("final_answer")["final_answer"] == "42"
     # The assistant text became the activity line.
     assert agent.state.current_activity == "Answering the user"
+
+
+# --- B.3: OpenAI / Fireworks / Google native --------------------------------
+
+
+class _OAIFunc:
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+
+class _OAIToolCall:
+    def __init__(self, id, name, arguments):
+        self.id = id
+        self.function = _OAIFunc(name, arguments)
+
+
+class _OAIMessage:
+    def __init__(self, content, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _OAIChoice:
+    def __init__(self, message):
+        self.message = message
+
+
+class _OAIResp:
+    def __init__(self, choices, usage=None):
+        self.choices = choices
+        self.usage = usage
+
+
+class _OAICompletions:
+    def __init__(self, resp):
+        self._resp = resp
+        self.last_kwargs = None
+
+    async def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return self._resp
+
+
+class _OAIClient:
+    def __init__(self, resp):
+        self.chat = type("Chat", (), {"completions": _OAICompletions(resp)})()
+
+
+def _openai_resp_with_tool_call():
+    return _OAIResp(
+        [
+            _OAIChoice(
+                _OAIMessage(
+                    content="Saving the file",
+                    tool_calls=[_OAIToolCall("c1", "write_file", '{"file_path": "a"}')],
+                )
+            )
+        ]
+    )
+
+
+def test_openai_ainvoke_tools_parses_tool_calls():
+    from pori.llm.openai import ChatOpenAI
+
+    llm = ChatOpenAI(api_key="x", model="gpt-test")
+    llm._client = _OAIClient(_openai_resp_with_tool_call())
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [SystemMessage(content="sys"), UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.text == "Saving the file"
+    assert turn.tool_calls[0].name == "write_file"
+    assert turn.tool_calls[0].arguments == {"file_path": "a"}
+    sent = llm._client.chat.completions.last_kwargs
+    assert sent["tools"][0]["function"]["name"] == "write_file"
+    assert sent["tool_choice"] == "auto"
+
+
+def test_fireworks_inherits_native_tool_calling():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/models/kimi-k2p6")
+    llm._client = _OAIClient(_openai_resp_with_tool_call())
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.tool_calls[0].name == "write_file"
+
+
+def test_gemini_schema_sanitizer_strips_unsupported_keys():
+    from pori.llm.google import _sanitize_gemini_schema
+
+    cleaned = _sanitize_gemini_schema(
+        {
+            "title": "X",
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"a": {"title": "A", "type": "string"}},
+        }
+    )
+    assert "title" not in cleaned
+    assert "additionalProperties" not in cleaned
+    assert "title" not in cleaned["properties"]["a"]
+    assert cleaned["properties"]["a"]["type"] == "string"

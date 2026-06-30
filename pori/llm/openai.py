@@ -1,11 +1,18 @@
 """OpenAI chat model."""
 
+import json
 from typing import Any, Generic, TypeVar, cast
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from .messages import BaseMessage, ToolTurn
+from .messages import (
+    AssistantMessage,
+    BaseMessage,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+)
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -116,9 +123,89 @@ class ChatOpenAI:
     async def ainvoke_tools(
         self, messages: list[BaseMessage], tools: list[dict]
     ) -> ToolTurn:
-        raise NotImplementedError(
-            "Native tool-calling is not yet implemented for this provider"
+        """Invoke with native OpenAI-style tool-calling."""
+        openai_messages: list[dict[str, Any]] = []
+        for m in messages:
+            if isinstance(m, ToolResultMessage):
+                openai_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": m.tool_call_id,
+                        "content": m.content,
+                    }
+                )
+            elif isinstance(m, AssistantMessage) and m.tool_calls:
+                openai_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": m.content or None,
+                        "tool_calls": [
+                            {
+                                "id": tc.id or f"call_{i}",
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": json.dumps(tc.arguments),
+                                },
+                            }
+                            for i, tc in enumerate(m.tool_calls)
+                        ],
+                    }
+                )
+            else:
+                openai_messages.append({"role": m.role, "content": m.content})
+
+        request: dict[str, Any] = {
+            "model": self.model,
+            "messages": openai_messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t["input_schema"],
+                    },
+                }
+                for t in tools
+            ],
+            "tool_choice": "auto",
+        }
+        response = await retry_async(
+            lambda: self._client.chat.completions.create(**request),
+            getattr(self, "_retry_config", None),
+            label="openai",
         )
+        try:
+            if getattr(response, "usage", None) is not None:
+                self.last_usage = {
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(
+                        response.usage, "completion_tokens", 0
+                    ),
+                    "total_tokens": getattr(response.usage, "total_tokens", 0),
+                }
+        except Exception:
+            self.last_usage = None
+
+        message = response.choices[0].message
+        tool_calls: list[ToolCall] = []
+        for tc in getattr(message, "tool_calls", None) or []:
+            raw_args = getattr(tc.function, "arguments", "") or "{}"
+            try:
+                args = json.loads(raw_args)
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append(
+                ToolCall(
+                    id=getattr(tc, "id", "") or "",
+                    name=tc.function.name,
+                    arguments=args if isinstance(args, dict) else {},
+                )
+            )
+        return ToolTurn(text=message.content or "", tool_calls=tool_calls)
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False

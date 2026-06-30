@@ -118,9 +118,13 @@ assistant text instead of an envelope field).
   `ToolCall -> {name: args}`, sets `next_goal` from assistant text, skips the
   envelope/recovery. Native mock + tests (incl. end-to-end answer). Envelope
   stays default → suite green. `tests/test_native_tool_calling.py`.
-- **B.3** — OpenAI + Google native paths (OpenRouter/Fireworks inherit OpenAI).
-  **Verify the default model (Fireworks/Kimi) supports OpenAI-style tool-calling**;
-  if not, document envelope as its fallback (the flag already allows per-config).
+- **B.3 (done)** — `ChatOpenAI.ainvoke_tools` (OpenAI tool format; OpenRouter/
+  Fireworks inherit it) and `ChatGoogle.ainvoke_tools` (Gemini
+  `function_declarations` + a schema sanitizer for unsupported keys). Tested:
+  OpenAI parsing, Fireworks/Kimi inheritance, Gemini sanitizer. **Note:** the
+  Kimi/OpenAI path is the verified one (B.1 spike + unit tests); the Google path
+  is implemented but not yet live-verified (no Gemini key) — envelope remains its
+  fallback via the flag.
 - **B.4** — native-variant prompt (strip the JSON envelope sections); wire the
   config flag end-to-end (CLI/orchestrator).
 - **B.5** — flip default to native; migrate `conftest.py` mock + ~90 hardcoded

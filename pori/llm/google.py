@@ -6,10 +6,23 @@ from typing import Any, Generic, TypeVar, cast
 from google import genai
 from pydantic import BaseModel
 
-from .messages import BaseMessage, ToolTurn
+from .messages import BaseMessage, ToolCall, ToolResultMessage, ToolTurn
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _sanitize_gemini_schema(obj: Any) -> Any:
+    """Strip JSON-Schema keys the Gemini function API rejects (title, etc.)."""
+    if isinstance(obj, dict):
+        return {
+            k: _sanitize_gemini_schema(v)
+            for k, v in obj.items()
+            if k not in ("title", "additionalProperties")
+        }
+    if isinstance(obj, list):
+        return [_sanitize_gemini_schema(v) for v in obj]
+    return obj
 
 
 class ChatGoogle:
@@ -121,8 +134,90 @@ class ChatGoogle:
     async def ainvoke_tools(
         self, messages: list[BaseMessage], tools: list[dict]
     ) -> ToolTurn:
-        raise NotImplementedError(
-            "Native tool-calling is not yet implemented for this provider"
+        """Invoke Gemini with native function-calling."""
+        system_instruction = None
+        contents = []
+        for msg in messages:
+            if msg.role == "system":
+                system_instruction = msg.content
+            elif isinstance(msg, ToolResultMessage):
+                contents.append(
+                    genai.types.Content(
+                        role="user",
+                        parts=[
+                            genai.types.Part.from_function_response(
+                                name=msg.tool_call_id,
+                                response={"result": msg.content},
+                            )
+                        ],
+                    )
+                )
+            else:
+                role = "model" if msg.role == "assistant" else "user"
+                contents.append(
+                    genai.types.Content(
+                        role=role,
+                        parts=[genai.types.Part(text=msg.content)],
+                    )
+                )
+
+        function_declarations = [
+            genai.types.FunctionDeclaration.model_validate(
+                {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": _sanitize_gemini_schema(t["input_schema"]),
+                }
+            )
+            for t in tools
+        ]
+        config = genai.types.GenerateContentConfig(
+            temperature=self.temperature,
+            max_output_tokens=self.max_tokens,
+            system_instruction=system_instruction,
+            tools=[genai.types.Tool(function_declarations=function_declarations)],
+        )
+
+        response = await retry_async(
+            lambda: self._client.aio.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
+            ),
+            self._retry_config,
+            label="google",
+        )
+
+        try:
+            usage = response.usage_metadata
+            if usage:
+                self.last_usage = {
+                    "prompt_tokens": usage.prompt_token_count or 0,
+                    "completion_tokens": usage.candidates_token_count or 0,
+                    "total_tokens": usage.total_token_count or 0,
+                }
+        except Exception:
+            self.last_usage = None
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        for candidate in getattr(response, "candidates", None) or []:
+            parts = getattr(getattr(candidate, "content", None), "parts", None) or []
+            for part in parts:
+                fc = getattr(part, "function_call", None)
+                if fc is not None:
+                    tool_calls.append(
+                        ToolCall(
+                            id=getattr(fc, "id", "") or "",
+                            name=getattr(fc, "name", "") or "",
+                            arguments=dict(getattr(fc, "args", None) or {}),
+                        )
+                    )
+                elif getattr(part, "text", None):
+                    text_parts.append(part.text)
+        return ToolTurn(
+            text=" ".join(text_parts).strip(),
+            tool_calls=tool_calls,
         )
 
     def with_structured_output(
