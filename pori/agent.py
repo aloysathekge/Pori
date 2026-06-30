@@ -51,7 +51,12 @@ from .metrics import (
 )
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
-from .prompts import SystemPromptTiers, build_system_prompt, resolve_identity
+from .prompts import (
+    SystemPromptTiers,
+    build_system_prompt,
+    discover_project_context,
+    resolve_identity,
+)
 from .retrieval import RetrievalEvidence
 from .runtime import (
     BudgetExceeded,
@@ -178,6 +183,7 @@ class Agent:
         evolution_repository: Optional[EvolutionRepository] = None,
         tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
         soul_path: Optional[str] = None,
+        load_project_context: bool = False,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -220,6 +226,7 @@ class Agent:
         self.tools_registry = self.capability_snapshot.to_registry()
         self._custom_system_prompt = system_prompt
         self._soul_path = soul_path
+        self._load_project_context = load_project_context
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -328,6 +335,9 @@ class Agent:
 
         if self._custom_system_prompt:
             tiers.context.append(self._custom_system_prompt)
+
+        if self._load_project_context:
+            tiers.context.extend(discover_project_context())
 
         available_skill_prompt = self._render_available_skills_prompt()
         if available_skill_prompt:

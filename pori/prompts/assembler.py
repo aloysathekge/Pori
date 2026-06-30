@@ -10,10 +10,13 @@ See `.agent/reference-studies/system-prompt-architecture.md`.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger("pori.prompts")
 
 # Neutral, framework-default identity (Hermes-faithful). It is the fallback
 # "who am I" block; a user-supplied persona via SOUL.md will override it in a
@@ -99,9 +102,63 @@ def resolve_identity(
     return DEFAULT_IDENTITY
 
 
+# Project instruction files auto-loaded into the context tier (Hermes/Claude
+# Code pattern). Ordered by precedence.
+_PROJECT_CONTEXT_FILES = ("AGENTS.md", "CLAUDE.md", ".cursorrules")
+_MAX_CONTEXT_FILE_CHARS = 20_000
+_INJECTION_MARKERS = (
+    "ignore previous instructions",
+    "ignore all previous",
+    "disregard your instructions",
+    "forget your instructions",
+    "system prompt:",
+    "<system>",
+    "you are now",
+)
+
+
+def _looks_like_injection(text: str) -> bool:
+    lowered = text.casefold()
+    return any(marker in lowered for marker in _INJECTION_MARKERS)
+
+
+def discover_project_context(
+    cwd: Optional[Path] = None,
+    max_chars: int = _MAX_CONTEXT_FILE_CHARS,
+) -> List[str]:
+    """Return labelled blocks for project instruction files found in ``cwd``.
+
+    Looks for AGENTS.md / CLAUDE.md / .cursorrules. Each is bounded to
+    ``max_chars`` and skipped if it contains prompt-injection markers. Returns
+    blocks for the **context** tier (caller/project content).
+    """
+    base = Path(cwd) if cwd else Path.cwd()
+    blocks: List[str] = []
+    for name in _PROJECT_CONTEXT_FILES:
+        path = base / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if not text:
+            continue
+        if _looks_like_injection(text):
+            logger.warning(
+                "Skipping project context file with injection markers: %s", path
+            )
+            continue
+        if len(text) > max_chars:
+            text = text[:max_chars].rstrip() + "\n... (truncated)"
+        blocks.append(f"# Project context: {name}\n{text}")
+    return blocks
+
+
 __all__ = [
     "DEFAULT_IDENTITY",
     "SystemPromptTiers",
     "build_system_prompt",
+    "discover_project_context",
     "resolve_identity",
 ]

@@ -4,10 +4,10 @@ Source studied: `references/hermes-agent/agent/system_prompt.py` (Hermes's
 3-tier prompt assembler) and `references/claude-code` (layered context +
 system-reminders), against Pori's `pori/prompts/system/agent_core.md`.
 
-Status: **Phase A.1 and A.2 (SOUL.md identity) implemented**
-(`pori/prompts/assembler.py`, behaviour-preserving). A.2's plan/memory
-re-injection already existed from Phase 1. A.3 and Phase B remain proposals.
-Sequenced after the Phase 1 planning work (`planning-architecture.md`).
+Status: **Phase A complete (A.1 tiers, A.2 SOUL.md, A.3 project-context)** —
+`pori/prompts/assembler.py`, behaviour-preserving. A.2's plan/memory re-injection
+already existed from Phase 1. **Phase B (native tool-calling) remains.** Sequenced
+after the Phase 1 planning work (`planning-architecture.md`).
 
 License note: principles and interfaces only; nothing is copied from Hermes or
 Claude Code source.
@@ -187,7 +187,12 @@ LLM spine, not the prompt.
   Tests in `tests/test_prompt_assembler.py`. The live plan/memory re-injection
   that A.2 also called for already shipped in Phase 1 (per-step plan block +
   `<memory-context>` fence), so a dedicated reminder channel is optional polish.
-- **Phase A.3** — project-context discovery (`AGENTS.md`/`CLAUDE.md`).
+- **Phase A.3 (done)** — `discover_project_context()` auto-loads
+  `AGENTS.md`/`CLAUDE.md`/`.cursorrules` from cwd into the context tier (bounded,
+  injection-scanned). Opt-in at the `Agent` layer (`load_project_context`, default
+  off so embedders/tests aren't surprised); enabled by default via
+  `config.agent.load_project_context` for the CLI. Tests in
+  `tests/test_prompt_assembler.py`.
 - **Phase B** — native tool-calling behind a flag; then remove envelope.
 - Standard gates each phase: `uv run pytest`, `black`, `isort`, `mypy`.
 
