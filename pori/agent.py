@@ -88,6 +88,9 @@ class AgentState(BaseModel):
     # Planning/Reflection state
     current_plan: List[str] = Field(default_factory=list)
     last_reflection: Optional[str] = None
+    # Model-authored, human-readable description of what the agent is doing now
+    # (sourced from the LLM's `next_goal`). Surfaced as the live activity line.
+    current_activity: str = ""
 
 
 class AgentSettings(BaseModel):
@@ -614,6 +617,11 @@ class Agent:
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
+
+            # Capture the model's intent for this step as the live activity line.
+            next_goal = (model_output.current_state or {}).get("next_goal", "")
+            if next_goal and next_goal.strip():
+                self.state.current_activity = next_goal.strip()
             if llm_span:
                 llm_span.attributes["duration_seconds"] = llm_duration
                 llm_span.finish()

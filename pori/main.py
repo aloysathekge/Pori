@@ -24,6 +24,7 @@ from .evolution import (
 )
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
+from .observability import build_tool_preview
 from .orchestrator import Orchestrator
 from .skills import (
     SkillBundleCatalog,
@@ -1386,10 +1387,13 @@ async def main():
                     print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
                         status = "+" if tool_call.success else "x"
+                        preview = build_tool_preview(
+                            tool_call.tool_name, tool_call.parameters
+                        )
+                        _safe_print(f"  {i}. {preview} -> {status}")
                         _safe_print(
-                            f"  {i}. {tool_call.tool_name}("
-                            f"{_format_tool_call_parameters(tool_call.parameters)}) "
-                            f"-> {status}"
+                            f"       {tool_call.tool_name}("
+                            f"{_format_tool_call_parameters(tool_call.parameters)})"
                         )
 
                         log_level = (

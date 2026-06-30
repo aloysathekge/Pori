@@ -139,7 +139,7 @@ class _MockLLM:
                 current_state={
                     "evaluation_previous_goal": "ok",
                     "memory": "none",
-                    "next_goal": "go",
+                    "next_goal": "Answering the user",
                 },
                 action=actions,
             )
@@ -170,3 +170,5 @@ def test_agent_default_makes_no_side_planning_call(registry, event_loop):
         {"id": "1", "content": "answer the user", "status": "pending"}
     ]
     assert agent.result_summary()["plan"] == result["plan"]
+    # The model's next_goal is captured as the live activity line.
+    assert agent.state.current_activity == "Answering the user"

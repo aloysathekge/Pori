@@ -205,3 +205,44 @@ model-correctable rejection instead of a crash.
   that does **not** call `ask_user`; that completed items are not re-injected; that
   `update_plan` enforces a single `in_progress`.
 - Standard gates: `uv run pytest`, `black`, `isort`, `mypy`.
+
+---
+
+## 7. The plan contract (for consumers / UI)
+
+Core exposes the model-owned plan in the run result so Cloud and UIs can show it
+(`agent.py` `_plan_snapshot()` → `result_summary()["plan"]` and the run dict).
+
+Shape — an ordered list (position = priority):
+
+```json
+"plan": [
+  {"id": "1", "content": "Find filesystem-writing tools", "status": "completed"},
+  {"id": "2", "content": "Write the report",              "status": "in_progress"},
+  {"id": "3", "content": "Verify the file",               "status": "pending"}
+]
+```
+
+`status ∈ {pending, in_progress, completed, cancelled}`.
+
+**Convention: `in_progress` is "what the agent is doing now."** Exactly one item
+should be `in_progress` at a time (enforced by the `update_plan` schema guidance),
+so a UI renders the list as a checklist and highlights the `in_progress` row as the
+current activity.
+
+Exposure in Pori Cloud (branch `feat/run-plan-contract`):
+- **`GET /v1/runs/{run_id}`** → `RunResponse.plan` (end-of-run state).
+- Conversation assistant messages carry it in `metadata.plan`.
+- **Live**: the SSE stream (`POST /v1/conversations/{id}/messages`,
+  `text/event-stream`) emits `plan` on every `step` event, re-read from the live
+  `PlanStore`; the final `message` event includes it too. The old `runtime_events`
+  SSE was removed (core never produced it).
+
+Limits: updates are **step-granular** (the stream polls `agent.state.n_steps`),
+and the plan is only as detailed as the model keeps it via `update_plan`.
+
+> Distinct from the plan: **per-tool-call human-readable status text** (e.g.
+> "Writing the report…" instead of `write_file(...)`) is an *activity descriptor*,
+> a separate concern from the todo list. See
+> `system-prompt-architecture.md` §"Activity descriptors" for how Hermes
+> (tool emoji + summaries) and Claude Code (`activeForm`) do it.

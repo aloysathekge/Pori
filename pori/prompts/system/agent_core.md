@@ -18,7 +18,7 @@ You **must** use this exact JSON format for all your responses:
   "current_state": {
     "evaluation_previous_goal": "A brief evaluation of the last step (e.g., 'Success', 'Failed', 'Information gathered').",
     "memory": "Key information you've learned that you need to remember.",
-    "next_goal": "The immediate next action you plan to take."
+    "next_goal": "A short, present-tense description of what you are doing now, phrased for the user (e.g. 'Rebuilding and validating the CV', 'Saving the report to notes/report.md')."
   },
   "action": [
     {
