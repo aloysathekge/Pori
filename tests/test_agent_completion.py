@@ -42,6 +42,16 @@ class MockLLM:
         self.index = min(self.index + 1, len(self.responses) - 1)
         return response
 
+    async def ainvoke_tools(self, messages, tools):
+        from pori.llm import ToolTurn
+        from tests._native_mock import tool_turn_from_response
+
+        if not self.responses:
+            return ToolTurn()
+        response = self.responses[self.index]
+        self.index = min(self.index + 1, len(self.responses) - 1)
+        return tool_turn_from_response(response)
+
 
 def make_response(action_list):
     """Helper to create a mock LLM response with given actions."""
@@ -697,64 +707,6 @@ class TestTerminalBehavior:
         assert answer_calls[-1].success is True
         assert memory.get_state("final_answer") is not None
 
-    def test_get_next_action_retries_invalid_structured_json(
-        self, basic_registry, event_loop
-    ):
-        """A truncated structured response should get one corrective retry."""
-
-        class RetryLLM:
-            def __init__(self):
-                self.calls = 0
-                self.messages = []
-                self._output_model = None
-
-            def with_structured_output(self, output_model, include_raw=True):
-                self._output_model = output_model
-                return self
-
-            async def ainvoke(self, messages):
-                self.calls += 1
-                self.messages.append(messages)
-                if self.calls == 1:
-                    return {
-                        "parsed": None,
-                        "raw": '{"current_state": {"memory": "cut"',
-                    }
-                return {
-                    "parsed": self._output_model(
-                        current_state={
-                            "evaluation_previous_goal": "Recovered",
-                            "memory": "Retried after invalid JSON",
-                            "next_goal": "Answer",
-                        },
-                        action=[
-                            {
-                                "answer": {
-                                    "final_answer": "1 + 1 = 2",
-                                    "reasoning": "Recovered structured output",
-                                }
-                            }
-                        ],
-                    ),
-                    "raw": None,
-                }
-
-        llm = RetryLLM()
-        memory = AgentMemory()
-        agent = Agent(
-            task="Teach basic 1+1",
-            llm=llm,
-            tools_registry=basic_registry,
-            settings=AgentSettings(max_steps=2),
-            memory=memory,
-        )
-
-        output = event_loop.run_until_complete(agent.get_next_action())
-
-        assert llm.calls == 2
-        assert "invalid or incomplete JSON" in llm.messages[-1][-1].content
-        assert output.action[0]["answer"]["final_answer"] == "1 + 1 = 2"
-
     def test_run_stops_after_answer(self, basic_registry, event_loop):
         """Run loop should stop after a final answer is provided (even without explicit done)."""
         from pori.agent import PlanOutput, ReflectOutput
@@ -775,6 +727,12 @@ class TestTerminalBehavior:
             def with_structured_output(self, output_model, include_raw=True):
                 self._output_model = output_model
                 return self
+
+            async def ainvoke_tools(self, messages, tools):
+                from tests._native_mock import tool_turn_from_response
+
+                self._output_model = None
+                return tool_turn_from_response(await self.ainvoke(messages))
 
             async def ainvoke(self, messages):
                 nonlocal action_call_count

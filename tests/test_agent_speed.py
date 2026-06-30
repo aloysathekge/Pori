@@ -59,6 +59,12 @@ def test_auto_mode_skips_planning_for_simple_tasks(basic_registry, event_loop):
             self.output_model = output_model
             return self
 
+        async def ainvoke_tools(self, messages, tools):
+            from tests._native_mock import tool_turn_from_response
+
+            self.output_model = None
+            return tool_turn_from_response(await self.ainvoke(messages))
+
         async def ainvoke(self, messages):
             if self.output_model == PlanOutput:
                 self.plan_calls += 1
@@ -104,6 +110,12 @@ def test_auto_mode_plans_for_complex_tasks(basic_registry, event_loop):
         def with_structured_output(self, output_model, include_raw=True):
             self.output_model = output_model
             return self
+
+        async def ainvoke_tools(self, messages, tools):
+            from tests._native_mock import tool_turn_from_response
+
+            self.output_model = None
+            return tool_turn_from_response(await self.ainvoke(messages))
 
         async def ainvoke(self, messages):
             if self.output_model == PlanOutput:
@@ -153,6 +165,12 @@ def test_auto_mode_reflects_after_failed_progress(basic_registry, event_loop):
             self.output_model = output_model
             return self
 
+        async def ainvoke_tools(self, messages, tools):
+            from tests._native_mock import tool_turn_from_response
+
+            self.output_model = None
+            return tool_turn_from_response(await self.ainvoke(messages))
+
         async def ainvoke(self, messages):
             if self.output_model == PlanOutput:
                 self.plan_calls += 1
@@ -200,6 +218,12 @@ def test_planning_and_reflection_can_be_forced(basic_registry, event_loop):
         def with_structured_output(self, output_model, include_raw=True):
             self.output_model = output_model
             return self
+
+        async def ainvoke_tools(self, messages, tools):
+            from tests._native_mock import tool_turn_from_response
+
+            self.output_model = None
+            return tool_turn_from_response(await self.ainvoke(messages))
 
         async def ainvoke(self, messages):
             if self.output_model == PlanOutput:

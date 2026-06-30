@@ -29,14 +29,6 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    tool_calling: Literal["envelope", "native"] = Field(
-        default="envelope",
-        description=(
-            "How the agent talks to the model: 'envelope' (legacy JSON action "
-            "envelope) or 'native' (provider tool-calling). Requires a model that "
-            "supports native tool-calling."
-        ),
-    )
 
     # Provider-specific settings
     extra_params: Dict[str, Any] = Field(default_factory=dict)

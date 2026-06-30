@@ -131,9 +131,22 @@ assistant text instead of an envelope field).
   `Agent`. **Live-verified end-to-end on Kimi/Fireworks**: native tool calls →
   actions → execution → receipts → activity line from assistant text. Tests +
   live run green; envelope still the default.
-- **B.5** — flip default to native; migrate `conftest.py` mock + ~90 hardcoded
-  `AgentOutput` literals; delete the envelope path, `_coerce_to_output_json`, and
-  the retry logic.
+- **B.5 + B.6 (done — envelope fully removed)** — native tool-calling is now the
+  **only** path. The `tool_calling` flag is gone (config/agent/orchestrator/CLI);
+  `get_next_action` is native-only; `_coerce_to_output_json`, the retry-on-bad-JSON
+  logic, and `_create_output_model` are deleted; the envelope `agent_core.md` was
+  replaced by the native prompt (renamed). `AgentOutput` is kept as the internal
+  action representation that the native branch produces. `with_structured_output`
+  remains for the genuine structured-extraction calls (`PlanOutput`/`ReflectOutput`/
+  `CompletionValidation`).
+  - Tests migrated via a shared `tests/_native_mock.py` helper that turns the
+    existing `{current_state, action}` mock responses into `ToolTurn`s — so the
+    ~90 action literals were **not** rewritten; each mock just gained an
+    `ainvoke_tools`. Envelope-only tests (JSON recovery/retry, the flag, the
+    envelope prompt) were deleted. 316 tests pass; live CLI run on Kimi verified.
+  - **Note:** dropping the envelope means a model without native tool-calling can
+    no longer be used. That was the accepted trade for a leaner, more reliable
+    contract.
 
 ## 5. Blast radius & risks
 

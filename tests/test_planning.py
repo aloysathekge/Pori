@@ -131,6 +131,11 @@ class _MockLLM:
     def with_structured_output(self, output_model, include_raw=True):
         return self
 
+    async def ainvoke_tools(self, messages, tools):
+        from tests._native_mock import tool_turn_from_response
+
+        return tool_turn_from_response(await self.ainvoke(messages))
+
     async def ainvoke(self, messages):
         actions = self._actions[min(self.i, len(self._actions) - 1)]
         self.i += 1
