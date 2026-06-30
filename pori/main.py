@@ -1077,6 +1077,10 @@ async def main():
         except Exception:
             pass
         print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
+        # Model-authored activity line (the LLM's next_goal for this step).
+        activity = getattr(agent.state, "current_activity", "")
+        if activity:
+            _safe_print(f"    {activity}")
         logger.info(
             f"Completed step {agent.state.n_steps}{last_tool}",
             extra={
