@@ -184,3 +184,57 @@ LLM spine, not the prompt.
 - **Phase A.3** — project-context discovery (`AGENTS.md`/`CLAUDE.md`).
 - **Phase B** — native tool-calling behind a flag; then remove envelope.
 - Standard gates each phase: `uv run pytest`, `black`, `isort`, `mypy`.
+
+---
+
+## 7. Activity descriptors (human-readable tool status)
+
+A separate concern from the plan: turning a raw tool call (`write_file({"path":
+"cv.docx", ...})`) into a friendly, user-facing line ("Writing cv.docx…"). This is
+the *activity descriptor* / *status text* / *progress label*. The plan's
+`in_progress` item answers "which step," this answers "what is it doing right now."
+
+### How Hermes does it — harness-side preview (`agent/display.py`)
+
+`build_tool_preview(tool_name, args)` derives a short line from the call; the model
+authors nothing:
+
+- A **primary-argument mapping** (`display.py:203-214`): tool → its meaningful arg
+  key — `write_file→path`, `terminal→command`, `web_search→query`,
+  `read_file→path`, etc. The full JSON is hidden; only the primary arg shows
+  (truncated via `_truncate_preview`).
+- **Per-tool special-case formatters** for richer verbs, e.g. `todo` →
+  `"planning 3 task(s)"` / `"updating 2 task(s)"` / `"reading task list"`
+  (`display.py:246-254`); `memory` → `"+human: …"`; `session_search` →
+  `"recall: …"`; `delegate_task` → `"3 tasks: goal | goal"`.
+- A **per-tool emoji** (`get_tool_emoji`, registry `emoji` field, skin-overridable)
+  prefixes the line — e.g. `📋 planning 3 task(s)`.
+
+So Hermes renders `emoji + (curated verb OR tool_name) + primary-arg preview`,
+entirely harness-side.
+
+### How Claude Code does it — model-authored `activeForm`
+
+Claude Code's `TodoWrite` item carries **two** strings: `content` (imperative —
+"Run the tests") and **`activeForm`** (present-continuous — "Running the tests").
+The UI shows `activeForm` of the `in_progress` item as the live activity label.
+This is **model-authored** status text for plan steps. Generic (non-plan) tool calls
+are labelled harness-side by tool + key arg (e.g. `Read(file.py)`,
+`Bash(npm run build)`), like Hermes.
+
+### Recommendation for Pori (two complementary pieces)
+
+1. **Harness-side tool preview (Hermes pattern).** Add
+   `build_tool_preview(tool_name, params)` to Pori: a primary-arg mapping +
+   per-tool special cases (+ optional emoji). Enrich the Cloud SSE `step` event's
+   existing `tool` object (`{tool, success}`) with a `preview` string so the UI can
+   show "Writing lessons/report.md" instead of the raw call. Pure
+   presentation — no model or contract change.
+2. **Model-authored `activeForm` on plan items (Claude Code pattern).** Optionally
+   extend `PlanItem`/`update_plan` with an `active_form` gerund field so the
+   `in_progress` item shows model-written "what I'm doing now" text. This is a small
+   additive change to the plan contract (`pori/planning.py` + the `update_plan`
+   schema) and dovetails with §"The plan contract" in `planning-architecture.md`.
+
+Use (1) for every tool call's status line; use (2) for the headline "current step"
+label when a plan is active.

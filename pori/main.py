@@ -24,6 +24,7 @@ from .evolution import (
 )
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
+from .observability import build_tool_preview
 from .orchestrator import Orchestrator
 from .skills import (
     SkillBundleCatalog,
@@ -1076,6 +1077,10 @@ async def main():
         except Exception:
             pass
         print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
+        # Model-authored activity line (the LLM's next_goal for this step).
+        activity = getattr(agent.state, "current_activity", "")
+        if activity:
+            _safe_print(f"    {activity}")
         logger.info(
             f"Completed step {agent.state.n_steps}{last_tool}",
             extra={
@@ -1383,13 +1388,32 @@ async def main():
                     if loaded_skills:
                         print(f"\nSkills loaded: {', '.join(loaded_skills)}")
 
+                    plan_items = getattr(
+                        getattr(agent, "plan_store", None), "items", lambda: ()
+                    )()
+                    if plan_items:
+                        marks = {
+                            "completed": "[x]",
+                            "in_progress": "[>]",
+                            "pending": "[ ]",
+                            "cancelled": "[~]",
+                        }
+                        print("\nPlan (this task):")
+                        for item in plan_items:
+                            _safe_print(
+                                f"  {marks.get(item.status, '[ ]')} {item.content}"
+                            )
+
                     print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
                         status = "+" if tool_call.success else "x"
+                        preview = build_tool_preview(
+                            tool_call.tool_name, tool_call.parameters
+                        )
+                        _safe_print(f"  {i}. {preview} -> {status}")
                         _safe_print(
-                            f"  {i}. {tool_call.tool_name}("
-                            f"{_format_tool_call_parameters(tool_call.parameters)}) "
-                            f"-> {status}"
+                            f"       {tool_call.tool_name}("
+                            f"{_format_tool_call_parameters(tool_call.parameters)})"
                         )
 
                         log_level = (

@@ -88,6 +88,9 @@ class AgentState(BaseModel):
     # Planning/Reflection state
     current_plan: List[str] = Field(default_factory=list)
     last_reflection: Optional[str] = None
+    # Model-authored, human-readable description of what the agent is doing now
+    # (sourced from the LLM's `next_goal`). Surfaced as the live activity line.
+    current_activity: str = ""
 
 
 class AgentSettings(BaseModel):
@@ -614,6 +617,11 @@ class Agent:
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
+
+            # Capture the model's intent for this step as the live activity line.
+            next_goal = (model_output.current_state or {}).get("next_goal", "")
+            if next_goal and next_goal.strip():
+                self.state.current_activity = next_goal.strip()
             if llm_span:
                 llm_span.attributes["duration_seconds"] = llm_duration
                 llm_span.finish()
@@ -1956,7 +1964,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 tool_context = {
                     "memory": self.memory,
                     "state": self.state,
-                    "thread_id": self.task_id,
+                    "thread_id": self._sandbox_thread_id(),
                     "sandbox_base_dir": self.sandbox_base_dir,
                     "run_context": self.run_context,
                     "evolution_repository": self.evolution_repository,
@@ -1964,6 +1972,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "capability_snapshot": self.capability_snapshot,
                     "tools_registry": self.tools_registry,
                     "plan_store": self.plan_store,
+                    "task_id": self.task_id,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
@@ -2358,6 +2367,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 receipt.model_dump(mode="json") for receipt in self.execution_receipts
             ],
             "artifacts": self._run_artifacts(),
+            "plan": self._plan_snapshot(),
             "budget_usage": self.budget_ledger.snapshot(),
         }
 
@@ -2376,6 +2386,19 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         logger.info("Agent stopped", extra={"task_id": self.task_id})
         self.state.stopped = True
 
+    def _plan_snapshot(self) -> List[Dict[str, Any]]:
+        """Return the model-owned plan (update_plan) items as serializable dicts."""
+        return [item.model_dump() for item in self.plan_store.items()]
+
+    def _sandbox_thread_id(self) -> str:
+        """Sandbox workspace key — the session, so files persist across tasks.
+
+        Keying on the session (not the per-task id) means files created in one
+        task are visible to follow-up tasks in the same session (e.g. a CLI
+        conversation). Falls back to the task id when no session is set.
+        """
+        return self.run_context.session_id or self.task_id
+
     def result_summary(self) -> Dict[str, Any]:
         """Return the public run result fields consumers should depend on."""
         final = self.memory.get_final_answer() or {}
@@ -2389,6 +2412,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 skill.manifest.skill_id for skill in self.selected_skills
             ],
             "artifacts": self._run_artifacts(),
+            "plan": self._plan_snapshot(),
             "metrics": (
                 self._run_metrics.summary() if self._run_metrics is not None else None
             ),
