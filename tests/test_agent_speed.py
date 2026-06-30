@@ -77,7 +77,9 @@ def test_auto_mode_skips_planning_for_simple_tasks(basic_registry, event_loop):
         task="Simple task",
         llm=llm,
         tools_registry=basic_registry,
-        settings=AgentSettings(max_steps=5),
+        settings=AgentSettings(
+            max_steps=5, planning_mode="auto", reflection_mode="auto"
+        ),
         memory=AgentMemory(),
     )
 
@@ -123,7 +125,9 @@ def test_auto_mode_plans_for_complex_tasks(basic_registry, event_loop):
         task="Investigate and refactor the database layer across multiple modules",
         llm=llm,
         tools_registry=basic_registry,
-        settings=AgentSettings(max_steps=5),
+        settings=AgentSettings(
+            max_steps=5, planning_mode="auto", reflection_mode="auto"
+        ),
         memory=AgentMemory(),
     )
 
@@ -169,7 +173,9 @@ def test_auto_mode_reflects_after_failed_progress(basic_registry, event_loop):
         task="Simple task",
         llm=llm,
         tools_registry=basic_registry,
-        settings=AgentSettings(max_steps=5),
+        settings=AgentSettings(
+            max_steps=5, planning_mode="auto", reflection_mode="auto"
+        ),
         memory=AgentMemory(),
     )
 

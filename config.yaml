@@ -45,9 +45,10 @@ agent:
 
   # Enable memory system
   enable_memory: true
-  # Adaptive control for extra LLM calls: auto, always, or never
-  planning_mode: auto
-  reflection_mode: auto
+  # Adaptive control for extra LLM calls: auto, always, or never.
+  # "never" = planning is model-driven via the update_plan tool (recommended).
+  planning_mode: never
+  reflection_mode: never
   # Approximate token budget used for conversation window
   context_window_tokens: 3000
   # Tokens reserved for system prompt, planning context, and tool outputs

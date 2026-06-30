@@ -45,12 +45,18 @@ class AgentConfig(BaseModel):
     max_steps: int = Field(default=10, ge=1)
     enable_memory: bool = Field(default=True)
     planning_mode: Literal["auto", "always", "never"] = Field(
-        default="auto",
-        description="When to run a separate planning LLM call: auto, always, or never.",
+        default="never",
+        description=(
+            "Separate planning LLM call: auto, always, or never. Default 'never' — "
+            "planning is model-driven via the update_plan tool."
+        ),
     )
     reflection_mode: Literal["auto", "always", "never"] = Field(
-        default="auto",
-        description="When to run separate reflection LLM calls: auto, always, or never.",
+        default="never",
+        description=(
+            "Separate reflection LLM calls: auto, always, or never. Default 'never' — "
+            "the model revises its own plan via update_plan."
+        ),
     )
     # Backward-compatible aliases. Prefer planning_mode/reflection_mode.
     enable_planning: Optional[bool] = Field(default=None, exclude=True)
