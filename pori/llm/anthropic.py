@@ -6,7 +6,7 @@ from typing import Any, Generic, TypeVar, cast
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
-from .messages import BaseMessage, SystemMessage, ToolTurn
+from .messages import BaseMessage, SystemMessage, ToolCall, ToolResultMessage, ToolTurn
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -144,8 +144,83 @@ class ChatAnthropic:
     async def ainvoke_tools(
         self, messages: list[BaseMessage], tools: list[dict]
     ) -> ToolTurn:
-        raise NotImplementedError(
-            "Native tool-calling is not yet implemented for this provider"
+        """Invoke Anthropic with native tool-calling."""
+        system_prompt = None
+        anthropic_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                system_prompt = msg.content
+            elif isinstance(msg, ToolResultMessage):
+                anthropic_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": msg.tool_call_id,
+                                "content": msg.content,
+                            }
+                        ],
+                    }
+                )
+            else:
+                anthropic_messages.append({"role": msg.role, "content": msg.content})
+
+        request: dict[str, Any] = {
+            "model": self.model,
+            "messages": anthropic_messages,
+            "max_tokens": self.max_tokens,
+            "tools": [
+                {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "input_schema": t["input_schema"],
+                }
+                for t in tools
+            ],
+        }
+        if system_prompt:
+            request["system"] = system_prompt
+        if self.temperature > 0:
+            request["temperature"] = self.temperature
+
+        response = await retry_async(
+            lambda: self._client.messages.create(**request),
+            self._retry_config,
+            label="anthropic",
+        )
+        try:
+            if getattr(response, "usage", None) is not None:
+                self.last_usage = {
+                    "input_tokens": getattr(response.usage, "input_tokens", 0),
+                    "output_tokens": getattr(response.usage, "output_tokens", 0),
+                    "cache_creation_input_tokens": getattr(
+                        response.usage, "cache_creation_input_tokens", 0
+                    ),
+                    "cache_read_input_tokens": getattr(
+                        response.usage, "cache_read_input_tokens", 0
+                    ),
+                }
+        except Exception:
+            self.last_usage = None
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        for block in response.content:
+            btype = getattr(block, "type", None)
+            if btype == "text":
+                text_parts.append(getattr(block, "text", "") or "")
+            elif btype == "tool_use":
+                tool_calls.append(
+                    ToolCall(
+                        id=getattr(block, "id", "") or "",
+                        name=getattr(block, "name", "") or "",
+                        arguments=getattr(block, "input", {}) or {},
+                    )
+                )
+        return ToolTurn(
+            text=" ".join(p for p in text_parts if p).strip(),
+            tool_calls=tool_calls,
         )
 
     def with_structured_output(

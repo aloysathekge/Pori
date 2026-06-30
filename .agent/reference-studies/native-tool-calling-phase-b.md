@@ -113,9 +113,11 @@ assistant text instead of an envelope field).
 - **B.1** — additive: `ToolCall`/`ToolResultMessage` types, `tool_schemas()`,
   `ainvoke_tools` on the base Protocol (+ a `ToolTurn`). No behaviour change;
   unit tests for types/schemas.
-- **B.2** — Anthropic native path + agent native branch behind the flag;
-  translate tool_calls→actions; activity from text. New native-mode mock + tests.
-  Envelope remains default → existing suite stays green.
+- **B.2 (done)** — `ChatAnthropic.ainvoke_tools` (real native path) +
+  `Agent(tool_calling="native")` branch (`_get_next_action_native`): maps
+  `ToolCall -> {name: args}`, sets `next_goal` from assistant text, skips the
+  envelope/recovery. Native mock + tests (incl. end-to-end answer). Envelope
+  stays default → suite green. `tests/test_native_tool_calling.py`.
 - **B.3** — OpenAI + Google native paths (OpenRouter/Fireworks inherit OpenAI).
   **Verify the default model (Fireworks/Kimi) supports OpenAI-style tool-calling**;
   if not, document envelope as its fallback (the flag already allows per-config).

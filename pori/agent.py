@@ -184,6 +184,7 @@ class Agent:
         tool_authorization_policy: Optional[ToolAuthorizationPolicy] = None,
         soul_path: Optional[str] = None,
         load_project_context: bool = False,
+        tool_calling: str = "envelope",
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
@@ -227,6 +228,7 @@ class Agent:
         self._custom_system_prompt = system_prompt
         self._soul_path = soul_path
         self._load_project_context = load_project_context
+        self._tool_calling = tool_calling
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -800,6 +802,21 @@ class Agent:
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
+    async def _get_next_action_native(self, messages: List[Any]) -> AgentOutput:
+        """Native tool-calling: provider returns real tool calls + text.
+
+        Each tool call maps to the internal ``{name: arguments}`` action dict so
+        the downstream execution path is unchanged; the assistant text becomes
+        ``next_goal`` (the activity line).
+        """
+        tools = self.tools_registry.tool_schemas()
+        turn = await self.llm.ainvoke_tools(messages, tools)
+        action: List[Dict[str, Any]] = [
+            {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
+        ]
+        current_state: Dict[str, str] = {"next_goal": turn.text} if turn.text else {}
+        return AgentOutput(current_state=current_state, action=action)
+
     async def get_next_action(self) -> AgentOutput:
         """Get next action from LLM based on current state."""
         logger.debug("Building messages for LLM", extra={"task_id": self.task_id})
@@ -810,6 +827,12 @@ class Agent:
         logger.debug(
             f"Built {message_count} messages for LLM", extra={"task_id": self.task_id}
         )
+
+        # Native tool-calling path: ask the provider for real tool calls and map
+        # them onto the internal AgentOutput. The assistant text becomes the
+        # activity line (next_goal); the JSON envelope and recovery are skipped.
+        if self._tool_calling == "native":
+            return await self._get_next_action_native(messages)
 
         # Create dynamic model for the LLM response
         output_model = self._create_output_model()

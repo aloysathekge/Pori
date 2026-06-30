@@ -1,8 +1,28 @@
-"""Phase B.1: native tool-calling type/schema foundations (additive)."""
+"""Phase B native tool-calling: type/schema foundations + native path (B.1, B.2)."""
 
-from pori.llm import AssistantMessage, ToolCall, ToolResultMessage, ToolTurn
+import asyncio
+
+from pori.agent import Agent, AgentSettings
+from pori.llm import (
+    AssistantMessage,
+    SystemMessage,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+    UserMessage,
+)
+from pori.memory import AgentMemory
 from pori.tools.registry import ToolRegistry
 from pori.tools.standard import register_all_tools
+
+
+def _registry():
+    r = ToolRegistry()
+    register_all_tools(r)
+    return r
+
+
+# --- B.1: types + schemas ---------------------------------------------------
 
 
 def test_tool_call_defaults():
@@ -19,7 +39,6 @@ def test_assistant_message_carries_tool_calls():
     )
     assert msg.role == "assistant"
     assert msg.tool_calls[0].name == "write_file"
-    # Legacy plain-text assistant messages still work (content-only).
     assert AssistantMessage(content="hi").tool_calls == []
 
 
@@ -40,15 +59,152 @@ def test_tool_turn_holds_text_and_calls():
 
 
 def test_registry_tool_schemas_shape():
-    registry = ToolRegistry()
-    register_all_tools(registry)
-    schemas = registry.tool_schemas()
+    schemas = _registry().tool_schemas()
     by_name = {s["name"]: s for s in schemas}
-
-    assert "write_file" in by_name
     wf = by_name["write_file"]
     assert set(wf) == {"name", "description", "input_schema"}
     assert wf["description"]
-    # input_schema is a JSON Schema with the tool's parameters.
     assert wf["input_schema"]["type"] == "object"
     assert "file_path" in wf["input_schema"]["properties"]
+
+
+# --- B.2: Anthropic native parsing ------------------------------------------
+
+
+class _Block:
+    def __init__(self, type, **kw):
+        self.type = type
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+class _Resp:
+    def __init__(self, content, usage=None):
+        self.content = content
+        self.usage = usage
+
+
+class _FakeMessages:
+    def __init__(self, resp):
+        self._resp = resp
+        self.last_kwargs = None
+
+    async def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return self._resp
+
+
+class _FakeClient:
+    def __init__(self, resp):
+        self.messages = _FakeMessages(resp)
+
+
+def test_anthropic_ainvoke_tools_parses_text_and_tool_use():
+    from pori.llm.anthropic import ChatAnthropic
+
+    llm = ChatAnthropic(api_key="x", model="claude-test")
+    llm._client = _FakeClient(
+        _Resp(
+            [
+                _Block("text", text="Saving the file"),
+                _Block(
+                    "tool_use", id="tu1", name="write_file", input={"file_path": "a"}
+                ),
+            ]
+        )
+    )
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [SystemMessage(content="sys"), UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+        )
+    )
+    assert turn.text == "Saving the file"
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "write_file"
+    assert turn.tool_calls[0].arguments == {"file_path": "a"}
+    # system + tools were forwarded to the API.
+    sent = llm._client.messages.last_kwargs
+    assert sent["system"] == "sys"
+    assert sent["tools"][0]["name"] == "write_file"
+
+
+# --- B.2: agent native branch -----------------------------------------------
+
+
+class _NativeMockLLM:
+    def __init__(self, turns):
+        self._turns = turns
+        self.i = 0
+        self.model = "mock"
+        self.last_usage = None
+
+    async def ainvoke_tools(self, messages, tools):
+        turn = self._turns[min(self.i, len(self._turns) - 1)]
+        self.i += 1
+        return turn
+
+    def with_structured_output(self, *a, **k):  # pragma: no cover - native skips this
+        raise AssertionError("native mode must not use structured output")
+
+
+def test_native_branch_maps_tool_calls_to_actions():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Writing the file",
+                tool_calls=[
+                    ToolCall(
+                        name="write_file", arguments={"file_path": "a", "content": "x"}
+                    )
+                ],
+            )
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+        tool_calling="native",
+    )
+    out = asyncio.run(agent.get_next_action())
+    assert out.action == [{"write_file": {"file_path": "a", "content": "x"}}]
+    assert out.current_state == {"next_goal": "Writing the file"}
+
+
+def test_native_mode_end_to_end_answer():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Answering the user",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "42", "reasoning": "because"},
+                    )
+                ],
+            )
+        ]
+    )
+    memory = AgentMemory()
+    agent = Agent(
+        task="what is the answer?",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=3),
+        memory=memory,
+        tool_calling="native",
+    )
+    result = asyncio.run(agent.run())
+    assert result["completed"] is True
+    assert memory.get_state("final_answer")["final_answer"] == "42"
+    # The assistant text became the activity line.
+    assert agent.state.current_activity == "Answering the user"
