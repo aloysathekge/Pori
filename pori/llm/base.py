@@ -4,7 +4,7 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
-from .messages import BaseMessage
+from .messages import BaseMessage, ToolTurn
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -42,5 +42,23 @@ class BaseChatModel(Protocol):
 
         Returns:
             Wrapper object with ainvoke method
+        """
+        ...
+
+    async def ainvoke_tools(
+        self,
+        messages: list[BaseMessage],
+        tools: list[dict],
+    ) -> ToolTurn:
+        """Invoke the LLM with native provider tool-calling.
+
+        Args:
+            messages: Conversation messages (may include ToolResultMessage).
+            tools: Provider-agnostic tool schemas, e.g. from
+                ``ToolRegistry.tool_schemas()`` — ``[{name, description,
+                input_schema}]``.
+
+        Returns:
+            A ToolTurn with the assistant's text and any requested tool calls.
         """
         ...

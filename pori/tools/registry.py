@@ -324,6 +324,23 @@ class ToolRegistry:
     def surface_fingerprint(self) -> str:
         return self.snapshot(protect_kernel=False).fingerprint
 
+    def tool_schemas(self) -> List[Dict[str, Any]]:
+        """Provider-agnostic tool schemas for native tool-calling.
+
+        Returns ``[{name, description, input_schema}]`` where ``input_schema`` is
+        each tool's JSON Schema. Provider wrappers translate these into their own
+        tool format (Anthropic ``tools``, OpenAI ``tools``, Google
+        ``function_declarations``).
+        """
+        return [
+            {
+                "name": name,
+                "description": info.description,
+                "input_schema": info.param_model.model_json_schema(),
+            }
+            for name, info in self.tools.items()
+        ]
+
     def create_tools_model(
         self, include_tools: Optional[List[str]] = None
     ) -> Type[BaseModel]:

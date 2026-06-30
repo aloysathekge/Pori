@@ -4,7 +4,15 @@ from .anthropic import ChatAnthropic
 from .base import BaseChatModel
 from .fireworks import ChatFireworks
 from .google import ChatGoogle
-from .messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
+from .messages import (
+    AssistantMessage,
+    BaseMessage,
+    SystemMessage,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+    UserMessage,
+)
 from .openai import ChatOpenAI
 from .openrouter import ChatOpenRouter
 from .openrouter_models import (
@@ -20,6 +28,9 @@ __all__ = [
     "SystemMessage",
     "UserMessage",
     "AssistantMessage",
+    "ToolCall",
+    "ToolResultMessage",
+    "ToolTurn",
     "BaseChatModel",
     "ChatAnthropic",
     "ChatFireworks",

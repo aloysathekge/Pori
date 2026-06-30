@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from .messages import BaseMessage
+from .messages import BaseMessage, ToolTurn
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -112,6 +112,13 @@ class ChatOpenAI:
                     f"Structured output parse failed: {exc}",
                     raw_content=content,
                 ) from exc
+
+    async def ainvoke_tools(
+        self, messages: list[BaseMessage], tools: list[dict]
+    ) -> ToolTurn:
+        raise NotImplementedError(
+            "Native tool-calling is not yet implemented for this provider"
+        )
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False

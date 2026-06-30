@@ -6,7 +6,7 @@ from typing import Any, Generic, TypeVar, cast
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
-from .messages import BaseMessage, SystemMessage
+from .messages import BaseMessage, SystemMessage, ToolTurn
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -140,6 +140,13 @@ class ChatAnthropic:
                     return output_format.model_validate(tool_input)
 
             raise ValueError("No structured output in response")
+
+    async def ainvoke_tools(
+        self, messages: list[BaseMessage], tools: list[dict]
+    ) -> ToolTurn:
+        raise NotImplementedError(
+            "Native tool-calling is not yet implemented for this provider"
+        )
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False
