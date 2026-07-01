@@ -1093,7 +1093,31 @@ async def main():
     # the agent emits real per-step events (not polling).
     # Live-streaming state: tracks whether the current step has streamed text so
     # the completion line stays on its own row and we don't reprint the activity.
-    _stream_state: dict = {"active": False, "buffer": ""}
+    # `block` tracks the current content-block kind ("thinking"|"text") so we can
+    # insert a boundary when it switches (else thinking + answer run together).
+    _stream_state: dict = {"active": False, "buffer": "", "block": None}
+
+    _isatty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    _DIM = "\033[90m" if _isatty else ""
+    _RESET = "\033[0m" if _isatty else ""
+
+    def _stream_write(text: str) -> None:
+        try:
+            sys.stdout.write(_console_safe_text(text))
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+    def _begin_block(kind: str) -> None:
+        """Open a content block, inserting a separator when the kind switches."""
+        if _stream_state.get("block") == kind:
+            return
+        if _stream_state.get("block") is not None:
+            _stream_write("\n\n")  # blank line between thinking and the answer
+        if kind == "thinking":
+            _stream_write(f"{_DIM}thinking…{_RESET}\n")
+        _stream_state["block"] = kind
+        _stream_state["active"] = True
 
     # Optional replay/audit trail: PORI_EVENT_LOG=1 appends every event as JSON.
     _event_log = (
@@ -1112,26 +1136,16 @@ async def main():
             text = payload.get("text", "")
             if not text:
                 return
-            _stream_state["active"] = True
+            _begin_block("text")
             _stream_state["buffer"] += text  # to dedup the final-answer echo
-            try:
-                sys.stdout.write(_console_safe_text(text))
-                sys.stdout.flush()
-            except Exception:
-                pass
+            _stream_write(text)
         elif etype == THINKING_DELTA:
             # The model's reasoning — shown dimmed, and NOT part of the answer.
             text = payload.get("text", "")
             if not text:
                 return
-            _stream_state["active"] = True
-            dim = "\033[90m" if sys.stdout.isatty() else ""
-            reset = "\033[0m" if sys.stdout.isatty() else ""
-            try:
-                sys.stdout.write(dim + _console_safe_text(text) + reset)
-                sys.stdout.flush()
-            except Exception:
-                pass
+            _begin_block("thinking")
+            _stream_write(f"{_DIM}{text}{_RESET}")
         elif etype == TOOL_CALL_START:
             # Announce the tool the instant it's chosen (before args finish).
             name = payload.get("name", "")
@@ -1140,6 +1154,7 @@ async def main():
             label = build_tool_preview(name, {})
             prefix = "\n" if _stream_state["active"] else ""
             _stream_state["active"] = True
+            _stream_state["block"] = None  # a tool line breaks the content block
             # "»" renders on legacy Windows codepages where "→" does not.
             _safe_print(f"{prefix}  » {label}…", flush=True)
         elif etype == TOOL_CALL_END:
@@ -1159,6 +1174,7 @@ async def main():
         if _stream_state["active"]:
             print(flush=True)
             _stream_state["active"] = False
+            _stream_state["block"] = None
             return
         # Otherwise show one clean action line describing what the step did,
         # e.g. "• Writing hi.py", "• Running python hi.py", "• Writing the answer".
@@ -1395,6 +1411,7 @@ async def main():
                 logger.info("Starting task execution")
                 _stream_state["active"] = False
                 _stream_state["buffer"] = ""
+                _stream_state["block"] = None
                 result = await orchestrator.execute_task(
                     task=task,
                     agent_settings=AgentSettings(
@@ -1424,33 +1441,32 @@ async def main():
                     f"Task execution completed - Success: {result['success']}, Steps: {result['steps_taken']}"
                 )
 
-                print("\n=== Task Execution Summary ===")
-                print(f"Task: {task}")
-                print(f"Success: {result['success']}")
-                print(f"Steps taken: {result['steps_taken']}")
-                selected_skills = result.get("selected_skills") or []
-                if selected_skills:
-                    print(f"Skills used: {', '.join(selected_skills)}")
-
-                # Show basic run metrics if available
                 metrics = result.get("result", {}).get("metrics")
-                if metrics:
-                    try:
-                        tokens = metrics.get("tokens", {}) or {}
-                        cost = metrics.get("cost_usd")
-                        print(
-                            f"Run metrics: duration={metrics.get('duration')}, "
-                            f"steps={metrics.get('steps')}, "
-                            f"llm_calls={metrics.get('llm_calls')}, "
-                            f"tool_calls={metrics.get('tool_calls')}, "
-                            f"tokens_in={tokens.get('input')}, "
-                            f"tokens_out={tokens.get('output')}, "
-                            f"tokens_total={tokens.get('total')}"
-                        )
-                        if cost is not None:
-                            print(f"Estimated cost: {cost}")
-                    except Exception:
-                        pass
+                if _verbose:
+                    print("\n=== Task Execution Summary ===")
+                    print(f"Task: {task}")
+                    print(f"Success: {result['success']}")
+                    print(f"Steps taken: {result['steps_taken']}")
+                    selected_skills = result.get("selected_skills") or []
+                    if selected_skills:
+                        print(f"Skills used: {', '.join(selected_skills)}")
+                    if metrics:
+                        try:
+                            tokens = metrics.get("tokens", {}) or {}
+                            cost = metrics.get("cost_usd")
+                            print(
+                                f"Run metrics: duration={metrics.get('duration')}, "
+                                f"steps={metrics.get('steps')}, "
+                                f"llm_calls={metrics.get('llm_calls')}, "
+                                f"tool_calls={metrics.get('tool_calls')}, "
+                                f"tokens_in={tokens.get('input')}, "
+                                f"tokens_out={tokens.get('output')}, "
+                                f"tokens_total={tokens.get('total')}"
+                            )
+                            if cost is not None:
+                                print(f"Estimated cost: {cost}")
+                        except Exception:
+                            pass
 
                 # Show the final answer if available
                 agent = result.get("agent")
@@ -1466,16 +1482,15 @@ async def main():
                         already_streamed = bool(answer_text) and (
                             answer_text in _stream_state.get("buffer", "")
                         )
-                        if already_streamed:
-                            print("\n(answer streamed above)")
-                        else:
+                        if not already_streamed:
                             print("\nFINAL ANSWER:")
                             _safe_print(f"  {final_answer['final_answer']}")
                         if final_answer.get("reasoning"):
                             _safe_print(f"\n  Reasoning: {final_answer['reasoning']}")
-                        print(
-                            "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
-                        )
+                        if _verbose:
+                            print(
+                                "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
+                            )
                     else:
                         logger.warning("No final answer found")
                         print("\nNO FINAL ANSWER FOUND")
@@ -1514,18 +1529,19 @@ async def main():
                                 f"  {marks.get(item.status, '[ ]')} {item.content}"
                             )
 
-                    print("\nTool Calls (this task):")
+                    if _verbose:
+                        print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
-                        status = "+" if tool_call.success else "x"
-                        preview = build_tool_preview(
-                            tool_call.tool_name, tool_call.parameters
-                        )
-                        _safe_print(f"  {i}. {preview} -> {status}")
-                        _safe_print(
-                            f"       {tool_call.tool_name}("
-                            f"{_format_tool_call_parameters(tool_call.parameters)})"
-                        )
-
+                        if _verbose:
+                            status = "+" if tool_call.success else "x"
+                            preview = build_tool_preview(
+                                tool_call.tool_name, tool_call.parameters
+                            )
+                            _safe_print(f"  {i}. {preview} -> {status}")
+                            _safe_print(
+                                f"       {tool_call.tool_name}("
+                                f"{_format_tool_call_parameters(tool_call.parameters)})"
+                            )
                         log_level = (
                             logging.INFO if tool_call.success else logging.WARNING
                         )
@@ -1533,6 +1549,20 @@ async def main():
                             log_level,
                             f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",
                         )
+
+                    # Compact done-line by default (full detail behind PORI_VERBOSE).
+                    if not _verbose:
+                        steps = result.get("steps_taken", 0)
+                        bits = [f"{steps} step" + ("s" if steps != 1 else "")]
+                        if metrics:
+                            dur = metrics.get("duration")
+                            if dur:
+                                ds = str(dur)
+                                bits.append(ds if ds.endswith("s") else f"{ds}s")
+                            total = (metrics.get("tokens") or {}).get("total")
+                            if total:
+                                bits.append(f"{total} tokens")
+                        _safe_print("\n" + _DIM + "done · " + " · ".join(bits) + _RESET)
 
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)
