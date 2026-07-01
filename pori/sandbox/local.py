@@ -38,8 +38,16 @@ class LocalSandbox(Sandbox):
                 )
         return path
 
-    def execute_command(self, command: str) -> str:
-        """Run command with subprocess; command may already have paths resolved by tools."""
+    def execute_command(self, command: str, cwd: Optional[str] = None) -> str:
+        """Run command with subprocess; command may already have paths resolved by tools.
+
+        cwd is the working directory. Shared path mappings are applied to it
+        (thread paths arrive already resolved from the tool layer). When cwd is
+        None, subprocess uses the host process cwd — the tool layer is
+        responsible for supplying a sandbox default so commands don't leak into
+        the launch directory.
+        """
+        resolved_cwd = self._resolve_path(cwd) if cwd else None
         try:
             result = subprocess.run(
                 command,
@@ -47,6 +55,7 @@ class LocalSandbox(Sandbox):
                 capture_output=True,
                 text=True,
                 timeout=300,
+                cwd=resolved_cwd,
             )
             out = result.stdout or ""
             err = result.stderr or ""

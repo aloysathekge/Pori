@@ -2,6 +2,7 @@
 Tests for sandbox integration: provider, thread dirs, and bash tool.
 """
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -75,6 +76,141 @@ def test_bash_tool_creates_thread_dirs_on_first_use(sandbox_env):
     result = bash_tool(BashParams(command="echo ok"), context)
     assert result.get("success") is True
     assert workspace.exists()
+
+
+def test_bash_tool_defaults_cwd_to_workspace(sandbox_env):
+    """A relative-path command runs inside the thread workspace, not the host
+    launch dir. Regression: bash_tool ignored working_dir and ran in pori's cwd."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    result = bash_tool(BashParams(command="echo hi > out.txt"), context)
+    assert result.get("success") is True, result
+    workspace = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace"
+    assert (workspace / "out.txt").exists()
+
+
+def test_bash_tool_honors_explicit_working_dir(sandbox_env):
+    """An explicit virtual working_dir makes relative paths land in that dir."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    result = bash_tool(
+        BashParams(
+            command="echo hi > out.txt", working_dir=f"{VIRTUAL_PREFIX}/outputs"
+        ),
+        context,
+    )
+    assert result.get("success") is True, result
+    outputs = Path(base_dir) / "threads" / thread_id / "user-data" / "outputs"
+    assert (outputs / "out.txt").exists()
+    # And it did NOT leak into the workspace default.
+    workspace = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace"
+    assert not (workspace / "out.txt").exists()
+
+
+def test_bash_relative_program_finds_sibling_file(sandbox_env):
+    """Full reproduction of the reported bug: a program written to the workspace
+    reads a sibling file and produces output there using relative paths."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(
+            path=f"{VIRTUAL_PREFIX}/workspace/user_info.txt", content="Aloy"
+        ),
+        context,
+    )
+    program = (
+        "import zipfile, os\n"
+        "with zipfile.ZipFile('user_info.zip', 'w') as z:\n"
+        "    z.write('user_info.txt')\n"
+        "print('ok', os.path.getsize('user_info.zip'))\n"
+    )
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(
+            path=f"{VIRTUAL_PREFIX}/workspace/zip_it.py", content=program
+        ),
+        context,
+    )
+    result = bash_tool(BashParams(command=f'"{sys.executable}" zip_it.py'), context)
+    assert result.get("success") is True, result
+    assert "ok" in result.get("output", ""), result
+    workspace = Path(base_dir) / "threads" / thread_id / "user-data" / "workspace"
+    assert (workspace / "user_info.zip").exists()
+
+
+def test_bash_reports_created_file_as_artifact(sandbox_env):
+    """A file produced by a bash command is observed and reported in
+    files_written — even though bash never self-declares a written path."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    result = bash_tool(BashParams(command="echo hi > made_by_bash.txt"), context)
+    assert result.get("success") is True, result
+    written = result.get("files_written") or []
+    paths = [e.get("path") for e in written]
+    assert f"{VIRTUAL_PREFIX}/workspace/made_by_bash.txt" in paths, written
+    entry = next(e for e in written if e["path"].endswith("made_by_bash.txt"))
+    assert entry["operation"] == "write"
+    assert isinstance(entry["bytes_written"], int)
+
+
+def test_bash_zip_output_is_reported(sandbox_env):
+    """Regression for the reported bug: the zip a program creates shows up as an
+    artifact, not just the source files written via sandbox_write_file."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(
+            path=f"{VIRTUAL_PREFIX}/workspace/user_info.txt", content="Aloy"
+        ),
+        context,
+    )
+    program = (
+        "import zipfile\n"
+        "with zipfile.ZipFile('user_info.zip', 'w') as z:\n"
+        "    z.write('user_info.txt')\n"
+    )
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(
+            path=f"{VIRTUAL_PREFIX}/workspace/zip_it.py", content=program
+        ),
+        context,
+    )
+    result = bash_tool(BashParams(command=f'"{sys.executable}" zip_it.py'), context)
+    assert result.get("success") is True, result
+    paths = [e.get("path") for e in result.get("files_written") or []]
+    assert f"{VIRTUAL_PREFIX}/workspace/user_info.zip" in paths, result
+
+
+def test_bash_reports_modified_file(sandbox_env):
+    """Re-writing an existing file is reported with operation 'modify'."""
+    base_dir, thread_id = sandbox_env
+    context = {"thread_id": thread_id, "sandbox_base_dir": base_dir}
+    sandbox_write_file_tool(
+        SandboxWriteFileParams(
+            path=f"{VIRTUAL_PREFIX}/workspace/note.txt", content="v1"
+        ),
+        context,
+    )
+    result = bash_tool(
+        BashParams(command="echo v2-longer-content >> note.txt"), context
+    )
+    assert result.get("success") is True, result
+    entry = next(
+        e for e in result.get("files_written") or [] if e["path"].endswith("note.txt")
+    )
+    assert entry["operation"] == "modify"
+
+
+def test_to_virtual_path_round_trips(sandbox_env):
+    """to_virtual_path is the inverse of replace_virtual_path for thread dirs."""
+    from pori.sandbox.path_resolution import replace_virtual_path, to_virtual_path
+
+    base_dir, thread_id = sandbox_env
+    data = get_thread_data(thread_id, base_dir)
+    virtual = f"{VIRTUAL_PREFIX}/outputs/reports/final.zip"
+    real = replace_virtual_path(virtual, data)
+    assert to_virtual_path(real, data) == virtual
+    # A path outside the thread dirs is returned unchanged.
+    assert to_virtual_path("/etc/passwd", data) == "/etc/passwd"
 
 
 def test_sandbox_write_file_and_read_file(sandbox_env):

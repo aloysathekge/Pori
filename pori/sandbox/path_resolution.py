@@ -100,6 +100,32 @@ def replace_virtual_path(
     return _safe_join(base, suffix)
 
 
+def to_virtual_path(
+    real_path: str,
+    thread_data: ThreadData,
+    prefix: str = VIRTUAL_PREFIX,
+) -> str:
+    """
+    Map a real thread path back to its virtual form (e.g. .../outputs/a.zip ->
+    /mnt/user-data/outputs/a.zip) for display. Inverse of replace_virtual_path.
+
+    Returns real_path unchanged if it is not under a known thread directory.
+    """
+    norm = os.path.normpath(real_path)
+    for segment, base in (
+        (WORKSPACE_SEGMENT, thread_data.workspace_path),
+        (UPLOADS_SEGMENT, thread_data.uploads_path),
+        (OUTPUTS_SEGMENT, thread_data.outputs_path),
+    ):
+        base_norm = os.path.normpath(base)
+        if norm == base_norm:
+            return f"{prefix}/{segment}"
+        if norm.startswith(base_norm + os.sep):
+            rest = norm[len(base_norm) + 1 :].replace(os.sep, "/")
+            return f"{prefix}/{segment}/{rest}"
+    return real_path
+
+
 # Pattern: prefix followed by optional path (e.g. /workspace, /workspace/foo/bar)
 _VIRTUAL_PATH_PATTERN = re.compile(
     re.escape(VIRTUAL_PREFIX) + r"(/[^\s'\"]*)?",

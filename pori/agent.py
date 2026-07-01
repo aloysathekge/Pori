@@ -477,13 +477,30 @@ class Agent:
         self, tool_name: str, params: Dict[str, Any], tool_result: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Extract user-visible artifacts from successful tool results."""
-        if not tool_result.get("success") or tool_name not in {
-            "write_file",
-            "sandbox_write_file",
-        }:
+        if not tool_result.get("success"):
             return []
         result = tool_result.get("result")
         if not isinstance(result, dict):
+            return []
+        # bash produces files by running commands; the sandbox observes which
+        # files changed and reports them under "files_written".
+        if tool_name == "bash":
+            bash_artifacts: List[Dict[str, Any]] = []
+            for entry in result.get("files_written") or []:
+                if not isinstance(entry, dict):
+                    continue
+                bash_art: Dict[str, Any] = {
+                    "kind": "file",
+                    "tool_name": tool_name,
+                    "path": entry.get("path") or "(path unavailable)",
+                    "operation": entry.get("operation", "write"),
+                }
+                bytes_written = entry.get("bytes_written")
+                if isinstance(bytes_written, int):
+                    bash_art["bytes_written"] = bytes_written
+                bash_artifacts.append(bash_art)
+            return bash_artifacts
+        if tool_name not in {"write_file", "sandbox_write_file"}:
             return []
         path = (
             params.get("file_path")

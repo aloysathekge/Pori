@@ -169,14 +169,32 @@ def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
         if not getattr(call, "success", False):
             continue
         tool_name = getattr(call, "tool_name", "")
-        if tool_name not in {"write_file", "sandbox_write_file"}:
-            continue
         params = getattr(call, "parameters", {}) or {}
         result = getattr(call, "result", {}) or {}
         if not isinstance(params, dict):
             params = {}
         if not isinstance(result, dict):
             result = {}
+
+        # bash reports files it created/modified (observed from the sandbox FS)
+        # under files_written. execute_tool wraps the tool dict under "result".
+        if tool_name == "bash":
+            inner = result.get("result")
+            inner = inner if isinstance(inner, dict) else result
+            for entry in inner.get("files_written") or []:
+                if not isinstance(entry, dict):
+                    continue
+                path = entry.get("path") or "(path unavailable)"
+                action = "modified" if entry.get("operation") == "modify" else "wrote"
+                detail = f"{tool_name}: {action} {path}"
+                byte_count = entry.get("bytes_written")
+                if isinstance(byte_count, int):
+                    detail += f" ({byte_count} bytes)"
+                artifact_lines.append(detail)
+            continue
+
+        if tool_name not in {"write_file", "sandbox_write_file"}:
+            continue
 
         path = (
             params.get("file_path")
