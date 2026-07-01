@@ -44,7 +44,25 @@ from .utils.file_refs import expand_file_refs
 from .utils.logging_config import setup_logging
 from .utils.prompt_loader import set_prompts_dir
 
-loggers = setup_logging(level=logging.INFO, include_http=True)
+
+def _cli_log_file() -> Optional[str]:
+    """Full INFO logs go to .pori/pori.log so the console can stay clean."""
+    try:
+        log_dir = Path.cwd() / ".pori"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return str(log_dir / "pori.log")
+    except Exception:
+        return None
+
+
+# Console shows only warnings/errors + the clean status lines; the full INFO
+# trace is written to .pori/pori.log (kept for debugging, replaces stdout spam).
+loggers = setup_logging(
+    level=logging.INFO,
+    include_http=True,
+    console_level=logging.WARNING,
+    log_file=_cli_log_file(),
+)
 logger = logging.getLogger("pori.main")
 
 
@@ -1071,9 +1089,7 @@ async def main():
     def on_text_delta(chunk: str) -> None:
         if not chunk:
             return
-        if not _stream_state["active"]:
-            sys.stdout.write("\n")  # break away from "Step N starting..."
-            _stream_state["active"] = True
+        _stream_state["active"] = True
         try:
             sys.stdout.write(_console_safe_text(chunk))
             sys.stdout.flush()
@@ -1081,32 +1097,33 @@ async def main():
             pass
 
     def on_step_start(agent: Agent):
-        print(f"\n--> Step {agent.state.n_steps + 1} starting...", flush=True)
+        # No loop-counter noise ("Step N"). Progress is shown as streamed text
+        # (when enabled) and one clean action line per step, below.
+        pass
 
     def on_step_end(agent: Agent):
-        streamed = _stream_state["active"]
-        if streamed:
-            print(flush=True)  # newline after the streamed text
+        # If this step streamed text live, that IS the feedback — just close the
+        # line and move on.
+        if _stream_state["active"]:
+            print(flush=True)
             _stream_state["active"] = False
-        # Surface the most recent tool call this step produced, if any.
-        last_tool = ""
+            return
+        # Otherwise show one clean action line describing what the step did,
+        # e.g. "• Writing hi.py", "• Running python hi.py", "• Writing the answer".
         try:
             history = agent.memory.tool_call_history
-            if history:
-                tc = history[-1]
-                status = "ok" if getattr(tc, "success", False) else "failed"
-                last_tool = f" | last tool: {tc.tool_name} ({status})"
+            if not history:
+                return
+            tc = history[-1]
+            preview = build_tool_preview(
+                tc.tool_name, getattr(tc, "parameters", {}) or {}
+            )
+            mark = "" if getattr(tc, "success", True) else "  (failed)"
+            _safe_print(f"  • {preview}{mark}")
         except Exception:
             pass
-        print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
-        # Model-authored activity line (the LLM's next_goal). Skip it when we just
-        # streamed the same text live, to avoid duplicating it.
-        if not streamed:
-            activity = getattr(agent.state, "current_activity", "")
-            if activity:
-                _safe_print(f"    {activity}")
         logger.info(
-            f"Completed step {agent.state.n_steps}{last_tool}",
+            f"Completed step {agent.state.n_steps}",
             extra={
                 "task_id": getattr(agent, "task_id", "unknown"),
                 "step": agent.state.n_steps,
