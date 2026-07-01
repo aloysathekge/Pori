@@ -55,12 +55,14 @@ def _cli_log_file() -> Optional[str]:
         return None
 
 
-# Console shows only warnings/errors + the clean status lines; the full INFO
-# trace is written to .pori/pori.log (kept for debugging, replaces stdout spam).
+# End-user default: clean console (warnings/errors + the "•" status lines); the
+# full INFO trace still goes to .pori/pori.log. Developers set PORI_VERBOSE=1
+# (e.g. in .env) to stream the full INFO logs to the console as before.
+_verbose = bool(os.getenv("PORI_VERBOSE"))
 loggers = setup_logging(
     level=logging.INFO,
     include_http=True,
-    console_level=logging.WARNING,
+    console_level=logging.INFO if _verbose else logging.WARNING,
     log_file=_cli_log_file(),
 )
 logger = logging.getLogger("pori.main")
