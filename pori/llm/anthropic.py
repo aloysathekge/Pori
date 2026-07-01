@@ -1,7 +1,7 @@
 """Anthropic chat model."""
 
 import json
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Callable, Generic, Optional, TypeVar, cast
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
@@ -142,9 +142,17 @@ class ChatAnthropic:
             raise ValueError("No structured output in response")
 
     async def ainvoke_tools(
-        self, messages: list[BaseMessage], tools: list[dict]
+        self,
+        messages: list[BaseMessage],
+        tools: list[dict],
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> ToolTurn:
-        """Invoke Anthropic with native tool-calling."""
+        """Invoke Anthropic with native tool-calling.
+
+        Streaming isn't implemented here yet; when ``on_delta`` is supplied the
+        call runs non-streaming and the full text is delivered as a single chunk
+        so consumers still receive it through the same channel.
+        """
         system_prompt = None
         anthropic_messages: list[dict[str, Any]] = []
         for msg in messages:
@@ -218,10 +226,16 @@ class ChatAnthropic:
                         arguments=getattr(block, "input", {}) or {},
                     )
                 )
-        return ToolTurn(
+        turn = ToolTurn(
             text=" ".join(p for p in text_parts if p).strip(),
             tool_calls=tool_calls,
         )
+        if on_delta is not None and turn.text:
+            try:
+                on_delta(turn.text)
+            except Exception:
+                pass
+        return turn
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False

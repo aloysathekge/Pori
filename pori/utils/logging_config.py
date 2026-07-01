@@ -76,8 +76,20 @@ def ensure_logger_configured(logger_name: str, level=logging.INFO):
     return logger
 
 
-def setup_logging(level=logging.INFO, include_http=False):
-    """Configure logging for Pori framework."""
+def setup_logging(
+    level=logging.INFO, include_http=False, console_level=None, log_file=None
+):
+    """Configure logging for Pori framework.
+
+    Args:
+        level: Level captured by the loggers (and the file handler).
+        include_http: If False, quiet httpx/anthropic to WARNING.
+        console_level: Level shown on the console. Defaults to ``level``. Set to
+            WARNING to keep the interactive console clean while a file captures
+            the full INFO trace.
+        log_file: Optional path; when given, INFO+ is written here (rotating) so
+            the console can stay quiet without losing the debug trail.
+    """
 
     formatter = PoriFormatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
@@ -87,6 +99,25 @@ def setup_logging(level=logging.INFO, include_http=False):
     console_handler = ImmediateStreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     console_handler.addFilter(RequestIdFilter())
+    console_handler.setLevel(console_level if console_level is not None else level)
+
+    handlers: list[logging.Handler] = [console_handler]
+
+    if log_file:
+        from logging.handlers import RotatingFileHandler
+
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=2_000_000, backupCount=2, encoding="utf-8"
+        )
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        file_handler.addFilter(RequestIdFilter())
+        file_handler.setLevel(level)
+        handlers.append(file_handler)
 
     # Set up component loggers
     loggers = {
@@ -103,7 +134,8 @@ def setup_logging(level=logging.INFO, include_http=False):
         logger.setLevel(level)
         # Clear any existing handlers to avoid duplicates
         logger.handlers.clear()
-        logger.addHandler(console_handler)
+        for handler in handlers:
+            logger.addHandler(handler)
         logger.propagate = False
 
     # Control external library logging

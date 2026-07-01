@@ -44,7 +44,27 @@ from .utils.file_refs import expand_file_refs
 from .utils.logging_config import setup_logging
 from .utils.prompt_loader import set_prompts_dir
 
-loggers = setup_logging(level=logging.INFO, include_http=True)
+
+def _cli_log_file() -> Optional[str]:
+    """Full INFO logs go to .pori/pori.log so the console can stay clean."""
+    try:
+        log_dir = Path.cwd() / ".pori"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return str(log_dir / "pori.log")
+    except Exception:
+        return None
+
+
+# End-user default: clean console (warnings/errors + the "•" status lines); the
+# full INFO trace still goes to .pori/pori.log. Developers set PORI_VERBOSE=1
+# (e.g. in .env) to stream the full INFO logs to the console as before.
+_verbose = bool(os.getenv("PORI_VERBOSE"))
+loggers = setup_logging(
+    level=logging.INFO,
+    include_http=True,
+    console_level=logging.INFO if _verbose else logging.WARNING,
+    log_file=_cli_log_file(),
+)
 logger = logging.getLogger("pori.main")
 
 
@@ -1064,27 +1084,48 @@ async def main():
     # Define step lifecycle callbacks for monitoring. These fire via the
     # on_step_start/on_step_end hooks now wired into Agent.run() — proof that
     # the agent emits real per-step events (not polling).
-    def on_step_start(agent: Agent):
-        print(f"\n--> Step {agent.state.n_steps + 1} starting...", flush=True)
+    # Live-streaming state: tracks whether the current step has streamed text so
+    # the completion line stays on its own row and we don't reprint the activity.
+    _stream_state = {"active": False}
 
-    def on_step_end(agent: Agent):
-        # Surface the most recent tool call this step produced, if any.
-        last_tool = ""
+    def on_text_delta(chunk: str) -> None:
+        if not chunk:
+            return
+        _stream_state["active"] = True
         try:
-            history = agent.memory.tool_call_history
-            if history:
-                tc = history[-1]
-                status = "ok" if getattr(tc, "success", False) else "failed"
-                last_tool = f" | last tool: {tc.tool_name} ({status})"
+            sys.stdout.write(_console_safe_text(chunk))
+            sys.stdout.flush()
         except Exception:
             pass
-        print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
-        # Model-authored activity line (the LLM's next_goal for this step).
-        activity = getattr(agent.state, "current_activity", "")
-        if activity:
-            _safe_print(f"    {activity}")
+
+    def on_step_start(agent: Agent):
+        # No loop-counter noise ("Step N"). Progress is shown as streamed text
+        # (when enabled) and one clean action line per step, below.
+        pass
+
+    def on_step_end(agent: Agent):
+        # If this step streamed text live, that IS the feedback — just close the
+        # line and move on.
+        if _stream_state["active"]:
+            print(flush=True)
+            _stream_state["active"] = False
+            return
+        # Otherwise show one clean action line describing what the step did,
+        # e.g. "• Writing hi.py", "• Running python hi.py", "• Writing the answer".
+        try:
+            history = agent.memory.tool_call_history
+            if not history:
+                return
+            tc = history[-1]
+            preview = build_tool_preview(
+                tc.tool_name, getattr(tc, "parameters", {}) or {}
+            )
+            mark = "" if getattr(tc, "success", True) else "  (failed)"
+            _safe_print(f"  • {preview}{mark}")
+        except Exception:
+            pass
         logger.info(
-            f"Completed step {agent.state.n_steps}{last_tool}",
+            f"Completed step {agent.state.n_steps}",
             extra={
                 "task_id": getattr(agent, "task_id", "unknown"),
                 "step": agent.state.n_steps,
@@ -1315,6 +1356,7 @@ async def main():
                     ),
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
+                    on_text_delta=(on_text_delta if config.llm.streaming else None),
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,

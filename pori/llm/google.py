@@ -1,7 +1,7 @@
 """Google Gemini chat model."""
 
 import json
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Callable, Generic, Optional, TypeVar, cast
 
 from google import genai
 from pydantic import BaseModel
@@ -132,9 +132,16 @@ class ChatGoogle:
         return text
 
     async def ainvoke_tools(
-        self, messages: list[BaseMessage], tools: list[dict]
+        self,
+        messages: list[BaseMessage],
+        tools: list[dict],
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> ToolTurn:
-        """Invoke Gemini with native function-calling."""
+        """Invoke Gemini with native function-calling.
+
+        Streaming isn't implemented here yet; when ``on_delta`` is supplied the
+        call runs non-streaming and the full text is delivered as one chunk.
+        """
         system_instruction = None
         contents = []
         for msg in messages:
@@ -215,10 +222,16 @@ class ChatGoogle:
                     )
                 elif getattr(part, "text", None):
                     text_parts.append(part.text)
-        return ToolTurn(
+        turn = ToolTurn(
             text=" ".join(text_parts).strip(),
             tool_calls=tool_calls,
         )
+        if on_delta is not None and turn.text:
+            try:
+                on_delta(turn.text)
+            except Exception:
+                pass
+        return turn
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False

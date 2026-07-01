@@ -388,3 +388,144 @@ def test_text_only_turn_completes_run():
     )
     assert result["completed"] is True
     assert "deleted" in memory.get_state("final_answer")["final_answer"]
+
+
+# --- A.1: OpenAI streaming (on_delta) ---------------------------------------
+
+
+class _StreamDeltaToolCall:
+    def __init__(self, index, id=None, name=None, arguments=None):
+        self.index = index
+        self.id = id
+        self.function = type("F", (), {"name": name, "arguments": arguments})()
+
+
+class _StreamChunk:
+    def __init__(self, content=None, tool_calls=None, usage=None):
+        if content is not None or tool_calls is not None:
+            delta = type("D", (), {"content": content, "tool_calls": tool_calls})()
+            self.choices = [type("C", (), {"delta": delta})()]
+        else:
+            self.choices = []
+        self.usage = usage
+
+
+class _FakeStream:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def __aiter__(self):
+        async def _gen():
+            for c in self._chunks:
+                yield c
+
+        return _gen()
+
+
+class _StreamCompletions:
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.last_kwargs = None
+
+    async def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return _FakeStream(self._chunks)
+
+
+class _StreamClient:
+    def __init__(self, chunks):
+        self.chat = type("Chat", (), {"completions": _StreamCompletions(chunks)})()
+
+
+def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
+    from pori.llm.openai import ChatOpenAI
+
+    chunks = [
+        _StreamChunk(content="Sav"),
+        _StreamChunk(content="ing"),
+        _StreamChunk(
+            tool_calls=[
+                _StreamDeltaToolCall(
+                    0, id="c1", name="write_file", arguments='{"file_path":'
+                )
+            ]
+        ),
+        _StreamChunk(tool_calls=[_StreamDeltaToolCall(0, arguments='"a"}')]),
+        _StreamChunk(
+            usage=type(
+                "U",
+                (),
+                {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            )()
+        ),
+    ]
+    llm = ChatOpenAI(api_key="x", model="m")
+    llm._client = _StreamClient(chunks)
+
+    seen: list[str] = []
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [SystemMessage(content="s"), UserMessage(content="hi")],
+            [
+                {
+                    "name": "write_file",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            on_delta=seen.append,
+        )
+    )
+
+    assert "".join(seen) == "Saving"  # text streamed chunk-by-chunk
+    assert turn.text == "Saving"
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "write_file"
+    assert turn.tool_calls[0].arguments == {"file_path": "a"}
+    assert llm._client.chat.completions.last_kwargs["stream"] is True
+    assert llm.last_usage["total_tokens"] == 7
+
+
+class _StreamingMockLLM:
+    def __init__(self, turns):
+        self._turns = turns
+        self.i = 0
+        self.model = "mock"
+        self.last_usage = None
+
+    async def ainvoke_tools(self, messages, tools, on_delta=None):
+        turn = self._turns[min(self.i, len(self._turns) - 1)]
+        self.i += 1
+        if on_delta and turn.text:
+            for word in turn.text.split(" "):
+                on_delta(word + " ")
+        return turn
+
+    def with_structured_output(self, *a, **k):  # pragma: no cover
+        raise AssertionError("native mode must not use structured output")
+
+
+def test_agent_forwards_on_text_delta_when_streaming():
+    llm = _StreamingMockLLM(
+        [
+            ToolTurn(
+                text="hello world",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "hi", "reasoning": "r"},
+                    )
+                ],
+            )
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+    )
+    seen: list[str] = []
+    asyncio.run(agent.run(on_text_delta=seen.append))
+    assert "".join(seen).strip() == "hello world"

@@ -1,6 +1,6 @@
 """Base protocol for LLM providers."""
 
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -49,6 +49,7 @@ class BaseChatModel(Protocol):
         self,
         messages: list[BaseMessage],
         tools: list[dict],
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> ToolTurn:
         """Invoke the LLM with native provider tool-calling.
 
@@ -57,6 +58,10 @@ class BaseChatModel(Protocol):
             tools: Provider-agnostic tool schemas, e.g. from
                 ``ToolRegistry.tool_schemas()`` — ``[{name, description,
                 input_schema}]``.
+            on_delta: Optional callback invoked with each text chunk as it
+                streams. When provided, the provider streams the response
+                (feature-flagged upstream); when ``None`` the call is a single
+                non-streaming request. Providers without streaming ignore it.
 
         Returns:
             A ToolTurn with the assistant's text and any requested tool calls.
