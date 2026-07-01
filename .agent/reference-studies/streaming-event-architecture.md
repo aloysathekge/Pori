@@ -178,7 +178,9 @@ instead of unreadable silence.
 
 ## 11. Open decisions (settle before P1 locks)
 
-1. Confirm each provider's `reasoning_mode` + tag convention (Kimi/Fireworks,
-   Anthropic, OpenAI, OpenRouter).
+1. Confirm each provider's `reasoning_mode` + tag convention (Anthropic, OpenAI,
+   OpenRouter). **Verified: Kimi K2 on Fireworks = `native`** — it streams
+   reasoning in the OpenAI-style `reasoning_content` delta field (no `<think>`
+   tags). `config.yaml` sets `reasoning_mode: native` for it.
 2. Prompt wording for the prose/data split (how hard to push "answer as text").
 3. Fold **P6 lazy-tools** in now or defer (recommended: defer; it's independent).
