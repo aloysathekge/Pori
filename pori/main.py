@@ -24,7 +24,12 @@ from .evolution import (
 )
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
-from .observability import TEXT_DELTA, TOOL_CALL_START, build_tool_preview
+from .observability import (
+    TEXT_DELTA,
+    TOOL_CALL_END,
+    TOOL_CALL_START,
+    build_tool_preview,
+)
 from .orchestrator import Orchestrator
 from .skills import (
     SkillBundleCatalog,
@@ -1113,6 +1118,11 @@ async def main():
             _stream_state["active"] = True
             # "»" renders on legacy Windows codepages where "→" does not.
             _safe_print(f"{prefix}  » {label}…", flush=True)
+        elif etype == TOOL_CALL_END:
+            # Successes are implied by the flow; surface failures explicitly.
+            if not payload.get("success", True):
+                label = build_tool_preview(payload.get("name", ""), {})
+                _safe_print(f"    {label}: failed", flush=True)
 
     def on_step_start(agent: Agent):
         # No loop-counter noise ("Step N"). Progress is shown as streamed text

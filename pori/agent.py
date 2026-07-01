@@ -49,6 +49,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
+from .observability import TOOL_CALL_END, PoriEvent
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
 from .prompts import (
@@ -1911,6 +1912,18 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 success = tool_result.get("success", False)
+                # Emit tool_call_end so a renderer can close the "» ..." line
+                # with a "✓ / ✗" as soon as the tool finishes.
+                if self._on_event is not None:
+                    try:
+                        self._on_event(
+                            PoriEvent(
+                                TOOL_CALL_END,
+                                {"name": tool_name, "success": bool(success)},
+                            )
+                        )
+                    except Exception:
+                        pass
                 artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,
