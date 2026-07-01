@@ -6,6 +6,7 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
+from ..observability.events import TEXT_DELTA, THINKING_DELTA, PoriEvent
 from .messages import (
     AssistantMessage,
     BaseMessage,
@@ -13,6 +14,7 @@ from .messages import (
     ToolResultMessage,
     ToolTurn,
 )
+from .reasoning import StreamingThinkScrubber
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -35,11 +37,13 @@ class ChatOpenAI:
         api_key: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
+        reasoning_mode: str = "none",
         **kwargs: Any,
     ):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_mode = reasoning_mode
         self._client = AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
         # Last usage metadata from the most recent call (for metrics)
         self.last_usage: dict[str, Any] | None = None
@@ -124,7 +128,7 @@ class ChatOpenAI:
         self,
         messages: list[BaseMessage],
         tools: list[dict],
-        on_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[PoriEvent], None]] = None,
     ) -> ToolTurn:
         """Invoke with native OpenAI-style tool-calling."""
         openai_messages: list[dict[str, Any]] = []
@@ -177,10 +181,10 @@ class ChatOpenAI:
             "tool_choice": "auto",
         }
 
-        # Streaming path: emit text chunks via on_delta while assembling the
-        # full ToolTurn (text + tool calls) from the delta stream.
-        if on_delta is not None:
-            return await self._stream_tools(request, on_delta)
+        # Streaming path: emit normalized events (text deltas + instant
+        # tool_call_start) while assembling the full ToolTurn from the stream.
+        if on_event is not None:
+            return await self._stream_tools(request, on_event)
 
         response = await retry_async(
             lambda: self._client.chat.completions.create(**request),
@@ -217,9 +221,15 @@ class ChatOpenAI:
         return ToolTurn(text=message.content or "", tool_calls=tool_calls)
 
     async def _stream_tools(
-        self, request: dict[str, Any], on_delta: Callable[[str], None]
+        self, request: dict[str, Any], on_event: Callable[[PoriEvent], None]
     ) -> ToolTurn:
-        """Stream a tool-call turn, forwarding text chunks to ``on_delta``."""
+        """Stream a tool-call turn, emitting normalized PoriEvents.
+
+        Per the accumulator rule: text streams live (``text_delta``); tool-call
+        arguments are buffered silently (partial JSON isn't parseable), but a
+        ``tool_call_start`` fires the instant the tool name is known — before its
+        args finish — so tool calls feel instant.
+        """
         request = {
             **request,
             "stream": True,
@@ -231,10 +241,32 @@ class ChatOpenAI:
             label="openai",
         )
 
+        def _emit(event: PoriEvent) -> None:
+            try:
+                on_event(event)
+            except Exception:
+                # A consumer error must never break the run.
+                pass
+
         text_parts: list[str] = []
         # index -> {id, name, args} accumulated across delta chunks.
         acc: dict[int, dict[str, str]] = {}
         usage = None
+
+        # Reasoning tier: 'native' = a separate reasoning channel; 'tagged' =
+        # inline <think>...</think> in the text; 'none' = plain text only.
+        mode = getattr(self, "reasoning_mode", "none")
+        scrubber = StreamingThinkScrubber() if mode == "tagged" else None
+
+        def _emit_segment(kind: str, seg: str) -> None:
+            if not seg:
+                return
+            if kind == "thinking":
+                _emit(PoriEvent(THINKING_DELTA, {"text": seg}))
+            else:  # visible answer text
+                text_parts.append(seg)
+                _emit(PoriEvent(TEXT_DELTA, {"text": seg}))
+
         async for chunk in stream:
             if getattr(chunk, "usage", None) is not None:
                 usage = chunk.usage
@@ -242,14 +274,19 @@ class ChatOpenAI:
             if not choices:
                 continue
             delta = choices[0].delta
+            if mode == "native":
+                reasoning = getattr(delta, "reasoning_content", None) or getattr(
+                    delta, "reasoning", None
+                )
+                if reasoning:
+                    _emit(PoriEvent(THINKING_DELTA, {"text": reasoning}))
             content = getattr(delta, "content", None)
             if content:
-                text_parts.append(content)
-                try:
-                    on_delta(content)
-                except Exception:
-                    # A consumer error must never break the run.
-                    pass
+                if scrubber is not None:
+                    for kind, seg in scrubber.feed(content):
+                        _emit_segment(kind, seg)
+                else:
+                    _emit_segment("text", content)
             for tc in getattr(delta, "tool_calls", None) or []:
                 idx = getattr(tc, "index", 0) or 0
                 slot = acc.setdefault(idx, {"id": "", "name": "", "args": ""})
@@ -261,6 +298,10 @@ class ChatOpenAI:
                         slot["name"] = fn.name
                     if getattr(fn, "arguments", None):
                         slot["args"] += fn.arguments
+
+        if scrubber is not None:
+            for kind, seg in scrubber.flush():
+                _emit_segment(kind, seg)
 
         if usage is not None:
             self.last_usage = {

@@ -124,6 +124,40 @@ def test_cli_summarizes_written_artifacts_and_redacts_content():
     assert "<html>lesson</html>" not in params
 
 
+def test_cli_summarizes_bash_produced_artifacts():
+    """Files a bash command creates (reported under files_written) are listed as
+    artifacts, using the wrapped {"result": {...}} shape produced in production."""
+    calls = [
+        ToolCallRecord(
+            tool_name="bash",
+            parameters={"command": "python zip_it.py"},
+            result={
+                "success": True,
+                "result": {
+                    "success": True,
+                    "output": "",
+                    "sandbox_id": "local",
+                    "files_written": [
+                        {
+                            "path": "/mnt/user-data/workspace/user_info.zip",
+                            "bytes_written": 396,
+                            "operation": "write",
+                        }
+                    ],
+                },
+            },
+            success=True,
+            task_id="task_1",
+        )
+    ]
+
+    artifacts = _summarize_written_artifacts(calls)
+
+    assert artifacts == [
+        "bash: wrote /mnt/user-data/workspace/user_info.zip (396 bytes)"
+    ]
+
+
 def test_cli_summarizes_runtime_loaded_skills():
     calls = [
         ToolCallRecord(

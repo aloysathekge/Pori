@@ -366,7 +366,7 @@ def test_text_only_turn_becomes_answer():
         {
             "answer": {
                 "final_answer": "The files were deleted; nothing to show.",
-                "reasoning": "Direct response.",
+                "reasoning": "",
             }
         }
     ]
@@ -462,7 +462,9 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
     llm = ChatOpenAI(api_key="x", model="m")
     llm._client = _StreamClient(chunks)
 
-    seen: list[str] = []
+    from pori.observability import TEXT_DELTA
+
+    events: list = []
     turn = asyncio.run(
         llm.ainvoke_tools(
             [SystemMessage(content="s"), UserMessage(content="hi")],
@@ -473,13 +475,14 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
                     "input_schema": {"type": "object"},
                 }
             ],
-            on_delta=seen.append,
+            on_event=events.append,
         )
     )
 
-    assert "".join(seen) == "Saving"  # text streamed chunk-by-chunk
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA)
+    assert text == "Saving"  # text streamed chunk-by-chunk
     assert turn.text == "Saving"
-    assert len(turn.tool_calls) == 1
+    # tool call assembled from the arg deltas (announced by the agent, with args)
     assert turn.tool_calls[0].name == "write_file"
     assert turn.tool_calls[0].arguments == {"file_path": "a"}
     assert llm._client.chat.completions.last_kwargs["stream"] is True
@@ -493,19 +496,23 @@ class _StreamingMockLLM:
         self.model = "mock"
         self.last_usage = None
 
-    async def ainvoke_tools(self, messages, tools, on_delta=None):
+    async def ainvoke_tools(self, messages, tools, on_event=None):
+        from pori.observability import TEXT_DELTA, PoriEvent
+
         turn = self._turns[min(self.i, len(self._turns) - 1)]
         self.i += 1
-        if on_delta and turn.text:
+        if on_event and turn.text:
             for word in turn.text.split(" "):
-                on_delta(word + " ")
+                on_event(PoriEvent(TEXT_DELTA, {"text": word + " "}))
         return turn
 
     def with_structured_output(self, *a, **k):  # pragma: no cover
         raise AssertionError("native mode must not use structured output")
 
 
-def test_agent_forwards_on_text_delta_when_streaming():
+def test_agent_forwards_events_when_streaming():
+    from pori.observability import TEXT_DELTA
+
     llm = _StreamingMockLLM(
         [
             ToolTurn(
@@ -526,6 +533,161 @@ def test_agent_forwards_on_text_delta_when_streaming():
         settings=AgentSettings(max_steps=2),
         memory=AgentMemory(),
     )
-    seen: list[str] = []
-    asyncio.run(agent.run(on_text_delta=seen.append))
-    assert "".join(seen).strip() == "hello world"
+    events: list = []
+    asyncio.run(agent.run(on_event=events.append, stream=True))
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA).strip()
+    assert text == "hello world"
+
+
+# --- P3: JSONL event sink + lifecycle events --------------------------------
+
+
+def test_jsonl_event_sink_writes_lines(tmp_path):
+    import json as _json
+
+    from pori.observability import (
+        TEXT_DELTA,
+        TOOL_CALL_START,
+        JsonlEventSink,
+        PoriEvent,
+    )
+
+    path = tmp_path / "events.jsonl"
+    sink = JsonlEventSink(str(path))
+    sink(PoriEvent(TEXT_DELTA, {"text": "hi"}, step=2))
+    sink(PoriEvent(TOOL_CALL_START, {"name": "answer"}))
+
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+    assert _json.loads(lines[0]) == {
+        "type": TEXT_DELTA,
+        "payload": {"text": "hi"},
+        "step": 2,
+    }
+
+
+def test_agent_emits_lifecycle_events_without_streaming():
+    from pori.observability import RUN_END, RUN_START, TOOL_CALL_END
+
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "hi", "reasoning": "r"},
+                    )
+                ],
+            )
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+    )
+    events: list = []
+    # stream defaults to False: the (non-streaming) mock is never asked to stream,
+    # yet lifecycle events still flow via the agent's own _emit.
+    asyncio.run(agent.run(on_event=events.append))
+    types = [e.type for e in events]
+    assert types[0] == RUN_START
+    assert RUN_END in types
+    assert TOOL_CALL_END in types
+
+
+# --- P4: reasoning-tag scrubber ---------------------------------------------
+
+
+def _run_scrubber(text, chunk_size):
+    from pori.llm.reasoning import StreamingThinkScrubber
+
+    s = StreamingThinkScrubber()
+    segs = []
+    for i in range(0, len(text), chunk_size):
+        segs += s.feed(text[i : i + chunk_size])
+    segs += s.flush()
+    visible = "".join(t for k, t in segs if k == "text")
+    thinking = "".join(t for k, t in segs if k == "thinking")
+    return visible, thinking
+
+
+def test_think_scrubber_splits_across_chunk_boundaries():
+    text = "Hi <think>secret plan</think>there!"
+    for cs in (1, 2, 3, 5, 8, 100):
+        visible, thinking = _run_scrubber(text, cs)
+        assert visible == "Hi there!", cs
+        assert thinking == "secret plan", cs
+
+
+def test_think_scrubber_plain_text_untouched():
+    visible, thinking = _run_scrubber("just an answer, no tags at all", 4)
+    assert visible == "just an answer, no tags at all"
+    assert thinking == ""
+
+
+def test_openai_streaming_tagged_reasoning_splits_thinking():
+    from pori.llm.openai import ChatOpenAI
+    from pori.observability import TEXT_DELTA, THINKING_DELTA
+
+    chunks = [
+        _StreamChunk(content="<think>plan"),
+        _StreamChunk(content="ning</think>Here"),
+        _StreamChunk(content=" is it."),
+    ]
+    llm = ChatOpenAI(api_key="x", model="m", reasoning_mode="tagged")
+    llm._client = _StreamClient(chunks)
+    events: list = []
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [UserMessage(content="hi")],
+            [
+                {
+                    "name": "answer",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            on_event=events.append,
+        )
+    )
+    thinking = "".join(e.payload["text"] for e in events if e.type == THINKING_DELTA)
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA)
+    assert thinking == "planning"
+    assert text == "Here is it."
+    # reasoning is excluded from the answer text
+    assert turn.text == "Here is it."
+
+
+def test_context_is_scoped_to_current_task():
+    # A prior turn's task + answer must not leak into the current task's context,
+    # else the model thinks it "already answered" and loops.
+    from pori.memory import AgentMemory, ToolCallRecord
+
+    memory = AgentMemory()
+    memory.create_task("old_task_id", "what is a mutex")
+    memory.tool_call_history.append(
+        ToolCallRecord(
+            tool_name="answer",
+            parameters={"final_answer": "an old answer"},
+            result={"final_answer": "an old answer"},
+            success=True,
+            task_id="old_task_id",
+        )
+    )
+    agent = Agent(
+        task="what is a semaphore",
+        llm=object(),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=memory,
+    )
+    ctx = agent._get_current_context()
+
+    assert "what is a mutex" not in ctx  # prior task hidden
+    assert "an old answer" not in ctx  # prior answer hidden
+    assert "no actions yet for this task" in ctx
+    assert "what is a semaphore" in ctx  # current task shown

@@ -54,7 +54,8 @@ class Orchestrator:
         agent_settings: Optional[AgentSettings] = None,
         on_step_start: Optional[Callable[[Agent], Any]] = None,
         on_step_end: Optional[Callable[[Agent], Any]] = None,
-        on_text_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
+        stream: bool = False,
         sandbox_base_dir: Optional[str] = None,
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
@@ -100,7 +101,8 @@ class Orchestrator:
             result = await agent.run(
                 on_step_start=on_step_start,
                 on_step_end=on_step_end,
-                on_text_delta=on_text_delta,
+                on_event=on_event,
+                stream=stream,
             )
             summary = agent.result_summary()
             return {

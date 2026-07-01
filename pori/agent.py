@@ -49,6 +49,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
+from .observability import RUN_END, RUN_START, TOOL_CALL_END, TOOL_CALL_START, PoriEvent
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
 from .prompts import (
@@ -229,8 +230,11 @@ class Agent:
         self._soul_path = soul_path
         self._soul_text = soul_text
         self._load_project_context = load_project_context
-        # Optional sink for streamed assistant text; set per-run via run().
-        self._on_text_delta: Optional[Callable[[str], None]] = None
+        # Optional event consumer + whether to ask the provider to stream; both
+        # set per-run via run(). Decoupled: you can consume events (e.g. for a
+        # JSONL audit trail) without forcing token streaming.
+        self._on_event: Optional[Callable[[Any], None]] = None
+        self._stream: bool = False
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -473,13 +477,30 @@ class Agent:
         self, tool_name: str, params: Dict[str, Any], tool_result: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Extract user-visible artifacts from successful tool results."""
-        if not tool_result.get("success") or tool_name not in {
-            "write_file",
-            "sandbox_write_file",
-        }:
+        if not tool_result.get("success"):
             return []
         result = tool_result.get("result")
         if not isinstance(result, dict):
+            return []
+        # bash produces files by running commands; the sandbox observes which
+        # files changed and reports them under "files_written".
+        if tool_name == "bash":
+            bash_artifacts: List[Dict[str, Any]] = []
+            for entry in result.get("files_written") or []:
+                if not isinstance(entry, dict):
+                    continue
+                bash_art: Dict[str, Any] = {
+                    "kind": "file",
+                    "tool_name": tool_name,
+                    "path": entry.get("path") or "(path unavailable)",
+                    "operation": entry.get("operation", "write"),
+                }
+                bytes_written = entry.get("bytes_written")
+                if isinstance(bytes_written, int):
+                    bash_art["bytes_written"] = bytes_written
+                bash_artifacts.append(bash_art)
+            return bash_artifacts
+        if tool_name not in {"write_file", "sandbox_write_file"}:
             return []
         path = (
             params.get("file_path")
@@ -818,11 +839,12 @@ class Agent:
         )
         try:
             tools = self.tools_registry.tool_schemas()
-            # Only pass on_delta when streaming is active, so the default call
-            # signature is unchanged for non-streaming callers/mocks.
-            if self._on_text_delta is not None:
+            # Only ask the provider to stream (and pass on_event to it) when
+            # streaming is on, so the default call signature is unchanged for
+            # non-streaming callers/mocks — even if an event consumer is attached.
+            if self._stream and self._on_event is not None:
                 turn = await self.llm.ainvoke_tools(
-                    messages, tools, on_delta=self._on_text_delta
+                    messages, tools, on_event=self._on_event
                 )
             else:
                 turn = await self.llm.ainvoke_tools(messages, tools)
@@ -839,7 +861,7 @@ class Agent:
                     {
                         "answer": {
                             "final_answer": turn.text.strip(),
-                            "reasoning": "Direct response.",
+                            "reasoning": "",
                         }
                     }
                 ]
@@ -959,25 +981,32 @@ class Agent:
         return evidence
 
     def _get_current_context(self) -> str:
-        """Get the current context for the LLM."""
-        # In a real implementation, this would include details about:
-        # - Current state in the target domain
-        # - Recent tool calls and results
-        # - Progress toward the goal
+        """Get the current context for the LLM.
 
-        # For this minimal example, we'll just provide task status
-        tasks_status = "\n".join(
-            [
-                f"Task '{task.description}': {task.status}"
-                for task in self.memory.tasks.values()
-            ]
+        Scoped to the CURRENT task/turn only. Prior tasks and prior-turn tool
+        calls are excluded so the model never sees an earlier answer to a similar
+        question and wrongly concludes it "already answered" the current one.
+        """
+        current = self.memory.tasks.get(self.task_id)
+        tasks_status = (
+            f"Task '{current.description}': {current.status}"
+            if current is not None
+            else f"Task '{self.task}': in_progress"
         )
 
-        recent_tools = "\n".join(
-            [
-                f"Tool '{t.tool_name}' called with {t.parameters} → {'Success' if t.success else 'Failed'}\n  Result: {t.result}"
-                for t in self.memory.tool_call_history[-5:]  # Last 5 tool calls
-            ]
+        current_calls = [
+            t
+            for t in self.memory.tool_call_history
+            if getattr(t, "task_id", None) == self.task_id
+        ]
+        recent_tools = (
+            "\n".join(
+                [
+                    f"Tool '{t.tool_name}' called with {t.parameters} → {'Success' if t.success else 'Failed'}\n  Result: {t.result}"
+                    for t in current_calls[-5:]  # last 5 for THIS task
+                ]
+            )
+            or "(no actions yet for this task)"
         )
         runtime_facts = json.dumps(
             self._runtime_fact_summary(),
@@ -1888,6 +1917,15 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 # --- end Completion quality gate ---
 
                 start_time = datetime.now()
+                # Announce the tool with its full args, so the renderer can show a
+                # specific label ("Writing age_calculator.py", not "Writing a file").
+                self._emit(
+                    TOOL_CALL_START,
+                    {
+                        "name": tool_name,
+                        "args": params if isinstance(params, dict) else {},
+                    },
+                )
 
                 # Execute the tool
                 tool_context = {
@@ -1911,6 +1949,9 @@ REMINDER: You have gathered information using tools. Now analyze the results and
 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 success = tool_result.get("success", False)
+                # Emit tool_call_end so a renderer can close the "» ..." line
+                # with a "✓ / ✗" as soon as the tool finishes.
+                self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
                 artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,
@@ -2039,11 +2080,28 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 extra={"task_id": self.task_id},
             )
 
+    def _emit(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        """Emit a normalized PoriEvent to the subscribed consumer, if any."""
+        if self._on_event is None:
+            return
+        try:
+            self._on_event(
+                PoriEvent(
+                    event_type,
+                    payload or {},
+                    step=getattr(self.state, "n_steps", 0),
+                )
+            )
+        except Exception:
+            # A consumer error must never break the run.
+            pass
+
     async def run(
         self,
         on_step_start: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
         on_step_end: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
-        on_text_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
+        stream: bool = False,
     ) -> Dict[str, Any]:
         """Run the agent until the task is complete or max steps is reached.
 
@@ -2055,11 +2113,14 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 executes (including any planning/reflection within the step).
                 Receives this Agent instance. May be sync or async. Exceptions
                 are logged and ignored.
-            on_text_delta: Optional sink for streamed assistant text chunks. When
-                provided, the agent asks the provider to stream and forwards each
-                chunk here; when None the LLM call is non-streaming (default).
+            on_event: Optional sink for normalized ``PoriEvent``s (text_delta,
+                tool_call_start, ...). When provided, the agent asks the provider
+                to stream and forwards events here; when None the LLM call is
+                non-streaming (default).
         """
-        self._on_text_delta = on_text_delta
+        self._on_event = on_event
+        self._stream = stream
+        self._emit(RUN_START, {"task": self.task, "task_id": self.task_id})
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")
 
@@ -2283,6 +2344,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             f"Agent run finished - Completed: {completed}, Steps: {self.state.n_steps}",
             extra={"task_id": self.task_id},
         )
+        self._emit(RUN_END, {"completed": completed, "steps": self.state.n_steps})
 
         return {
             "task": self.task,

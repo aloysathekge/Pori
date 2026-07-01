@@ -17,7 +17,8 @@ llm:
   # Kimi via Fireworks (set FIREWORKS_API_KEY in .env)
   provider: fireworks
   model: accounts/fireworks/models/kimi-k2p6
-  # streaming: true   # stream the answer live (OpenAI/OpenRouter/Fireworks)
+  streaming: true
+  reasoning_mode: native
   temperature: 0.6
   max_tokens: 8192
   extra_params:

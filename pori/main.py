@@ -24,7 +24,14 @@ from .evolution import (
 )
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
-from .observability import build_tool_preview
+from .observability import (
+    TEXT_DELTA,
+    THINKING_DELTA,
+    TOOL_CALL_END,
+    TOOL_CALL_START,
+    JsonlEventSink,
+    build_tool_preview,
+)
 from .orchestrator import Orchestrator
 from .skills import (
     SkillBundleCatalog,
@@ -162,14 +169,32 @@ def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
         if not getattr(call, "success", False):
             continue
         tool_name = getattr(call, "tool_name", "")
-        if tool_name not in {"write_file", "sandbox_write_file"}:
-            continue
         params = getattr(call, "parameters", {}) or {}
         result = getattr(call, "result", {}) or {}
         if not isinstance(params, dict):
             params = {}
         if not isinstance(result, dict):
             result = {}
+
+        # bash reports files it created/modified (observed from the sandbox FS)
+        # under files_written. execute_tool wraps the tool dict under "result".
+        if tool_name == "bash":
+            inner = result.get("result")
+            inner = inner if isinstance(inner, dict) else result
+            for entry in inner.get("files_written") or []:
+                if not isinstance(entry, dict):
+                    continue
+                path = entry.get("path") or "(path unavailable)"
+                action = "modified" if entry.get("operation") == "modify" else "wrote"
+                detail = f"{tool_name}: {action} {path}"
+                byte_count = entry.get("bytes_written")
+                if isinstance(byte_count, int):
+                    detail += f" ({byte_count} bytes)"
+                artifact_lines.append(detail)
+            continue
+
+        if tool_name not in {"write_file", "sandbox_write_file"}:
+            continue
 
         path = (
             params.get("file_path")
@@ -1086,17 +1111,77 @@ async def main():
     # the agent emits real per-step events (not polling).
     # Live-streaming state: tracks whether the current step has streamed text so
     # the completion line stays on its own row and we don't reprint the activity.
-    _stream_state = {"active": False}
+    # `block` tracks the current content-block kind ("thinking"|"text") so we can
+    # insert a boundary when it switches (else thinking + answer run together).
+    _stream_state: dict = {"active": False, "buffer": "", "block": None}
 
-    def on_text_delta(chunk: str) -> None:
-        if not chunk:
-            return
-        _stream_state["active"] = True
+    _isatty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    _DIM = "\033[90m" if _isatty else ""
+    _RESET = "\033[0m" if _isatty else ""
+
+    def _stream_write(text: str) -> None:
         try:
-            sys.stdout.write(_console_safe_text(chunk))
+            sys.stdout.write(_console_safe_text(text))
             sys.stdout.flush()
         except Exception:
             pass
+
+    def _begin_block(kind: str) -> None:
+        """Open a content block, inserting a separator when the kind switches."""
+        if _stream_state.get("block") == kind:
+            return
+        if _stream_state.get("block") is not None:
+            _stream_write("\n\n")  # blank line between thinking and the answer
+        if kind == "thinking":
+            _stream_write(f"{_DIM}thinking…{_RESET}\n")
+        _stream_state["block"] = kind
+        _stream_state["active"] = True
+
+    # Optional replay/audit trail: PORI_EVENT_LOG=1 appends every event as JSON.
+    _event_log = (
+        JsonlEventSink(str(Path.cwd() / ".pori" / "events.jsonl"))
+        if os.getenv("PORI_EVENT_LOG")
+        else None
+    )
+
+    def on_event(event: Any) -> None:
+        """Render normalized PoriEvents live: stream text; announce tools."""
+        if _event_log is not None:
+            _event_log(event)
+        etype = getattr(event, "type", "")
+        payload = getattr(event, "payload", {}) or {}
+        if etype == TEXT_DELTA:
+            text = payload.get("text", "")
+            if not text:
+                return
+            _begin_block("text")
+            _stream_state["buffer"] += text  # to dedup the final-answer echo
+            _stream_write(text)
+        elif etype == THINKING_DELTA:
+            # The model's reasoning — shown dimmed, and NOT part of the answer.
+            text = payload.get("text", "")
+            if not text:
+                return
+            _begin_block("thinking")
+            _stream_write(f"{_DIM}{text}{_RESET}")
+        elif etype == TOOL_CALL_START:
+            # Announce the tool with its args, so the label is specific
+            # ("Writing age_calculator.py", not just "Writing a file").
+            name = payload.get("name", "")
+            if not name:
+                return
+            args = payload.get("args") or {}
+            label = build_tool_preview(name, args if isinstance(args, dict) else {})
+            prefix = "\n" if _stream_state["active"] else ""
+            _stream_state["active"] = True
+            _stream_state["block"] = None  # a tool line breaks the content block
+            # "»" renders on legacy Windows codepages where "→" does not.
+            _safe_print(f"{prefix}  » {label}…", flush=True)
+        elif etype == TOOL_CALL_END:
+            # Successes are implied by the flow; surface failures explicitly.
+            if not payload.get("success", True):
+                label = build_tool_preview(payload.get("name", ""), {})
+                _safe_print(f"    {label}: failed", flush=True)
 
     def on_step_start(agent: Agent):
         # No loop-counter noise ("Step N"). Progress is shown as streamed text
@@ -1109,6 +1194,7 @@ async def main():
         if _stream_state["active"]:
             print(flush=True)
             _stream_state["active"] = False
+            _stream_state["block"] = None
             return
         # Otherwise show one clean action line describing what the step did,
         # e.g. "• Writing hi.py", "• Running python hi.py", "• Writing the answer".
@@ -1343,6 +1429,9 @@ async def main():
             else:
                 # Execute via single-agent Orchestrator
                 logger.info("Starting task execution")
+                _stream_state["active"] = False
+                _stream_state["buffer"] = ""
+                _stream_state["block"] = None
                 result = await orchestrator.execute_task(
                     task=task,
                     agent_settings=AgentSettings(
@@ -1356,7 +1445,12 @@ async def main():
                     ),
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
-                    on_text_delta=(on_text_delta if config.llm.streaming else None),
+                    on_event=(
+                        on_event
+                        if (config.llm.streaming or _event_log is not None)
+                        else None
+                    ),
+                    stream=config.llm.streaming,
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,
@@ -1367,33 +1461,32 @@ async def main():
                     f"Task execution completed - Success: {result['success']}, Steps: {result['steps_taken']}"
                 )
 
-                print("\n=== Task Execution Summary ===")
-                print(f"Task: {task}")
-                print(f"Success: {result['success']}")
-                print(f"Steps taken: {result['steps_taken']}")
-                selected_skills = result.get("selected_skills") or []
-                if selected_skills:
-                    print(f"Skills used: {', '.join(selected_skills)}")
-
-                # Show basic run metrics if available
                 metrics = result.get("result", {}).get("metrics")
-                if metrics:
-                    try:
-                        tokens = metrics.get("tokens", {}) or {}
-                        cost = metrics.get("cost_usd")
-                        print(
-                            f"Run metrics: duration={metrics.get('duration')}, "
-                            f"steps={metrics.get('steps')}, "
-                            f"llm_calls={metrics.get('llm_calls')}, "
-                            f"tool_calls={metrics.get('tool_calls')}, "
-                            f"tokens_in={tokens.get('input')}, "
-                            f"tokens_out={tokens.get('output')}, "
-                            f"tokens_total={tokens.get('total')}"
-                        )
-                        if cost is not None:
-                            print(f"Estimated cost: {cost}")
-                    except Exception:
-                        pass
+                if _verbose:
+                    print("\n=== Task Execution Summary ===")
+                    print(f"Task: {task}")
+                    print(f"Success: {result['success']}")
+                    print(f"Steps taken: {result['steps_taken']}")
+                    selected_skills = result.get("selected_skills") or []
+                    if selected_skills:
+                        print(f"Skills used: {', '.join(selected_skills)}")
+                    if metrics:
+                        try:
+                            tokens = metrics.get("tokens", {}) or {}
+                            cost = metrics.get("cost_usd")
+                            print(
+                                f"Run metrics: duration={metrics.get('duration')}, "
+                                f"steps={metrics.get('steps')}, "
+                                f"llm_calls={metrics.get('llm_calls')}, "
+                                f"tool_calls={metrics.get('tool_calls')}, "
+                                f"tokens_in={tokens.get('input')}, "
+                                f"tokens_out={tokens.get('output')}, "
+                                f"tokens_total={tokens.get('total')}"
+                            )
+                            if cost is not None:
+                                print(f"Estimated cost: {cost}")
+                        except Exception:
+                            pass
 
                 # Show the final answer if available
                 agent = result.get("agent")
@@ -1403,13 +1496,21 @@ async def main():
 
                     if final_answer:
                         logger.info("Final answer provided")
-                        print("\nFINAL ANSWER:")
-                        _safe_print(f"  {final_answer['final_answer']}")
+                        # If the answer already streamed live as text, don't echo
+                        # the whole thing again — just note it.
+                        answer_text = (final_answer.get("final_answer") or "").strip()
+                        already_streamed = bool(answer_text) and (
+                            answer_text in _stream_state.get("buffer", "")
+                        )
+                        if not already_streamed:
+                            print("\nFINAL ANSWER:")
+                            _safe_print(f"  {final_answer['final_answer']}")
                         if final_answer.get("reasoning"):
                             _safe_print(f"\n  Reasoning: {final_answer['reasoning']}")
-                        print(
-                            "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
-                        )
+                        if _verbose:
+                            print(
+                                "\n(Memory recall used if 'Retrieved knowledge' logs appear above for this task.)"
+                            )
                     else:
                         logger.warning("No final answer found")
                         print("\nNO FINAL ANSWER FOUND")
@@ -1448,18 +1549,19 @@ async def main():
                                 f"  {marks.get(item.status, '[ ]')} {item.content}"
                             )
 
-                    print("\nTool Calls (this task):")
+                    if _verbose:
+                        print("\nTool Calls (this task):")
                     for i, tool_call in enumerate(calls_this_task, start=1):
-                        status = "+" if tool_call.success else "x"
-                        preview = build_tool_preview(
-                            tool_call.tool_name, tool_call.parameters
-                        )
-                        _safe_print(f"  {i}. {preview} -> {status}")
-                        _safe_print(
-                            f"       {tool_call.tool_name}("
-                            f"{_format_tool_call_parameters(tool_call.parameters)})"
-                        )
-
+                        if _verbose:
+                            status = "+" if tool_call.success else "x"
+                            preview = build_tool_preview(
+                                tool_call.tool_name, tool_call.parameters
+                            )
+                            _safe_print(f"  {i}. {preview} -> {status}")
+                            _safe_print(
+                                f"       {tool_call.tool_name}("
+                                f"{_format_tool_call_parameters(tool_call.parameters)})"
+                            )
                         log_level = (
                             logging.INFO if tool_call.success else logging.WARNING
                         )
@@ -1467,6 +1569,20 @@ async def main():
                             log_level,
                             f"Tool call: {tool_call.tool_name} - {'Success' if tool_call.success else 'Failed'}",
                         )
+
+                    # Compact done-line by default (full detail behind PORI_VERBOSE).
+                    if not _verbose:
+                        steps = result.get("steps_taken", 0)
+                        bits = [f"{steps} step" + ("s" if steps != 1 else "")]
+                        if metrics:
+                            dur = metrics.get("duration")
+                            if dur:
+                                ds = str(dur)
+                                bits.append(ds if ds.endswith("s") else f"{ds}s")
+                            total = (metrics.get("tokens") or {}).get("total")
+                            if total:
+                                bits.append(f"{total} tokens")
+                        _safe_print("\n" + _DIM + "done · " + " · ".join(bits) + _RESET)
 
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)

@@ -10,7 +10,8 @@ Context should include (when using sandbox):
 If no sandbox provider is set, the bash tool returns an error asking to enable sandbox.
 """
 
-from typing import Any, Dict, Optional, Tuple
+import os
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -26,14 +27,20 @@ try:
         get_thread_data,
         replace_virtual_path,
         replace_virtual_paths_in_command,
+        to_virtual_path,
     )
 except ImportError:
     get_sandbox_provider = None  # type: ignore[assignment]
     get_thread_data = None  # type: ignore[assignment]
     replace_virtual_path = None  # type: ignore[assignment]
     replace_virtual_paths_in_command = None  # type: ignore[assignment]
+    to_virtual_path = None  # type: ignore[assignment]
     ThreadData = None  # type: ignore[assignment,misc]
     VIRTUAL_PREFIX = "/mnt/user-data"
+
+# Cap the filesystem walk used to detect command-produced artifacts so a large
+# workspace can't make every bash call pay an unbounded cost.
+_ARTIFACT_SCAN_FILE_LIMIT = 5000
 
 
 class BashParams(BaseModel):
@@ -98,17 +105,101 @@ def bash_tool(params: BashParams, context: Dict[str, Any]) -> Dict[str, Any]:
     if err or sandbox is None:
         return {"success": False, "error": err or "Sandbox unavailable."}
     command = params.command
+    observe = sandbox_id == "local" and thread_data is not None
     if (
-        sandbox_id == "local"
+        observe
         and thread_data is not None
         and replace_virtual_paths_in_command is not None
     ):
         command = replace_virtual_paths_in_command(command, thread_data)
+    cwd = _resolve_working_dir(params.working_dir, sandbox_id, thread_data)
+    before = _snapshot_thread_files(thread_data) if observe else {}
     try:
-        output = sandbox.execute_command(command)
-        return {"success": True, "output": output, "sandbox_id": sandbox_id}
+        output = sandbox.execute_command(command, cwd=cwd)
+        result: Dict[str, Any] = {
+            "success": True,
+            "output": output,
+            "sandbox_id": sandbox_id,
+        }
+        if observe:
+            files_written = _diff_thread_files(
+                before, _snapshot_thread_files(thread_data), thread_data
+            )
+            if files_written:
+                result["files_written"] = files_written
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _snapshot_thread_files(thread_data: Any) -> Dict[str, Tuple[int, int]]:
+    """Map real file path -> (size, mtime_ns) for files under the thread dirs.
+
+    Bounded by _ARTIFACT_SCAN_FILE_LIMIT so a huge workspace can't stall a bash
+    call; if the cap is hit, detection is best-effort over the files scanned.
+    """
+    snapshot: Dict[str, Tuple[int, int]] = {}
+    if thread_data is None:
+        return snapshot
+    for base in (
+        thread_data.workspace_path,
+        thread_data.outputs_path,
+        thread_data.uploads_path,
+    ):
+        for root, _dirs, files in os.walk(base):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    st = os.stat(fp)
+                except OSError:
+                    continue
+                snapshot[fp] = (st.st_size, st.st_mtime_ns)
+                if len(snapshot) >= _ARTIFACT_SCAN_FILE_LIMIT:
+                    return snapshot
+    return snapshot
+
+
+def _diff_thread_files(
+    before: Dict[str, Tuple[int, int]],
+    after: Dict[str, Tuple[int, int]],
+    thread_data: Any,
+) -> List[Dict[str, Any]]:
+    """Return artifacts for files created or modified between two snapshots."""
+    changes: List[Dict[str, Any]] = []
+    for fp, meta in after.items():
+        prev = before.get(fp)
+        if prev == meta:
+            continue
+        virtual = (
+            to_virtual_path(fp, thread_data) if to_virtual_path is not None else fp
+        )
+        changes.append(
+            {
+                "path": virtual,
+                "bytes_written": meta[0],
+                "operation": "write" if prev is None else "modify",
+            }
+        )
+    changes.sort(key=lambda a: str(a["path"]))
+    return changes
+
+
+def _resolve_working_dir(
+    working_dir: Optional[str], sandbox_id: Optional[str], thread_data: Any
+) -> Optional[str]:
+    """Resolve the bash working directory to a real path.
+
+    - Explicit working_dir: map virtual (/mnt/user-data/...) to the thread dir.
+    - Omitted: default to the thread workspace so relative paths and bare script
+      names resolve inside the sandbox, not the host process's launch directory.
+    - Non-local sandbox or no thread data: return working_dir unchanged (may be
+      None, i.e. let the sandbox decide).
+    """
+    if working_dir:
+        return _resolve_path_for_sandbox(working_dir, sandbox_id, thread_data)
+    if sandbox_id == "local" and thread_data is not None:
+        return thread_data.workspace_path
+    return None
 
 
 def _resolve_path_for_sandbox(

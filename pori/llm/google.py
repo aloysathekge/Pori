@@ -135,12 +135,13 @@ class ChatGoogle:
         self,
         messages: list[BaseMessage],
         tools: list[dict],
-        on_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
     ) -> ToolTurn:
         """Invoke Gemini with native function-calling.
 
-        Streaming isn't implemented here yet; when ``on_delta`` is supplied the
-        call runs non-streaming and the full text is delivered as one chunk.
+        Native streaming isn't implemented here yet; when ``on_event`` is supplied
+        the call runs non-streaming and the full text is delivered as one
+        ``text_delta`` event.
         """
         system_instruction = None
         contents = []
@@ -226,9 +227,11 @@ class ChatGoogle:
             text=" ".join(text_parts).strip(),
             tool_calls=tool_calls,
         )
-        if on_delta is not None and turn.text:
+        if on_event is not None and turn.text:
+            from ..observability.events import TEXT_DELTA, PoriEvent
+
             try:
-                on_delta(turn.text)
+                on_event(PoriEvent(TEXT_DELTA, {"text": turn.text}))
             except Exception:
                 pass
         return turn

@@ -19,9 +19,13 @@ class Sandbox(ABC):
     """
 
     @abstractmethod
-    def execute_command(self, command: str) -> str:
+    def execute_command(self, command: str, cwd: Optional[str] = None) -> str:
         """
         Run a shell command and return combined stdout/stderr as a string.
+
+        cwd, if given, is the working directory the command runs in. It should
+        already be a real (resolved) path; when omitted the implementation
+        chooses a default (do not fall back to the host process's cwd).
         """
         ...
 

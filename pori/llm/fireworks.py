@@ -30,11 +30,13 @@ class ChatFireworks(ChatOpenAI):
         temperature: float = 0.0,
         max_tokens: int = 4096,
         base_url: str | None = None,
+        reasoning_mode: str = "none",
         **kwargs: Any,
     ):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_mode = reasoning_mode
         self.last_usage: dict[str, Any] | None = None
 
         resolved_key = api_key or os.getenv("FIREWORKS_API_KEY")
