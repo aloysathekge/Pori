@@ -535,6 +535,66 @@ def test_agent_forwards_events_when_streaming():
         memory=AgentMemory(),
     )
     events: list = []
-    asyncio.run(agent.run(on_event=events.append))
+    asyncio.run(agent.run(on_event=events.append, stream=True))
     text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA).strip()
     assert text == "hello world"
+
+
+# --- P3: JSONL event sink + lifecycle events --------------------------------
+
+
+def test_jsonl_event_sink_writes_lines(tmp_path):
+    import json as _json
+
+    from pori.observability import (
+        TEXT_DELTA,
+        TOOL_CALL_START,
+        JsonlEventSink,
+        PoriEvent,
+    )
+
+    path = tmp_path / "events.jsonl"
+    sink = JsonlEventSink(str(path))
+    sink(PoriEvent(TEXT_DELTA, {"text": "hi"}, step=2))
+    sink(PoriEvent(TOOL_CALL_START, {"name": "answer"}))
+
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+    assert _json.loads(lines[0]) == {
+        "type": TEXT_DELTA,
+        "payload": {"text": "hi"},
+        "step": 2,
+    }
+
+
+def test_agent_emits_lifecycle_events_without_streaming():
+    from pori.observability import RUN_END, RUN_START, TOOL_CALL_END
+
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "hi", "reasoning": "r"},
+                    )
+                ],
+            )
+        ]
+    )
+    agent = Agent(
+        task="t",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=AgentMemory(),
+    )
+    events: list = []
+    # stream defaults to False: the (non-streaming) mock is never asked to stream,
+    # yet lifecycle events still flow via the agent's own _emit.
+    asyncio.run(agent.run(on_event=events.append))
+    types = [e.type for e in events]
+    assert types[0] == RUN_START
+    assert RUN_END in types
+    assert TOOL_CALL_END in types

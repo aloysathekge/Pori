@@ -10,6 +10,7 @@ from .events import (
     THINKING_DELTA,
     TOOL_CALL_END,
     TOOL_CALL_START,
+    JsonlEventSink,
     PoriEvent,
 )
 from .exporters import ConsoleTelemetryExporter, TelemetryExporter
@@ -28,6 +29,7 @@ __all__ = [
     "ConsoleTelemetryExporter",
     "build_tool_preview",
     "PoriEvent",
+    "JsonlEventSink",
     "TEXT_DELTA",
     "THINKING_DELTA",
     "TOOL_CALL_START",

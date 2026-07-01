@@ -49,7 +49,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
-from .observability import TOOL_CALL_END, PoriEvent
+from .observability import RUN_END, RUN_START, TOOL_CALL_END, PoriEvent
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
 from .prompts import (
@@ -230,8 +230,11 @@ class Agent:
         self._soul_path = soul_path
         self._soul_text = soul_text
         self._load_project_context = load_project_context
-        # Optional sink for streamed assistant text; set per-run via run().
+        # Optional event consumer + whether to ask the provider to stream; both
+        # set per-run via run(). Decoupled: you can consume events (e.g. for a
+        # JSONL audit trail) without forcing token streaming.
         self._on_event: Optional[Callable[[Any], None]] = None
+        self._stream: bool = False
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -819,9 +822,10 @@ class Agent:
         )
         try:
             tools = self.tools_registry.tool_schemas()
-            # Only pass on_event when a consumer is subscribed, so the default
-            # call signature is unchanged for non-streaming callers/mocks.
-            if self._on_event is not None:
+            # Only ask the provider to stream (and pass on_event to it) when
+            # streaming is on, so the default call signature is unchanged for
+            # non-streaming callers/mocks — even if an event consumer is attached.
+            if self._stream and self._on_event is not None:
                 turn = await self.llm.ainvoke_tools(
                     messages, tools, on_event=self._on_event
                 )
@@ -1914,16 +1918,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 success = tool_result.get("success", False)
                 # Emit tool_call_end so a renderer can close the "» ..." line
                 # with a "✓ / ✗" as soon as the tool finishes.
-                if self._on_event is not None:
-                    try:
-                        self._on_event(
-                            PoriEvent(
-                                TOOL_CALL_END,
-                                {"name": tool_name, "success": bool(success)},
-                            )
-                        )
-                    except Exception:
-                        pass
+                self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
                 artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,
@@ -2052,11 +2047,28 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 extra={"task_id": self.task_id},
             )
 
+    def _emit(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        """Emit a normalized PoriEvent to the subscribed consumer, if any."""
+        if self._on_event is None:
+            return
+        try:
+            self._on_event(
+                PoriEvent(
+                    event_type,
+                    payload or {},
+                    step=getattr(self.state, "n_steps", 0),
+                )
+            )
+        except Exception:
+            # A consumer error must never break the run.
+            pass
+
     async def run(
         self,
         on_step_start: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
         on_step_end: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
         on_event: Optional[Callable[[Any], None]] = None,
+        stream: bool = False,
     ) -> Dict[str, Any]:
         """Run the agent until the task is complete or max steps is reached.
 
@@ -2074,6 +2086,8 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 non-streaming (default).
         """
         self._on_event = on_event
+        self._stream = stream
+        self._emit(RUN_START, {"task": self.task, "task_id": self.task_id})
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")
 
@@ -2297,6 +2311,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
             f"Agent run finished - Completed: {completed}, Steps: {self.state.n_steps}",
             extra={"task_id": self.task_id},
         )
+        self._emit(RUN_END, {"completed": completed, "steps": self.state.n_steps})
 
         return {
             "task": self.task,

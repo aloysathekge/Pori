@@ -28,6 +28,7 @@ from .observability import (
     TEXT_DELTA,
     TOOL_CALL_END,
     TOOL_CALL_START,
+    JsonlEventSink,
     build_tool_preview,
 )
 from .orchestrator import Orchestrator
@@ -1093,8 +1094,17 @@ async def main():
     # the completion line stays on its own row and we don't reprint the activity.
     _stream_state: dict = {"active": False, "buffer": ""}
 
+    # Optional replay/audit trail: PORI_EVENT_LOG=1 appends every event as JSON.
+    _event_log = (
+        JsonlEventSink(str(Path.cwd() / ".pori" / "events.jsonl"))
+        if os.getenv("PORI_EVENT_LOG")
+        else None
+    )
+
     def on_event(event: Any) -> None:
         """Render normalized PoriEvents live: stream text; announce tools."""
+        if _event_log is not None:
+            _event_log(event)
         etype = getattr(event, "type", "")
         payload = getattr(event, "payload", {}) or {}
         if etype == TEXT_DELTA:
@@ -1384,7 +1394,12 @@ async def main():
                     ),
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
-                    on_event=(on_event if config.llm.streaming else None),
+                    on_event=(
+                        on_event
+                        if (config.llm.streaming or _event_log is not None)
+                        else None
+                    ),
+                    stream=config.llm.streaming,
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,

@@ -8,6 +8,7 @@ from the same source. See
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -36,3 +37,26 @@ class PoriEvent:
     type: str
     payload: Dict[str, Any] = field(default_factory=dict)
     step: int = 0
+
+
+class JsonlEventSink:
+    """Append PoriEvents as JSON lines for replay/audit.
+
+    A renderer-agnostic consumer: compose it alongside a live renderer so the
+    same event stream that drives the UI also produces a diff-able trail. Opens
+    the file per event (simple + crash-safe); runs are bounded so this is cheap.
+    """
+
+    def __init__(self, path: str):
+        self.path = path
+
+    def __call__(self, event: "PoriEvent") -> None:
+        try:
+            line = json.dumps(
+                {"type": event.type, "payload": event.payload, "step": event.step}
+            )
+            with open(self.path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception:
+            # Logging must never break a run.
+            pass
