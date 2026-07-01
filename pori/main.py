@@ -1064,10 +1064,30 @@ async def main():
     # Define step lifecycle callbacks for monitoring. These fire via the
     # on_step_start/on_step_end hooks now wired into Agent.run() — proof that
     # the agent emits real per-step events (not polling).
+    # Live-streaming state: tracks whether the current step has streamed text so
+    # the completion line stays on its own row and we don't reprint the activity.
+    _stream_state = {"active": False}
+
+    def on_text_delta(chunk: str) -> None:
+        if not chunk:
+            return
+        if not _stream_state["active"]:
+            sys.stdout.write("\n")  # break away from "Step N starting..."
+            _stream_state["active"] = True
+        try:
+            sys.stdout.write(_console_safe_text(chunk))
+            sys.stdout.flush()
+        except Exception:
+            pass
+
     def on_step_start(agent: Agent):
         print(f"\n--> Step {agent.state.n_steps + 1} starting...", flush=True)
 
     def on_step_end(agent: Agent):
+        streamed = _stream_state["active"]
+        if streamed:
+            print(flush=True)  # newline after the streamed text
+            _stream_state["active"] = False
         # Surface the most recent tool call this step produced, if any.
         last_tool = ""
         try:
@@ -1079,10 +1099,12 @@ async def main():
         except Exception:
             pass
         print(f"<-- Completed step {agent.state.n_steps}{last_tool}", flush=True)
-        # Model-authored activity line (the LLM's next_goal for this step).
-        activity = getattr(agent.state, "current_activity", "")
-        if activity:
-            _safe_print(f"    {activity}")
+        # Model-authored activity line (the LLM's next_goal). Skip it when we just
+        # streamed the same text live, to avoid duplicating it.
+        if not streamed:
+            activity = getattr(agent.state, "current_activity", "")
+            if activity:
+                _safe_print(f"    {activity}")
         logger.info(
             f"Completed step {agent.state.n_steps}{last_tool}",
             extra={
@@ -1315,6 +1337,7 @@ async def main():
                     ),
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
+                    on_text_delta=(on_text_delta if config.llm.streaming else None),
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,

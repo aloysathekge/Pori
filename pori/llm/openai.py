@@ -1,7 +1,7 @@
 """OpenAI chat model."""
 
 import json
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Callable, Generic, Optional, TypeVar, cast
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
@@ -121,7 +121,10 @@ class ChatOpenAI:
                 ) from exc
 
     async def ainvoke_tools(
-        self, messages: list[BaseMessage], tools: list[dict]
+        self,
+        messages: list[BaseMessage],
+        tools: list[dict],
+        on_delta: Optional[Callable[[str], None]] = None,
     ) -> ToolTurn:
         """Invoke with native OpenAI-style tool-calling."""
         openai_messages: list[dict[str, Any]] = []
@@ -173,6 +176,12 @@ class ChatOpenAI:
             ],
             "tool_choice": "auto",
         }
+
+        # Streaming path: emit text chunks via on_delta while assembling the
+        # full ToolTurn (text + tool calls) from the delta stream.
+        if on_delta is not None:
+            return await self._stream_tools(request, on_delta)
+
         response = await retry_async(
             lambda: self._client.chat.completions.create(**request),
             getattr(self, "_retry_config", None),
@@ -206,6 +215,79 @@ class ChatOpenAI:
                 )
             )
         return ToolTurn(text=message.content or "", tool_calls=tool_calls)
+
+    async def _stream_tools(
+        self, request: dict[str, Any], on_delta: Callable[[str], None]
+    ) -> ToolTurn:
+        """Stream a tool-call turn, forwarding text chunks to ``on_delta``."""
+        request = {
+            **request,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        stream = await retry_async(
+            lambda: self._client.chat.completions.create(**request),
+            getattr(self, "_retry_config", None),
+            label="openai",
+        )
+
+        text_parts: list[str] = []
+        # index -> {id, name, args} accumulated across delta chunks.
+        acc: dict[int, dict[str, str]] = {}
+        usage = None
+        async for chunk in stream:
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = choices[0].delta
+            content = getattr(delta, "content", None)
+            if content:
+                text_parts.append(content)
+                try:
+                    on_delta(content)
+                except Exception:
+                    # A consumer error must never break the run.
+                    pass
+            for tc in getattr(delta, "tool_calls", None) or []:
+                idx = getattr(tc, "index", 0) or 0
+                slot = acc.setdefault(idx, {"id": "", "name": "", "args": ""})
+                if getattr(tc, "id", None):
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if getattr(fn, "name", None):
+                        slot["name"] = fn.name
+                    if getattr(fn, "arguments", None):
+                        slot["args"] += fn.arguments
+
+        if usage is not None:
+            self.last_usage = {
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage, "completion_tokens", 0),
+                "total_tokens": getattr(usage, "total_tokens", 0),
+            }
+        else:
+            self.last_usage = None
+
+        tool_calls: list[ToolCall] = []
+        for idx in sorted(acc):
+            slot = acc[idx]
+            if not slot["name"]:
+                continue
+            try:
+                args = json.loads(slot["args"]) if slot["args"] else {}
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append(
+                ToolCall(
+                    id=slot["id"],
+                    name=slot["name"],
+                    arguments=args if isinstance(args, dict) else {},
+                )
+            )
+        return ToolTurn(text="".join(text_parts), tool_calls=tool_calls)
 
     def with_structured_output(
         self, output_model: type[T], include_raw: bool = False

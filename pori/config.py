@@ -29,6 +29,14 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    streaming: bool = Field(
+        default=False,
+        description=(
+            "Stream the assistant's text live as it generates (native "
+            "tool-calling). Currently implemented for OpenAI-compatible "
+            "providers (OpenAI/OpenRouter/Fireworks)."
+        ),
+    )
 
     # Provider-specific settings
     extra_params: Dict[str, Any] = Field(default_factory=dict)
