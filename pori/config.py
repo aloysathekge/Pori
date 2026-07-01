@@ -37,6 +37,15 @@ class LLMConfig(BaseModel):
             "providers (OpenAI/OpenRouter/Fireworks)."
         ),
     )
+    reasoning_mode: Literal["native", "tagged", "none"] = Field(
+        default="none",
+        description=(
+            "How this model exposes reasoning while streaming: 'native' (a "
+            "separate reasoning channel), 'tagged' (inline <think>...</think> in "
+            "the text), or 'none' (no reasoning trace). Controls whether "
+            "reasoning is split into a separate thinking block."
+        ),
+    )
 
     # Provider-specific settings
     extra_params: Dict[str, Any] = Field(default_factory=dict)
@@ -294,6 +303,7 @@ def create_llm(config: LLMConfig):
     common_params: Dict[str, Any] = {
         "model": config.model,
         "temperature": config.temperature,
+        "reasoning_mode": config.reasoning_mode,
     }
 
     if config.max_tokens:

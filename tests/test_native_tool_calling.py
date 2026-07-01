@@ -598,3 +598,66 @@ def test_agent_emits_lifecycle_events_without_streaming():
     assert types[0] == RUN_START
     assert RUN_END in types
     assert TOOL_CALL_END in types
+
+
+# --- P4: reasoning-tag scrubber ---------------------------------------------
+
+
+def _run_scrubber(text, chunk_size):
+    from pori.llm.reasoning import StreamingThinkScrubber
+
+    s = StreamingThinkScrubber()
+    segs = []
+    for i in range(0, len(text), chunk_size):
+        segs += s.feed(text[i : i + chunk_size])
+    segs += s.flush()
+    visible = "".join(t for k, t in segs if k == "text")
+    thinking = "".join(t for k, t in segs if k == "thinking")
+    return visible, thinking
+
+
+def test_think_scrubber_splits_across_chunk_boundaries():
+    text = "Hi <think>secret plan</think>there!"
+    for cs in (1, 2, 3, 5, 8, 100):
+        visible, thinking = _run_scrubber(text, cs)
+        assert visible == "Hi there!", cs
+        assert thinking == "secret plan", cs
+
+
+def test_think_scrubber_plain_text_untouched():
+    visible, thinking = _run_scrubber("just an answer, no tags at all", 4)
+    assert visible == "just an answer, no tags at all"
+    assert thinking == ""
+
+
+def test_openai_streaming_tagged_reasoning_splits_thinking():
+    from pori.llm.openai import ChatOpenAI
+    from pori.observability import TEXT_DELTA, THINKING_DELTA
+
+    chunks = [
+        _StreamChunk(content="<think>plan"),
+        _StreamChunk(content="ning</think>Here"),
+        _StreamChunk(content=" is it."),
+    ]
+    llm = ChatOpenAI(api_key="x", model="m", reasoning_mode="tagged")
+    llm._client = _StreamClient(chunks)
+    events: list = []
+    turn = asyncio.run(
+        llm.ainvoke_tools(
+            [UserMessage(content="hi")],
+            [
+                {
+                    "name": "answer",
+                    "description": "d",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            on_event=events.append,
+        )
+    )
+    thinking = "".join(e.payload["text"] for e in events if e.type == THINKING_DELTA)
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA)
+    assert thinking == "planning"
+    assert text == "Here is it."
+    # reasoning is excluded from the answer text
+    assert turn.text == "Here is it."

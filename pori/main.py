@@ -26,6 +26,7 @@ from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
 from .observability import (
     TEXT_DELTA,
+    THINKING_DELTA,
     TOOL_CALL_END,
     TOOL_CALL_START,
     JsonlEventSink,
@@ -1115,6 +1116,19 @@ async def main():
             _stream_state["buffer"] += text  # to dedup the final-answer echo
             try:
                 sys.stdout.write(_console_safe_text(text))
+                sys.stdout.flush()
+            except Exception:
+                pass
+        elif etype == THINKING_DELTA:
+            # The model's reasoning — shown dimmed, and NOT part of the answer.
+            text = payload.get("text", "")
+            if not text:
+                return
+            _stream_state["active"] = True
+            dim = "\033[90m" if sys.stdout.isatty() else ""
+            reset = "\033[0m" if sys.stdout.isatty() else ""
+            try:
+                sys.stdout.write(dim + _console_safe_text(text) + reset)
                 sys.stdout.flush()
             except Exception:
                 pass

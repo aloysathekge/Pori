@@ -18,6 +18,7 @@ llm:
   provider: fireworks
   model: accounts/fireworks/models/kimi-k2p6
   # streaming: true   # stream the answer live (OpenAI/OpenRouter/Fireworks)
+  # reasoning_mode: none   # none | tagged (<think>..</think>) | native (reasoning channel)
   temperature: 0.6
   max_tokens: 8192
   extra_params:

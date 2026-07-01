@@ -31,11 +31,13 @@ class ChatOpenRouter(ChatOpenAI):
         base_url: str | None = None,
         http_referer: str | None = None,
         x_title: str | None = None,
+        reasoning_mode: str = "none",
         **kwargs: Any,
     ):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_mode = reasoning_mode
         self.last_usage: dict[str, Any] | None = None
 
         resolved_key = api_key or os.getenv("OPENROUTER_API_KEY")

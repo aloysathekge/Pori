@@ -6,7 +6,12 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from ..observability.events import TEXT_DELTA, TOOL_CALL_START, PoriEvent
+from ..observability.events import (
+    TEXT_DELTA,
+    THINKING_DELTA,
+    TOOL_CALL_START,
+    PoriEvent,
+)
 from .messages import (
     AssistantMessage,
     BaseMessage,
@@ -14,6 +19,7 @@ from .messages import (
     ToolResultMessage,
     ToolTurn,
 )
+from .reasoning import StreamingThinkScrubber
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -36,11 +42,13 @@ class ChatOpenAI:
         api_key: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
+        reasoning_mode: str = "none",
         **kwargs: Any,
     ):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_mode = reasoning_mode
         self._client = AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
         # Last usage metadata from the most recent call (for metrics)
         self.last_usage: dict[str, Any] | None = None
@@ -250,6 +258,21 @@ class ChatOpenAI:
         acc: dict[int, dict[str, str]] = {}
         announced: set[int] = set()  # tool indices we've emitted a start for
         usage = None
+
+        # Reasoning tier: 'native' = a separate reasoning channel; 'tagged' =
+        # inline <think>...</think> in the text; 'none' = plain text only.
+        mode = getattr(self, "reasoning_mode", "none")
+        scrubber = StreamingThinkScrubber() if mode == "tagged" else None
+
+        def _emit_segment(kind: str, seg: str) -> None:
+            if not seg:
+                return
+            if kind == "thinking":
+                _emit(PoriEvent(THINKING_DELTA, {"text": seg}))
+            else:  # visible answer text
+                text_parts.append(seg)
+                _emit(PoriEvent(TEXT_DELTA, {"text": seg}))
+
         async for chunk in stream:
             if getattr(chunk, "usage", None) is not None:
                 usage = chunk.usage
@@ -257,10 +280,19 @@ class ChatOpenAI:
             if not choices:
                 continue
             delta = choices[0].delta
+            if mode == "native":
+                reasoning = getattr(delta, "reasoning_content", None) or getattr(
+                    delta, "reasoning", None
+                )
+                if reasoning:
+                    _emit(PoriEvent(THINKING_DELTA, {"text": reasoning}))
             content = getattr(delta, "content", None)
             if content:
-                text_parts.append(content)
-                _emit(PoriEvent(TEXT_DELTA, {"text": content}))
+                if scrubber is not None:
+                    for kind, seg in scrubber.feed(content):
+                        _emit_segment(kind, seg)
+                else:
+                    _emit_segment("text", content)
             for tc in getattr(delta, "tool_calls", None) or []:
                 idx = getattr(tc, "index", 0) or 0
                 slot = acc.setdefault(idx, {"id": "", "name": "", "args": ""})
@@ -276,6 +308,10 @@ class ChatOpenAI:
                 if slot["name"] and idx not in announced:
                     announced.add(idx)
                     _emit(PoriEvent(TOOL_CALL_START, {"name": slot["name"]}))
+
+        if scrubber is not None:
+            for kind, seg in scrubber.flush():
+                _emit_segment(kind, seg)
 
         if usage is not None:
             self.last_usage = {
