@@ -79,6 +79,62 @@ def test_skill_view_tool_loads_linked_files(tmp_path):
     assert payload["content"] == "Use sharing examples."
 
 
+def test_skills_list_omits_internal_model_invocation_flag():
+    # The routing guard must not leak to the model (it makes the model wrongly
+    # conclude a loaded skill is off-limits); descriptive metadata still shows.
+    registry = _registry_with_skill_tools()
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user a concept",
+            model_invocation_disabled=True,
+        ),
+        "Teach well.",
+    )
+
+    result = ToolExecutor(registry).execute_tool(
+        "skills_list",
+        {"query": "teach"},
+        {"skill_catalog": catalog, "capability_snapshot": registry.snapshot()},
+    )
+
+    skill = result["result"]["skills"][0]
+    assert "model_invocation_disabled" not in skill
+    assert skill["name"] == "Teach"
+    assert skill["summary"]
+
+
+def test_skill_view_signals_skill_is_loaded_and_usable():
+    # A disable-model-invocation skill, once loaded, is still usable — the result
+    # says so, so the model doesn't narrate "I can't use this".
+    registry = _registry_with_skill_tools()
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="teach",
+            name="Teach",
+            version="1",
+            summary="Teach the user",
+            model_invocation_disabled=True,
+        ),
+        "Main instructions.",
+    )
+
+    result = ToolExecutor(registry).execute_tool(
+        "skill_view",
+        {"skill": "teach"},
+        {"skill_catalog": catalog, "capability_snapshot": registry.snapshot()},
+    )
+
+    payload = result["result"]
+    assert payload["loaded"] is True
+    assert "loaded" in payload["usage"].lower()
+    assert payload["content"] == "Main instructions."
+
+
 def test_skill_tools_report_missing_catalog():
     registry = _registry_with_skill_tools()
 

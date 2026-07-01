@@ -34,6 +34,19 @@ def _catalog_from_context(context: Dict[str, Any]) -> SkillCatalog | None:
     return catalog if isinstance(catalog, SkillCatalog) else None
 
 
+def _public_entry(entry: Any) -> Dict[str, Any]:
+    """Model-facing skill metadata.
+
+    Omits internal routing guards like ``model_invocation_disabled`` — that flag
+    governs whether the *orchestrator* may auto-load a skill, not whether the
+    model may use one it (or the user) has loaded. Leaking it makes the model
+    wrongly conclude a loaded skill is off-limits, so it is dropped here.
+    """
+    data = entry.model_dump()
+    data.pop("model_invocation_disabled", None)
+    return data
+
+
 def _snapshot_from_context(context: Dict[str, Any]):
     snapshot = context.get("capability_snapshot")
     if snapshot is not None:
@@ -78,7 +91,7 @@ def register_skill_tools(registry: ToolRegistry) -> None:
                 "query": params.query,
                 "skills": [
                     {
-                        **hit.entry.model_dump(),
+                        **_public_entry(hit.entry),
                         "score": hit.score,
                         "matched_terms": list(hit.matched_terms),
                     }
@@ -90,7 +103,7 @@ def register_skill_tools(registry: ToolRegistry) -> None:
             "available": True,
             "query": "",
             "skills": [
-                item.model_dump() for item in catalog.index(snapshot)[: params.limit]
+                _public_entry(item) for item in catalog.index(snapshot)[: params.limit]
             ],
         }
 
@@ -113,6 +126,13 @@ def register_skill_tools(registry: ToolRegistry) -> None:
         view = catalog.view_file(skill_id, params.file_path)
         return {
             "available": True,
+            "loaded": True,
+            # Once loaded (by the user or by you), a skill's instructions are in
+            # effect regardless of how it was discovered. Follow them for this task.
+            "usage": (
+                f"The '{view.manifest.name}' skill is now loaded. Follow its "
+                "instructions below for this task."
+            ),
             "skill_id": view.manifest.skill_id,
             "name": view.manifest.name,
             "path": view.path,
