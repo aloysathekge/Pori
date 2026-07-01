@@ -145,13 +145,13 @@ class ChatAnthropic:
         self,
         messages: list[BaseMessage],
         tools: list[dict],
-        on_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
     ) -> ToolTurn:
         """Invoke Anthropic with native tool-calling.
 
-        Streaming isn't implemented here yet; when ``on_delta`` is supplied the
-        call runs non-streaming and the full text is delivered as a single chunk
-        so consumers still receive it through the same channel.
+        Native streaming isn't implemented here yet; when ``on_event`` is supplied
+        the call runs non-streaming and the full text is delivered as a single
+        ``text_delta`` event so consumers still receive it through one channel.
         """
         system_prompt = None
         anthropic_messages: list[dict[str, Any]] = []
@@ -230,9 +230,11 @@ class ChatAnthropic:
             text=" ".join(p for p in text_parts if p).strip(),
             tool_calls=tool_calls,
         )
-        if on_delta is not None and turn.text:
+        if on_event is not None and turn.text:
+            from ..observability.events import TEXT_DELTA, PoriEvent
+
             try:
-                on_delta(turn.text)
+                on_event(PoriEvent(TEXT_DELTA, {"text": turn.text}))
             except Exception:
                 pass
         return turn

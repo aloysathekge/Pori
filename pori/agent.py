@@ -230,7 +230,7 @@ class Agent:
         self._soul_text = soul_text
         self._load_project_context = load_project_context
         # Optional sink for streamed assistant text; set per-run via run().
-        self._on_text_delta: Optional[Callable[[str], None]] = None
+        self._on_event: Optional[Callable[[Any], None]] = None
         self.tool_executor = ToolExecutor(self.tools_registry)
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
@@ -818,11 +818,11 @@ class Agent:
         )
         try:
             tools = self.tools_registry.tool_schemas()
-            # Only pass on_delta when streaming is active, so the default call
-            # signature is unchanged for non-streaming callers/mocks.
-            if self._on_text_delta is not None:
+            # Only pass on_event when a consumer is subscribed, so the default
+            # call signature is unchanged for non-streaming callers/mocks.
+            if self._on_event is not None:
                 turn = await self.llm.ainvoke_tools(
-                    messages, tools, on_delta=self._on_text_delta
+                    messages, tools, on_event=self._on_event
                 )
             else:
                 turn = await self.llm.ainvoke_tools(messages, tools)
@@ -2043,7 +2043,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
         self,
         on_step_start: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
         on_step_end: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]] = None,
-        on_text_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
     ) -> Dict[str, Any]:
         """Run the agent until the task is complete or max steps is reached.
 
@@ -2055,11 +2055,12 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 executes (including any planning/reflection within the step).
                 Receives this Agent instance. May be sync or async. Exceptions
                 are logged and ignored.
-            on_text_delta: Optional sink for streamed assistant text chunks. When
-                provided, the agent asks the provider to stream and forwards each
-                chunk here; when None the LLM call is non-streaming (default).
+            on_event: Optional sink for normalized ``PoriEvent``s (text_delta,
+                tool_call_start, ...). When provided, the agent asks the provider
+                to stream and forwards events here; when None the LLM call is
+                non-streaming (default).
         """
-        self._on_text_delta = on_text_delta
+        self._on_event = on_event
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")
 

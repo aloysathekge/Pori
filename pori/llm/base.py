@@ -49,7 +49,7 @@ class BaseChatModel(Protocol):
         self,
         messages: list[BaseMessage],
         tools: list[dict],
-        on_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
     ) -> ToolTurn:
         """Invoke the LLM with native provider tool-calling.
 
@@ -58,10 +58,11 @@ class BaseChatModel(Protocol):
             tools: Provider-agnostic tool schemas, e.g. from
                 ``ToolRegistry.tool_schemas()`` — ``[{name, description,
                 input_schema}]``.
-            on_delta: Optional callback invoked with each text chunk as it
-                streams. When provided, the provider streams the response
-                (feature-flagged upstream); when ``None`` the call is a single
-                non-streaming request. Providers without streaming ignore it.
+            on_event: Optional callback invoked with normalized ``PoriEvent``s
+                (text_delta, tool_call_start, ...) as they stream. When provided,
+                the provider streams; when ``None`` the call is a single
+                non-streaming request. Providers without streaming may emit only
+                a final text_delta.
 
         Returns:
             A ToolTurn with the assistant's text and any requested tool calls.

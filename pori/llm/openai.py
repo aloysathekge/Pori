@@ -6,6 +6,7 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
+from ..observability.events import TEXT_DELTA, TOOL_CALL_START, PoriEvent
 from .messages import (
     AssistantMessage,
     BaseMessage,
@@ -124,7 +125,7 @@ class ChatOpenAI:
         self,
         messages: list[BaseMessage],
         tools: list[dict],
-        on_delta: Optional[Callable[[str], None]] = None,
+        on_event: Optional[Callable[[PoriEvent], None]] = None,
     ) -> ToolTurn:
         """Invoke with native OpenAI-style tool-calling."""
         openai_messages: list[dict[str, Any]] = []
@@ -177,10 +178,10 @@ class ChatOpenAI:
             "tool_choice": "auto",
         }
 
-        # Streaming path: emit text chunks via on_delta while assembling the
-        # full ToolTurn (text + tool calls) from the delta stream.
-        if on_delta is not None:
-            return await self._stream_tools(request, on_delta)
+        # Streaming path: emit normalized events (text deltas + instant
+        # tool_call_start) while assembling the full ToolTurn from the stream.
+        if on_event is not None:
+            return await self._stream_tools(request, on_event)
 
         response = await retry_async(
             lambda: self._client.chat.completions.create(**request),
@@ -217,9 +218,15 @@ class ChatOpenAI:
         return ToolTurn(text=message.content or "", tool_calls=tool_calls)
 
     async def _stream_tools(
-        self, request: dict[str, Any], on_delta: Callable[[str], None]
+        self, request: dict[str, Any], on_event: Callable[[PoriEvent], None]
     ) -> ToolTurn:
-        """Stream a tool-call turn, forwarding text chunks to ``on_delta``."""
+        """Stream a tool-call turn, emitting normalized PoriEvents.
+
+        Per the accumulator rule: text streams live (``text_delta``); tool-call
+        arguments are buffered silently (partial JSON isn't parseable), but a
+        ``tool_call_start`` fires the instant the tool name is known — before its
+        args finish — so tool calls feel instant.
+        """
         request = {
             **request,
             "stream": True,
@@ -231,9 +238,17 @@ class ChatOpenAI:
             label="openai",
         )
 
+        def _emit(event: PoriEvent) -> None:
+            try:
+                on_event(event)
+            except Exception:
+                # A consumer error must never break the run.
+                pass
+
         text_parts: list[str] = []
         # index -> {id, name, args} accumulated across delta chunks.
         acc: dict[int, dict[str, str]] = {}
+        announced: set[int] = set()  # tool indices we've emitted a start for
         usage = None
         async for chunk in stream:
             if getattr(chunk, "usage", None) is not None:
@@ -245,11 +260,7 @@ class ChatOpenAI:
             content = getattr(delta, "content", None)
             if content:
                 text_parts.append(content)
-                try:
-                    on_delta(content)
-                except Exception:
-                    # A consumer error must never break the run.
-                    pass
+                _emit(PoriEvent(TEXT_DELTA, {"text": content}))
             for tc in getattr(delta, "tool_calls", None) or []:
                 idx = getattr(tc, "index", 0) or 0
                 slot = acc.setdefault(idx, {"id": "", "name": "", "args": ""})
@@ -261,6 +272,10 @@ class ChatOpenAI:
                         slot["name"] = fn.name
                     if getattr(fn, "arguments", None):
                         slot["args"] += fn.arguments
+                # Announce the tool the instant its name is known (before args).
+                if slot["name"] and idx not in announced:
+                    announced.add(idx)
+                    _emit(PoriEvent(TOOL_CALL_START, {"name": slot["name"]}))
 
         if usage is not None:
             self.last_usage = {

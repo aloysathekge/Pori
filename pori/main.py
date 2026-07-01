@@ -24,7 +24,7 @@ from .evolution import (
 )
 from .hitl import CLIHITLHandler
 from .memory import AgentMemory, create_memory_store
-from .observability import build_tool_preview
+from .observability import TEXT_DELTA, TOOL_CALL_START, build_tool_preview
 from .orchestrator import Orchestrator
 from .skills import (
     SkillBundleCatalog,
@@ -1088,15 +1088,30 @@ async def main():
     # the completion line stays on its own row and we don't reprint the activity.
     _stream_state = {"active": False}
 
-    def on_text_delta(chunk: str) -> None:
-        if not chunk:
-            return
-        _stream_state["active"] = True
-        try:
-            sys.stdout.write(_console_safe_text(chunk))
-            sys.stdout.flush()
-        except Exception:
-            pass
+    def on_event(event: Any) -> None:
+        """Render normalized PoriEvents live: stream text; announce tools."""
+        etype = getattr(event, "type", "")
+        payload = getattr(event, "payload", {}) or {}
+        if etype == TEXT_DELTA:
+            text = payload.get("text", "")
+            if not text:
+                return
+            _stream_state["active"] = True
+            try:
+                sys.stdout.write(_console_safe_text(text))
+                sys.stdout.flush()
+            except Exception:
+                pass
+        elif etype == TOOL_CALL_START:
+            # Announce the tool the instant it's chosen (before args finish).
+            name = payload.get("name", "")
+            if not name:
+                return
+            label = build_tool_preview(name, {})
+            prefix = "\n" if _stream_state["active"] else ""
+            _stream_state["active"] = True
+            # "»" renders on legacy Windows codepages where "→" does not.
+            _safe_print(f"{prefix}  » {label}…", flush=True)
 
     def on_step_start(agent: Agent):
         # No loop-counter noise ("Step N"). Progress is shown as streamed text
@@ -1356,7 +1371,7 @@ async def main():
                     ),
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
-                    on_text_delta=(on_text_delta if config.llm.streaming else None),
+                    on_event=(on_event if config.llm.streaming else None),
                     sandbox_base_dir=sandbox_base_dir,
                     hitl_handler=hitl_handler,
                     hitl_config=hitl_config,

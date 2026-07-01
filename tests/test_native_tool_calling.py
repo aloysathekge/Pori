@@ -462,7 +462,9 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
     llm = ChatOpenAI(api_key="x", model="m")
     llm._client = _StreamClient(chunks)
 
-    seen: list[str] = []
+    from pori.observability import TEXT_DELTA, TOOL_CALL_START
+
+    events: list = []
     turn = asyncio.run(
         llm.ainvoke_tools(
             [SystemMessage(content="s"), UserMessage(content="hi")],
@@ -473,14 +475,16 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
                     "input_schema": {"type": "object"},
                 }
             ],
-            on_delta=seen.append,
+            on_event=events.append,
         )
     )
 
-    assert "".join(seen) == "Saving"  # text streamed chunk-by-chunk
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA)
+    starts = [e for e in events if e.type == TOOL_CALL_START]
+    assert text == "Saving"  # text streamed chunk-by-chunk
+    # tool announced the instant its name arrived (before args finished)
+    assert [s.payload["name"] for s in starts] == ["write_file"]
     assert turn.text == "Saving"
-    assert len(turn.tool_calls) == 1
-    assert turn.tool_calls[0].name == "write_file"
     assert turn.tool_calls[0].arguments == {"file_path": "a"}
     assert llm._client.chat.completions.last_kwargs["stream"] is True
     assert llm.last_usage["total_tokens"] == 7
@@ -493,19 +497,23 @@ class _StreamingMockLLM:
         self.model = "mock"
         self.last_usage = None
 
-    async def ainvoke_tools(self, messages, tools, on_delta=None):
+    async def ainvoke_tools(self, messages, tools, on_event=None):
+        from pori.observability import TEXT_DELTA, PoriEvent
+
         turn = self._turns[min(self.i, len(self._turns) - 1)]
         self.i += 1
-        if on_delta and turn.text:
+        if on_event and turn.text:
             for word in turn.text.split(" "):
-                on_delta(word + " ")
+                on_event(PoriEvent(TEXT_DELTA, {"text": word + " "}))
         return turn
 
     def with_structured_output(self, *a, **k):  # pragma: no cover
         raise AssertionError("native mode must not use structured output")
 
 
-def test_agent_forwards_on_text_delta_when_streaming():
+def test_agent_forwards_events_when_streaming():
+    from pori.observability import TEXT_DELTA
+
     llm = _StreamingMockLLM(
         [
             ToolTurn(
@@ -526,6 +534,7 @@ def test_agent_forwards_on_text_delta_when_streaming():
         settings=AgentSettings(max_steps=2),
         memory=AgentMemory(),
     )
-    seen: list[str] = []
-    asyncio.run(agent.run(on_text_delta=seen.append))
-    assert "".join(seen).strip() == "hello world"
+    events: list = []
+    asyncio.run(agent.run(on_event=events.append))
+    text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA).strip()
+    assert text == "hello world"
