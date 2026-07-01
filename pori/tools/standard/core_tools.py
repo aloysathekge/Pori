@@ -57,7 +57,9 @@ def answer_tool(params: AnswerParams, context: Dict[str, Any]) -> Dict[str, Any]
     """Provide a final answer to the user's question."""
     answer = {
         "final_answer": params.final_answer,
-        "reasoning": params.reasoning or "No additional reasoning provided.",
+        # Empty reasoning is normal for a plain prose reply; keep it empty so the
+        # CLI/UI can omit a hollow "Reasoning:" line.
+        "reasoning": params.reasoning or "",
         "artifact_references": [
             reference.model_dump(exclude_none=True)
             for reference in params.artifact_references

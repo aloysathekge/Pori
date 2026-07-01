@@ -1086,7 +1086,7 @@ async def main():
     # the agent emits real per-step events (not polling).
     # Live-streaming state: tracks whether the current step has streamed text so
     # the completion line stays on its own row and we don't reprint the activity.
-    _stream_state = {"active": False}
+    _stream_state: dict = {"active": False, "buffer": ""}
 
     def on_event(event: Any) -> None:
         """Render normalized PoriEvents live: stream text; announce tools."""
@@ -1097,6 +1097,7 @@ async def main():
             if not text:
                 return
             _stream_state["active"] = True
+            _stream_state["buffer"] += text  # to dedup the final-answer echo
             try:
                 sys.stdout.write(_console_safe_text(text))
                 sys.stdout.flush()
@@ -1358,6 +1359,8 @@ async def main():
             else:
                 # Execute via single-agent Orchestrator
                 logger.info("Starting task execution")
+                _stream_state["active"] = False
+                _stream_state["buffer"] = ""
                 result = await orchestrator.execute_task(
                     task=task,
                     agent_settings=AgentSettings(
@@ -1418,8 +1421,17 @@ async def main():
 
                     if final_answer:
                         logger.info("Final answer provided")
-                        print("\nFINAL ANSWER:")
-                        _safe_print(f"  {final_answer['final_answer']}")
+                        # If the answer already streamed live as text, don't echo
+                        # the whole thing again — just note it.
+                        answer_text = (final_answer.get("final_answer") or "").strip()
+                        already_streamed = bool(answer_text) and (
+                            answer_text in _stream_state.get("buffer", "")
+                        )
+                        if already_streamed:
+                            print("\n(answer streamed above)")
+                        else:
+                            print("\nFINAL ANSWER:")
+                            _safe_print(f"  {final_answer['final_answer']}")
                         if final_answer.get("reasoning"):
                             _safe_print(f"\n  Reasoning: {final_answer['reasoning']}")
                         print(

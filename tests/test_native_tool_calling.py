@@ -366,7 +366,7 @@ def test_text_only_turn_becomes_answer():
         {
             "answer": {
                 "final_answer": "The files were deleted; nothing to show.",
-                "reasoning": "Direct response.",
+                "reasoning": "",
             }
         }
     ]

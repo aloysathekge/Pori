@@ -839,7 +839,7 @@ class Agent:
                     {
                         "answer": {
                             "final_answer": turn.text.strip(),
-                            "reasoning": "Direct response.",
+                            "reasoning": "",
                         }
                     }
                 ]
