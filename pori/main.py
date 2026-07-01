@@ -1147,11 +1147,13 @@ async def main():
             _begin_block("thinking")
             _stream_write(f"{_DIM}{text}{_RESET}")
         elif etype == TOOL_CALL_START:
-            # Announce the tool the instant it's chosen (before args finish).
+            # Announce the tool with its args, so the label is specific
+            # ("Writing age_calculator.py", not just "Writing a file").
             name = payload.get("name", "")
             if not name:
                 return
-            label = build_tool_preview(name, {})
+            args = payload.get("args") or {}
+            label = build_tool_preview(name, args if isinstance(args, dict) else {})
             prefix = "\n" if _stream_state["active"] else ""
             _stream_state["active"] = True
             _stream_state["block"] = None  # a tool line breaks the content block

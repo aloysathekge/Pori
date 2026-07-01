@@ -462,7 +462,7 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
     llm = ChatOpenAI(api_key="x", model="m")
     llm._client = _StreamClient(chunks)
 
-    from pori.observability import TEXT_DELTA, TOOL_CALL_START
+    from pori.observability import TEXT_DELTA
 
     events: list = []
     turn = asyncio.run(
@@ -480,11 +480,10 @@ def test_openai_streaming_forwards_deltas_and_assembles_tool_call():
     )
 
     text = "".join(e.payload["text"] for e in events if e.type == TEXT_DELTA)
-    starts = [e for e in events if e.type == TOOL_CALL_START]
     assert text == "Saving"  # text streamed chunk-by-chunk
-    # tool announced the instant its name arrived (before args finished)
-    assert [s.payload["name"] for s in starts] == ["write_file"]
     assert turn.text == "Saving"
+    # tool call assembled from the arg deltas (announced by the agent, with args)
+    assert turn.tool_calls[0].name == "write_file"
     assert turn.tool_calls[0].arguments == {"file_path": "a"}
     assert llm._client.chat.completions.last_kwargs["stream"] is True
     assert llm.last_usage["total_tokens"] == 7

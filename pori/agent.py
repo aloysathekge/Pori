@@ -49,7 +49,7 @@ from .metrics import (
     ToolCallMetrics,
     estimate_llm_call_cost,
 )
-from .observability import RUN_END, RUN_START, TOOL_CALL_END, PoriEvent
+from .observability import RUN_END, RUN_START, TOOL_CALL_END, TOOL_CALL_START, PoriEvent
 from .observability.trace import Span, SpanStatus, SpanType, Trace
 from .planning import PlanStore
 from .prompts import (
@@ -1900,6 +1900,15 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 # --- end Completion quality gate ---
 
                 start_time = datetime.now()
+                # Announce the tool with its full args, so the renderer can show a
+                # specific label ("Writing age_calculator.py", not "Writing a file").
+                self._emit(
+                    TOOL_CALL_START,
+                    {
+                        "name": tool_name,
+                        "args": params if isinstance(params, dict) else {},
+                    },
+                )
 
                 # Execute the tool
                 tool_context = {

@@ -6,12 +6,7 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from ..observability.events import (
-    TEXT_DELTA,
-    THINKING_DELTA,
-    TOOL_CALL_START,
-    PoriEvent,
-)
+from ..observability.events import TEXT_DELTA, THINKING_DELTA, PoriEvent
 from .messages import (
     AssistantMessage,
     BaseMessage,
@@ -256,7 +251,6 @@ class ChatOpenAI:
         text_parts: list[str] = []
         # index -> {id, name, args} accumulated across delta chunks.
         acc: dict[int, dict[str, str]] = {}
-        announced: set[int] = set()  # tool indices we've emitted a start for
         usage = None
 
         # Reasoning tier: 'native' = a separate reasoning channel; 'tagged' =
@@ -304,10 +298,6 @@ class ChatOpenAI:
                         slot["name"] = fn.name
                     if getattr(fn, "arguments", None):
                         slot["args"] += fn.arguments
-                # Announce the tool the instant its name is known (before args).
-                if slot["name"] and idx not in announced:
-                    announced.add(idx)
-                    _emit(PoriEvent(TOOL_CALL_START, {"name": slot["name"]}))
 
         if scrubber is not None:
             for kind, seg in scrubber.flush():
