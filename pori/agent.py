@@ -964,25 +964,32 @@ class Agent:
         return evidence
 
     def _get_current_context(self) -> str:
-        """Get the current context for the LLM."""
-        # In a real implementation, this would include details about:
-        # - Current state in the target domain
-        # - Recent tool calls and results
-        # - Progress toward the goal
+        """Get the current context for the LLM.
 
-        # For this minimal example, we'll just provide task status
-        tasks_status = "\n".join(
-            [
-                f"Task '{task.description}': {task.status}"
-                for task in self.memory.tasks.values()
-            ]
+        Scoped to the CURRENT task/turn only. Prior tasks and prior-turn tool
+        calls are excluded so the model never sees an earlier answer to a similar
+        question and wrongly concludes it "already answered" the current one.
+        """
+        current = self.memory.tasks.get(self.task_id)
+        tasks_status = (
+            f"Task '{current.description}': {current.status}"
+            if current is not None
+            else f"Task '{self.task}': in_progress"
         )
 
-        recent_tools = "\n".join(
-            [
-                f"Tool '{t.tool_name}' called with {t.parameters} → {'Success' if t.success else 'Failed'}\n  Result: {t.result}"
-                for t in self.memory.tool_call_history[-5:]  # Last 5 tool calls
-            ]
+        current_calls = [
+            t
+            for t in self.memory.tool_call_history
+            if getattr(t, "task_id", None) == self.task_id
+        ]
+        recent_tools = (
+            "\n".join(
+                [
+                    f"Tool '{t.tool_name}' called with {t.parameters} → {'Success' if t.success else 'Failed'}\n  Result: {t.result}"
+                    for t in current_calls[-5:]  # last 5 for THIS task
+                ]
+            )
+            or "(no actions yet for this task)"
         )
         runtime_facts = json.dumps(
             self._runtime_fact_summary(),

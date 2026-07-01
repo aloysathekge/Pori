@@ -661,3 +661,34 @@ def test_openai_streaming_tagged_reasoning_splits_thinking():
     assert text == "Here is it."
     # reasoning is excluded from the answer text
     assert turn.text == "Here is it."
+
+
+def test_context_is_scoped_to_current_task():
+    # A prior turn's task + answer must not leak into the current task's context,
+    # else the model thinks it "already answered" and loops.
+    from pori.memory import AgentMemory, ToolCallRecord
+
+    memory = AgentMemory()
+    memory.create_task("old_task_id", "what is a mutex")
+    memory.tool_call_history.append(
+        ToolCallRecord(
+            tool_name="answer",
+            parameters={"final_answer": "an old answer"},
+            result={"final_answer": "an old answer"},
+            success=True,
+            task_id="old_task_id",
+        )
+    )
+    agent = Agent(
+        task="what is a semaphore",
+        llm=object(),
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=2),
+        memory=memory,
+    )
+    ctx = agent._get_current_context()
+
+    assert "what is a mutex" not in ctx  # prior task hidden
+    assert "an old answer" not in ctx  # prior answer hidden
+    assert "no actions yet for this task" in ctx
+    assert "what is a semaphore" in ctx  # current task shown
