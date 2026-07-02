@@ -391,6 +391,11 @@ class ToolRegistry:
         return min(limits) if limits else None
 
 
+# Global fallback ceiling so a tool with no group-level cap still can't flood the
+# context window with an unbounded result (Hermes' max_result_size_chars idea).
+DEFAULT_MAX_OUTPUT_CHARS = 100_000
+
+
 class ToolExecutor:
     """Executes tools registered in the registry."""
 
@@ -404,7 +409,9 @@ class ToolExecutor:
         validated_params = tool.param_model(**params)
         try:
             result = tool.function(validated_params, context)
-            limit = self.registry.output_limit_for(tool_name)
+            limit = (
+                self.registry.output_limit_for(tool_name) or DEFAULT_MAX_OUTPUT_CHARS
+            )
             if limit is not None:
                 rendered = json.dumps(result, default=str, sort_keys=True)
                 if len(rendered) > limit:
