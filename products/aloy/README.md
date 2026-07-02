@@ -4,11 +4,11 @@
 
 ## Composition
 
-Aloy = `pori` (kernel) + chosen `ext/pori-*` + Aloy-specific glue:
+Aloy = `pori` (kernel) + chosen `extensions/pori-*` + Aloy-specific glue:
 - **backend** — evolves from the repo's `pori/api` (tenancy, RBAC, SSE, policy). ⚠ *Reconcile with the existing `Pori/pori_cloud` sibling project — see [`../../MONOREPO.md`](../../MONOREPO.md) open questions.*
 - **cli** — the daily-driver CLI surface
 - **gateway** — messaging platforms (later; Slack for org, Telegram for personal — harvest Hermes architecture)
-- **web / desktop** — surfaces harvested from Hermes, **retargeted to REST + SSE** (strip the PTY bridge)
+- **surfaces** (`apps/web`, `apps/desktop`) — harvested from Hermes, **retargeted to REST + SSE** (strip the PTY bridge)
 - **org policy** — the org policy engine expressed as scoped kernel validators
 - **tenancy** — org→team→personal (layered inheritance; personal populated first, tenancy-aware from day 1)
 
@@ -18,4 +18,4 @@ Personal Aloy first (Hermes-grade daily-driver on the hardened kernel), org plan
 
 ## Rule
 
-Aloy imports `ext` and `pori`; the kernel never imports Aloy. Surfaces talk to the backend over REST + SSE, not Python import.
+Aloy imports `extensions` and `pori`; the kernel never imports Aloy. Surfaces talk to the backend over REST + SSE, not Python import.

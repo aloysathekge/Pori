@@ -39,7 +39,7 @@ dependencies = [
 pori = "pori.cli:run"
 
 [tool.setuptools.packages.find]
-where = ["packages/pori"] 
+where = ["."] 
 include = ["pori*"]
 exclude = ["dev_docs*", "tests*", "examples*"]
 

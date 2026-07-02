@@ -23,8 +23,8 @@
 
 **Steps**
 1. Convert the repo to a **uv workspace** with:
-   - `packages/pori/` (kernel), `packages/ext/` (empty band), `products/aloy/` (empty), `references/`, `tools/ci/`.
-   - Each package gets its own `pyproject.toml`; root declares the workspace.
+   - Flat, intent-named bands: `pori/` (kernel), `extensions/`, `products/aloy/`, `apps/`, `website/`, `references/`, `tools/ci/`.
+   - **Single root `pyproject.toml`** for now (`packages.find where=["."]`); the per-package uv-workspace split is deferred until `pori` is published standalone or `extensions`/`products` add Python packages.
 2. Add the **dependency-boundary check** (e.g. `import-linter` contract or a small script in `tools/ci/`) enforcing `products → ext → pori`, never upward. Wire into CI as a required gate.
 3. Add **supply-chain gates** to CI: OSV scan (lockfile), a dependency-bounds check (reject unbounded `>=`), and SHA-pinned actions. *(Donor: Hermes `osv-scanner.yml`, `supply-chain-audit.yml`.)*
 4. Create `references/HARVEST.md` (ledger scaffold: pattern → source → license → destination → why) and add donor repos to `references/` (git-ignored or submodules).
@@ -157,8 +157,8 @@ Build in dependency order to minimize rework. Preserves the Evaluator loop, Core
 ## 7. Phase 4 (Milestone M6) — Package migration & publish
 
 - **Move** current modules into their bands per the boundary:
-  - **`packages/pori`:** runtime (`orchestrator/`, loop skeleton, `**⚠ Team placement OPEN**`), `llm/`, tools engine (`tools/registry.py`, executor), `observability/` (receipts + event protocol), `context.py`, `sandbox/`, validation (Validator interface + safety floor), memory engine (`memory/`), interfaces.
-  - **`packages/ext/pori-*`:** memory-scope/tenancy, skills, learning, providers, gateway (later), cli-kit.
+  - **`pori`:** runtime (`orchestrator/`, loop skeleton, `**⚠ Team placement OPEN**`), `llm/`, tools engine (`tools/registry.py`, executor), `observability/` (receipts + event protocol), `context.py`, `sandbox/`, validation (Validator interface + safety floor), memory engine (`memory/`), interfaces.
+  - **`extensions/pori-*`:** memory-scope/tenancy, skills, learning, providers, gateway (later), cli-kit.
   - **`products/aloy`:** the backend (**evolve `pori/api`** into `aloy-api`), aloy-cli, org policy, tenancy shape.
 - **Enforce** the dependency-boundary check throughout; **publish** `pori` standalone (pre-1.0; breaking changes allowed during migration — **⚠ confirm**).
 - **Concrete/standard tools** move to ext or product per the footprint discipline.

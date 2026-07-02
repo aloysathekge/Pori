@@ -164,33 +164,35 @@ The kernel defines the contracts implemented above it: `MemoryProvider`, `SkillP
 
 ---
 
-## 8. Architecture — three bands & kernel layout
+## 8. Architecture — the bands & kernel layout
 
-### 8.1 The three bands (monorepo, uv workspace)
+### 8.1 The bands (flat, intent-named)
 ```
-repo root (uv workspace)
-├─ packages/
-│  ├─ pori/        KERNEL — product-agnostic, publishable
-│  │               runtime · protocol · receipts · validation · llm · tools · context ·
-│  │               sandbox · memory engine · interfaces
-│  └─ ext/         EXTENSION BAND (pori-*) — reusable across products, opt-in, publishable
-│                  memory-scope/tenancy · skills · learning · gateway · providers · cli-kit
+repo root (single distribution for now; see MONOREPO.md)
+├─ pori/          KERNEL — product-agnostic
+│                 runtime · protocol · receipts · validation · llm · tools · context ·
+│                 sandbox · memory engine · interfaces
+├─ extensions/    reusable pori-* libs — opt-in (memory-scope/tenancy · skills · learning ·
+│                 gateway · providers · cli-kit); created on promotion, not on spec
 ├─ products/
-│  ├─ aloy/        FLAGSHIP PRODUCT #1 (personal + org OS): backend/cli/gateway/web/desktop
-│  │               + Aloy-specific org policy, tenancy shape, branding
-│  └─ <future>/    additional products: kernel + chosen ext + niche glue
-├─ references/     donor OSS (Hermes, OpenHands, Aider, Letta, …) + HARVEST.md
-└─ tools/ci/       dependency-boundary enforcement, lint, tests
+│  ├─ aloy/       FLAGSHIP PRODUCT #1 (personal + org OS): backend · cli · gateway
+│  │              + Aloy-specific org policy, tenancy shape, branding
+│  └─ <future>/   additional products: kernel + chosen extensions + niche glue
+├─ apps/          frontend surfaces (web, desktop) — REST + SSE to a product backend
+├─ website/       public marketing site
+├─ docs/          PRD, plan, ALIGNMENT, design docs
+├─ tools/ci/      dependency-boundary enforcement, lint, tests
+└─ (donors)       external OSS at ../references/ (Hermes, OpenHands, Aider, Letta, …)
 ```
 
-### 8.2 Dependency rule (CI-enforced)
-`products → ext → pori`, **never upward.** A product may use the kernel directly and skip an extension. Enforced by a dependency-boundary check (e.g. `import-linter` or a small script) so any commit where `pori` imports `ext`/`products` fails the build.
+### 8.2 Dependency rule (CI-enforced, staged)
+`products / apps → extensions → pori`, **never upward.** A product may use the kernel directly and skip an extension. Enforced by a dependency-boundary check (`import-linter` or a small script) so any commit where `pori` imports `extensions`/`products` fails the build.
 
 ### 8.3 Publishability & "the open framework"
-`pori` has its own `pyproject.toml`, no `ext`/`product` imports, and is publishable standalone. **"The open framework" = `pori` + the `ext` band.** Products are branded/private compositions.
+Today `pori` is the sole distribution (single root `pyproject.toml`). When split into a uv workspace, `pori` becomes independently publishable with no `extensions`/`product` imports. **"The open framework" = `pori` + the `extensions` band.** Products are branded/private compositions.
 
 ### 8.4 Anti-speculation rule
-The kernel is product-agnostic from day one. An `ext/pori-*` package is created only when the capability is *obviously* generic; otherwise it is built in `products/aloy/` and **promoted on second use**.
+The kernel is product-agnostic from day one. An `extensions/pori-*` package is created only when the capability is *obviously* generic; otherwise it is built in `products/aloy/` and **promoted on second use**.
 
 ---
 

@@ -1,6 +1,6 @@
-# packages/ext — EXTENSION BAND (`pori-*`)
+# extensions — reusable `pori-*` libraries
 
-Reusable-across-products building blocks that are **not** the kernel and **not** a single product. Opt-in, publishable, may import `pori` **only**.
+Reusable-across-products building blocks that are **not** the kernel and **not** a single product. Opt-in; may import `pori` **only**.
 
 ## Planned extensions (created on demand, not up front)
 
@@ -13,4 +13,4 @@ Reusable-across-products building blocks that are **not** the kernel and **not**
 
 ## Anti-speculation rule
 
-**Do not create a `pori-*` package on spec.** Build the capability inside `products/aloy/` first; when a **second** product needs it, *promote* the reusable part here (rule of three). Log the promotion in [`../../HARVEST.md`](../../HARVEST.md) if it involved harvested patterns.
+**Do not create a `pori-*` extension on spec.** Build the capability inside `products/aloy/` first; when a **second** product needs it, *promote* the reusable part here (rule of three). Log the promotion in [`../HARVEST.md`](../HARVEST.md) if it involved harvested patterns.
