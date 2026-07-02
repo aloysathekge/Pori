@@ -15,6 +15,7 @@ load_dotenv()
 from pathlib import Path
 
 from .agent import Agent, AgentSettings
+from .cli_commands import COMMAND_REGISTRY, command_help_lines
 from .config import Config, LLMConfig, get_configured_llm
 from .evolution import (
     EvolutionEvalResult,
@@ -718,6 +719,12 @@ def _handle_cli_command(
     parts = command.strip().split()
     cmd = parts[0].lower()
 
+    if cmd in {"/help", "/commands"}:
+        print("Available commands:")
+        for line in command_help_lines():
+            print(line)
+        return
+
     if cmd in {"/new", "/reset", "/clear"}:
         # Start a fresh conversation: drop transient per-task state (messages,
         # tool-call history, open task records) so the next task doesn't
@@ -871,8 +878,9 @@ def _handle_cli_command(
     else:
         print(f"Unknown command: {cmd}")
         print(
-            "Available commands: /memory, /model, /new, /skills, "
-            "/skill, /evolution, /reload-skills"
+            "Available commands: "
+            + ", ".join(f"/{c.name}" for c in COMMAND_REGISTRY)
+            + "  (type /help for details)"
         )
 
 
