@@ -18,6 +18,7 @@ from .agent import Agent, AgentSettings
 from .cli_commands import COMMAND_REGISTRY, command_help_lines
 from .cli_prompt import read_user_input
 from .config import Config, LLMConfig, get_configured_llm
+from .curator import record_skill_use, run_curation, should_run_now
 from .evolution import (
     EvolutionEvalResult,
     EvolutionProposal,
@@ -163,6 +164,27 @@ def _cli_skill_default_dir(config: Optional[Config]) -> Path:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path.resolve()
+
+
+def _run_skill_curation(config: Config) -> None:
+    """Inactivity-triggered deterministic curation of agent-grown skills (SK-1 L3).
+
+    Deterministic, agent-created-only, archive-only, and never allowed to block or
+    crash startup.
+    """
+    try:
+        base = Path.cwd() / ".pori"
+        if not should_run_now(base=base):
+            return
+        result = run_curation(_cli_skill_default_dir(config), base=base)
+        if result.changed:
+            print(
+                f"Tidied skills: {len(result.archived)} archived, "
+                f"{len(result.marked_stale)} marked stale "
+                "(archived skills moved to .archive/, recoverable)."
+            )
+    except Exception:
+        pass
 
 
 def _summarize_written_artifacts(tool_calls: List[Any]) -> List[str]:
@@ -1076,6 +1098,7 @@ async def main():
     skill_limit = getattr(getattr(config, "skills", None), "skill_limit", 3)
     if skill_catalog is not None:
         logger.info(f"Loaded {len(skill_catalog.manifests())} local skill(s)")
+        _run_skill_curation(config)
     if bundle_catalog is not None and bundle_catalog.bundles():
         logger.info(f"Loaded {len(bundle_catalog.bundles())} skill bundle(s)")
 
@@ -1366,6 +1389,10 @@ async def main():
             )
             if selected_skill_ids:
                 print(f"Using skill: {', '.join(selected_skill_ids)}")
+
+        # SK-1 layer 3: mark selected skills used so active ones don't age out.
+        for _selected in selected_skill_ids or []:
+            record_skill_use(_selected, base=Path.cwd() / ".pori")
 
         missing_skill_argument = _missing_skill_argument_message(
             skill_catalog,
