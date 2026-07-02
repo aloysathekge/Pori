@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .agent import Agent, AgentSettings
 from .cli_commands import COMMAND_REGISTRY, command_help_lines
+from .cli_prompt import read_user_input
 from .config import Config, LLMConfig, get_configured_llm
 from .evolution import (
     EvolutionEvalResult,
@@ -1245,7 +1246,7 @@ async def main():
                 prompt = "Skill detail needed. Enter detail, /cancel, or q to exit \n"
             else:
                 prompt = "How can I help you today? enter q to exit \n"
-            task = input(prompt).strip()
+            task = (await read_user_input(prompt)).strip()
         except EOFError:
             logger.info("Input closed (EOF)")
             print("\nGoodbye!")

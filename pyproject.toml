@@ -72,10 +72,16 @@ embeddings = [
 web = [
     "tavily-python>=0.5.0,<1",
 ]
+# Rich interactive CLI: slash-command completion + persistent history (CLI-2).
+# Optional — the CLI falls back to plain input() without it.
+cli = [
+    "prompt_toolkit>=3.0.0,<4",
+]
 # Everything above in one shot.
 all = [
     "sentence-transformers>=3.2.1,<6",
     "tavily-python>=0.5.0,<1",
+    "prompt_toolkit>=3.0.0,<4",
 ]
 test = [
     "pytest>=7.3.1,<10",
