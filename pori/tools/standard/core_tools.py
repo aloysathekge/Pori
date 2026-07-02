@@ -3,11 +3,15 @@ Core tools required for agent operation.
 """
 
 import logging
+import re
+from pathlib import Path
 from typing import Any, Dict, Literal
 
+import yaml
 from pydantic import BaseModel, Field
 
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
+from pori.skill_provenance import is_agent_origin, mark_agent_created
 from pori.threat_patterns import first_threat_message
 
 from ..registry import tool_registry
@@ -465,6 +469,102 @@ def propose_evolution_tool(
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+_SKILL_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
+
+
+class WriteSkillParams(BaseModel):
+    slug: str = Field(
+        ...,
+        description="Lowercase-hyphenated skill name (matches the frontmatter name).",
+    )
+    content: str = Field(
+        ..., description="The full SKILL.md text (--- frontmatter --- then body)."
+    )
+    overwrite: bool = Field(
+        default=False, description="Replace an existing skill with the same slug."
+    )
+
+
+@Registry.tool(
+    name="write_skill",
+    param_model=WriteSkillParams,
+    description=(
+        "Author/install a reusable skill: writes a validated SKILL.md into the "
+        "skills directory. Use this (not write_file) to save a skill."
+    ),
+)
+def write_skill_tool(params: WriteSkillParams, context: Dict[str, Any]):
+    """Install an authored SKILL.md (SK-1 layer 1).
+
+    Validates the frontmatter, writes to ``{skills_dir}/{slug}/SKILL.md``, and —
+    when the current write-origin is an autonomous agent origin (SK-2) — records
+    the skill as agent-created so the curator may later manage it.
+    """
+    slug = params.slug.strip().lower()
+    if not _SKILL_SLUG_RE.match(slug):
+        return {
+            "success": False,
+            "error": "slug must be lowercase-hyphenated, 3-64 chars (e.g. search-arxiv)",
+        }
+
+    text = params.content.strip()
+    if not text.startswith("---"):
+        return {
+            "success": False,
+            "error": "SKILL.md must start with a --- YAML frontmatter block",
+        }
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {
+            "success": False,
+            "error": "SKILL.md frontmatter is not closed with ---",
+        }
+    try:
+        meta = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError as exc:
+        return {"success": False, "error": f"invalid frontmatter YAML: {exc}"}
+    if not isinstance(meta, dict) or not meta.get("name"):
+        return {"success": False, "error": "frontmatter needs a 'name'"}
+    description = str(meta.get("description") or meta.get("summary") or "")
+    if not description:
+        return {"success": False, "error": "frontmatter needs a 'description'"}
+
+    warnings = []
+    if len(description) > 60:
+        warnings.append(
+            f"description is {len(description)} chars; the skill index truncates to "
+            "60, so trim it for reliable routing"
+        )
+
+    skills_dir = Path((context or {}).get("skills_dir") or "./.pori/skills")
+    destination = skills_dir / slug / "SKILL.md"
+    if destination.exists() and not params.overwrite:
+        return {
+            "success": False,
+            "error": f"skill '{slug}' already exists; pass overwrite=true to replace",
+        }
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text + "\n", encoding="utf-8")
+    except OSError as exc:
+        return {"success": False, "error": f"could not write skill: {exc}"}
+
+    version = str(meta.get("version") or "0.1.0")
+    if is_agent_origin():
+        mark_agent_created(f"{slug}@{version}")
+
+    return {
+        "success": True,
+        "slug": slug,
+        "path": str(destination),
+        "warnings": warnings,
+        "message": (
+            f"Saved skill '{slug}'. It is available after /reload-skills or on the "
+            "next session."
+        ),
+    }
 
 
 def register_core_tools(registry=None):

@@ -49,6 +49,12 @@ COMMAND_REGISTRY: List[CommandDef] = [
     CommandDef(
         "skill", "Show details for one skill", "Skills", args_hint="<name-or-id> [file]"
     ),
+    CommandDef(
+        "learn",
+        "Author a reusable skill from a source, URL, or this conversation",
+        "Skills",
+        args_hint="<what to learn>",
+    ),
     CommandDef("reload-skills", "Reload local skills and bundles from disk", "Skills"),
     CommandDef(
         "evolution",
