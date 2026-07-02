@@ -11,7 +11,9 @@ from .messages import (
     ToolCall,
     ToolResultMessage,
     ToolTurn,
+    Usage,
     UserMessage,
+    normalize_usage,
 )
 from .openai import ChatOpenAI
 from .openrouter import ChatOpenRouter
@@ -31,6 +33,8 @@ __all__ = [
     "ToolCall",
     "ToolResultMessage",
     "ToolTurn",
+    "Usage",
+    "normalize_usage",
     "BaseChatModel",
     "ChatAnthropic",
     "ChatFireworks",

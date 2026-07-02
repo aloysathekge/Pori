@@ -1383,8 +1383,11 @@ async def main():
                     max_steps=config.agent.max_steps,
                     planning_mode=config.agent.planning_mode,
                     reflection_mode=config.agent.reflection_mode,
+                    context_window_auto=config.agent.context_window_auto,
                     context_window_tokens=config.agent.context_window_tokens,
                     context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                    compress_context=config.agent.compress_context,
+                    tool_loop_guardrail=config.agent.tool_loop_guardrail,
                     validate_output=config.agent.validate_output,
                     max_validation_retries=config.agent.max_validation_retries,
                 )
@@ -1438,8 +1441,11 @@ async def main():
                         max_steps=config.agent.max_steps,
                         planning_mode=config.agent.planning_mode,
                         reflection_mode=config.agent.reflection_mode,
+                        context_window_auto=config.agent.context_window_auto,
                         context_window_tokens=config.agent.context_window_tokens,
                         context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
+                        compress_context=config.agent.compress_context,
+                        tool_loop_guardrail=config.agent.tool_loop_guardrail,
                         validate_output=config.agent.validate_output,
                         max_validation_retries=config.agent.max_validation_retries,
                     ),
@@ -1481,7 +1487,9 @@ async def main():
                                 f"tool_calls={metrics.get('tool_calls')}, "
                                 f"tokens_in={tokens.get('input')}, "
                                 f"tokens_out={tokens.get('output')}, "
-                                f"tokens_total={tokens.get('total')}"
+                                f"tokens_total={tokens.get('total')}, "
+                                f"cache_read={tokens.get('cache_read')}, "
+                                f"cache_write={tokens.get('cache_write')}"
                             )
                             if cost is not None:
                                 print(f"Estimated cost: {cost}")

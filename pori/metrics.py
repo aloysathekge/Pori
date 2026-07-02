@@ -154,6 +154,8 @@ class RunMetrics:
                 "input": tokens.input_tokens,
                 "output": tokens.output_tokens,
                 "total": tokens.total_tokens,
+                "cache_read": tokens.cache_read_tokens,
+                "cache_write": tokens.cache_write_tokens,
             },
             "tokens_raw": tokens,
             "cost_usd": f"${cost:.4f}" if cost else None,

@@ -24,32 +24,11 @@ import random
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, TypeVar
 
+from .error_classifier import classify_error
+
 logger = logging.getLogger("pori.llm.retry")
 
 T = TypeVar("T")
-
-# Exception class names treated as transient across SDKs. Matched by name so
-# this module needs no SDK imports.
-_TRANSIENT_EXC_NAMES = {
-    # OpenAI / Anthropic
-    "RateLimitError",
-    "APITimeoutError",
-    "APIConnectionError",
-    "APIConnectionTimeoutError",
-    "InternalServerError",
-    "ServiceUnavailableError",
-    "OverloadedError",
-    "Timeout",
-    "TryAgain",
-    # Google / generic
-    "ResourceExhausted",
-    "DeadlineExceeded",
-    "ServiceUnavailable",
-    "ServerError",
-}
-
-# HTTP status codes worth retrying.
-_TRANSIENT_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -82,20 +61,13 @@ class RetryConfig:
 
 
 def is_transient_error(exc: BaseException) -> bool:
-    """Return True if the error is worth retrying."""
-    if isinstance(exc, (asyncio.TimeoutError, ConnectionError, TimeoutError)):
-        return True
-    if type(exc).__name__ in _TRANSIENT_EXC_NAMES:
-        return True
-    status = getattr(exc, "status_code", None)
-    if status is None:
-        status = getattr(exc, "code", None)
-    try:
-        if status is not None and int(status) in _TRANSIENT_STATUS:
-            return True
-    except (TypeError, ValueError):
-        pass
-    return False
+    """Return True if the error is worth retrying.
+
+    Backed by :func:`pori.llm.error_classifier.classify_error`, so retry decisions
+    stay consistent with the richer recovery logic in the agent loop (which also
+    distinguishes context-overflow and auth/billing failures).
+    """
+    return classify_error(exc).retryable
 
 
 def _retry_after_seconds(exc: BaseException) -> Optional[float]:

@@ -68,7 +68,45 @@ name/name nesting):** kernel `pori/` at the repo root (single root
 (declare fastapi/starlette; fix the `RequestResponseFunction` import).
 uv-workspace split (per-package pyprojects) deferred.
 
-**Done:** GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
+**Done:**
+- AC-1 (prompt caching) — **DONE**. AC-1a: cache the stable **tools+system**
+  prefix (`pori/llm/prompt_caching.py` `cached_system`; `anthropic.py`
+  `ainvoke`/`ainvoke_tools` send `system` as a cache-marked block). AC-1b:
+  `_build_messages` now puts the volatile per-step context second-to-last so
+  system+history+frozen+task is a stable prefix, and `mark_last_messages` marks
+  the last 3 (CURRENT TASK stays last — fenced-below-task invariant preserved).
+  344 passed. Cache-token metrics were already wired.
+- AC-4 (normalized usage) — `Usage` + `normalize_usage()` in `pori/llm/messages.py`
+  own the provider token-key knowledge; `agent.py` reads normalized fields instead
+  of branching on Anthropic vs OpenAI/Google keys.
+- AC-3 (context compression) — opt-in aux-LLM summary of dropped context
+  (`pori/compression.py` `compress_context`, gated by
+  `AgentSettings.compress_context`, default off); reference-only framed,
+  anti-thrash via the summary cache, fail-open. Replaces the role-count stub;
+  memory window-split extracted (`_select_window`). Prerequisite for AC-2's
+  overflow→compress. 352 passed.
+- AC-2 (error classification) — `pori/llm/error_classifier.py` (`classify_error`
+  + `FailoverReason` + retryable/should_compress/should_fail_fast hints);
+  `retry.py` `is_transient_error` delegates to it; `get_next_action` recovers:
+  context-overflow → compress+retry once, auth/billing → `FatalAgentError` halts
+  the run (no burning `max_failures` on a hopeless call). 360 passed.
+- AC-5 (loop guardrail) — `pori/tool_guardrails.py` `ToolCallGuardrailController`
+  (cross-step exact-failure / same-tool / idempotent-no-progress counters,
+  warn-then-halt); wired around the tool-execution site; on by default
+  (`AgentSettings.tool_loop_guardrail`). 365 passed.
+- AC-6 (verify-nudge + budget refund) — **DEFERRED**: verify-on-stop conflicts
+  with the no-costly-verification-gates rule + the reverted receipt-verification
+  V1; budget-refund isn't needed until Pori adds nested/programmatic tool
+  calling. **All Agent-Core (AC-1..AC-6) items are now DONE or intentionally
+  deferred** — see `docs/ALIGNMENT.md`.
+- **Post-AC follow-ups:** exposed `compress_context`/`tool_loop_guardrail` in
+  `config.agent`; verbose run-metrics line now prints `cache_read`/`cache_write`
+  (AC-1 visibility); **model-aware context sizing** — `pori/llm/model_context`
+  `get_model_context_length` sizes the history budget to the model's real context
+  (Claude 200K, GPT-4.1/Gemini 1M–2M, default 128K) via
+  `AgentSettings.context_window_auto` (default on), so large-context models use
+  their capacity and AC-3 compression is the overflow safety net. 370 passed.
+- GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
 black/isort/mypy clean).

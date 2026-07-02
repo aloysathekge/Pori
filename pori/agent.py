@@ -26,8 +26,12 @@ from pori.llm import (
     BaseMessage,
     SystemMessage,
     UserMessage,
+    normalize_usage,
 )
+from pori.llm.error_classifier import classify_error
+from pori.llm.model_context import get_model_context_length
 
+from .compression import compress_context
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
 from .evaluation import ActionResult, Evaluator
 from .evolution import EvolutionRepository
@@ -76,6 +80,7 @@ from .skills import (
     SkillSummary,
     render_selected_skills,
 )
+from .tool_guardrails import ToolCallGuardrailController
 from .tools.policy import AuthorizationDecision, ToolAuthorizationPolicy
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
@@ -100,6 +105,16 @@ class AgentState(BaseModel):
     current_activity: str = ""
 
 
+class FatalAgentError(Exception):
+    """An unrecoverable LLM failure (e.g. auth/billing) that should stop the run
+    immediately rather than burning retries on an identical hopeless call."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+
+
 class AgentSettings(BaseModel):
     """Settings for the agent."""
 
@@ -112,8 +127,22 @@ class AgentSettings(BaseModel):
     # "auto"/"always" re-enable the legacy separate planning/reflection LLM calls.
     planning_mode: Literal["auto", "always", "never"] = "never"
     reflection_mode: Literal["auto", "always", "never"] = "never"
+    # When True (default), the conversation-history budget is sized to the
+    # model's real context length (see llm/model_context) instead of the fixed
+    # context_window_tokens below — so 1M-context models use their capacity and
+    # compression (AC-3) only fires on genuine overflow. Set False to use the
+    # explicit context_window_tokens as a hard cap.
+    context_window_auto: bool = True
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
+    # AC-3: when True, summarize context that would overflow the window with an
+    # aux LLM call before it is dropped (instead of the cheap deterministic
+    # stub). Off by default — it adds an occasional auxiliary call on overflow.
+    compress_context: bool = False
+    # AC-5: detect cross-step tool loops (same call failing repeatedly, or an
+    # idempotent read returning the same result across steps) and nudge/halt.
+    # Only fires on a detected loop, so it's cheap; on by default.
+    tool_loop_guardrail: bool = True
     # When validate_output is True, an LLM judge checks each proposed final
     # answer; inadequate answers are rejected and the agent is asked to revise,
     # up to this many times before the answer is accepted to avoid loops.
@@ -236,8 +265,24 @@ class Agent:
         self._on_event: Optional[Callable[[Any], None]] = None
         self._stream: bool = False
         self.tool_executor = ToolExecutor(self.tools_registry)
+        self.tool_guardrails = ToolCallGuardrailController()
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
+
+        # Model-aware context sizing: unless disabled, size the history budget to
+        # the model's real context length so large-context models use their
+        # capacity and compression only fires on genuine overflow. Work on a copy
+        # so a settings object shared across agents (e.g. a Team) isn't mutated.
+        if getattr(self.settings, "context_window_auto", False):
+            self.settings = self.settings.model_copy()
+            model_ctx = get_model_context_length(getattr(self.llm, "model", "") or "")
+            output_reserve = getattr(self.llm, "max_tokens", 4096) or 4096
+            self.settings.context_window_tokens = model_ctx
+            # Reserve room for the reply plus headroom for the system prompt and
+            # tool schemas, which sit outside the counted history window.
+            self.settings.context_window_reserve_tokens = max(
+                self.settings.context_window_reserve_tokens, int(output_reserve) + 8000
+            )
 
         logger.info(
             f"Agent settings: max_steps={settings.max_steps}, max_failures={settings.max_failures}",
@@ -656,6 +701,15 @@ class Agent:
                     parent_span_id=step_span.span_id,
                     attributes={"model": getattr(self.llm, "model", "")},
                 )
+            # AC-3: summarize context that would overflow the window before it is
+            # dropped, so long tasks don't silently lose information (fail-open).
+            if self.settings.compress_context:
+                await compress_context(
+                    self.memory,
+                    self.llm,
+                    max_tokens=self.settings.context_window_tokens,
+                    reserve_tokens=self.settings.context_window_reserve_tokens,
+                )
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
             llm_duration = (datetime.now() - llm_start_time).total_seconds()
@@ -670,28 +724,16 @@ class Agent:
 
             # Record LLM call metrics for this step
             try:
-                # Optional token usage from provider-specific metadata
+                # Token usage: normalize the provider-shaped dict in the llm
+                # layer (AC-4) so the loop never branches on Anthropic vs
+                # OpenAI/Google token keys.
+                usage = normalize_usage(getattr(self.llm, "last_usage", None))
                 tokens = TokenUsage()
-                usage = getattr(self.llm, "last_usage", None)
-                if isinstance(usage, dict):
-                    # Anthropic-style keys
-                    if "input_tokens" in usage or "output_tokens" in usage:
-                        tokens.input_tokens = int(usage.get("input_tokens", 0) or 0)
-                        tokens.output_tokens = int(usage.get("output_tokens", 0) or 0)
-                        tokens.total_tokens = tokens.input_tokens + tokens.output_tokens
-                        tokens.cache_read_tokens = int(
-                            usage.get("cache_read_input_tokens", 0) or 0
-                        )
-                        tokens.cache_write_tokens = int(
-                            usage.get("cache_creation_input_tokens", 0) or 0
-                        )
-                    # OpenAI-style keys
-                    elif "prompt_tokens" in usage or "completion_tokens" in usage:
-                        tokens.input_tokens = int(usage.get("prompt_tokens", 0) or 0)
-                        tokens.output_tokens = int(
-                            usage.get("completion_tokens", 0) or 0
-                        )
-                        tokens.total_tokens = int(usage.get("total_tokens", 0) or 0)
+                tokens.input_tokens = usage.input_tokens
+                tokens.output_tokens = usage.output_tokens
+                tokens.total_tokens = usage.total_tokens
+                tokens.cache_read_tokens = usage.cache_read_tokens
+                tokens.cache_write_tokens = usage.cache_write_tokens
 
                 model_id = getattr(self.llm, "model", "")
                 cost = (
@@ -764,6 +806,18 @@ class Agent:
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
+        except FatalAgentError as fatal:
+            logger.error(
+                f"Fatal error during step {step_number}: {fatal}",
+                extra={"task_id": self.task_id, "step": step_number},
+                exc_info=True,
+            )
+            if step_span:
+                step_span.finish(SpanStatus.ERROR, error=str(fatal))
+            tool_results = [ActionResult(success=False, error=f"Fatal error: {fatal}")]
+            # Unrecoverable (auth/billing): halt promptly instead of retrying an
+            # identical hopeless call for max_failures steps (AC-2).
+            self.state.consecutive_failures = self.settings.max_failures
         except Exception as e:
             logger.error(
                 f"Error during step {step_number}: {str(e)}",
@@ -825,51 +879,67 @@ class Agent:
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
-    async def get_next_action(self) -> AgentOutput:
-        """Get the next action from the LLM via native tool-calling.
-
-        The provider returns real tool calls plus assistant text; each tool
-        call maps to the internal {name: arguments} action dict, and the text
-        becomes the activity line (next_goal).
-        """
+    async def _invoke_for_action(self) -> AgentOutput:
+        """Build messages, call the model, and parse one action decision."""
         messages = self._build_messages()
         logger.debug(
             f"Built {len(messages)} messages for LLM",
             extra={"task_id": self.task_id},
         )
-        try:
-            tools = self.tools_registry.tool_schemas()
-            # Only ask the provider to stream (and pass on_event to it) when
-            # streaming is on, so the default call signature is unchanged for
-            # non-streaming callers/mocks — even if an event consumer is attached.
-            if self._stream and self._on_event is not None:
-                turn = await self.llm.ainvoke_tools(
-                    messages, tools, on_event=self._on_event
-                )
-            else:
-                turn = await self.llm.ainvoke_tools(messages, tools)
-            action: List[Dict[str, Any]] = [
-                {call.name: dict(call.arguments)}
-                for call in turn.tool_calls
-                if call.name
-            ]
-            # A text-only reply (no tool call) is the model answering the user
-            # directly. Treat it as the final answer so the run completes instead
-            # of stalling on an empty step.
-            if not action and turn.text.strip():
-                action = [
-                    {
-                        "answer": {
-                            "final_answer": turn.text.strip(),
-                            "reasoning": "",
-                        }
-                    }
-                ]
-            current_state: Dict[str, str] = (
-                {"next_goal": turn.text} if turn.text else {}
+        tools = self.tools_registry.tool_schemas()
+        # Only ask the provider to stream (and pass on_event to it) when
+        # streaming is on, so the default call signature is unchanged for
+        # non-streaming callers/mocks — even if an event consumer is attached.
+        if self._stream and self._on_event is not None:
+            turn = await self.llm.ainvoke_tools(
+                messages, tools, on_event=self._on_event
             )
-            return AgentOutput(current_state=current_state, action=action)
+        else:
+            turn = await self.llm.ainvoke_tools(messages, tools)
+        action: List[Dict[str, Any]] = [
+            {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
+        ]
+        # A text-only reply (no tool call) is the model answering the user
+        # directly. Treat it as the final answer so the run completes instead
+        # of stalling on an empty step.
+        if not action and turn.text.strip():
+            action = [{"answer": {"final_answer": turn.text.strip(), "reasoning": ""}}]
+        current_state: Dict[str, str] = {"next_goal": turn.text} if turn.text else {}
+        return AgentOutput(current_state=current_state, action=action)
+
+    async def get_next_action(self) -> AgentOutput:
+        """Get the next action from the LLM via native tool-calling.
+
+        The provider returns real tool calls plus assistant text; each tool call
+        maps to the internal {name: arguments} action dict, and the text becomes
+        the activity line (next_goal). Provider errors are classified (AC-2): a
+        context-overflow triggers compress-and-retry-once; an auth/billing
+        failure raises ``FatalAgentError`` to stop the run promptly; anything
+        else re-raises as before.
+        """
+        try:
+            return await self._invoke_for_action()
         except Exception as e:
+            classified = classify_error(e)
+            if classified.should_compress:
+                # Request too big to send unchanged: compress dropped history
+                # (AC-3) and retry once before giving up.
+                try:
+                    await compress_context(
+                        self.memory,
+                        self.llm,
+                        max_tokens=self.settings.context_window_tokens,
+                        reserve_tokens=self.settings.context_window_reserve_tokens,
+                    )
+                    return await self._invoke_for_action()
+                except Exception:
+                    pass  # fall through to the normal failure handling
+            if classified.should_fail_fast:
+                logger.error(
+                    f"Fatal LLM error ({classified.reason.value}); stopping run: {e}",
+                    extra={"task_id": self.task_id},
+                )
+                raise FatalAgentError(classified.reason.value, str(e))
             logger.error(
                 f"Failed to get action from LLM: {str(e)}",
                 extra={"task_id": self.task_id},
@@ -915,10 +985,6 @@ class Agent:
             elif role == "system":
                 messages.append(UserMessage(content=f"Context summary:\n{content}"))
 
-        # Add current state information
-        context = self._get_current_context()
-        messages.append(UserMessage(content=context))
-
         if self._frozen_retrieval_evidence:
             facts = "\n".join(
                 f"- [{item.source_type}:{item.source_id}] {item.content}"
@@ -938,6 +1004,14 @@ class Agent:
             messages.append(
                 UserMessage(content=_format_memory_context(self._frozen_core_memory))
             )
+
+        # Volatile per-step state (Runtime Facts, recent actions) goes as late as
+        # possible WITHOUT displacing the task from last position: everything
+        # before it (system + history + frozen context) then forms a stable,
+        # cacheable prefix (AC-1b), while CURRENT TASK stays the final,
+        # highest-priority message. The Anthropic wrapper's sliding-window cache
+        # markers keep that stable prefix warm across steps.
+        messages.append(UserMessage(content=self._get_current_context()))
 
         messages.append(
             UserMessage(
@@ -1952,6 +2026,29 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 # Emit tool_call_end so a renderer can close the "» ..." line
                 # with a "✓ / ✗" as soon as the tool finishes.
                 self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
+
+                # AC-5: cross-step loop guard. Surface a recovery hint on the tool
+                # output; halt the run on a detected loop instead of spinning to
+                # max_steps.
+                if self.settings.tool_loop_guardrail:
+                    guard = self.tool_guardrails.after_call(
+                        tool_name, params, bool(success), tool_result
+                    )
+                    if guard is not None:
+                        note = f"\n\n[loop-guard] {guard.guidance}"
+                        if isinstance(tool_result.get("error"), str):
+                            tool_result["error"] += note
+                        elif isinstance(tool_result.get("output"), str):
+                            tool_result["output"] += note
+                        else:
+                            tool_result["guardrail"] = guard.guidance
+                        if guard.action == "halt":
+                            logger.warning(
+                                f"Tool loop-guard halt ({guard.reason}) on {tool_name}",
+                                extra={"task_id": self.task_id},
+                            )
+                            self.state.consecutive_failures = self.settings.max_failures
+
                 artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,

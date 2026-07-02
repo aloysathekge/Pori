@@ -21,12 +21,18 @@ caching) is #1.
 
 | ID | Recommendation (short) | Target Pori file(s) | Priority | Effort/Impact | Status |
 |----|------------------------|---------------------|----------|---------------|--------|
-| AC-1 | Add Anthropic prompt caching; make the message build cache-friendly (port `prompt_caching.py`; cache system + last-3 + tool schema; move volatile per-step context into one trailing message; date-only timestamps) | `pori/llm/anthropic.py`, `pori/agent.py` (`_build_messages`, `_setup_system_message`), new `pori/llm/prompt_caching.py` | #1 (HIGHEST LEVERAGE) | Low (½–1 day) / Very high (~75% input-token savings) | TODO |
-| AC-2 | Classify API errors instead of blind retry (trimmed `FailoverReason` + `retryable`/`should_compress` hints; context-overflow → shrink/compress, billing/auth → fail fast) | `pori/llm/retry.py`, new `pori/llm/error_classifier.py`, `pori/agent.py` (`step`/`get_next_action`) | #2 | Medium (1–2 days) / High | TODO |
-| AC-3 | Replace token-trimming with real context compression (`CompressingContextEngine`: free tool-output pruning pre-pass, head/tail token protection, aux-model structured summary, anti-thrashing) | `pori/context.py`, `pori/memory.py` | #3 | Medium-High (2–4 days; ½ day for pruning pre-pass) / High | TODO |
-| AC-4 | Add a `NormalizedResponse`/`Usage` shape in `llm/base.py` to kill provider-key leakage (normalized `cached_tokens`/`finish_reason`; `provider_data` quarantine) | `pori/llm/base.py`, provider wrappers, `pori/agent.py` (remove branching at `676-694`) | #4 | Low-Medium / Medium | TODO |
-| AC-5 | Loop / no-progress guardrail beyond same-step dedupe (port `tool_guardrails.py`: canonical arg hashing, exact-failure / same-tool / idempotent-no-progress counters, warn-then-halt) | new port of `tool_guardrails.py`, `pori/agent.py` (around `execute_tool`) | #5 | Low-Medium / Medium-High | TODO |
-| AC-6 | (Optional) Edit→verify-before-finish nudge (port `build_verify_on_stop_nudge`, OFF by default) **and** iteration-budget refund (`IterationBudget.refund`) | `pori/agent.py` (answer/done gate, `BudgetLedger`) | #6 | Low each / Medium (verify-on-stop), Low-until-needed (refund) | TODO |
+| AC-1 | Add Anthropic prompt caching; make the message build cache-friendly (port `prompt_caching.py`; cache system + last-3 + tool schema; move volatile per-step context into one trailing message; date-only timestamps) | `pori/llm/anthropic.py`, `pori/agent.py` (`_build_messages`, `_setup_system_message`), new `pori/llm/prompt_caching.py` | #1 (HIGHEST LEVERAGE) | Low (½–1 day) / Very high (~75% input-token savings) | DONE (2026-07-02) |
+| AC-2 | Classify API errors instead of blind retry (trimmed `FailoverReason` + `retryable`/`should_compress` hints; context-overflow → shrink/compress, billing/auth → fail fast) | `pori/llm/retry.py`, new `pori/llm/error_classifier.py`, `pori/agent.py` (`step`/`get_next_action`) | #2 | Medium (1–2 days) / High | DONE (2026-07-02) |
+| AC-3 | Replace token-trimming with real context compression (`CompressingContextEngine`: free tool-output pruning pre-pass, head/tail token protection, aux-model structured summary, anti-thrashing) | `pori/context.py`, `pori/memory.py` | #3 | Medium-High (2–4 days; ½ day for pruning pre-pass) / High | DONE — opt-in aux-LLM summary (2026-07-02) |
+| AC-4 | Add a `NormalizedResponse`/`Usage` shape in `llm/base.py` to kill provider-key leakage (normalized `cached_tokens`/`finish_reason`; `provider_data` quarantine) | `pori/llm/base.py`, provider wrappers, `pori/agent.py` (remove branching at `676-694`) | #4 | Low-Medium / Medium | DONE (2026-07-02) |
+| AC-5 | Loop / no-progress guardrail beyond same-step dedupe (port `tool_guardrails.py`: canonical arg hashing, exact-failure / same-tool / idempotent-no-progress counters, warn-then-halt) | new port of `tool_guardrails.py`, `pori/agent.py` (around `execute_tool`) | #5 | Low-Medium / Medium-High | DONE (2026-07-02) |
+| AC-6 | (Optional) Edit→verify-before-finish nudge (port `build_verify_on_stop_nudge`, OFF by default) **and** iteration-budget refund (`IterationBudget.refund`) | `pori/agent.py` (answer/done gate, `BudgetLedger`) | #6 | Low each / Medium (verify-on-stop), Low-until-needed (refund) | DEFERRED (see note) |
+
+> **AC-6 deferred (2026-07-02).** *Verify-on-stop* conflicts with the project's
+> "no costly verification gates" rule and the receipt-backed verification V1 that
+> was reverted earlier for cost, so it is intentionally not built. *Budget refund*
+> is not needed until Pori adds programmatic/nested tool calling (there is no
+> per-step budget to protect yet). Revisit if either premise changes.
 
 ---
 

@@ -34,10 +34,24 @@ agent:
   
   # Enable memory system
   enable_memory: true
-  # Approximate token budget used for conversation window
+  # When true (default), the conversation-history budget is sized to the model's
+  # real context length (e.g. ~200K for Claude, ~1M for Gemini) so large-context
+  # models use their capacity and compression only fires on genuine overflow.
+  # Set false to use context_window_tokens below as a hard cap.
+  context_window_auto: true
+  # Hard cap on the conversation-history token budget, used only when
+  # context_window_auto is false.
   context_window_tokens: 3000
   # Tokens reserved for system prompt, planning context, and tool outputs
   context_window_reserve_tokens: 1200
+  # AC-3: summarize context that would overflow the window with an aux LLM call
+  # before it is dropped (instead of the cheap deterministic stub). Adds an
+  # occasional auxiliary call on overflow; off by default.
+  compress_context: false
+  # AC-5: detect cross-step tool loops (a call failing repeatedly, or an
+  # idempotent read returning the same result) and nudge/halt. Only fires on a
+  # detected loop; on by default.
+  tool_loop_guardrail: true
   # When true, an LLM judges each proposed final answer; inadequate answers are
   # rejected and the agent must revise (empty answers are always rejected).
   validate_output: false
