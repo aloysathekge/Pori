@@ -102,11 +102,11 @@ numbering.
 
 | ID | Recommendation (short) | Target Pori file(s) | Priority | Effort/Impact | Status |
 |----|------------------------|---------------------|----------|---------------|--------|
-| CLI-1 | Replace ad-hoc slash dispatch with a `CommandDef` registry driving dispatch + help (attach handler to `CommandDef`; kills the stale-help bug; foundation for CLI-2) | new `pori/cli_commands.py`, `pori/main.py` | B1 — ⭐ do first | Medium / High | TODO |
-| CLI-2 | Add slash autocomplete + history via `prompt_toolkit` (`PromptSession.prompt_async`, `PoriCompleter`, `FileHistory`, `AutoSuggestFromHistory`) | `pori/main.py` | B2 (after B1) | Medium / Medium | TODO |
-| CLI-3 | Windows UTF-8 + import-path hardening bootstrap (port `apply_windows_utf8_bootstrap`; import first in cli/`__main__`; lets `_console_safe_text` be dropped) | new `pori/_bootstrap.py`, `pori/cli.py`, `pori/__main__.py` | B3 — ⭐ cheap win | Low (an afternoon) / Medium | TODO |
-| CLI-4 | Cooperative Ctrl-C cancel (asyncio, not threads): run turn as task, SIGINT → `run.cancel()`, double-press-within-2s exit; agent loop needs a between-steps cancellation check. Scope to cancel-only (skip full mid-run steering + thread/queue machine) | `pori/main.py`, `pori/agent.py` | B4 — scope carefully | High / Medium | TODO |
-| CLI-5 | Split `pori/main.py` into CLI modules (`cli_commands.py`, `cli_render.py`, `cli_skills.py`; plain modules, not mixins) — fold into B1; don't over-do | `pori/main.py`, new `pori/cli_render.py`, `pori/cli_skills.py` | B5 — later / fold into B1 | Medium / Medium | TODO |
+| CLI-1 | Replace ad-hoc slash dispatch with a `CommandDef` registry driving dispatch + help (attach handler to `CommandDef`; kills the stale-help bug; foundation for CLI-2) | new `pori/cli_commands.py`, `pori/main.py` | B1 — ⭐ do first | Medium / High | DONE (2026-07-02) |
+| CLI-2 | Add slash autocomplete + history via `prompt_toolkit` (`PromptSession.prompt_async`, `PoriCompleter`, `FileHistory`, `AutoSuggestFromHistory`) | `pori/main.py` | B2 (after B1) | Medium / Medium | DONE — optional prompt_toolkit extra (2026-07-02) |
+| CLI-3 | Windows UTF-8 + import-path hardening bootstrap (port `apply_windows_utf8_bootstrap`; import first in cli/`__main__`; lets `_console_safe_text` be dropped) | new `pori/_bootstrap.py`, `pori/cli.py`, `pori/__main__.py` | B3 — ⭐ cheap win | Low (an afternoon) / Medium | DONE — UTF-8 bootstrap (import-path hardening N/A: pori is namespaced) (2026-07-02) |
+| CLI-4 | Cooperative Ctrl-C cancel (asyncio, not threads): run turn as task, SIGINT → `run.cancel()`, double-press-within-2s exit; agent loop needs a between-steps cancellation check. Scope to cancel-only (skip full mid-run steering + thread/queue machine) | `pori/main.py`, `pori/agent.py` | B4 — scope carefully | High / Medium | DEFERRED — high-effort async cancellation; revisit with steering |
+| CLI-5 | Split `pori/main.py` into CLI modules (`cli_commands.py`, `cli_render.py`, `cli_skills.py`; plain modules, not mixins) — fold into B1; don't over-do | `pori/main.py`, new `pori/cli_render.py`, `pori/cli_skills.py` | B5 — later / fold into B1 | Medium / Medium | DEFERRED — optional refactor; cli_commands/cli_prompt already extracted |
 | CLI-6 | Managed uv / dep-ensure | — | B6 — **Skip** (overkill for a pip-installed library) | High / Low | DEFERRED |
 
 ---

@@ -124,6 +124,12 @@ uv-workspace split (per-package pyprojects) deferred.
   — warn on web results, block on memory writes (INF-5); sensitive-write gate on
   config.yaml/.env/.pori in filesystem tools (INF-6). INF-8 satisfied by the
   behavior-contract tests throughout. 428 passed. **INF cluster complete.**
+- CLI-1/2/3 (CLI cluster) — `pori/cli_commands.py` central `CommandDef` registry
+  driving `/help` + the unknown-command hint (killed the stale hardcoded list);
+  `pori/cli_prompt.py` slash-completion + history via optional `prompt_toolkit`
+  (`cli` extra, falls back to `input()`); `pori/bootstrap.py` Windows UTF-8
+  bootstrap. CLI-4 (async Ctrl-C) + CLI-5 (main.py split) DEFERRED. Also
+  committed `uv.lock` (was gitignored) so INF-2 OSV scanning works. 436 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
