@@ -52,11 +52,26 @@ clone (OpenHands + Inspect recommended); **repo topology** — sibling projects
 `Pori/pori_cloud`, `pori_website`, `pori_docs` live outside this git repo, and
 `pori/api` vs the standalone `pori_cloud` need reconciling.
 
+## Alignment is driven by docs/ALIGNMENT.md
+
+Main goal: align Pori with the Hermes deep-dives. `docs/ALIGNMENT.md` is the
+consolidated, prioritized tracker (37 recommendations; IDs AC- agent-core,
+SK- skills/plugins/learning, GW- gateway, CLI- cli/tui, INF- infra/security;
+the tools deep-dive has no Part B). Work items reference their ID.
+
+**Done:** GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
+`get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
+`tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
+black/isort/mypy clean).
+
+**Blocker parked:** `pori.api` can't import in a clean env — `fastapi` is
+undeclared and `pori/api/middleware.py` imports `RequestResponseFunction`,
+removed from the current starlette. Only blocks API-specific items
+(GW-2/3/4/8); fold the dependency-declaration fix into INF-2.
+
 ## Next Session Should Start With
 
-1. (Carried over) Open a PR for `fix/sandbox-working-dir-and-artifact-tracking`
-   (base `main`) — the sandbox `working_dir` + artifact-tracking fixes are
-   committed and green (337 tests) but unmerged.
-2. Resolve the M0/M1-blocking open questions (Python floor, lint stack, naming,
-   event protocol, receipt storage, first donors) OR start **Phase 0** (the three
-   tenancy-aware fixes) in the current `pori/` tree.
+Execution order (from `docs/ALIGNMENT.md`): **AC-1** (Anthropic prompt caching —
+single highest-leverage change) → INF-1 (sandbox hardline floor) → INF-2
+(dep pins + supply-chain CI) → AC-3 (context compression) → AC-2 (error
+classifier) → CLI-1 → SK-1/SK-2. **Start AC-1 next.**

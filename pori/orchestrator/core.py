@@ -52,6 +52,7 @@ class Orchestrator:
         self,
         task: str,
         agent_settings: Optional[AgentSettings] = None,
+        memory: Optional[AgentMemory] = None,
         on_step_start: Optional[Callable[[Agent], Any]] = None,
         on_step_end: Optional[Callable[[Agent], Any]] = None,
         on_event: Optional[Callable[[Any], None]] = None,
@@ -68,7 +69,10 @@ class Orchestrator:
 
         # Create agent with default settings if none provided
         settings = agent_settings or AgentSettings()
-        memory = self.shared_memory
+        # A per-call memory (e.g. a per-request AgentMemory from the API) takes
+        # precedence over the orchestrator's shared_memory, so concurrent tasks
+        # never share one transcript. Falls back to shared_memory when omitted.
+        memory = memory or self.shared_memory
         if memory is None and run_context is None:
             memory = AgentMemory()
             self.shared_memory = memory

@@ -3,10 +3,11 @@ import uuid
 from fastapi import APIRouter, Depends
 
 from pori.agent import AgentSettings
+from pori.memory import AgentMemory
 from pori.orchestrator import Orchestrator
 
 from ..background import create_background_task, get_task_status
-from ..deps import get_orchestrator
+from ..deps import get_orchestrator, get_request_memory
 from ..models import (
     TaskCreateRequest,
     TaskCreateResponse,
@@ -22,6 +23,7 @@ router = APIRouter(dependencies=[Depends(get_api_key)])
 async def submit_task(
     request: TaskCreateRequest,
     orchestrator: Orchestrator = Depends(get_orchestrator),
+    memory: AgentMemory = Depends(get_request_memory),
 ) -> TaskCreateResponse:
     """
     Submit a new task for an agent to execute.
@@ -30,10 +32,13 @@ async def submit_task(
 
     agent_settings = AgentSettings(max_steps=request.max_steps)
 
-    # Create a coroutine for the orchestrator to execute the task
+    # Create a coroutine for the orchestrator to execute the task.
+    # Pass the per-request memory so concurrent callers stay isolated
+    # (each request has its own session/namespace; only the store is shared).
     coro = orchestrator.execute_task(
         task=request.task,
         agent_settings=agent_settings,
+        memory=memory,
     )
 
     # Run the coroutine in the background

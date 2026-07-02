@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from pori.api.deps import build_orchestrator
+from pori.api.deps import build_memory_store, build_orchestrator
 from pori.api.middleware import RequestIdMiddleware
 from pori.api.routers import agents
 from pori.utils.logging_config import setup_logging
@@ -17,8 +17,11 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events for the application.
     """
     # Startup:
-    # Build the orchestrator and store it in the application state.
+    # Build the shared memory store and orchestrator, storing them in app state.
+    # The store is shared across requests; per-request AgentMemory (see
+    # deps.get_request_memory) isolates each caller by namespace.
     # This is where slow initializations (like loading models or tools) should happen.
+    app.state.memory_store = build_memory_store()
     app.state.orchestrator = build_orchestrator()
     yield
     # Shutdown:
