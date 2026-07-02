@@ -106,6 +106,18 @@ uv-workspace split (per-package pyprojects) deferred.
   (Claude 200K, GPT-4.1/Gemini 1M–2M, default 128K) via
   `AgentSettings.context_window_auto` (default on), so large-context models use
   their capacity and AC-3 compression is the overflow safety net. 370 passed.
+- INF-1 (sandbox hardline floor) — `pori/sandbox/command_safety.py`
+  (`normalize` NFKC/de-obfuscation + `hardline_violation`) wired into
+  `LocalSandbox.execute_command` *before* HITL so irrecoverable commands
+  (`rm -rf /`|`~`, `--no-preserve-root`, `mkfs`, `dd` to raw device, redirect to
+  raw device, fork bomb, shutdown/reboot, `kill -1`) are refused unconditionally.
+  Tiny/no-recovery-only to avoid false positives; 399 passed.
+- INF-2 (supply-chain hardening) — bounded dependency ranges
+  (`>=floor,<next_major`) on all core deps + extras in `pyproject.toml`
+  (uv.lock unchanged); `tools/ci/check_dep_bounds.py` + a `dep-bounds` CI job
+  fail any unbounded `>=`; `.github/workflows/osv-scanner.yml` (detection-only,
+  weekly) and `.github/dependabot.yml` (pip + github-actions). 400 passed.
+  Follow-up: SHA-pin the GitHub Actions (dependabot manages them meanwhile).
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;

@@ -25,14 +25,18 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    # Bounded ranges (>=floor,<next_major): a floor for the features we use plus
+    # an upper bound so a malicious or breaking new major can't slip in via a
+    # `pip install pori` before uv.lock pins it (Shai-Hulud-style supply-chain
+    # slip). Exact resolution is still frozen in uv.lock.
     # Core LLM providers
-    "anthropic>=0.40.0",
-    "openai>=1.50.0",
-    "google-genai>=1.0.0",
+    "anthropic>=0.40.0,<1",
+    "openai>=1.50.0,<3",
+    "google-genai>=1.0.0,<2",
     # Runtime essentials
-    "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "pyyaml>=6.0.0",
+    "pydantic>=2.0.0,<3",
+    "python-dotenv>=1.0.0,<2",
+    "pyyaml>=6.0.0,<7",
 ]
 
 [project.scripts]
@@ -61,29 +65,29 @@ pori = ["prompts/**/*.md"]
 # falls back to a deterministic hash-based embedding (lower quality but
 # zero-dependency).
 embeddings = [
-    "sentence-transformers>=3.2.1",
+    "sentence-transformers>=3.2.1,<6",
 ]
 # Web search tool (Tavily). The `web_search` tool returns a friendly
 # "install tavily-python" error if this extra is not installed.
 web = [
-    "tavily-python>=0.5.0",
+    "tavily-python>=0.5.0,<1",
 ]
 # Everything above in one shot.
 all = [
-    "sentence-transformers>=3.2.1",
-    "tavily-python>=0.5.0",
+    "sentence-transformers>=3.2.1,<6",
+    "tavily-python>=0.5.0,<1",
 ]
 test = [
-    "pytest>=7.3.1",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-    "pytest-cov>=4.1.0",
-    "hypothesis>=6.75.0",
-    "aiohttp>=3.8.4",
+    "pytest>=7.3.1,<10",
+    "pytest-asyncio>=0.21.0,<2",
+    "pytest-mock>=3.10.0,<4",
+    "pytest-cov>=4.1.0,<8",
+    "hypothesis>=6.75.0,<7",
+    "aiohttp>=3.8.4,<4",
     "black==24.8.0",
-    "isort>=5.12.0",
-    "mypy>=1.3.0",
-    "types-PyYAML>=6.0.0",
+    "isort>=5.12.0,<7",
+    "mypy>=1.3.0,<2",
+    "types-PyYAML>=6.0.0,<7",
 ]
 
 [tool.pytest.ini_options]

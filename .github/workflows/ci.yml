@@ -53,3 +53,16 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           retention-days: 7
+
+  dep-bounds:
+    name: Dependency upper-bounds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fail on unbounded '>=' dependencies
+        run: python tools/ci/check_dep_bounds.py

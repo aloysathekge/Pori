@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Python dependencies declared in pyproject.toml. Weekly PRs surface new
+  # versions (within the bounded ranges) for review instead of silent drift.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+
+  # GitHub Actions — keeps the workflow actions updated and reviewable (a step
+  # toward SHA-pinning; Dependabot proposes the new refs).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions"]

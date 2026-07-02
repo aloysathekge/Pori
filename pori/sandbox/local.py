@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from .base import Sandbox, SandboxProvider
+from .command_safety import hardline_violation
 
 
 class LocalSandbox(Sandbox):
@@ -47,6 +48,16 @@ class LocalSandbox(Sandbox):
         responsible for supplying a sandbox default so commands don't leak into
         the launch directory.
         """
+        # Hardline safety floor (INF-1): refuse irrecoverable, host-destroying
+        # commands unconditionally — this runs below any HITL approval, so such
+        # a command can never be approved and executed.
+        violation = hardline_violation(command)
+        if violation:
+            return (
+                f"Error: command blocked by the hardline safety floor ({violation}). "
+                "This class of command is refused unconditionally and cannot be "
+                "approved; use a different, recoverable approach."
+            )
         resolved_cwd = self._resolve_path(cwd) if cwd else None
         try:
             result = subprocess.run(
