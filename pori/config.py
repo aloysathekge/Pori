@@ -92,6 +92,12 @@ class AgentConfig(BaseModel):
     # Backward-compatible aliases. Prefer planning_mode/reflection_mode.
     enable_planning: Optional[bool] = Field(default=None, exclude=True)
     enable_reflection: Optional[bool] = Field(default=None, exclude=True)
+    context_window_auto: bool = Field(
+        default=True,
+        description="Size the conversation-history budget to the model's real "
+        "context length instead of context_window_tokens below. Set False to use "
+        "context_window_tokens as a hard cap.",
+    )
     context_window_tokens: int = Field(default=3000, ge=256)
     context_window_reserve_tokens: int = Field(default=1200, ge=0)
     compress_context: bool = Field(

@@ -29,6 +29,7 @@ from pori.llm import (
     normalize_usage,
 )
 from pori.llm.error_classifier import classify_error
+from pori.llm.model_context import get_model_context_length
 
 from .compression import compress_context
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
@@ -126,6 +127,12 @@ class AgentSettings(BaseModel):
     # "auto"/"always" re-enable the legacy separate planning/reflection LLM calls.
     planning_mode: Literal["auto", "always", "never"] = "never"
     reflection_mode: Literal["auto", "always", "never"] = "never"
+    # When True (default), the conversation-history budget is sized to the
+    # model's real context length (see llm/model_context) instead of the fixed
+    # context_window_tokens below — so 1M-context models use their capacity and
+    # compression (AC-3) only fires on genuine overflow. Set False to use the
+    # explicit context_window_tokens as a hard cap.
+    context_window_auto: bool = True
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
     # AC-3: when True, summarize context that would overflow the window with an
@@ -261,6 +268,21 @@ class Agent:
         self.tool_guardrails = ToolCallGuardrailController()
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
+
+        # Model-aware context sizing: unless disabled, size the history budget to
+        # the model's real context length so large-context models use their
+        # capacity and compression only fires on genuine overflow. Work on a copy
+        # so a settings object shared across agents (e.g. a Team) isn't mutated.
+        if getattr(self.settings, "context_window_auto", False):
+            self.settings = self.settings.model_copy()
+            model_ctx = get_model_context_length(getattr(self.llm, "model", "") or "")
+            output_reserve = getattr(self.llm, "max_tokens", 4096) or 4096
+            self.settings.context_window_tokens = model_ctx
+            # Reserve room for the reply plus headroom for the system prompt and
+            # tool schemas, which sit outside the counted history window.
+            self.settings.context_window_reserve_tokens = max(
+                self.settings.context_window_reserve_tokens, int(output_reserve) + 8000
+            )
 
         logger.info(
             f"Agent settings: max_steps={settings.max_steps}, max_failures={settings.max_failures}",

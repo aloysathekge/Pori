@@ -99,6 +99,13 @@ uv-workspace split (per-package pyprojects) deferred.
   V1; budget-refund isn't needed until Pori adds nested/programmatic tool
   calling. **All Agent-Core (AC-1..AC-6) items are now DONE or intentionally
   deferred** — see `docs/ALIGNMENT.md`.
+- **Post-AC follow-ups:** exposed `compress_context`/`tool_loop_guardrail` in
+  `config.agent`; verbose run-metrics line now prints `cache_read`/`cache_write`
+  (AC-1 visibility); **model-aware context sizing** — `pori/llm/model_context`
+  `get_model_context_length` sizes the history budget to the model's real context
+  (Claude 200K, GPT-4.1/Gemini 1M–2M, default 128K) via
+  `AgentSettings.context_window_auto` (default on), so large-context models use
+  their capacity and AC-3 compression is the overflow safety net. 370 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
