@@ -6,8 +6,6 @@ from ..registry import CollisionPolicy, tool_registry
 from .core_tools import register_core_tools
 from .filesystem_tools import register_filesystem_tools
 from .internet_tools import register_internet_tools
-from .math_tools import register_math_tools
-from .number_tools import register_number_tool
 from .planning_tools import register_planning_tools
 from .skills_tools import register_skill_tools
 
@@ -48,9 +46,7 @@ def _load_tool_plugins(registry) -> None:
 
 def register_all_tools(registry):
     """Register built-in tools and then load any plugin tools via entrypoints."""
-    register_math_tools(registry)
     register_core_tools(registry)
-    register_number_tool(registry)
     register_filesystem_tools(registry)
     register_internet_tools(registry)
     register_skill_tools(registry)
@@ -122,13 +118,6 @@ def _define_standard_groups(registry) -> None:
                 environment=("TAVILY_API_KEY",), modules=("tavily",)
             ),
             max_output_chars=50_000,
-        ),
-        CapabilityGroup(
-            name="math",
-            description="Deterministic calculation and number utilities.",
-            tool_names=frozenset(
-                {"calculate_tool", "fibonacci_generator", "random_generator"}
-            ),
         ),
         CapabilityGroup(
             name="evolution",

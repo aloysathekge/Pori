@@ -78,7 +78,7 @@ Members do **not** share memory by default; they communicate only through the co
 
 ### Tools (`pori/tools/`)
 - `registry.py` — `ToolRegistry` + `ToolExecutor`. Tools are Pydantic-validated and registered via `@Registry.tool(...)` or by implementing the `pori.tools` entry point.
-- `standard/` — built-in tools split by domain (`core_tools`, `filesystem_tools`, `internet_tools`, `math_tools`, `number_tools`). `register_all_tools(registry)` installs them all.
+- `standard/` — built-in tools split by domain (`core_tools`, `filesystem_tools`, `internet_tools`, `planning_tools`, `skills_tools`). `register_all_tools(registry)` installs them all.
 - `pori/sandbox/` — optional sandboxed filesystem/shell environment; sandbox-aware tool variants live in `sandbox/sandbox_tools.py` and resolve paths via `path_resolution.py`. When `config.sandbox.enabled` is true, file tools operate inside `.pori_sandbox` (or configured base).
 
 ### Eval / Guardrails (`pori/eval/`)
