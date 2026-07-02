@@ -90,6 +90,15 @@ uv-workspace split (per-package pyprojects) deferred.
   `retry.py` `is_transient_error` delegates to it; `get_next_action` recovers:
   context-overflow → compress+retry once, auth/billing → `FatalAgentError` halts
   the run (no burning `max_failures` on a hopeless call). 360 passed.
+- AC-5 (loop guardrail) — `pori/tool_guardrails.py` `ToolCallGuardrailController`
+  (cross-step exact-failure / same-tool / idempotent-no-progress counters,
+  warn-then-halt); wired around the tool-execution site; on by default
+  (`AgentSettings.tool_loop_guardrail`). 365 passed.
+- AC-6 (verify-nudge + budget refund) — **DEFERRED**: verify-on-stop conflicts
+  with the no-costly-verification-gates rule + the reverted receipt-verification
+  V1; budget-refund isn't needed until Pori adds nested/programmatic tool
+  calling. **All Agent-Core (AC-1..AC-6) items are now DONE or intentionally
+  deferred** — see `docs/ALIGNMENT.md`.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
