@@ -7,6 +7,7 @@ from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
 from .messages import BaseMessage, SystemMessage, ToolCall, ToolResultMessage, ToolTurn
+from .prompt_caching import cached_system
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -55,7 +56,10 @@ class ChatAnthropic:
             "max_tokens": self.max_tokens,
         }
         if system_prompt:
-            request["system"] = system_prompt
+            # Cache the stable tools+system prefix so it is not re-billed every
+            # step (Anthropic caches in tools -> system -> messages order, so a
+            # breakpoint on system covers the tools too). See llm/prompt_caching.
+            request["system"] = cached_system(system_prompt)
         if self.temperature > 0:
             request["temperature"] = self.temperature
 
@@ -188,7 +192,10 @@ class ChatAnthropic:
             ],
         }
         if system_prompt:
-            request["system"] = system_prompt
+            # Cache the stable tools+system prefix so it is not re-billed every
+            # step (Anthropic caches in tools -> system -> messages order, so a
+            # breakpoint on system covers the tools too). See llm/prompt_caching.
+            request["system"] = cached_system(system_prompt)
         if self.temperature > 0:
             request["temperature"] = self.temperature
 

@@ -129,9 +129,13 @@ def test_anthropic_ainvoke_tools_parses_text_and_tool_use():
     assert len(turn.tool_calls) == 1
     assert turn.tool_calls[0].name == "write_file"
     assert turn.tool_calls[0].arguments == {"file_path": "a"}
-    # system + tools were forwarded to the API.
+    # system + tools were forwarded to the API; system is a cache-marked block
+    # (AC-1 prompt caching), not a bare string, so the tools+system prefix is
+    # cached across steps.
     sent = llm._client.messages.last_kwargs
-    assert sent["system"] == "sys"
+    assert sent["system"] == [
+        {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}
+    ]
     assert sent["tools"][0]["name"] == "write_file"
 
 

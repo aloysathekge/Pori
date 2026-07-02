@@ -68,7 +68,14 @@ name/name nesting):** kernel `pori/` at the repo root (single root
 (declare fastapi/starlette; fix the `RequestResponseFunction` import).
 uv-workspace split (per-package pyprojects) deferred.
 
-**Done:** GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
+**Done:**
+- AC-1a (prompt caching, part 1) — cache the stable **tools+system** prefix so it
+  is not re-billed every step. New `pori/llm/prompt_caching.py` (`cached_system`,
+  ported from Hermes); `anthropic.py` `ainvoke`/`ainvoke_tools` now send `system`
+  as a cache-marked block. Cache-token metrics were already wired. 341 passed.
+  **AC-1b next:** restructure `_build_messages` so volatile per-step context is one
+  trailing message, then add last-N sliding-window cache markers.
+- GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
 black/isort/mypy clean).
