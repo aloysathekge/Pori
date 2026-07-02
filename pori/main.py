@@ -44,6 +44,7 @@ from .skills import (
     load_skill_catalog_from_directories,
     uninstall_skill_from_directory,
 )
+from .skills_learn import build_learn_prompt
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -1317,35 +1318,42 @@ async def main():
                     print(f"Failed to reload skills: {e}")
                 continue
 
-            bundle_command = _resolve_skill_bundle_command(
-                skill_catalog, bundle_catalog, task
-            )
-            if bundle_command is not None:
-                selected_skill_ids, task = bundle_command
-                if not task:
-                    print("Provide a task after the skill bundle command.")
-                    continue
-                print(f"Using skills: {', '.join(selected_skill_ids)}")
+            if command_name == "/learn":
+                # SK-1 layer 1: rewrite /learn into a normal authoring turn so the
+                # agent gathers sources with its existing tools and calls write_skill.
+                rest = task.split(maxsplit=1)
+                task = build_learn_prompt(rest[1] if len(rest) > 1 else "")
+                print("Authoring a skill from your request...")
             else:
-                skill_command = _resolve_skill_command(skill_catalog, task)
-            if selected_skill_ids is None and skill_command is not None:
-                skill_id, task = skill_command
-                if not task:
-                    print(f"Provide a task after /{skill_id.split('@', 1)[0]}.")
-                    continue
-                selected_skill_ids = [skill_id]
-                print(f"Using skill: {skill_id}")
-            else:
-                _handle_cli_command(
-                    task,
-                    shared_memory,
-                    config=config,
-                    skill_catalog=skill_catalog,
-                    bundle_catalog=bundle_catalog,
-                    registry=registry,
-                    evolution_repository=evolution_repository,
+                bundle_command = _resolve_skill_bundle_command(
+                    skill_catalog, bundle_catalog, task
                 )
-                continue
+                if bundle_command is not None:
+                    selected_skill_ids, task = bundle_command
+                    if not task:
+                        print("Provide a task after the skill bundle command.")
+                        continue
+                    print(f"Using skills: {', '.join(selected_skill_ids)}")
+                else:
+                    skill_command = _resolve_skill_command(skill_catalog, task)
+                if selected_skill_ids is None and skill_command is not None:
+                    skill_id, task = skill_command
+                    if not task:
+                        print(f"Provide a task after /{skill_id.split('@', 1)[0]}.")
+                        continue
+                    selected_skill_ids = [skill_id]
+                    print(f"Using skill: {skill_id}")
+                else:
+                    _handle_cli_command(
+                        task,
+                        shared_memory,
+                        config=config,
+                        skill_catalog=skill_catalog,
+                        bundle_catalog=bundle_catalog,
+                        registry=registry,
+                        evolution_repository=evolution_repository,
+                    )
+                    continue
 
         if selected_skill_ids is None:
             selected_skill_ids = list(
