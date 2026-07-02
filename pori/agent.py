@@ -28,6 +28,7 @@ from pori.llm import (
     UserMessage,
     normalize_usage,
 )
+from pori.llm.error_classifier import classify_error
 
 from .compression import compress_context
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
@@ -100,6 +101,16 @@ class AgentState(BaseModel):
     # Model-authored, human-readable description of what the agent is doing now
     # (sourced from the LLM's `next_goal`). Surfaced as the live activity line.
     current_activity: str = ""
+
+
+class FatalAgentError(Exception):
+    """An unrecoverable LLM failure (e.g. auth/billing) that should stop the run
+    immediately rather than burning retries on an identical hopeless call."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
 
 
 class AgentSettings(BaseModel):
@@ -767,6 +778,18 @@ class Agent:
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
+        except FatalAgentError as fatal:
+            logger.error(
+                f"Fatal error during step {step_number}: {fatal}",
+                extra={"task_id": self.task_id, "step": step_number},
+                exc_info=True,
+            )
+            if step_span:
+                step_span.finish(SpanStatus.ERROR, error=str(fatal))
+            tool_results = [ActionResult(success=False, error=f"Fatal error: {fatal}")]
+            # Unrecoverable (auth/billing): halt promptly instead of retrying an
+            # identical hopeless call for max_failures steps (AC-2).
+            self.state.consecutive_failures = self.settings.max_failures
         except Exception as e:
             logger.error(
                 f"Error during step {step_number}: {str(e)}",
@@ -828,51 +851,67 @@ class Agent:
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
-    async def get_next_action(self) -> AgentOutput:
-        """Get the next action from the LLM via native tool-calling.
-
-        The provider returns real tool calls plus assistant text; each tool
-        call maps to the internal {name: arguments} action dict, and the text
-        becomes the activity line (next_goal).
-        """
+    async def _invoke_for_action(self) -> AgentOutput:
+        """Build messages, call the model, and parse one action decision."""
         messages = self._build_messages()
         logger.debug(
             f"Built {len(messages)} messages for LLM",
             extra={"task_id": self.task_id},
         )
-        try:
-            tools = self.tools_registry.tool_schemas()
-            # Only ask the provider to stream (and pass on_event to it) when
-            # streaming is on, so the default call signature is unchanged for
-            # non-streaming callers/mocks — even if an event consumer is attached.
-            if self._stream and self._on_event is not None:
-                turn = await self.llm.ainvoke_tools(
-                    messages, tools, on_event=self._on_event
-                )
-            else:
-                turn = await self.llm.ainvoke_tools(messages, tools)
-            action: List[Dict[str, Any]] = [
-                {call.name: dict(call.arguments)}
-                for call in turn.tool_calls
-                if call.name
-            ]
-            # A text-only reply (no tool call) is the model answering the user
-            # directly. Treat it as the final answer so the run completes instead
-            # of stalling on an empty step.
-            if not action and turn.text.strip():
-                action = [
-                    {
-                        "answer": {
-                            "final_answer": turn.text.strip(),
-                            "reasoning": "",
-                        }
-                    }
-                ]
-            current_state: Dict[str, str] = (
-                {"next_goal": turn.text} if turn.text else {}
+        tools = self.tools_registry.tool_schemas()
+        # Only ask the provider to stream (and pass on_event to it) when
+        # streaming is on, so the default call signature is unchanged for
+        # non-streaming callers/mocks — even if an event consumer is attached.
+        if self._stream and self._on_event is not None:
+            turn = await self.llm.ainvoke_tools(
+                messages, tools, on_event=self._on_event
             )
-            return AgentOutput(current_state=current_state, action=action)
+        else:
+            turn = await self.llm.ainvoke_tools(messages, tools)
+        action: List[Dict[str, Any]] = [
+            {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
+        ]
+        # A text-only reply (no tool call) is the model answering the user
+        # directly. Treat it as the final answer so the run completes instead
+        # of stalling on an empty step.
+        if not action and turn.text.strip():
+            action = [{"answer": {"final_answer": turn.text.strip(), "reasoning": ""}}]
+        current_state: Dict[str, str] = {"next_goal": turn.text} if turn.text else {}
+        return AgentOutput(current_state=current_state, action=action)
+
+    async def get_next_action(self) -> AgentOutput:
+        """Get the next action from the LLM via native tool-calling.
+
+        The provider returns real tool calls plus assistant text; each tool call
+        maps to the internal {name: arguments} action dict, and the text becomes
+        the activity line (next_goal). Provider errors are classified (AC-2): a
+        context-overflow triggers compress-and-retry-once; an auth/billing
+        failure raises ``FatalAgentError`` to stop the run promptly; anything
+        else re-raises as before.
+        """
+        try:
+            return await self._invoke_for_action()
         except Exception as e:
+            classified = classify_error(e)
+            if classified.should_compress:
+                # Request too big to send unchanged: compress dropped history
+                # (AC-3) and retry once before giving up.
+                try:
+                    await compress_context(
+                        self.memory,
+                        self.llm,
+                        max_tokens=self.settings.context_window_tokens,
+                        reserve_tokens=self.settings.context_window_reserve_tokens,
+                    )
+                    return await self._invoke_for_action()
+                except Exception:
+                    pass  # fall through to the normal failure handling
+            if classified.should_fail_fast:
+                logger.error(
+                    f"Fatal LLM error ({classified.reason.value}); stopping run: {e}",
+                    extra={"task_id": self.task_id},
+                )
+                raise FatalAgentError(classified.reason.value, str(e))
             logger.error(
                 f"Failed to get action from LLM: {str(e)}",
                 extra={"task_id": self.task_id},

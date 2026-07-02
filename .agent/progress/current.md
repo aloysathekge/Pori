@@ -85,6 +85,11 @@ uv-workspace split (per-package pyprojects) deferred.
   anti-thrash via the summary cache, fail-open. Replaces the role-count stub;
   memory window-split extracted (`_select_window`). Prerequisite for AC-2's
   overflow→compress. 352 passed.
+- AC-2 (error classification) — `pori/llm/error_classifier.py` (`classify_error`
+  + `FailoverReason` + retryable/should_compress/should_fail_fast hints);
+  `retry.py` `is_transient_error` delegates to it; `get_next_action` recovers:
+  context-overflow → compress+retry once, auth/billing → `FatalAgentError` halts
+  the run (no burning `max_failures` on a hopeless call). 360 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
