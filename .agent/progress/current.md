@@ -137,6 +137,13 @@ uv-workspace split (per-package pyprojects) deferred.
   primitive in `pori/sessions.py` (GW-2, CLI resume/branch wiring deferred).
   GW-4 (SSE) DEFERRED — `pori/api` can't import (fastapi undeclared); GW-6
   DEFERRED (premature). 445 passed.
+- SK-2/6/7 (skills cluster, small items) — `pori/skill_provenance.py` write-origin
+  ContextVar + agent-created ledger (SK-2, safety prereq for SK-1); per-tool
+  `check_fn` gating in `ToolRegistry.snapshot` + Footprint Ladder in CLAUDE.md
+  (SK-6); `pori/skills_ast_audit.py` opt-in AST hint scanner (SK-7). 452 passed.
+  **Remaining SK (larger features, not started):** SK-1 learning loop (flagship),
+  SK-3 plugin manifest, SK-4 declarative provider factory, SK-5 cron — each
+  warrants a focused session.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
