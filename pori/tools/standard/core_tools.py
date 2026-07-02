@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal
 from pydantic import BaseModel, Field
 
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
+from pori.threat_patterns import first_threat_message
 
 from ..registry import tool_registry
 
@@ -325,6 +326,9 @@ def core_memory_append_tool(params: CoreMemoryAppendParams, context: Dict[str, A
     memory = context.get("memory") if context else None
     if not memory or not getattr(memory, "core_memory", None):
         return {"success": False, "error": "Core memory not available"}
+    threat = first_threat_message(params.content)
+    if threat:
+        return {"success": False, "error": f"Refusing to persist to memory. {threat}"}
     try:
         memory.core_memory.get_block(params.label).append(params.content)
         if hasattr(memory, "persist"):
@@ -362,6 +366,9 @@ def memory_insert_tool(params: MemoryInsertParams, context: Dict[str, Any]):
     memory = context.get("memory") if context else None
     if not memory or not getattr(memory, "core_memory", None):
         return {"success": False, "error": "Core memory not available"}
+    threat = first_threat_message(params.new_str)
+    if threat:
+        return {"success": False, "error": f"Refusing to persist to memory. {threat}"}
     try:
         memory.core_memory.memory_insert(
             label=params.label,

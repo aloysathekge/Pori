@@ -17,6 +17,21 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def build_session_key(
+    organization_id: str, user_id: str, agent_id: Optional[str] = None
+) -> str:
+    """Deterministic **session lane** key for a (org, user, agent) tuple (GW-2).
+
+    Pori splits two ideas that were previously conflated:
+
+    - a *session_key* — the stable lane that survives ``/new`` and ``/resume``
+      (this function), and which the duplicate-run guard (GW-3) keys on;
+    - a *session_id* — one instance within that lane (``SessionRecord.id``);
+      ``/resume`` / ``/branch`` swap the session_id under a fixed session_key.
+    """
+    return f"{organization_id}:{user_id}:{agent_id or 'default'}"
+
+
 class SessionMessage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -306,4 +321,5 @@ __all__ = [
     "SessionRecord",
     "SessionRepository",
     "SessionSearchHit",
+    "build_session_key",
 ]

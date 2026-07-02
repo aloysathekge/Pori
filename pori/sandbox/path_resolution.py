@@ -52,14 +52,37 @@ def get_thread_data(
     return data
 
 
+def _resolve_existing(p: Path) -> Path:
+    """Resolve ``p`` even when it doesn't exist yet.
+
+    Resolves the nearest existing ancestor (following symlinks — the part
+    ``normpath`` can't do) and re-appends the not-yet-created leaf segments, so a
+    validation works for both existing and about-to-be-created targets and can't
+    be fooled by a symlink in the existing prefix.
+    """
+    missing: list[str] = []
+    cur = p
+    while not cur.exists():
+        parent = cur.parent
+        if parent == cur:  # reached the filesystem root
+            break
+        missing.append(cur.name)
+        cur = parent
+    resolved = cur.resolve()
+    for name in reversed(missing):
+        resolved = resolved / name
+    return resolved
+
+
 def _safe_join(base: str, suffix: str) -> str:
     """
     Join suffix onto base and guarantee the result stays within base.
 
-    Normalizes the joined path (collapsing any '..' segments) and verifies it is
-    base itself or a descendant. Raises ValueError on traversal that escapes base,
-    so a path like /mnt/user-data/workspace/../../etc cannot reach outside the
-    per-thread sandbox directory.
+    Two layers: a fast string pre-check (``normpath`` + prefix) that cheaply
+    rejects obvious ``../`` escapes in the suffix, then a symlink-safe check that
+    ``resolve()``s both sides and asserts containment with ``relative_to`` — so a
+    symlink *inside* the sandbox pointing outside it (which ``normpath`` follows
+    blindly) is also blocked. Raises ValueError on any escape.
     """
     base_norm = os.path.normpath(base)
     if not suffix:
@@ -68,6 +91,16 @@ def _safe_join(base: str, suffix: str) -> str:
     if candidate != base_norm and not candidate.startswith(base_norm + os.sep):
         raise ValueError(
             f"Path traversal blocked: {suffix!r} escapes the sandbox directory"
+        )
+    # Symlink-following containment check (normpath does not chase links).
+    base_resolved = Path(base_norm).resolve()
+    cand_resolved = _resolve_existing(Path(candidate))
+    try:
+        cand_resolved.relative_to(base_resolved)
+    except ValueError:
+        raise ValueError(
+            f"Path traversal blocked: {suffix!r} escapes the sandbox directory "
+            "(symlink)"
         )
     return candidate
 

@@ -118,6 +118,32 @@ uv-workspace split (per-package pyprojects) deferred.
   fail any unbounded `>=`; `.github/workflows/osv-scanner.yml` (detection-only,
   weekly) and `.github/dependabot.yml` (pip + github-actions). 400 passed.
   Follow-up: SHA-pin the GitHub Actions (dependabot manages them meanwhile).
+- INF-3/4/5/6 (security hardening) — `${VAR}` config expansion + secrets-only
+  `.env` (INF-3); symlink-safe sandbox `_safe_join` via resolve()+relative_to()
+  (INF-4); deterministic prompt-injection/exfil scanner `pori/threat_patterns.py`
+  — warn on web results, block on memory writes (INF-5); sensitive-write gate on
+  config.yaml/.env/.pori in filesystem tools (INF-6). INF-8 satisfied by the
+  behavior-contract tests throughout. 428 passed. **INF cluster complete.**
+- CLI-1/2/3 (CLI cluster) — `pori/cli_commands.py` central `CommandDef` registry
+  driving `/help` + the unknown-command hint (killed the stale hardcoded list);
+  `pori/cli_prompt.py` slash-completion + history via optional `prompt_toolkit`
+  (`cli` extra, falls back to `input()`); `pori/bootstrap.py` Windows UTF-8
+  bootstrap. CLI-4 (async Ctrl-C) + CLI-5 (main.py split) DEFERRED. Also
+  committed `uv.lock` (was gitignored) so INF-2 OSV scanning works. 436 passed.
+- GW-3/5 + GW-2 (kernel gateway) — `Orchestrator.execute_task` duplicate-run
+  guard (`session_key`/`on_busy`, `ConversationBusy`, slot-claim-before-await)
+  (GW-3); per-turn identity contextvars `use_identity`/`current_identity` in
+  `pori/utils/context.py`, bound per run (GW-5); `build_session_key` lane
+  primitive in `pori/sessions.py` (GW-2, CLI resume/branch wiring deferred).
+  GW-4 (SSE) DEFERRED — `pori/api` can't import (fastapi undeclared); GW-6
+  DEFERRED (premature). 445 passed.
+- SK-2/6/7 (skills cluster, small items) — `pori/skill_provenance.py` write-origin
+  ContextVar + agent-created ledger (SK-2, safety prereq for SK-1); per-tool
+  `check_fn` gating in `ToolRegistry.snapshot` + Footprint Ladder in CLAUDE.md
+  (SK-6); `pori/skills_ast_audit.py` opt-in AST hint scanner (SK-7). 452 passed.
+  **Remaining SK (larger features, not started):** SK-1 learning loop (flagship),
+  SK-3 plugin manifest, SK-4 declarative provider factory, SK-5 cron — each
+  warrants a focused session.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
