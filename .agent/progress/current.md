@@ -76,6 +76,15 @@ uv-workspace split (per-package pyprojects) deferred.
   system+history+frozen+task is a stable prefix, and `mark_last_messages` marks
   the last 3 (CURRENT TASK stays last — fenced-below-task invariant preserved).
   344 passed. Cache-token metrics were already wired.
+- AC-4 (normalized usage) — `Usage` + `normalize_usage()` in `pori/llm/messages.py`
+  own the provider token-key knowledge; `agent.py` reads normalized fields instead
+  of branching on Anthropic vs OpenAI/Google keys.
+- AC-3 (context compression) — opt-in aux-LLM summary of dropped context
+  (`pori/compression.py` `compress_context`, gated by
+  `AgentSettings.compress_context`, default off); reference-only framed,
+  anti-thrash via the summary cache, fail-open. Replaces the role-count stub;
+  memory window-split extracted (`_select_window`). Prerequisite for AC-2's
+  overflow→compress. 352 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;

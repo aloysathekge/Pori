@@ -564,17 +564,19 @@ class AgentMemory:
             f"Recent highlights:\n{body}"
         )
 
-    def get_token_limited_messages(
-        self,
-        max_tokens: int = 3000,
-        reserve_tokens: int = 1200,
-        include_summary_message: bool = True,
-    ) -> List[Dict[str, Any]]:
+    def _select_window(
+        self, max_tokens: int, reserve_tokens: int
+    ) -> Tuple[List[AgentMessage], List[AgentMessage]]:
+        """Split eligible (user/assistant) messages into ``(kept_tail, dropped)``.
+
+        Keeps the most recent messages that fit the token budget; everything
+        older is dropped. Shared by the window builder and the AC-3 compressor so
+        the dropped-id set they compute always matches.
+        """
         budget = max(200, int(max_tokens) - int(reserve_tokens))
         chosen: List[AgentMessage] = []
         used = 0
         eligible = [m for m in self.messages if m.role in {"user", "assistant"}]
-
         for msg in reversed(eligible):
             msg_tokens = self.estimate_tokens(msg.content)
             if chosen and (used + msg_tokens) > budget:
@@ -585,15 +587,52 @@ class AgentMemory:
                 break
             chosen.append(msg)
             used += msg_tokens
-
         chosen.reverse()
+        dropped = eligible[: -len(chosen)] if chosen else list(eligible)
+        return chosen, dropped
 
-        dropped_count = max(0, len(eligible) - len(chosen))
+    def context_window_dropped(
+        self, max_tokens: int, reserve_tokens: int
+    ) -> Tuple[List[AgentMessage], List[str]]:
+        """Return ``(dropped_messages, dropped_ids)`` for the current budget."""
+        _, dropped = self._select_window(max_tokens, reserve_tokens)
+        return dropped, [m.id for m in dropped]
+
+    def has_cached_summary(self, dropped_ids: List[str]) -> bool:
+        """True if a summary is already cached for exactly this dropped-id set."""
+        return any(
+            isinstance(s, dict)
+            and s.get("source_message_ids") == dropped_ids
+            and s.get("summary")
+            for s in self.summaries
+        )
+
+    def store_context_summary(self, dropped_ids: List[str], summary_text: str) -> None:
+        """Cache a compression summary keyed by the dropped-message ids (AC-3)."""
+        self._summary_message_id = f"summary_{uuid.uuid4().hex[:10]}"
+        self.summaries.append(
+            {
+                "id": self._summary_message_id,
+                "timestamp": datetime.now(),
+                "dropped_count": len(dropped_ids),
+                "source_message_ids": dropped_ids,
+                "summary": summary_text,
+            }
+        )
+        self._persist()
+
+    def get_token_limited_messages(
+        self,
+        max_tokens: int = 3000,
+        reserve_tokens: int = 1200,
+        include_summary_message: bool = True,
+    ) -> List[Dict[str, Any]]:
+        chosen, dropped = self._select_window(max_tokens, reserve_tokens)
+        dropped_count = len(dropped)
         structured = [{"role": m.role, "content": m.content} for m in chosen]
 
         if include_summary_message and dropped_count > 0:
-            dropped_messages = eligible[: -len(chosen)] if chosen else eligible
-            dropped_ids = [m.id for m in dropped_messages]
+            dropped_ids = [m.id for m in dropped]
             cached_summary = next(
                 (
                     s
@@ -604,31 +643,17 @@ class AgentMemory:
                 ),
                 None,
             )
+            # An LLM summary (cached by the AC-3 compressor) is used when present;
+            # otherwise fall back to the cheap deterministic role-count summary.
             summary_text = (
                 str(cached_summary.get("summary"))
                 if isinstance(cached_summary, dict)
-                else self._summarize_messages(dropped_messages)
+                else self._summarize_messages(dropped)
             )
             if summary_text:
                 if not cached_summary:
-                    self._summary_message_id = f"summary_{uuid.uuid4().hex[:10]}"
-                    self.summaries.append(
-                        {
-                            "id": self._summary_message_id,
-                            "timestamp": datetime.now(),
-                            "dropped_count": dropped_count,
-                            "source_message_ids": dropped_ids,
-                            "summary": summary_text,
-                        }
-                    )
-                    self._persist()
-                structured.insert(
-                    0,
-                    {
-                        "role": "system",
-                        "content": summary_text,
-                    },
-                )
+                    self.store_context_summary(dropped_ids, summary_text)
+                structured.insert(0, {"role": "system", "content": summary_text})
         return structured
 
     def add_tool_call(

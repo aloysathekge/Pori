@@ -29,6 +29,7 @@ from pori.llm import (
     normalize_usage,
 )
 
+from .compression import compress_context
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
 from .evaluation import ActionResult, Evaluator
 from .evolution import EvolutionRepository
@@ -115,6 +116,10 @@ class AgentSettings(BaseModel):
     reflection_mode: Literal["auto", "always", "never"] = "never"
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
+    # AC-3: when True, summarize context that would overflow the window with an
+    # aux LLM call before it is dropped (instead of the cheap deterministic
+    # stub). Off by default — it adds an occasional auxiliary call on overflow.
+    compress_context: bool = False
     # When validate_output is True, an LLM judge checks each proposed final
     # answer; inadequate answers are rejected and the agent is asked to revise,
     # up to this many times before the answer is accepted to avoid loops.
@@ -656,6 +661,15 @@ class Agent:
                     span_type=SpanType.LLM,
                     parent_span_id=step_span.span_id,
                     attributes={"model": getattr(self.llm, "model", "")},
+                )
+            # AC-3: summarize context that would overflow the window before it is
+            # dropped, so long tasks don't silently lose information (fail-open).
+            if self.settings.compress_context:
+                await compress_context(
+                    self.memory,
+                    self.llm,
+                    max_tokens=self.settings.context_window_tokens,
+                    reserve_tokens=self.settings.context_window_reserve_tokens,
                 )
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
