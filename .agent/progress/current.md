@@ -112,6 +112,12 @@ uv-workspace split (per-package pyprojects) deferred.
   (`rm -rf /`|`~`, `--no-preserve-root`, `mkfs`, `dd` to raw device, redirect to
   raw device, fork bomb, shutdown/reboot, `kill -1`) are refused unconditionally.
   Tiny/no-recovery-only to avoid false positives; 399 passed.
+- INF-2 (supply-chain hardening) — bounded dependency ranges
+  (`>=floor,<next_major`) on all core deps + extras in `pyproject.toml`
+  (uv.lock unchanged); `tools/ci/check_dep_bounds.py` + a `dep-bounds` CI job
+  fail any unbounded `>=`; `.github/workflows/osv-scanner.yml` (detection-only,
+  weekly) and `.github/dependabot.yml` (pip + github-actions). 400 passed.
+  Follow-up: SHA-pin the GitHub Actions (dependabot manages them meanwhile).
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
