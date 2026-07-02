@@ -370,6 +370,7 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
             result["message"] = f"Content truncated to {params.max_lines} lines"
 
         logger.info(f"Read file: {path} ({format_bytes(len(content.encode()))})")
+        _record_file_seen(path)
         return result
 
     except UnicodeDecodeError:
@@ -379,6 +380,38 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# Read/write tracking for edit-staleness (ported from Hermes file_state.py idea):
+# edit_file warns when a file is edited without having been read, or after it
+# changed on disk since the agent last saw it — preventing blind/stale edits.
+_file_seen_mtimes: Dict[str, float] = {}
+
+
+def _record_file_seen(path: Path) -> None:
+    try:
+        _file_seen_mtimes[str(path.resolve())] = path.stat().st_mtime
+    except OSError:
+        pass
+
+
+def _edit_staleness_warning(path: Path) -> Optional[str]:
+    try:
+        current = path.stat().st_mtime
+    except OSError:
+        return None
+    seen = _file_seen_mtimes.get(str(path.resolve()))
+    if seen is None:
+        return (
+            "you have not read this file this session; the edit may be based on "
+            "stale assumptions — read_file first to be safe"
+        )
+    if abs(current - seen) > 1e-6:
+        return (
+            "this file changed on disk since you last read it; re-read before "
+            "editing to avoid clobbering those changes"
+        )
+    return None
 
 
 _SENSITIVE_WRITE_BASENAMES = {"config.yaml", "config.yml"}
@@ -447,6 +480,7 @@ def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
         logger.info(
             f"{action} file: {path} ({format_bytes(len(params.content.encode()))})"
         )
+        _record_file_seen(path)
         return {
             "message": f"{action} file successfully",
             "file_info": file_info,
@@ -832,6 +866,95 @@ def delete_file_tool(params: DeleteParams, context: Dict[str, Any]):
         logger.warning(f"Deleted: {path} ({file_info.get('type', 'unknown')})")
         return {"message": f"{operation} successfully", "deleted_info": file_info}
 
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class EditFileParams(BaseModel):
+    file_path: str = Field(..., description="Path to the file to edit")
+    old_string: str = Field(
+        ..., description="Exact text to find (whitespace-sensitive)"
+    )
+    new_string: str = Field(..., description="Text to replace it with")
+    replace_all: bool = Field(
+        False,
+        description="Replace every occurrence (default: require old_string unique)",
+    )
+
+
+@Registry.tool(
+    name="edit_file",
+    param_model=EditFileParams,
+    description=(
+        "Make a targeted edit by replacing exact text in a file (preferred over "
+        "write_file for changing part of a file). old_string must be unique unless "
+        "replace_all is set; read_file the file first."
+    ),
+    side_effects=(SideEffect.FILESYSTEM_WRITE,),
+)
+@safe_path_operation
+def edit_file_tool(params: EditFileParams, context: Dict[str, Any]):
+    """Replace exact text in a file, with a uniqueness check and read-before-edit
+    staleness warning (ported from Hermes' patch semantics)."""
+    try:
+        path = Path(params.file_path)
+
+        if is_sensitive_write_target(path):
+            return {
+                "success": False,
+                "error": (
+                    f"Refusing to edit a protected Pori file ({path.name}). "
+                    "config.yaml, .env, and .pori/ state are guarded."
+                ),
+            }
+        if not path.is_file():
+            return {"success": False, "error": f"File not found: {path}"}
+        if params.old_string == "":
+            return {
+                "success": False,
+                "error": "old_string is empty; use write_file to create a file",
+            }
+        if params.old_string == params.new_string:
+            return {
+                "success": False,
+                "error": "old_string and new_string are identical",
+            }
+
+        content = path.read_text(encoding="utf-8")
+        occurrences = content.count(params.old_string)
+        if occurrences == 0:
+            return {
+                "success": False,
+                "error": "old_string not found (check exact whitespace and indentation)",
+            }
+        if occurrences > 1 and not params.replace_all:
+            return {
+                "success": False,
+                "error": (
+                    f"old_string is not unique — it appears {occurrences} times. Add "
+                    "surrounding context to make it unique, or pass replace_all=true."
+                ),
+            }
+
+        warning = _edit_staleness_warning(path)
+        if params.replace_all:
+            new_content = content.replace(params.old_string, params.new_string)
+            replaced = occurrences
+        else:
+            new_content = content.replace(params.old_string, params.new_string, 1)
+            replaced = 1
+        path.write_text(new_content, encoding="utf-8")
+        _record_file_seen(path)
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "message": f"Edited {path} ({replaced} replacement(s))",
+            "path": str(path),
+            "replacements": replaced,
+        }
+        if warning:
+            result["warning"] = warning
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 

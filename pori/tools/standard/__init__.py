@@ -99,6 +99,7 @@ def _define_standard_groups(registry) -> None:
                 {
                     "read_file",
                     "write_file",
+                    "edit_file",
                     "list_directory",
                     "search_files",
                     "file_info",
