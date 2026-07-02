@@ -143,6 +143,9 @@ class AgentSettings(BaseModel):
     # idempotent read returning the same result across steps) and nudge/halt.
     # Only fires on a detected loop, so it's cheap; on by default.
     tool_loop_guardrail: bool = True
+    # SK-1 layer 2: after a run completes, fire a cheap non-blocking review agent
+    # that may author a skill from the finished session. Off by default (opt-in).
+    background_review: bool = False
     # When validate_output is True, an LLM judge checks each proposed final
     # answer; inadequate answers are rejected and the agent is asked to revise,
     # up to this many times before the answer is accepted to avoid loops.

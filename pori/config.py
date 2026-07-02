@@ -199,6 +199,12 @@ class SkillsConfig(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     max_instruction_chars: int = Field(default=50_000, ge=1)
     skill_limit: int = Field(default=3, ge=0)
+    background_review: bool = Field(
+        default=False,
+        description="SK-1 layer 2: after each run, fire a cheap non-blocking review "
+        "agent that may autonomously author a skill from the finished session. "
+        "Adds one extra (small) agent run per task when on.",
+    )
 
 
 class EvolutionConfig(BaseModel):

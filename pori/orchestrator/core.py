@@ -1,6 +1,7 @@
 import asyncio
+import logging
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from pori.llm import BaseChatModel
 
@@ -9,9 +10,13 @@ from ..evolution import EvolutionRepository
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
 from ..runtime import RunContext
+from ..skill_provenance import use_write_origin
 from ..skills import SkillCatalog
+from ..skills_learn import build_background_review_prompt
 from ..tools.registry import ToolRegistry
 from ..utils.context import use_identity
+
+logger = logging.getLogger("pori.orchestrator")
 
 
 class ConversationBusy(RuntimeError):
@@ -52,6 +57,8 @@ class Orchestrator:
         self.running_tasks: Dict[str, asyncio.Task] = {}
         # GW-3: at most one in-flight run per session_key (duplicate-run guard).
         self._active_sessions: Dict[str, "asyncio.Future[Dict[str, Any]]"] = {}
+        # SK-1 layer 2: strong refs to fire-and-forget background-review tasks.
+        self._review_tasks: Set["asyncio.Task[None]"] = set()
         self.shared_memory = shared_memory
         self.skill_catalog = skill_catalog
         self.skill_limit = skill_limit
@@ -185,6 +192,10 @@ class Orchestrator:
                 stream=stream,
             )
             summary = agent.result_summary()
+            # SK-1 layer 2: mine the finished session for a reusable skill —
+            # autonomously, non-blocking, and without mutating this run's memory.
+            if getattr(settings, "background_review", False) and memory is not None:
+                self._spawn_background_review(memory)
             return {
                 "task_id": task_id,
                 "success": result["completed"],
@@ -203,6 +214,51 @@ class Orchestrator:
             # Clean up from agents dict (but keep reference in result)
             if task_id in self.agents:
                 del self.agents[task_id]
+
+    def _spawn_background_review(self, memory: AgentMemory) -> None:
+        """Fire-and-forget a cheap review agent over the finished session (SK-1
+        layer 2). Never blocks the caller or mutates the live memory."""
+        try:
+            digest = self._session_digest(memory)
+        except Exception:
+            return
+        if not digest.strip():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        future = loop.create_task(self._run_background_review(digest))
+        self._review_tasks.add(future)
+        future.add_done_callback(self._review_tasks.discard)
+
+    async def _run_background_review(self, digest: str) -> None:
+        """Run the isolated review agent; author a skill iff it finds one."""
+        try:
+            agent = Agent(
+                task=build_background_review_prompt(digest),
+                llm=self.llm,
+                tools_registry=self.tools_registry,
+                # Cheap and non-recursive: small step budget, and background review
+                # disabled so a review can never spawn another review.
+                settings=AgentSettings(max_steps=6, background_review=False),
+                memory=AgentMemory(),  # isolated — cannot corrupt the real session
+                skill_catalog=self.skill_catalog,
+                skill_limit=self.skill_limit,
+            )
+            # Mark the write-origin so any skill authored here is recorded
+            # agent-created (SK-2) and thus curatable — never a user's skill.
+            with use_write_origin("background_review"):
+                await agent.run()
+        except Exception as exc:  # a background task must never surface an error
+            logger.debug("Background review skipped: %s", exc)
+
+    @staticmethod
+    def _session_digest(memory: AgentMemory) -> str:
+        try:
+            return memory.get_recent_messages(12) or ""
+        except Exception:
+            return ""
 
     async def execute_tasks_parallel(
         self,
