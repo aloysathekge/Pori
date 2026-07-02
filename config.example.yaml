@@ -86,6 +86,9 @@ memory:
 #       default_owner: aloysathekge
 #   max_instruction_chars: 50000
 #   skill_limit: 3
+#   # SK-1 layer 2: after each run, fire a cheap non-blocking review agent that
+#   # may autonomously author a skill from the finished session. Off by default.
+#   background_review: false
 
 # Evolution: governed self-evolution proposal state (optional)
 # evolution:

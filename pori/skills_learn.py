@@ -66,3 +66,23 @@ def build_learn_prompt(request: str) -> str:
         "After saving, briefly tell the user what skill you created and that it is "
         "available after /reload-skills (or on the next session)."
     )
+
+
+def build_background_review_prompt(digest: str) -> str:
+    """Build the instruction for the autonomous post-run review agent (layer 2).
+
+    It looks at a digest of a just-finished session and decides — conservatively —
+    whether it contained a genuinely reusable procedure worth saving as a skill.
+    """
+    return (
+        "You are reviewing a just-finished agent session to decide whether it "
+        "contained a REUSABLE procedure worth saving as a skill.\n\n"
+        "Session digest:\n"
+        f"{digest}\n\n"
+        "Be conservative — most sessions are one-off and NOT worth a skill. Only "
+        "save a genuinely general, repeatable procedure (a workflow a future agent "
+        "would follow again), never a specific answer or a trivial task.\n\n"
+        "- If nothing is reusable: call done immediately and write nothing.\n"
+        "- If something is: author ONE SKILL.md and call write_skill exactly once.\n\n"
+        f"{_AUTHORING_STANDARDS}"
+    )

@@ -1463,6 +1463,7 @@ async def main():
                         context_window_reserve_tokens=config.agent.context_window_reserve_tokens,
                         compress_context=config.agent.compress_context,
                         tool_loop_guardrail=config.agent.tool_loop_guardrail,
+                        background_review=config.skills.background_review,
                         validate_output=config.agent.validate_output,
                         max_validation_retries=config.agent.max_validation_retries,
                     ),

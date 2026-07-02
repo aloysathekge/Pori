@@ -144,12 +144,14 @@ uv-workspace split (per-package pyprojects) deferred.
   **Remaining SK (larger features, not started):** SK-1 learning loop (flagship),
   SK-3 plugin manifest, SK-4 declarative provider factory, SK-5 cron — each
   warrants a focused session.
-- SK-1 layer 1 (learning loop, flagship — started) — `/learn <request>` +
-  `pori/skills_learn.build_learn_prompt` + a `write_skill` tool that validates
-  frontmatter, installs the SKILL.md, and stamps it agent-created (SK-2) only
-  under an autonomous write-origin. User-triggered skill authoring works end to
-  end. **Remaining: layer 2 (background review) + layer 3 (deterministic
-  curator).** 460 passed.
+- SK-1 layers 1+2 (learning loop, flagship — in progress) — layer 1: `/learn` +
+  `build_learn_prompt` + `write_skill` tool (user-triggered authoring). Layer 2:
+  `Orchestrator._spawn_background_review` fires a cheap, non-blocking, isolated
+  review agent after a run (opt-in `config.skills.background_review`) that mines
+  the session for a reusable procedure and authors a skill under the
+  `background_review` origin (agent-created via SK-2). **Remaining: layer 3 —
+  deterministic curator (active→stale→archived, agent-created-only, archive-only).**
+  464 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
