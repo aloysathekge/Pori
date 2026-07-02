@@ -8,6 +8,7 @@ a factory pattern for easy switching between providers.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
@@ -224,6 +225,27 @@ class Config(BaseModel):
     team: Optional[TeamConfig] = Field(default=None)
 
 
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """Recursively expand ``${VAR}`` references in config values from the env.
+
+    INF-3: lets a user keep a secret out of ``config.yaml`` by referencing an env
+    var (kept in ``.env`` — which is for secrets only) instead of hardcoding it.
+    An unset ``${VAR}`` is left verbatim so a miss is visible, not silently blanked.
+    """
+    if isinstance(value, str):
+        return _ENV_VAR_PATTERN.sub(
+            lambda m: os.environ.get(m.group(1), m.group(0)), value
+        )
+    if isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_vars(v) for v in value]
+    return value
+
+
 def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:
     """
     Load configuration from YAML file.
@@ -280,7 +302,11 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Config:
         )
 
     with open(candidate, "r") as f:
-        config_dict = yaml.safe_load(f)
+        config_dict = yaml.safe_load(f) or {}
+
+    # INF-3: expand ${VAR} references from the environment so secrets can be
+    # referenced (kept in .env) rather than hardcoded in config.yaml.
+    config_dict = _expand_env_vars(config_dict)
 
     return Config(**config_dict)
 

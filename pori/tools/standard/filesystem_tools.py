@@ -381,6 +381,30 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
         return {"success": False, "error": str(e)}
 
 
+_SENSITIVE_WRITE_BASENAMES = {"config.yaml", "config.yml"}
+
+
+def is_sensitive_write_target(path: Union[str, Path]) -> bool:
+    """True if writing/deleting ``path`` would tamper with Pori's own guardrail
+    config or state (INF-6): ``config.yaml``, ``.env``(.*), or anything under a
+    ``.pori/`` directory.
+
+    The agent can write files; without this it could edit ``config.yaml`` to set
+    ``hitl.enabled: false`` (or drop a tool from ``interrupt_on``) and have the
+    next config load pick it up. Reads are unaffected.
+    """
+    try:
+        p = Path(path)
+    except (OSError, ValueError):
+        return False
+    name = p.name.lower()
+    if name in _SENSITIVE_WRITE_BASENAMES:
+        return True
+    if name == ".env" or name.startswith(".env."):
+        return True
+    return any(part.lower() == ".pori" for part in p.parts)
+
+
 @Registry.tool(
     name="write_file",
     param_model=WriteFileParams,
@@ -392,6 +416,16 @@ def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
     """Write content to a file with safety checks."""
     try:
         path = Path(params.file_path)
+
+        if is_sensitive_write_target(path):
+            return {
+                "success": False,
+                "error": (
+                    f"Refusing to write a protected Pori file ({path.name}). "
+                    "config.yaml, .env, and .pori/ state are guarded so the agent "
+                    "cannot disable its own safety settings."
+                ),
+            }
 
         if not fs_config.is_extension_allowed(path):
             return {
@@ -764,6 +798,15 @@ def delete_file_tool(params: DeleteParams, context: Dict[str, Any]):
         dangerous_paths = {"/", "C:\\", str(Path.home()), "."}
         if str(path.resolve()) in dangerous_paths:
             return {"success": False, "error": f"Cannot delete system path: {path}"}
+
+        if is_sensitive_write_target(path):
+            return {
+                "success": False,
+                "error": (
+                    f"Refusing to delete a protected Pori file ({path.name}); "
+                    "config.yaml, .env, and .pori/ state are guarded."
+                ),
+            }
 
         # Get info before deletion
         file_info = get_file_info(path)
