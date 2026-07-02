@@ -1,59 +1,62 @@
 # Current State
 
-## Active Task
+## Active Task — Pori → Aloy kernel/product architecture
 
-Two sandbox correctness fixes on `fix/sandbox-working-dir-and-artifact-tracking`
-(committed). Both surfaced from the same failing agent task ("write a txt file,
-then a program that zips it"), which the agent could not complete because of
-sandbox tooling gaps — not reasoning.
+Established the north-star architecture and began scaffolding it. Pori is being
+evolved into an **eval-native, receipt-first, memory-native agent KERNEL**, with
+**Aloy** (a personal + org OS agent, Hermes-class and beyond) as the first
+product built on it. Multiple future agent products can sit on the same kernel.
 
-### 1. bash `working_dir` was ignored
+Reference OSS lives at `../references/` (hermes-agent, claude-code, agno,
+agent-oss) and is mined for best-of-breed patterns (harvest, not paste;
+license-clean; logged in `HARVEST.md`).
 
-`BashParams.working_dir` was declared and advertised to the model but never
-read; `LocalSandbox.execute_command` ran `subprocess.run` with no `cwd`, so
-every command executed in pori's launch directory (repo root) instead of the
-thread sandbox dir. Relative-path programs and bare script names could not find
-their sibling files.
+### Decisions (formalized in docs)
 
-Fix: `execute_command(command, cwd=...)` through the `Sandbox` interface;
-`bash_tool` resolves `working_dir` (virtual → real via `replace_virtual_path`)
-and defaults to the thread workspace when omitted — never the host cwd.
+- **Kernel moat = one loop:** work → **receipts** → **validators** judge them →
+  verdict is a receipt → continue/halt. Memory writes ride the same rails
+  (write → receipt → validate → commit). Receipts + validators + the memory
+  **engine** all live in the kernel; tenancy/scope/policy live above it.
+- **Three-band monorepo:** `packages/pori` (kernel, publishable) → `packages/ext/pori-*`
+  (reusable, promote-on-second-use) → `products/aloy` (product #1). CI-enforced
+  one-way deps: `products → ext → pori`, never upward.
+- **Kernel keeps Pori's identity:** Plan→Act→Reflect→**Evaluate** loop, unified
+  eval/guardrail (→ validators), Trace/Span (→ receipts), CoreMemory Blocks, Team.
+- **Roadmap:** Phase 0 (tenancy-aware fixes) → Phase 1 (NormalizedResponse →
+  prompt caching → context compression → error classifier) → receipts/validators
+  retrofit → memory engine + learning loop → package migration → surfaces/org plane.
 
-### 2. bash-produced files were not tracked as artifacts
+### Artifacts created this session (all additive; no existing file modified)
 
-Artifact tracking was tool-self-declaration based (`write_file` /
-`sandbox_write_file` only). A file created by a program run under `bash` (e.g.
-the produced `.zip`) was invisible — and could never be captured that way, since
-a shell command does not announce which files it wrote.
+- `docs/Pori.md` — PRD for Pori as a standalone kernel product.
+- `docs/Pori_Implementation_Plan.md` — phased implementation plan (M0…M7) with per-workstream
+  current-state → target → steps → tests → donor → risks, and 12 flagged open questions.
+- `MONOREPO.md` — three-band structure + one-way dependency rule + migration staging.
+- `HARVEST.md` — provenance ledger + donor map + license rules.
+- `packages/`, `products/`, `tools/ci/` skeleton (READMEs + staged import-linter boundary contract).
 
-Fix: the sandbox now *observes* the filesystem. `bash_tool` snapshots the thread
-dirs before/after the command (bounded at 5000 files) and reports created/
-modified files under `files_written` as virtual paths. New `to_virtual_path()`
-(inverse of `replace_virtual_path`) is used for display. `agent.py` and
-`main.py` artifact collectors now read `files_written`; the existing
-`write_file`/`sandbox_write_file` path is untouched.
+## Constraints carried forward
 
-## Verification
+- **No costly verification gates** (a receipt-backed verification V1 was reverted
+  earlier for cost). The kernel's receipts are cheap inline appends and validators
+  are **deterministic-tier-first, LLM-optional** — consistent with this rule.
+- Local sandbox still runs shell with `shell=True`; Phase 0 adds a non-bypassable
+  hardline command floor (checked before HITL).
 
-- `uv run pytest tests/ -q`: 337 passed (was 332; +5 new sandbox/CLI tests,
-  including a regression that asserts the produced `.zip` is reported).
-- black, isort, and `mypy pori/sandbox pori/agent.py pori/main.py
-  --ignore-missing-imports` all clean on touched files.
+## Open questions (do not assume — see docs/Pori_Implementation_Plan.md §12 / MONOREPO.md)
 
-## Remaining Risks / Follow-ups
-
-- Filesystem observation is scoped to the **local** sandbox and its thread dirs
-  (the correct boundary). A container-backed sandbox would need its own diff
-  mechanism to report `files_written`.
-- Snapshot detection is size+mtime based; a same-size, same-mtime rewrite would
-  not be flagged (negligible in practice).
-- `debug.log` is tracked in git and rewritten on every run (dirties the tree and
-  once blocked a `git reset`). Consider gitignoring it. Separately, the local
-  sandbox runs shell commands with `shell=True`; defaulting cwd to the workspace
-  reduces but does not eliminate the "commands touch the real repo" concern.
+Kernel-thinness ratification; receipt storage + hash algorithm; event protocol
+(AG-UI/ACP vs native); MCP & Team placement; provenance ContextVar placement;
+auth default; Python floor; lint stack; naming; pre-1.0 policy; first donors to
+clone (OpenHands + Inspect recommended); **repo topology** — sibling projects
+`Pori/pori_cloud`, `pori_website`, `pori_docs` live outside this git repo, and
+`pori/api` vs the standalone `pori_cloud` need reconciling.
 
 ## Next Session Should Start With
 
-Open a PR for `fix/sandbox-working-dir-and-artifact-tracking` (base `main`).
-The receipt-backed verification V1 was reverted earlier this session by user
-request (cost); do not reintroduce a costly verification gate.
+1. (Carried over) Open a PR for `fix/sandbox-working-dir-and-artifact-tracking`
+   (base `main`) — the sandbox `working_dir` + artifact-tracking fixes are
+   committed and green (337 tests) but unmerged.
+2. Resolve the M0/M1-blocking open questions (Python floor, lint stack, naming,
+   event protocol, receipt storage, first donors) OR start **Phase 0** (the three
+   tenancy-aware fixes) in the current `pori/` tree.
