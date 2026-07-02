@@ -28,9 +28,6 @@ htmlcov/
 memory.db
 .pori/
 
-# Package manager
-uv.lock
-
 # OS
 .DS_Store
 Thumbs.db
