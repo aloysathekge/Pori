@@ -79,6 +79,7 @@ from .skills import (
     SkillSummary,
     render_selected_skills,
 )
+from .tool_guardrails import ToolCallGuardrailController
 from .tools.policy import AuthorizationDecision, ToolAuthorizationPolicy
 from .tools.registry import ToolExecutor, ToolRegistry
 from .utils.logging_config import ensure_logger_configured
@@ -131,6 +132,10 @@ class AgentSettings(BaseModel):
     # aux LLM call before it is dropped (instead of the cheap deterministic
     # stub). Off by default — it adds an occasional auxiliary call on overflow.
     compress_context: bool = False
+    # AC-5: detect cross-step tool loops (same call failing repeatedly, or an
+    # idempotent read returning the same result across steps) and nudge/halt.
+    # Only fires on a detected loop, so it's cheap; on by default.
+    tool_loop_guardrail: bool = True
     # When validate_output is True, an LLM judge checks each proposed final
     # answer; inadequate answers are rejected and the agent is asked to revise,
     # up to this many times before the answer is accepted to avoid loops.
@@ -253,6 +258,7 @@ class Agent:
         self._on_event: Optional[Callable[[Any], None]] = None
         self._stream: bool = False
         self.tool_executor = ToolExecutor(self.tools_registry)
+        self.tool_guardrails = ToolCallGuardrailController()
         self.tool_surface_fingerprint = self.capability_snapshot.fingerprint
         self.settings = settings
 
@@ -1998,6 +2004,29 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                 # Emit tool_call_end so a renderer can close the "» ..." line
                 # with a "✓ / ✗" as soon as the tool finishes.
                 self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
+
+                # AC-5: cross-step loop guard. Surface a recovery hint on the tool
+                # output; halt the run on a detected loop instead of spinning to
+                # max_steps.
+                if self.settings.tool_loop_guardrail:
+                    guard = self.tool_guardrails.after_call(
+                        tool_name, params, bool(success), tool_result
+                    )
+                    if guard is not None:
+                        note = f"\n\n[loop-guard] {guard.guidance}"
+                        if isinstance(tool_result.get("error"), str):
+                            tool_result["error"] += note
+                        elif isinstance(tool_result.get("output"), str):
+                            tool_result["output"] += note
+                        else:
+                            tool_result["guardrail"] = guard.guidance
+                        if guard.action == "halt":
+                            logger.warning(
+                                f"Tool loop-guard halt ({guard.reason}) on {tool_name}",
+                                extra={"task_id": self.task_id},
+                            )
+                            self.state.consecutive_failures = self.settings.max_failures
+
                 artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
                 self._record_tool_receipt(
                     tool_name,
