@@ -15,8 +15,9 @@ RUN groupadd --gid 1000 pori \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY pori/ ./pori/
+# Copy application code (kernel lives under packages/pori/; pyproject's
+# packages.find resolves it, so `pip install .` below picks up the `pori` package)
+COPY packages/pori/ ./packages/pori/
 COPY pyproject.toml .
 COPY config.example.yaml .
 

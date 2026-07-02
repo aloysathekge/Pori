@@ -15,8 +15,8 @@ repo root (this git repo: Pori/Pori — uv workspace)
 │  ├─ pori/        KERNEL — product-agnostic, publishable
 │  │               runtime · protocol · receipts · validation · llm · tools ·
 │  │               context · sandbox · memory engine · interfaces
-│  │               (PLACEHOLDER for now; kernel currently lives at repo-root ./pori/,
-│  │                migrates here in Phase 4)
+│  │               (the `pori` package lives here at packages/pori/pori/;
+│  │                pori/api moves to products/aloy/backend next)
 │  └─ ext/         EXTENSION BAND (pori-*) — reusable across products, opt-in, publishable
 │                  memory-scope/tenancy · skills · learning · gateway · providers · cli-kit
 ├─ products/
@@ -60,11 +60,12 @@ Create a `pori-*` extension **only** when the capability is obviously generic. O
 
 ---
 
-## Migration staging (why the skeleton is additive)
+## Migration staging
 
-- **M0 (this pass):** create the band directories, the dependency-boundary rule, and the harvest ledger. **No existing file touched, no code moved.** Current kernel stays at repo-root `./pori/` and remains importable.
-- **Phase 0 / Phase 1:** land hardening work in the current tree (it is kernel work) and in `products/aloy` where it's backend work.
-- **Phase 4:** migrate `./pori/` modules into `packages/pori` / `packages/ext/*` / `products/aloy` per the boundary, convert the root `pyproject.toml` into a uv workspace, and activate the boundary check in CI.
+- **M0:** created the band directories, the dependency-boundary rule, and the harvest ledger (additive; no code moved).
+- **Kernel migration — DONE:** the `pori` package moved to `packages/pori/pori/`; the root `pyproject.toml` resolves it via `packages.find where = ["packages/pori"]` (and `known_first_party = ["pori"]` for isort). Still a **single** root `pyproject.toml` — the multi-package uv-workspace split (per-package pyprojects, publishing `pori` standalone) is deferred until product/ext packages exist. Tests / black / isort / mypy all green from the new location (338 passed, 1 skipped).
+- **Next (products / api):** extract `pori/api` → `products/aloy/backend/`; declare its `fastapi`/`starlette` deps and fix the `RequestResponseFunction` import; then fold in the copied-in `pori_cloud` (see copy-in plan below).
+- **Later:** split into a real uv workspace with per-package `pyproject.toml`s and activate the CI boundary check.
 
 ---
 

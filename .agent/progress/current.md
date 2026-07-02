@@ -59,6 +59,14 @@ consolidated, prioritized tracker (37 recommendations; IDs AC- agent-core,
 SK- skills/plugins/learning, GW- gateway, CLI- cli/tui, INF- infra/security;
 the tools deep-dive has no Part B). Work items reference their ID.
 
+**Structure — kernel migrated:** the `pori` package now lives at
+`packages/pori/pori/` (single root `pyproject.toml`: `where=["packages/pori"]`
++ isort `known_first_party=["pori"]`; MANIFEST/Dockerfile/ci.yml paths updated).
+Tests/black/isort/mypy green from the new location. `pori/api` is still inside
+the kernel — extract to `products/aloy/backend/` next (declare fastapi/starlette,
+fix the `RequestResponseFunction` import). Multi-package uv-workspace split
+deferred until product/ext packages exist.
+
 **Done:** GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;

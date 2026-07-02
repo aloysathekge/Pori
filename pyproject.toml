@@ -39,7 +39,7 @@ dependencies = [
 pori = "pori.cli:run"
 
 [tool.setuptools.packages.find]
-where = ["."] 
+where = ["packages/pori"] 
 include = ["pori*"]
 exclude = ["dev_docs*", "tests*", "examples*"]
 
@@ -130,3 +130,6 @@ include = '\.pyi?$'
 [tool.isort]
 profile = "black"
 line_length = 88
+# The `pori` package now lives under packages/pori/, so isort can no longer
+# auto-detect it as first-party from the repo root — declare it explicitly.
+known_first_party = ["pori"]

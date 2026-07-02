@@ -1,24 +1,26 @@
-# packages/pori — KERNEL (placeholder)
+# packages/pori — the Pori kernel
 
-⚠ **PLACEHOLDER — do not put code here yet.**
+The `pori` package (the kernel) lives here at `packages/pori/pori/`. It is built
+by the repo-root `pyproject.toml` (`[tool.setuptools.packages.find] where =
+["packages/pori"]`) and imported as `pori`.
 
-The Pori kernel currently lives at the **repo-root `../../pori/`** package. It migrates into this directory in **Phase 4** (see [`../../docs/Pori_Implementation_Plan.md`](../../docs/Pori_Implementation_Plan.md)).
+## Layout
 
-## What lands here (Phase 4)
+- `pori/` — the kernel package (agent loop, llm, tools, memory, sandbox,
+  observability, orchestrator, context, evaluation, skills, evolution, …).
+- `pori/api/` — the FastAPI service. **Temporary home:** this is a product/backend
+  concern and will be extracted to `products/aloy/backend/` in the next pass
+  (see [`../../MONOREPO.md`](../../MONOREPO.md)); it lives here for now so the
+  kernel move stayed low-risk.
 
-The eval-native, receipt-first, memory-native kernel — product-agnostic, publishable standalone:
+## Target direction
 
-- `runtime/` — manager/worker loop, turn lifecycle, iteration budget, the Evaluator step
-- `protocol/` — streaming event contract, message/tool-call types, `NormalizedResponse`
-- `receipts/` — typed, hash-chained, evidence-linked, replayable records
-- `validation/` — `Validator` interface + runner + minimal non-bypassable safety floor
-- `llm/` — provider-agnostic transport + adapters
-- `tools/` — registry + executor engine + `ToolBackend` interface
-- `context/` — `ContextEngine` interface + compression mechanism + prompt caching
-- `sandbox/` — execution backends + path security + hardline command floor
-- `memory/` — block model + recall→inject + write lifecycle + `MemoryStore` interface
-- `interfaces/` — the ABCs (`MemoryProvider`, `SkillProvider`, `ToolBackend`, `Validator`, …)
+As the kernel/product split matures (see [`../../docs/Pori.md`](../../docs/Pori.md)),
+the kernel narrows to the mechanism substrate (runtime · protocol · receipts ·
+validation · llm · tools · context · sandbox · memory engine · interfaces), and
+product/tenancy concerns move out to `packages/ext/` and `products/`.
 
 ## Rule
 
-`pori` imports **nothing** from `ext` or `products`. It is the bottom of the dependency DAG and must build/publish on its own.
+`pori` imports **nothing** from `packages/ext/` or `products/`. It is the bottom
+of the dependency DAG (`products → ext → pori`).
