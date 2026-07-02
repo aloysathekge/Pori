@@ -130,6 +130,13 @@ uv-workspace split (per-package pyprojects) deferred.
   (`cli` extra, falls back to `input()`); `pori/bootstrap.py` Windows UTF-8
   bootstrap. CLI-4 (async Ctrl-C) + CLI-5 (main.py split) DEFERRED. Also
   committed `uv.lock` (was gitignored) so INF-2 OSV scanning works. 436 passed.
+- GW-3/5 + GW-2 (kernel gateway) — `Orchestrator.execute_task` duplicate-run
+  guard (`session_key`/`on_busy`, `ConversationBusy`, slot-claim-before-await)
+  (GW-3); per-turn identity contextvars `use_identity`/`current_identity` in
+  `pori/utils/context.py`, bound per run (GW-5); `build_session_key` lane
+  primitive in `pori/sessions.py` (GW-2, CLI resume/branch wiring deferred).
+  GW-4 (SSE) DEFERRED — `pori/api` can't import (fastapi undeclared); GW-6
+  DEFERRED (premature). 445 passed.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
