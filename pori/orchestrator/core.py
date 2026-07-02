@@ -11,6 +11,16 @@ from ..memory import AgentMemory
 from ..runtime import RunContext
 from ..skills import SkillCatalog
 from ..tools.registry import ToolRegistry
+from ..utils.context import use_identity
+
+
+class ConversationBusy(RuntimeError):
+    """Raised when a task is submitted for a ``session_key`` that already has a
+    run in flight and ``on_busy='reject'`` (GW-3: duplicate-run prevention)."""
+
+    def __init__(self, session_key: str):
+        self.session_key = session_key
+        super().__init__(f"A run is already active for session_key={session_key!r}")
 
 
 class Orchestrator:
@@ -40,6 +50,8 @@ class Orchestrator:
         self.tools_registry = tools_registry
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        # GW-3: at most one in-flight run per session_key (duplicate-run guard).
+        self._active_sessions: Dict[str, "asyncio.Future[Dict[str, Any]]"] = {}
         self.shared_memory = shared_memory
         self.skill_catalog = skill_catalog
         self.skill_limit = skill_limit
@@ -49,6 +61,70 @@ class Orchestrator:
         self.load_project_context = load_project_context
 
     async def execute_task(
+        self,
+        task: str,
+        agent_settings: Optional[AgentSettings] = None,
+        memory: Optional[AgentMemory] = None,
+        on_step_start: Optional[Callable[[Agent], Any]] = None,
+        on_step_end: Optional[Callable[[Agent], Any]] = None,
+        on_event: Optional[Callable[[Any], None]] = None,
+        stream: bool = False,
+        sandbox_base_dir: Optional[str] = None,
+        hitl_handler: Optional[HITLHandler] = None,
+        hitl_config: Optional[HITLConfig] = None,
+        run_context: Optional[RunContext] = None,
+        selected_skill_ids: Optional[List[str]] = None,
+        session_key: Optional[str] = None,
+        on_busy: str = "reject",
+    ) -> Dict[str, Any]:
+        """Execute a task with a new agent.
+
+        When ``session_key`` is given, a duplicate-run guard (GW-3) allows at most
+        one run in flight per key: a concurrent submit either raises
+        ``ConversationBusy`` (``on_busy='reject'``, the default) or awaits the
+        in-flight run (``on_busy='coalesce'``), so a double-submit (retry,
+        double-click) can't run one conversation twice into the same memory.
+        """
+
+        async def _run() -> Dict[str, Any]:
+            # GW-5: bind per-turn identity so tools/guardrails/tracing can read
+            # the current session without it being threaded through signatures.
+            with use_identity(session_id=session_key):
+                return await self._execute_task_inner(
+                    task,
+                    agent_settings=agent_settings,
+                    memory=memory,
+                    on_step_start=on_step_start,
+                    on_step_end=on_step_end,
+                    on_event=on_event,
+                    stream=stream,
+                    sandbox_base_dir=sandbox_base_dir,
+                    hitl_handler=hitl_handler,
+                    hitl_config=hitl_config,
+                    run_context=run_context,
+                    selected_skill_ids=selected_skill_ids,
+                )
+
+        if session_key is None:
+            return await _run()
+
+        existing = self._active_sessions.get(session_key)
+        if existing is not None:
+            if on_busy == "coalesce":
+                return await existing
+            raise ConversationBusy(session_key)
+
+        # Claim the slot BEFORE the first await so a concurrent submit racing in
+        # between still sees it. ensure_future schedules the run; we register the
+        # future synchronously, then await it.
+        fut: "asyncio.Future[Dict[str, Any]]" = asyncio.ensure_future(_run())
+        self._active_sessions[session_key] = fut
+        try:
+            return await fut
+        finally:
+            self._active_sessions.pop(session_key, None)  # idempotent
+
+    async def _execute_task_inner(
         self,
         task: str,
         agent_settings: Optional[AgentSettings] = None,
