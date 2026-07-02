@@ -56,6 +56,9 @@ class ToolInfo:
     function: Callable
     description: str
     side_effects: Tuple[SideEffect, ...] = ()
+    # SK-6: optional runtime predicate; when it returns False the tool is dropped
+    # from the model-visible surface (a per-tool generalization of group gating).
+    check_fn: Optional[Callable[[], bool]] = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,7 @@ class ToolRegistry:
         *,
         side_effects: Iterable[SideEffect] = (),
         collision_policy: Optional[CollisionPolicy] = None,
+        check_fn: Optional[Callable[[], bool]] = None,
     ) -> None:
         """Register a tool implementation using an explicit collision policy."""
         policy = collision_policy or self.collision_policy
@@ -151,6 +155,7 @@ class ToolRegistry:
             function=function,
             description=description,
             side_effects=tuple(side_effects),
+            check_fn=check_fn,
         )
 
     def define_group(self, group: CapabilityGroup) -> None:
@@ -171,6 +176,7 @@ class ToolRegistry:
         description: str = "",
         *,
         side_effects: Iterable[SideEffect] = (),
+        check_fn: Optional[Callable[[], bool]] = None,
     ):
         """Decorator for registering tools."""
 
@@ -197,6 +203,7 @@ class ToolRegistry:
                 function=func,
                 description=description,
                 side_effects=side_effects,
+                check_fn=check_fn,
             )
             return func
 
@@ -264,6 +271,26 @@ class ToolRegistry:
             requested.difference_update(unavailable)
             for name in unavailable:
                 exclusion_reasons[name] = ",".join(missing)
+
+        # SK-6: per-tool check_fn gate — drop tools whose runtime predicate is
+        # False, with a reason, unless the caller explicitly requested them.
+        check_failed = set()
+        for name in requested:
+            check = self.tools[name].check_fn
+            if check is None:
+                continue
+            try:
+                available = bool(check())
+            except Exception:
+                available = False
+            if not available:
+                if name in explicitly_requested:
+                    raise CapabilityResolutionError(
+                        f"Requested tool '{name}' is unavailable (check_fn returned False)"
+                    )
+                check_failed.add(name)
+                exclusion_reasons[name] = "check_fn:false"
+        requested.difference_update(check_failed)
 
         items = tuple((name, self.tools[name]) for name in sorted(requested))
         groups = tuple(

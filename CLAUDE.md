@@ -106,3 +106,22 @@ Per-tool human approval gate. `HITLConfig.interrupt_on` maps tool names to allow
 - Black line length is 88; isort uses the `black` profile. Pre-commit will reformat on commit.
 - Minimum supported Python is 3.10 (per `pyproject.toml`). CI only tests 3.11 / 3.12.
 - `.pori/` and `.pori_sandbox/` are runtime state directories — not source.
+
+## The Footprint Ladder (where new capability belongs)
+
+Every registered tool's schema ships on **every** LLM call (verifiable in
+`ToolRegistry.tool_schemas`), so a new core tool taxes the whole system's context
+budget forever. Before adding one, climb the lowest rung that works:
+
+1. **Extend an existing tool / skill** — no new surface at all.
+2. **A CLI command + a skill that documents it** — for user-driven, non-model flows.
+3. **A gated tool** — either a capability group with `CapabilityPrerequisites`
+   (env/module gated, like `internet` on `TAVILY_API_KEY`) or a per-tool
+   `check_fn` (SK-6). The tool disappears from the model surface when its
+   predicate is false, so it costs nothing until it's usable.
+4. **An entry-point or `.pori/plugins/` plugin** — third-party/optional capability.
+5. **(future) MCP** — external tool servers.
+6. **A core tool** — only when it's foundational and always-on.
+
+Default to the *lowest* rung. A capability that isn't always needed should be
+gated (rung 3) or a plugin (rung 4), never an unconditional core tool.
