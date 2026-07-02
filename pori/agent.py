@@ -26,6 +26,7 @@ from pori.llm import (
     BaseMessage,
     SystemMessage,
     UserMessage,
+    normalize_usage,
 )
 
 from .context import ContextDiagnostics, ContextEngine, DefaultContextEngine
@@ -670,28 +671,16 @@ class Agent:
 
             # Record LLM call metrics for this step
             try:
-                # Optional token usage from provider-specific metadata
+                # Token usage: normalize the provider-shaped dict in the llm
+                # layer (AC-4) so the loop never branches on Anthropic vs
+                # OpenAI/Google token keys.
+                usage = normalize_usage(getattr(self.llm, "last_usage", None))
                 tokens = TokenUsage()
-                usage = getattr(self.llm, "last_usage", None)
-                if isinstance(usage, dict):
-                    # Anthropic-style keys
-                    if "input_tokens" in usage or "output_tokens" in usage:
-                        tokens.input_tokens = int(usage.get("input_tokens", 0) or 0)
-                        tokens.output_tokens = int(usage.get("output_tokens", 0) or 0)
-                        tokens.total_tokens = tokens.input_tokens + tokens.output_tokens
-                        tokens.cache_read_tokens = int(
-                            usage.get("cache_read_input_tokens", 0) or 0
-                        )
-                        tokens.cache_write_tokens = int(
-                            usage.get("cache_creation_input_tokens", 0) or 0
-                        )
-                    # OpenAI-style keys
-                    elif "prompt_tokens" in usage or "completion_tokens" in usage:
-                        tokens.input_tokens = int(usage.get("prompt_tokens", 0) or 0)
-                        tokens.output_tokens = int(
-                            usage.get("completion_tokens", 0) or 0
-                        )
-                        tokens.total_tokens = int(usage.get("total_tokens", 0) or 0)
+                tokens.input_tokens = usage.input_tokens
+                tokens.output_tokens = usage.output_tokens
+                tokens.total_tokens = usage.total_tokens
+                tokens.cache_read_tokens = usage.cache_read_tokens
+                tokens.cache_write_tokens = usage.cache_write_tokens
 
                 model_id = getattr(self.llm, "model", "")
                 cost = (
