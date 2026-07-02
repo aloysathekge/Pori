@@ -7,7 +7,7 @@ from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
 from .messages import BaseMessage, SystemMessage, ToolCall, ToolResultMessage, ToolTurn
-from .prompt_caching import cached_system
+from .prompt_caching import cached_system, mark_last_messages
 from .retry import RetryConfig, retry_async
 
 T = TypeVar("T", bound=BaseModel)
@@ -177,6 +177,11 @@ class ChatAnthropic:
                 )
             else:
                 anthropic_messages.append({"role": msg.role, "content": msg.content})
+
+        # Cache the stable prefix: mark the last few messages so that, combined
+        # with the single volatile trailing message from Agent._build_messages,
+        # system + history + frozen context + task stay warm across steps.
+        mark_last_messages(anthropic_messages, 3)
 
         request: dict[str, Any] = {
             "model": self.model,

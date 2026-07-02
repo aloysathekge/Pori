@@ -915,10 +915,6 @@ class Agent:
             elif role == "system":
                 messages.append(UserMessage(content=f"Context summary:\n{content}"))
 
-        # Add current state information
-        context = self._get_current_context()
-        messages.append(UserMessage(content=context))
-
         if self._frozen_retrieval_evidence:
             facts = "\n".join(
                 f"- [{item.source_type}:{item.source_id}] {item.content}"
@@ -938,6 +934,14 @@ class Agent:
             messages.append(
                 UserMessage(content=_format_memory_context(self._frozen_core_memory))
             )
+
+        # Volatile per-step state (Runtime Facts, recent actions) goes as late as
+        # possible WITHOUT displacing the task from last position: everything
+        # before it (system + history + frozen context) then forms a stable,
+        # cacheable prefix (AC-1b), while CURRENT TASK stays the final,
+        # highest-priority message. The Anthropic wrapper's sliding-window cache
+        # markers keep that stable prefix warm across steps.
+        messages.append(UserMessage(content=self._get_current_context()))
 
         messages.append(
             UserMessage(

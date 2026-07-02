@@ -69,12 +69,13 @@ name/name nesting):** kernel `pori/` at the repo root (single root
 uv-workspace split (per-package pyprojects) deferred.
 
 **Done:**
-- AC-1a (prompt caching, part 1) — cache the stable **tools+system** prefix so it
-  is not re-billed every step. New `pori/llm/prompt_caching.py` (`cached_system`,
-  ported from Hermes); `anthropic.py` `ainvoke`/`ainvoke_tools` now send `system`
-  as a cache-marked block. Cache-token metrics were already wired. 341 passed.
-  **AC-1b next:** restructure `_build_messages` so volatile per-step context is one
-  trailing message, then add last-N sliding-window cache markers.
+- AC-1 (prompt caching) — **DONE**. AC-1a: cache the stable **tools+system**
+  prefix (`pori/llm/prompt_caching.py` `cached_system`; `anthropic.py`
+  `ainvoke`/`ainvoke_tools` send `system` as a cache-marked block). AC-1b:
+  `_build_messages` now puts the volatile per-step context second-to-last so
+  system+history+frozen+task is a stable prefix, and `mark_last_messages` marks
+  the last 3 (CURRENT TASK stays last — fenced-below-task invariant preserved).
+  344 passed. Cache-token metrics were already wired.
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
