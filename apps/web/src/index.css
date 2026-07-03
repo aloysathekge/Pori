@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Aloy theme tokens. Tailwind 4 generates `bg-aloy-*` / `text-aloy-*` /
+   `border-aloy-*` utilities from these `--color-aloy-*` vars. Our own palette —
+   nothing from the Hermes / @nous-research design system. */
+@theme {
+  --color-aloy-bg: #0b0d12;
+  --color-aloy-panel: #141821;
+  --color-aloy-border: #232a36;
+  --color-aloy-text: #e6e9ef;
+  --color-aloy-muted: #8b93a3;
+  --color-aloy-accent: #5b8cff;
+  --color-aloy-accent-soft: #1b2740;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-aloy-bg);
+  color: var(--color-aloy-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
