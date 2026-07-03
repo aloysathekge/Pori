@@ -30,10 +30,16 @@ Surfaces (`apps/web`, `apps/desktop`) reach it only over REST + SSE.
 - [ ] **Stage 3.2 — boot** — `uv sync` the backend deps, provide `.env`
   (Supabase + `DATABASE_URL`), run Alembic migrations, boot uvicorn against a
   local Postgres.
-- [ ] **Stage 3.3 — unify on `PoriEvent`** — the `conversations` streaming
-  currently emits its own `status/tool/step/message` SSE. **Harvest the kernel
-  `pori/api`'s `PoriEvent` mapping + clarify bridge + delegation** into it, so the
-  contract matches `@aloy/shared`. Then `pori/api` shrinks to a reference server.
+- [x] **Stage 3.3 — unify on `PoriEvent`** — `streaming.py` now **relays the
+  kernel's live `PoriEvent` stream** (`run_start`/`step_*`/`text_delta`/
+  `thinking_delta`/`tool_call_start|end`/`run_end`) via `execute_task(on_event=…)`,
+  replacing the step-polling `status/step/message`. Contract now matches
+  `@aloy/shared`. A final `message` frame is kept for DB persistence. (Delegation
+  already surfaces as `delegate_task` tool events.)
+- [ ] **Stage 3.3b — clarify buttons** — wire a `ClarifyBridge` per stream +
+  emit `clarification_request` frames + a resolve endpoint (harvest `pori/api`'s
+  bridge + worker-thread execution model).
+- [ ] `pori/api` → trivial reference server once the frontend consumes this.
 - [ ] Reconcile the two `config.yaml` / duplicate settings with the kernel.
 
 Gateway (Slack/Telegram) will **harvest Hermes's gateway architecture**
