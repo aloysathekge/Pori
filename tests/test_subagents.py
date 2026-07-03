@@ -7,8 +7,11 @@ import pytest
 from pori.orchestrator.core import Orchestrator
 from pori.subagents import (
     MAX_CONCURRENT_CHILDREN,
+    AgentCatalog,
+    AgentDefinition,
     build_child_system_prompt,
     make_delegate_runner,
+    parse_agent_markdown,
 )
 from pori.tools.standard.core_tools import (
     DelegateTaskItem,
@@ -49,7 +52,12 @@ def test_runner_single_task():
 
     result = make_delegate_runner(_Stub())([{"goal": "task A", "role": "leaf"}])
     assert result == [
-        {"success": True, "role": "leaf", "result": "done:task A|deleg=False"}
+        {
+            "success": True,
+            "role": "leaf",
+            "agent": None,
+            "result": "done:task A|deleg=False",
+        }
     ]
 
 
@@ -154,3 +162,83 @@ async def test_run_subagent_returns_answer_with_isolated_memory(
     answer = await orch.run_subagent("say hi", system_prompt="be terse", max_steps=3)
     assert isinstance(answer, str) and answer
     assert orch.shared_memory is None  # sub-agent used its own memory
+
+
+# --- optional specialist layer (Claude Code hybrid on the Hermes base) -------
+def test_parse_agent_markdown_and_catalog_load(tmp_path):
+    (tmp_path / "reviewer.md").write_text(
+        "---\nname: reviewer\ndescription: Reviews code.\ntools: read_file, search_files\n---\n"
+        "You are a code reviewer.",
+        encoding="utf-8",
+    )
+    (tmp_path / "bad.md").write_text("no frontmatter", encoding="utf-8")
+
+    catalog = AgentCatalog.load(tmp_path)
+    definition = catalog.resolve("reviewer")
+    assert definition.prompt == "You are a code reviewer."
+    assert definition.tools == ("read_file", "search_files")
+    assert catalog.resolve("missing") is None
+    assert catalog.names() == ["reviewer"]
+    assert parse_agent_markdown("no frontmatter", fallback_name="x") is None
+
+
+def test_child_prompt_uses_specialist_header_when_given():
+    prompt = build_child_system_prompt(
+        "do X", role="leaf", specialist_prompt="You are a code reviewer."
+    )
+    assert prompt.startswith("You are a code reviewer.")
+    assert "focused sub-agent" not in prompt  # generic opener replaced
+    assert "YOUR TASK:\ndo X" in prompt
+
+
+def test_runner_with_named_agent_applies_prompt_and_tool_allowlist():
+    catalog = AgentCatalog(
+        {
+            "reviewer": AgentDefinition(
+                name="reviewer",
+                description="d",
+                prompt="You are a reviewer.",
+                tools=("read_file",),
+            )
+        }
+    )
+    seen = {}
+
+    class _Stub:
+        async def run_subagent(
+            self, goal, *, system_prompt=None, tool_names=None, **kw
+        ):
+            seen["prompt"] = system_prompt
+            seen["tools"] = tool_names
+            return "ok"
+
+    result = make_delegate_runner(_Stub(), catalog=catalog)(
+        [{"goal": "review X", "agent": "reviewer"}]
+    )
+    assert result[0]["success"] and result[0]["agent"] == "reviewer"
+    assert seen["prompt"].startswith("You are a reviewer.")
+    assert seen["tools"] == ["read_file"]
+
+
+def test_runner_unknown_agent_is_a_per_task_error():
+    catalog = AgentCatalog({"reviewer": AgentDefinition("reviewer", "d", "p")})
+
+    class _Stub:
+        async def run_subagent(self, goal, **kw):
+            return "ok"
+
+    result = make_delegate_runner(_Stub(), catalog=catalog)(
+        [{"goal": "x", "agent": "nope"}]
+    )
+    assert result[0]["success"] is False and "reviewer" in result[0]["error"]
+
+
+def test_runner_without_agent_stays_goal_driven():
+    class _Stub:
+        async def run_subagent(
+            self, goal, *, system_prompt=None, tool_names=None, **kw
+        ):
+            return f"tools={tool_names}"
+
+    result = make_delegate_runner(_Stub())([{"goal": "x"}])  # no catalog, no agent
+    assert result[0]["result"] == "tools=None"
