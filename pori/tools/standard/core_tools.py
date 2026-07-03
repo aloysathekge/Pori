@@ -577,6 +577,52 @@ def write_skill_tool(params: WriteSkillParams, context: Dict[str, Any]):
     }
 
 
+class TaskParams(BaseModel):
+    subagent_type: str = Field(
+        ...,
+        description=(
+            "Which sub-agent to delegate to. Use 'general-purpose' for open-ended "
+            "research/exploration/multi-step work if no more specific type applies."
+        ),
+    )
+    task: str = Field(
+        ...,
+        description=(
+            "A detailed, self-contained brief. The sub-agent is stateless and returns "
+            "one result — tell it exactly what to do and precisely what to return."
+        ),
+    )
+
+
+@Registry.tool(
+    name="task",
+    param_model=TaskParams,
+    description=(
+        "Delegate a subtask to an isolated sub-agent that has its OWN context window, "
+        "runs autonomously, and returns a single result. Use it for context-heavy or "
+        "parallelizable work (research, codebase exploration, review) so your own "
+        "context stays clean. The sub-agent is STATELESS — give it a complete brief; "
+        "you only see its final answer."
+    ),
+)
+def task_tool(params: TaskParams, context: Dict[str, Any]):
+    """Delegate to an isolated sub-agent (SK-1 spawn machinery, run in foreground)."""
+    runner = (context or {}).get("subagent_runner")
+    if not callable(runner):
+        return {
+            "success": False,
+            "error": (
+                "Sub-agents are not available in this context "
+                "(e.g. you are already a sub-agent — nesting is not allowed)."
+            ),
+        }
+    try:
+        result = runner(params.subagent_type, params.task)
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    return {"success": True, "subagent_type": params.subagent_type, "result": result}
+
+
 def register_core_tools(registry=None):
     """Tools auto-register on import; kept for compatibility."""
     return None
