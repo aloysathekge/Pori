@@ -1,125 +1,87 @@
-"""Sub-agent definitions + task delegation (the Claude Code / deepagents pattern).
+"""Sub-agent delegation, Hermes-style.
 
-A sub-agent is a markdown file (YAML frontmatter + a system-prompt body) describing
-a focused specialist the main agent can delegate a subtask to. The ``task`` tool
-spawns one in an ISOLATED context — its own memory and a restricted tool surface —
-runs it to a single result, and returns just that. The subagent's (potentially huge)
-working transcript never enters the parent's context, so the parent stays clean.
+`delegate_task` spawns focused child agents with an **isolated context** and a
+**restricted toolset**, built from the delegated GOAL + CONTEXT (not a preset
+persona). One task runs alone; several run as a **parallel batch**; the parent
+blocks for the shaped summaries. A child is a `leaf` by default (cannot delegate
+further); `role='orchestrator'` lets it decompose its own work, bounded by a
+spawn-depth cap. Children run non-interactively, so risky HITL-gated tools are
+**auto-denied** unless the caller opts into auto-approve.
+
+The parent's context only ever sees the delegation call and the returned summary,
+never a child's (potentially huge) working transcript.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 import threading
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
-import yaml
-
-GENERAL_PURPOSE = "general-purpose"
-
-_GENERAL_PURPOSE_DESCRIPTION = (
-    "General-purpose agent for researching complex questions, searching code/files, "
-    "and multi-step subtasks. Use when a subtask deserves its own focused context."
-)
-_GENERAL_PURPOSE_PROMPT = (
-    "You are a focused sub-agent handling one delegated task autonomously. Complete "
-    "the task fully, then return a single concise result containing exactly what the "
-    "caller asked for — they see only your final answer, nothing of your working."
-)
-
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$")
+LEAF = "leaf"
+ORCHESTRATOR = "orchestrator"
+MAX_CONCURRENT_CHILDREN = 8  # cap on one batch (each child costs API tokens)
+MAX_SPAWN_DEPTH = 2  # parent(0) -> child(1) -> grandchild(2, forced leaf)
 
 
-@dataclass(frozen=True)
-class AgentDefinition:
-    name: str
-    description: str  # tells the main agent WHEN to delegate here (drives routing)
-    prompt: str  # the sub-agent's system prompt
-    tools: Optional[Tuple[str, ...]] = None  # None = all tools; else a restricted set
-    model: Optional[str] = None  # None/"inherit" = the main model (per-model: future)
-
-
-def _general_purpose() -> AgentDefinition:
-    return AgentDefinition(
-        name=GENERAL_PURPOSE,
-        description=_GENERAL_PURPOSE_DESCRIPTION,
-        prompt=_GENERAL_PURPOSE_PROMPT,
+def build_child_system_prompt(
+    goal: str,
+    context: Optional[str] = None,
+    *,
+    role: str = LEAF,
+    child_depth: int = 1,
+    max_depth: int = MAX_SPAWN_DEPTH,
+) -> str:
+    """Build a focused child system prompt from the goal + context (Hermes style)."""
+    parts = [
+        "You are a focused sub-agent working on a specific delegated task.",
+        "",
+        f"YOUR TASK:\n{goal.strip()}",
+    ]
+    if context and context.strip():
+        parts.append(f"\nCONTEXT:\n{context.strip()}")
+    parts.append(
+        "\nComplete this task using the tools available to you. When finished, "
+        "return a clear, concise summary of what you did, what you found or "
+        "accomplished, any files you created or modified, and any issues — your "
+        "response is returned to the parent agent as the result, so include exactly "
+        "what it needs and nothing else."
     )
+    if role == ORCHESTRATOR and child_depth < max_depth:
+        parts.append(
+            "\n## Delegation\nYou may call `delegate_task` to spawn your OWN "
+            "sub-agents for independent, reasoning-heavy subtasks that would flood "
+            "your context. Do trivial or single-step work yourself, and synthesize "
+            f"your workers' results into your summary. You are at depth {child_depth}; "
+            f"the tree is capped at depth {max_depth}."
+        )
+    return "\n".join(parts)
 
 
-def parse_agent_markdown(text: str, *, fallback_name: str) -> Optional[AgentDefinition]:
-    """Parse an agent ``.md`` (--- YAML frontmatter --- then the system-prompt body)."""
-    text = text.strip()
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None
-    try:
-        meta = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        return None
-    if not isinstance(meta, dict):
-        return None
-    name = str(meta.get("name") or fallback_name).strip().lower()
-    description = str(meta.get("description") or "").strip()
-    prompt = parts[2].strip()
-    if not _SLUG_RE.match(name) or not description or not prompt:
-        return None
+def _auto_deny_handler() -> Any:
+    """A non-interactive HITL handler that rejects every gated action — children
+    have no user to prompt, so deny is the safe default."""
+    from pori.hitl import ApprovalResponse, Decision, HITLHandler
 
-    tools_raw = meta.get("tools")
-    tools: Optional[Tuple[str, ...]] = None
-    if isinstance(tools_raw, str):
-        tools = tuple(t.strip() for t in tools_raw.split(",") if t.strip())
-    elif isinstance(tools_raw, (list, tuple)):
-        tools = tuple(str(t).strip() for t in tools_raw if str(t).strip())
-
-    model = meta.get("model")
-    model = str(model).strip() if model else None
-    return AgentDefinition(
-        name=name, description=description, prompt=prompt, tools=tools, model=model
-    )
-
-
-class AgentCatalog:
-    """Sub-agent definitions from a directory plus the built-in general-purpose one."""
-
-    def __init__(self, definitions: Optional[Dict[str, AgentDefinition]] = None):
-        self._by_name: Dict[str, AgentDefinition] = dict(definitions or {})
-        self._by_name.setdefault(GENERAL_PURPOSE, _general_purpose())
-
-    @classmethod
-    def load(cls, directory: Optional[Path] = None) -> "AgentCatalog":
-        found: Dict[str, AgentDefinition] = {}
-        if directory is not None and Path(directory).is_dir():
-            for path in sorted(Path(directory).glob("*.md")):
-                try:
-                    definition = parse_agent_markdown(
-                        path.read_text(encoding="utf-8"), fallback_name=path.stem
+    class _AutoDeny(HITLHandler):
+        async def request_approval(self, request: Any) -> Any:
+            return ApprovalResponse(
+                decisions=[
+                    Decision(
+                        type="reject",
+                        message="Auto-denied: a sub-agent cannot request approval.",
                     )
-                except OSError:
-                    continue
-                if definition is not None:
-                    found[definition.name] = definition
-        return cls(found)
+                    for _ in request.action_requests
+                ]
+            )
 
-    def resolve(self, name: str) -> Optional[AgentDefinition]:
-        return self._by_name.get((name or "").strip().lower())
-
-    def types(self) -> List[AgentDefinition]:
-        return [self._by_name[name] for name in sorted(self._by_name)]
-
-    def describe_types(self) -> str:
-        return "\n".join(f"- {d.name}: {d.description}" for d in self.types())
+    return _AutoDeny()
 
 
-def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> str:
+def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> Any:
     """Run a coroutine to completion on its own loop in a worker thread, blocking
-    the caller. Lets the sync ``task`` tool run an async sub-agent without needing
-    (or deadlocking) the caller's event loop."""
+    the caller — lets the sync `delegate_task` tool run async children without
+    needing (or deadlocking) the caller's event loop."""
     box: Dict[str, Any] = {}
 
     def target() -> None:
@@ -133,33 +95,70 @@ def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> str:
     thread.join()
     if "error" in box:
         raise box["error"]
-    return box.get("value", "")
+    return box.get("value")
 
 
-def make_subagent_runner(
-    orchestrator: Any, catalog: AgentCatalog, *, max_steps: int = 15
-) -> Callable[[str, str], str]:
-    """Build the sync ``subagent_runner`` injected into the tool context.
+def make_delegate_runner(
+    orchestrator: Any,
+    *,
+    hitl_config: Any = None,
+    subagent_auto_approve: bool = False,
+    max_steps: int = 15,
+    child_depth: int = 1,
+    max_depth: int = MAX_SPAWN_DEPTH,
+) -> Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    """Build the sync ``delegate_runner`` for the tool context.
 
-    It resolves a sub-agent definition and runs it to completion (in a worker
-    thread), returning the final answer. An unknown type raises with the list of
-    available types so the model can correct itself.
+    Runs one task alone or several as a concurrent batch; each child gets an
+    isolated context, a role-restricted toolset, and a non-interactive HITL policy
+    (auto-deny by default, so a child can't run a risky gated tool unapproved).
+    Recurses to give an ``orchestrator`` child a depth+1 runner so it can delegate
+    too — a ``leaf`` child gets no runner, so it cannot (bounded by ``max_depth``).
     """
 
-    def run(subagent_type: str, task: str) -> str:
-        definition = catalog.resolve(subagent_type)
-        if definition is None:
-            available = ", ".join(d.name for d in catalog.types())
-            raise ValueError(
-                f"Unknown subagent_type {subagent_type!r}. Available: {available}"
-            )
-        return _run_coro_in_thread(
-            lambda: orchestrator.run_subagent(
-                task,
-                system_prompt=definition.prompt,
-                tool_names=list(definition.tools) if definition.tools else None,
+    async def _one(item: Dict[str, Any]) -> Dict[str, Any]:
+        goal = str(item.get("goal") or "").strip()
+        if not goal:
+            return {"success": False, "error": "each task needs a non-empty goal"}
+        role = str(item.get("role") or LEAF).strip().lower()
+        can_delegate = role == ORCHESTRATOR and child_depth < max_depth
+
+        child_context: Optional[Dict[str, Any]] = None
+        if can_delegate:
+            child_context = {
+                "delegate_runner": make_delegate_runner(
+                    orchestrator,
+                    hitl_config=hitl_config,
+                    subagent_auto_approve=subagent_auto_approve,
+                    max_steps=max_steps,
+                    child_depth=child_depth + 1,
+                    max_depth=max_depth,
+                )
+            }
+        try:
+            result = await orchestrator.run_subagent(
+                goal,
+                system_prompt=build_child_system_prompt(
+                    goal,
+                    item.get("context"),
+                    role=role,
+                    child_depth=child_depth,
+                    max_depth=max_depth,
+                ),
                 max_steps=max_steps,
+                allow_delegation=can_delegate,
+                hitl_config=None if subagent_auto_approve else hitl_config,
+                hitl_handler=None if subagent_auto_approve else _auto_deny_handler(),
+                child_tool_context=child_context,
             )
-        )
+            return {"success": True, "role": role, "result": result}
+        except Exception as exc:
+            return {"success": False, "role": role, "error": str(exc)}
+
+    def run(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        async def run_all() -> List[Dict[str, Any]]:
+            return list(await asyncio.gather(*[_one(item) for item in items]))
+
+        return _run_coro_in_thread(run_all)
 
     return run

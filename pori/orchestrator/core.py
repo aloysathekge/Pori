@@ -271,22 +271,32 @@ class Orchestrator:
         system_prompt: Optional[str] = None,
         tool_names: Optional[List[str]] = None,
         max_steps: int = 15,
+        allow_delegation: bool = False,
+        hitl_config: Any = None,
+        hitl_handler: Optional[HITLHandler] = None,
+        child_tool_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Run an isolated sub-agent to a single result (the delegation primitive).
 
-        The sub-agent gets a FRESH memory (its working transcript never touches the
-        caller's context — only the returned answer does) and, when ``tool_names`` is
-        given, a restricted tool surface. Returns its final answer.
+        The child gets a FRESH memory (its working transcript never touches the
+        caller's context — only the returned answer does), a restricted tool surface,
+        and a non-interactive HITL policy. Unless ``allow_delegation`` is set,
+        ``delegate_task`` is stripped so the child cannot spawn its own sub-agents.
         """
-        registry = self.tools_registry
+        all_names = set(self.tools_registry.tools.keys())
+        protected = set(self.tools_registry.protected_tools)
+        exclude: set = set()
         if tool_names is not None:
-            all_names = set(self.tools_registry.tools.keys())
-            protected = set(self.tools_registry.protected_tools)
             allowed = {t.strip() for t in tool_names if t.strip()} | protected
+            exclude |= all_names - allowed
+        if not allow_delegation:
+            exclude |= {"delegate_task"}
+        exclude -= protected  # never exclude protected/kernel tools
+
+        registry = self.tools_registry
+        if exclude:
             try:
-                registry = self.tools_registry.filtered(
-                    exclude_tools=all_names - allowed
-                )
+                registry = self.tools_registry.filtered(exclude_tools=exclude)
             except Exception:  # never fail the run on a tool-restriction issue
                 registry = self.tools_registry
 
@@ -299,6 +309,9 @@ class Orchestrator:
             skill_catalog=self.skill_catalog,
             skill_limit=self.skill_limit,
             soul_text=system_prompt,
+            hitl_config=hitl_config,
+            hitl_handler=hitl_handler,
+            tool_context_extra=child_tool_context,
         )
         await agent.run()
         summary = agent.result_summary()

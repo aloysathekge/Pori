@@ -46,7 +46,7 @@ from .skills import (
     uninstall_skill_from_directory,
 )
 from .skills_learn import build_learn_prompt
-from .subagents import AgentCatalog, make_subagent_runner
+from .subagents import make_delegate_runner
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -1120,17 +1120,17 @@ async def main():
         load_project_context=config.agent.load_project_context,
     )
 
-    # Sub-agent delegation (the `task` tool): load agent definitions from
-    # .pori/agents/ and build a runner that spawns isolated sub-agents.
-    agent_catalog = AgentCatalog.load(Path.cwd() / ".pori" / "agents")
-    subagent_runner = make_subagent_runner(orchestrator, agent_catalog)
-
     # HITL: check if enabled in config
     hitl_handler = None
     hitl_config = getattr(config, "hitl", None)
     if hitl_config and hitl_config.enabled:
         hitl_handler = CLIHITLHandler(timeout_seconds=hitl_config.timeout_seconds)
         logger.info("HITL enabled in CLI mode")
+
+    # Sub-agent delegation (the `delegate_task` tool): a runner that spawns
+    # isolated child agents (goal-driven, role-restricted, HITL auto-denied for
+    # children since they have no user to prompt).
+    delegate_runner = make_delegate_runner(orchestrator, hitl_config=hitl_config)
 
     # Team: check if configured
     team_config = getattr(config, "team", None)
@@ -1500,7 +1500,7 @@ async def main():
                         validate_output=config.agent.validate_output,
                         max_validation_retries=config.agent.max_validation_retries,
                     ),
-                    tool_context_extra={"subagent_runner": subagent_runner},
+                    tool_context_extra={"delegate_runner": delegate_runner},
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
                     on_event=(
