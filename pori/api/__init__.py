@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
     # This is where slow initializations (like loading models or tools) should happen.
     app.state.memory_store = build_memory_store()
     app.state.orchestrator = build_orchestrator()
+    # Active per-stream clarify bridges, so the /v1/clarify resume endpoint can
+    # route a user's button-tap to the run that's waiting for it (GW-4 buttons).
+    app.state.clarify_bridges = set()
     yield
     # Shutdown:
     # (No shutdown actions needed for now)

@@ -218,9 +218,13 @@ class Agent:
         soul_path: Optional[str] = None,
         soul_text: Optional[str] = None,
         load_project_context: bool = False,
+        tool_context_extra: Optional[Dict[str, Any]] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox)
         self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
+        # Extra keys merged into every tool's context (e.g. a clarify_handler that
+        # renders options as gateway buttons instead of a CLI menu).
+        self._tool_context_extra = dict(tool_context_extra or {})
         if run_context is not None:
             self.run_context = run_context
         elif isinstance(memory, AgentMemory):
@@ -2017,6 +2021,7 @@ REMINDER: You have gathered information using tools. Now analyze the results and
                     "tools_registry": self.tools_registry,
                     "plan_store": self.plan_store,
                     "task_id": self.task_id,
+                    **self._tool_context_extra,
                 }
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,

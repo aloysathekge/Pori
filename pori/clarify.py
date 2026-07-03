@@ -13,6 +13,7 @@ presentation changes.
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -110,10 +111,13 @@ class ClarifyBridge:
     ):
         self._emit = emit
         self._id_factory = id_factory or (lambda: uuid.uuid4().hex)
-        self._pending: Dict[str, "asyncio.Future[str]"] = {}
+        self._pending: Dict[str, "asyncio.Future[str]"] = {}  # async-tool path
+        self._sync_pending: Dict[str, Any] = {}  # id -> [Event, [value]] (thread path)
+        self._lock = threading.Lock()
 
     async def ask(self, question: str, options: List[str]) -> str:
-        """Emit a clarification and await the user's answer (an async handler)."""
+        """Emit a clarification and await the answer (async handler — for a future
+        async tool-execution model where the run stays on the serving loop)."""
         request = ClarificationRequest(
             id=self._id_factory(), question=question, options=tuple(options)
         )
@@ -125,32 +129,56 @@ class ClarifyBridge:
         finally:
             self._pending.pop(request.id, None)
 
-    def submit_answer(self, clarification_id: str, value: str) -> bool:
-        """Resolve a pending clarification with the user's answer (button or text).
+    def ask_sync(self, question: str, options: List[str]) -> str:
+        """Emit a clarification and BLOCK the calling (worker) thread until the
+        answer arrives. The wait is a ``threading.Event``, so — unlike awaiting a
+        future — it never needs the serving loop to run a coroutine, only to
+        deliver the emitted frame and the later resume call."""
+        cid = self._id_factory()
+        event = threading.Event()
+        holder = [""]
+        with self._lock:
+            self._sync_pending[cid] = [event, holder]
+        self._emit(
+            ClarificationRequest(id=cid, question=question, options=tuple(options))
+        )
+        try:
+            event.wait()
+            return holder[0]
+        finally:
+            with self._lock:
+                self._sync_pending.pop(cid, None)
 
-        Returns False if the id is unknown or already answered, so it's idempotent
-        and safe against retries/double-taps. Safe to call from another thread.
-        """
+    def submit_answer(self, clarification_id: str, value: str) -> bool:
+        """Deliver the user's answer (button tap or free text). Idempotent and
+        thread-safe; returns False for an unknown or already-answered id."""
         future = self._pending.get(clarification_id)
-        if future is None or future.done():
-            return False
-        future.get_loop().call_soon_threadsafe(future.set_result, value)
-        return True
+        if future is not None and not future.done():
+            future.get_loop().call_soon_threadsafe(future.set_result, value)
+            return True
+        with self._lock:
+            entry = self._sync_pending.get(clarification_id)
+        if entry is not None and not entry[0].is_set():
+            entry[1][0] = value
+            entry[0].set()
+            return True
+        return False
 
     def as_sync_handler(
-        self, loop: "asyncio.AbstractEventLoop"
+        self, loop: Optional["asyncio.AbstractEventLoop"] = None
     ) -> Callable[[str, List[str]], str]:
-        """A sync ``ClarifyHandler`` for runs executing OFF ``loop`` (a worker
-        thread): schedules :meth:`ask` on ``loop`` and blocks the worker until the
-        answer arrives. Do not use it for a run on ``loop`` itself — it would
-        deadlock; use :meth:`ask` directly there (with async tool execution)."""
+        """A sync ``ClarifyHandler`` for a run executing on a worker thread — it
+        blocks the worker until the answer arrives. ``loop`` is accepted for
+        backward compatibility but no longer required (the wait is thread-based)."""
+        return lambda question, options: self.ask_sync(question, options)
 
-        def handler(question: str, options: List[str]) -> str:
-            return asyncio.run_coroutine_threadsafe(
-                self.ask(question, options), loop
-            ).result()
-
-        return handler
+    def cancel_pending(self, value: str = "") -> None:
+        """Resolve any outstanding requests (e.g. on client disconnect) so a
+        blocked handler unblocks and the run can wind down cleanly."""
+        for clarification_id in self.pending_ids():
+            self.submit_answer(clarification_id, value)
 
     def pending_ids(self) -> List[str]:
-        return list(self._pending)
+        with self._lock:
+            sync_ids = list(self._sync_pending)
+        return list(self._pending) + sync_ids

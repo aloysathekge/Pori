@@ -27,3 +27,9 @@ class TaskResultResponse(BaseModel):
     success: bool
     final_answer: str | None = None
     reasoning: str | None = None
+
+
+class ClarifyAnswer(BaseModel):
+    """The user's answer to a clarification (a tapped option or free text)."""
+
+    value: str
