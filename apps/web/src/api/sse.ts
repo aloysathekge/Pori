@@ -1,4 +1,4 @@
-import { apiStreamFetch } from './client';
+import { apiFetch, apiStreamFetch } from './client';
 import {
   CLARIFICATION_REQUEST,
   TEXT_DELTA,
@@ -58,6 +58,17 @@ export async function streamMessage(
   }
 
   callbacks.onDone?.();
+}
+
+/** Resolve a paused `ask_user` (the clarify button bridge). */
+export async function submitClarification(
+  clarificationId: string,
+  value: string,
+): Promise<void> {
+  await apiFetch(`/conversations/clarify/${encodeURIComponent(clarificationId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ value }),
+  });
 }
 
 function dispatchFrame(frame: string, cb: SSECallbacks) {

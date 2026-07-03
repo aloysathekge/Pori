@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pori import AgentMemory, AgentSettings, RetrievalEvidence, fuse_retrieval
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -43,7 +44,7 @@ from ..schemas import (
 )
 from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
-from ..streaming import stream_agent_execution
+from ..streaming import resolve_clarification, stream_agent_execution
 from ..tenancy import OrganizationContext, Permission, require_permission
 from .teams import _build_team_from_config
 
@@ -971,4 +972,24 @@ async def send_message(
         content=assistant_msg.content,
         metadata=assistant_msg.metadata_,
         created_at=assistant_msg.created_at,
+    )
+
+
+class ClarifyBody(BaseModel):
+    value: str
+
+
+@router.post("/clarify/{clarification_id}")
+async def submit_clarification(
+    clarification_id: str,
+    body: ClarifyBody,
+    context: OrganizationContext = Depends(check_rate_limit),
+):
+    """Resolve a paused ``ask_user`` by delivering the user's answer (a tapped
+    option or free text) to the waiting stream, routed via the module-level
+    clarify-bridge registry."""
+    if resolve_clarification(clarification_id, body.value):
+        return {"ok": True}
+    raise HTTPException(
+        status_code=404, detail="Unknown or already-answered clarification"
     )
