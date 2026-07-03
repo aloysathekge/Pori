@@ -41,25 +41,17 @@ def test_submit_unknown_id_is_false():
     assert ClarifyBridge(emit=lambda r: None).submit_answer("nope", "x") is False
 
 
-def test_as_sync_handler_bridges_from_a_worker_thread():
-    loop = asyncio.new_event_loop()
-    thread = threading.Thread(target=loop.run_forever, daemon=True)
-    thread.start()
-
+def test_as_sync_handler_blocks_until_submit_answer():
     seen = {}
 
     def emit(request):
         seen["id"] = request.id
-        # the client "taps a button": resolve the pending request on the loop
-        loop.call_soon_threadsafe(bridge.submit_answer, request.id, "SQLite")
+        # the client "taps a button" from another thread while the handler blocks
+        threading.Thread(
+            target=lambda: bridge.submit_answer(request.id, "SQLite"), daemon=True
+        ).start()
 
     bridge = ClarifyBridge(emit=emit, id_factory=lambda: "cid")
-    try:
-        handler = bridge.as_sync_handler(loop)
-        # called from this (worker) thread; blocks until the answer arrives
-        assert handler("engine?", ["Postgres", "SQLite"]) == "SQLite"
-        assert seen["id"] == "cid"
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
-        thread.join(timeout=2)
-        loop.close()
+    handler = bridge.as_sync_handler()  # thread-based wait; no loop needed
+    assert handler("engine?", ["Postgres", "SQLite"]) == "SQLite"
+    assert seen["id"] == "cid"

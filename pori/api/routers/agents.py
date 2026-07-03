@@ -2,17 +2,19 @@ import asyncio
 import json
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from pori.agent import AgentSettings
+from pori.clarify import ClarificationRequest, ClarifyBridge
 from pori.memory import AgentMemory
 from pori.observability import RUN_END, PoriEvent
 from pori.orchestrator import Orchestrator
 
 from ..background import create_background_task, get_task_status
-from ..deps import get_orchestrator, get_request_memory
+from ..deps import get_clarify_bridges, get_orchestrator, get_request_memory
 from ..models import (
+    ClarifyAnswer,
     TaskCreateRequest,
     TaskCreateResponse,
     TaskResultResponse,
@@ -64,30 +66,45 @@ async def stream_task(
     request: TaskCreateRequest,
     orchestrator: Orchestrator = Depends(get_orchestrator),
     memory: AgentMemory = Depends(get_request_memory),
+    bridges: set = Depends(get_clarify_bridges),
 ) -> StreamingResponse:
     """Run a task and stream normalized PoriEvents as Server-Sent Events (GW-4).
 
     Turns the poll-only API real-time over the same event contract the CLI already
-    consumes. The stream ends on RUN_END (or when the run otherwise finishes); a
-    client disconnect cancels the run.
+    consumes. When the agent calls ask_user with options, a ``clarification_request``
+    frame is emitted (the client renders buttons) and the run pauses until the
+    client POSTs the answer to ``/v1/clarify/{id}``. The stream ends on RUN_END.
+
+    The run executes on its own loop in a worker thread, so a blocking ask_user
+    (waiting on a button-tap over HTTP) never blocks the serving loop.
     """
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
-    loop = asyncio.get_running_loop()
+    serving_loop = asyncio.get_running_loop()
 
-    def on_event(event: PoriEvent) -> None:
-        # call_soon_threadsafe keeps this correct even if the run later moves to a
-        # worker thread (GW-6); it's harmless when the run is already on the loop.
-        loop.call_soon_threadsafe(queue.put_nowait, event)
+    def push(event: PoriEvent) -> None:
+        serving_loop.call_soon_threadsafe(queue.put_nowait, event)
 
-    run = asyncio.create_task(
-        orchestrator.execute_task(
-            task=request.task,
-            agent_settings=AgentSettings(max_steps=request.max_steps),
-            memory=memory,
-            on_event=on_event,
-            stream=True,
+    def emit_clarification(req: ClarificationRequest) -> None:
+        push(PoriEvent("clarification_request", req.to_event(), step=0))
+
+    bridge = ClarifyBridge(emit=emit_clarification)
+    bridges.add(bridge)
+
+    def run_agent():
+        return asyncio.run(
+            orchestrator.execute_task(
+                task=request.task,
+                agent_settings=AgentSettings(max_steps=request.max_steps),
+                memory=memory,
+                on_event=push,
+                stream=True,
+                tool_context_extra={
+                    "clarify_handler": bridge.as_sync_handler(serving_loop)
+                },
+            )
         )
-    )
+
+    run = serving_loop.run_in_executor(None, run_agent)
 
     async def event_stream():
         try:
@@ -105,10 +122,26 @@ async def stream_task(
                 if event.type == RUN_END:
                     break
         finally:
-            if not run.done():
-                run.cancel()
+            bridge.cancel_pending()  # unblock a waiting ask_user on disconnect
+            bridges.discard(bridge)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/clarify/{clarification_id}")
+async def submit_clarification(
+    clarification_id: str,
+    answer: ClarifyAnswer,
+    bridges: set = Depends(get_clarify_bridges),
+) -> dict:
+    """Resume a paused run by delivering the user's clarification answer (a tapped
+    option or free text). Routes to whichever active stream is awaiting it."""
+    for bridge in list(bridges):
+        if bridge.submit_answer(clarification_id, answer.value):
+            return {"ok": True}
+    raise HTTPException(
+        status_code=404, detail="Unknown or already-answered clarification"
+    )
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)

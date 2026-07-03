@@ -81,6 +81,7 @@ class Orchestrator:
         hitl_config: Optional[HITLConfig] = None,
         run_context: Optional[RunContext] = None,
         selected_skill_ids: Optional[List[str]] = None,
+        tool_context_extra: Optional[Dict[str, Any]] = None,
         session_key: Optional[str] = None,
         on_busy: str = "reject",
     ) -> Dict[str, Any]:
@@ -110,6 +111,7 @@ class Orchestrator:
                     hitl_config=hitl_config,
                     run_context=run_context,
                     selected_skill_ids=selected_skill_ids,
+                    tool_context_extra=tool_context_extra,
                 )
 
         if session_key is None:
@@ -145,6 +147,7 @@ class Orchestrator:
         hitl_config: Optional[HITLConfig] = None,
         run_context: Optional[RunContext] = None,
         selected_skill_ids: Optional[List[str]] = None,
+        tool_context_extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -178,6 +181,7 @@ class Orchestrator:
             soul_path=self.soul_path,
             soul_text=self.soul_text,
             load_project_context=self.load_project_context,
+            tool_context_extra=tool_context_extra,
         )
         self.agents[task_id] = agent
 

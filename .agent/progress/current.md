@@ -153,6 +153,12 @@ uv-workspace split (per-package pyprojects) deferred.
   archived 90d, 7d grace, agent-created-only, archive = move to `.archive/`,
   never delete), triggered inactivity-style at CLI startup; selected skills
   recorded as used. Pori now authors, grows, and maintains its own skills. 470 passed.
+- Clarify buttons (full loop) — a streamed run that calls `ask_user` with options
+  emits a `clarification_request` SSE frame and pauses; `POST /v1/clarify/{id}`
+  resumes it with the tapped answer. `clarify.ask_sync` (threading.Event) blocks
+  the run (which executes on its own loop in a worker thread, so `ask_user` can't
+  deadlock the serving loop); `Agent`/`Orchestrator` thread a `tool_context_extra`
+  (the bridge's `clarify_handler`). Completes CLI-menu → gateway-buttons. 490 passed.
 - GW-4 SSE — `POST /v1/tasks/stream` streams normalized `PoriEvent`s as
   Server-Sent Events over an `asyncio.Queue` (`on_event` →
   `call_soon_threadsafe`), keepalive on idle, closes on `RUN_END`; client
