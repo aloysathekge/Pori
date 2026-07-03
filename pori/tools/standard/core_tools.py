@@ -5,11 +5,12 @@ Core tools required for agent operation.
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Dict, List, Literal
 
 import yaml
 from pydantic import BaseModel, Field
 
+from pori.clarify import resolve_clarify_handler
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
 from pori.skill_provenance import is_agent_origin, mark_agent_created
 from pori.threat_patterns import first_threat_message
@@ -98,27 +99,36 @@ def done_tool(params: DoneParams, context: Dict[str, Any]):
 
 
 class AskUserParams(BaseModel):
-    question: str = Field(
-        ..., description="The question to ask the user for clarification"
-    )
-    reason: str = Field(
-        ...,
-        description="Why you need this information before proceeding",
+    question: str = Field(..., description="The clarifying question to ask the user")
+    reason: str = Field(..., description="Why you need this before proceeding")
+    options: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional fixed choices to offer as a menu/buttons; leave empty for a "
+            "free-text answer"
+        ),
     )
 
 
 @Registry.tool(
     name="ask_user",
-    description="Ask the user a clarifying question when you lack required information to complete the task. Use this BEFORE taking action when critical details are missing.",
+    description=(
+        "Ask the user a clarifying question when a missing detail blocks the task. "
+        "Pass 'options' to offer a fixed set of choices (rendered as a menu, or "
+        "buttons on a gateway); leave options empty for a free-text answer. Use "
+        "BEFORE acting on ambiguity."
+    ),
 )
 def ask_user_tool(params: AskUserParams, context: Dict[str, Any]) -> Dict[str, Any]:
-    """Ask the user for clarification and return their response."""
-    print(f"\n[Agent needs clarification]\n{params.question}")
-    try:
-        user_response = input("Your answer: ").strip()
-    except EOFError:
-        user_response = ""
-    return {"success": True, "user_response": user_response}
+    """Ask for clarification (structured options or free text) and return the answer.
+
+    Presentation is delegated to a clarify handler from the context (a gateway can
+    render buttons); the default is a CLI numbered menu. The user is never boxed in
+    — an "Other" choice always allows a free-text answer.
+    """
+    handler = resolve_clarify_handler(context)
+    answer = handler(params.question, list(params.options))
+    return {"success": True, "user_response": answer}
 
 
 class ThinkParams(BaseModel):
