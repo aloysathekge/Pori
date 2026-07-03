@@ -58,12 +58,11 @@ export interface StreamTaskOptions {
 }
 
 export class AloyApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(`Aloy API error ${status}: ${message}`);
     this.name = "AloyApiError";
+    this.status = status;
   }
 }
 

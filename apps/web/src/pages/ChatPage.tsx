@@ -37,6 +37,7 @@ export function ChatPage() {
   const [streamStep, setStreamStep] = useState<
     { step: number; max_steps: number } | undefined
   >(undefined);
+  const [streamText, setStreamText] = useState('');
   const [loadingConversation, setLoadingConversation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +122,7 @@ export function ChatPage() {
     setStreamPlan([]);
     setStreamTools([]);
     setStreamStep(undefined);
+    setStreamText('');
 
     const userMsg: MessageResponse = {
       id: `temp-${Date.now()}`,
@@ -132,13 +134,29 @@ export function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
 
     const callbacks: SSECallbacks = {
-      onStatus: (data) => setStreamStatus(data.status),
-      onTool: (data) => setStreamTools((prev) => [...prev, data]),
-      onStep: (data) => {
-        setStreamStep({ step: data.step, max_steps: data.max_steps });
-        if (data.activity) setStreamActivity(data.activity);
-        if (data.plan) setStreamPlan(data.plan);
-      },
+      onText: (text) => setStreamText((prev) => prev + text),
+      onToolStart: (payload) =>
+        setStreamTools((prev) => [
+          ...prev,
+          {
+            step: 0,
+            tool: String(payload.name ?? 'tool'),
+            preview: '',
+            success: false,
+          },
+        ]),
+      onToolEnd: (payload) =>
+        setStreamTools((prev) => {
+          const next = [...prev];
+          const name = String(payload.name ?? '');
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].tool === name) {
+              next[i] = { ...next[i], success: Boolean(payload.success) };
+              break;
+            }
+          }
+          return next;
+        }),
       onMessage: (data: SSEMessageEvent) => {
         const assistantMsg: MessageResponse = {
           id: `msg-${Date.now()}`,
@@ -155,6 +173,7 @@ export function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        setStreamText('');
       },
       onError: (err) => {
         const errMsg: MessageResponse = {
@@ -165,6 +184,7 @@ export function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errMsg]);
+        setStreamText('');
       },
       onDone: () => {
         setStreaming(false);
@@ -174,6 +194,7 @@ export function ChatPage() {
         setStreamPlan([]);
         setStreamTools([]);
         setStreamStep(undefined);
+        setStreamText('');
         loadConversations();
       },
     };
@@ -236,6 +257,17 @@ export function ChatPage() {
                   {messages.map((msg) => (
                     <MessageBubble key={msg.id} message={msg} />
                   ))}
+                  {streaming && streamText && (
+                    <MessageBubble
+                      message={{
+                        id: 'streaming',
+                        role: 'assistant',
+                        content: streamText,
+                        metadata: null,
+                        created_at: new Date().toISOString(),
+                      }}
+                    />
+                  )}
                   {streaming && (
                     <StreamingIndicator
                       status={streamStatus}

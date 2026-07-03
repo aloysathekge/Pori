@@ -24,8 +24,8 @@ npm run dev
 ## Migration status (docs/Aloy.md — "adopt pori_cloud_client, unify on PoriEvent")
 
 - [x] **Stage 1** — copy `pori_cloud_client` → `apps/web`, rebrand identity to Aloy, builds clean (`tsc -b && vite build`).
-- [ ] **Stage 2** — retarget `src/api/*` + `src/api/sse.ts` to **`@aloy/shared`** so the app speaks the kernel's **`PoriEvent`** contract, gaining **clarify buttons + delegation** (today it uses its own `status/tool/step/message` events).
-- [ ] **Stage 3** — reconcile the backend (`pori_cloud` → `products/aloy/backend`, vs `pori/api`); keep Supabase **Bearer** auth (add Bearer support to the backend + `@aloy/shared`).
+- [x] **Stage 2** — `src/api/sse.ts` now consumes the kernel **`PoriEvent`** stream via `@aloy/shared` (alias wired in `vite.config`/`tsconfig`): `text_delta` streams **live** into the assistant bubble, `tool_call_start/end` drive tool chips, `run_end`/final `message` finalize. Supabase **Bearer** auth kept (`apiStreamFetch`). `onClarification` handler is ready for backend 3.3b. Builds clean.
+- [x] **Stage 3.1** — backend adopted (`products/aloy/backend`). **3.2 boot** (Postgres/Supabase env) and **3.3b clarify** remain.
 
 ### Visual rebrand TODO
 Logo assets in `public/` are still `pori-*.svg`/`.png` (referenced from
