@@ -17,10 +17,13 @@
 Most agent frameworks are either too simple (no memory, no teams) or too complex (heavy abstractions, LangChain dependency graphs). Pori sits in the middle:
 
 - **Persistent memory** — Letta-inspired CoreMemory blocks that survive across conversations. Your agent actually remembers users.
+- **Sub-agent delegation** — the agent hands context-heavy subtasks to isolated sub-agents (single, parallel batch, or background), keeping its own context clean. Optional curated specialists + model-per-agent.
 - **Multi-agent teams** — Router, broadcast, and delegate modes. Agents coordinate without sharing state.
+- **Skills & learning** — progressive on-demand skills; an optional background learning loop that grows and curates its own skills.
 - **Built-in evals & guardrails** — Accuracy, reliability, performance evals. Runtime safety checks before and after every response.
+- **Human-in-the-loop** — per-tool approval gates + a structured `ask_user` clarify tool.
 - **Tracing** — Hierarchical span trees for every agent run. See exactly what happened.
-- **No LangChain** — Direct SDK integration with Anthropic, OpenAI, and Google. Lightweight, fast, debuggable.
+- **No LangChain** — Direct SDK integration with Anthropic, OpenAI, and Google (plus OpenRouter/Fireworks/local OSS). Lightweight, fast, debuggable.
 
 ---
 
@@ -76,7 +79,7 @@ async def main():
     registry = tool_registry()
     register_all_tools(registry)
 
-    llm = create_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-20250514"))
+    llm = create_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-5-20250929"))
     orchestrator = Orchestrator(llm=llm, tools_registry=registry)
 
     result = await orchestrator.execute_task(
@@ -158,6 +161,41 @@ result = await team.run()
 | `ROUTER` | Coordinator picks the single best member for the task |
 | `BROADCAST` | All members run in parallel, coordinator synthesizes results |
 | `DELEGATE` | Coordinator creates a multi-step plan, members execute steps with dependency ordering |
+
+### Sub-Agent Delegation
+
+Distinct from Teams: the running agent can delegate a subtask to a focused
+**sub-agent** with its own isolated context and a restricted toolset — so
+context-heavy work (research, exploration, review) happens in a throwaway context
+and the caller stays clean. It's the `delegate_task` tool; the model reaches for it
+on its own judgment (no magic word — the *shape* of the task triggers it).
+
+- **Single / batch / background** — one subtask, several run concurrently, or
+  fire-and-forget (results re-enter on a later turn).
+- **Role-based depth** — a `leaf` (default) can't delegate further; an
+  `orchestrator` child can decompose its own work, bounded by a depth cap.
+- **Sub-agent security** — children run non-interactively, so risky HITL-gated
+  tools are auto-denied (they can't prompt a user).
+- **Optional curated specialists** — drop a `.pori/agents/<name>.md` to name a
+  tuned expert; a task's `agent` field selects it. Omit it for goal-driven
+  delegation.
+- **Model-per-agent** — a specialist can declare a provider-agnostic tier
+  (`fast` / `powerful`) mapped to concrete models in `llm.tiers`, so grunt work
+  runs on a cheap model while the manager reasons on a strong one.
+
+A specialist is a markdown file with frontmatter + a system-prompt body
+(`.pori/agents/code-reviewer.md`):
+
+```markdown
+---
+name: code-reviewer
+description: Reviews a diff or file for bugs, concurrency issues, and design smells.
+tools: read_file, search_files, list_directory
+model: fast
+---
+You are an expert code reviewer. Focus on correctness, concurrency, and error
+handling. Return findings as a prioritized list with file:line references.
+```
 
 ### Evaluations
 
@@ -269,11 +307,12 @@ are loaded.
 
 | Category | Tools |
 |----------|-------|
-| **Core** | `answer`, `done`, `think`, `remember`, `conversation_search` |
-| **Memory** | `core_memory_append`, `core_memory_replace`, `memory_insert`, `memory_rethink`, `archival_memory_insert`, `archival_memory_search` |
-| **Web** | `web_search` (Tavily) |
-| **Math** | `calculate` |
-| **Files** | `read_file`, `write_file`, `list_directory`, `file_info`, `create_directory`, `search_files`, `copy_file`, `move_file`, `delete_file` |
+| **Core** | `answer`, `done`, `think`, `remember`, `ask_user`, `update_plan`, `conversation_search` |
+| **Delegation** | `delegate_task` (isolated sub-agents — single / batch / background) |
+| **Memory** | `core_memory_append`, `core_memory_replace`, `core_memory_read`, `core_memory_rethink`, `memory_insert`, `memory_rethink`, `archival_memory_insert`, `archival_memory_search` |
+| **Web** | `web_search` (Tavily), `fetch_url` |
+| **Files** | `read_file`, `write_file`, `edit_file`, `list_directory`, `file_info`, `create_directory`, `search_files`, `copy_file`, `move_file`, `delete_file` |
+| **Skills** | `skills_list`, `skill_view`, `write_skill` |
 
 ### LLM Providers
 
@@ -283,7 +322,7 @@ Direct SDK integration — no middleware, no abstraction layers:
 from pori.config import create_llm, LLMConfig
 
 # Anthropic
-llm = create_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-20250514"))
+llm = create_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-5-20250929"))
 
 # OpenAI
 llm = create_llm(LLMConfig(provider="openai", model="gpt-4o"))
@@ -315,6 +354,13 @@ pori/
 ├── providers.py          # Declarative provider profiles and diagnostics
 ├── retrieval.py          # Provenance-preserving retrieval fusion
 ├── sessions.py           # Session lifecycle contracts and local SQLite store
+├── subagents.py          # Sub-agent delegation (delegate_task) + specialist catalog
+├── background_delegation.py  # Background (fire-and-forget) delegation registry
+├── hitl.py               # Human-in-the-loop approval gates
+├── clarify.py            # Structured ask_user clarify tool
+├── skills.py             # Progressive on-demand skills (+ curator/learning loop)
+├── sandbox/              # Sandboxed filesystem/shell execution
+├── api/                  # FastAPI surface (SSE streaming) for Pori Cloud
 ├── orchestrator/         # Task lifecycle, concurrency, shared memory
 ├── team/                 # Multi-agent coordination (router, broadcast, delegate)
 ├── eval/                 # Evaluation framework + guardrails
