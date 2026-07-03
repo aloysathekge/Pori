@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from pori.clarify import resolve_clarify_handler
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
 from pori.skill_provenance import is_agent_origin, mark_agent_created
+from pori.subagents import MAX_PARALLEL_SUBAGENTS
 from pori.threat_patterns import first_threat_message
 
 from ..registry import tool_registry
@@ -621,6 +622,58 @@ def task_tool(params: TaskParams, context: Dict[str, Any]):
     except Exception as exc:
         return {"success": False, "error": str(exc)}
     return {"success": True, "subagent_type": params.subagent_type, "result": result}
+
+
+class ParallelTaskItem(BaseModel):
+    subagent_type: str = Field(
+        ..., description="Which sub-agent to use (e.g. 'general-purpose')."
+    )
+    task: str = Field(
+        ..., description="A complete, self-contained brief for this sub-agent."
+    )
+
+
+class TaskParallelParams(BaseModel):
+    tasks: List[ParallelTaskItem] = Field(
+        ...,
+        description="Independent subtasks to run concurrently, each in its own "
+        "isolated sub-agent.",
+    )
+
+
+@Registry.tool(
+    name="task_parallel",
+    param_model=TaskParallelParams,
+    description=(
+        "Run SEVERAL independent subtasks CONCURRENTLY, each in its own isolated "
+        "sub-agent, and get all results back together — much faster than sequential "
+        "`task` calls. Use only for INDEPENDENT subtasks (no shared state or "
+        f"ordering between them). Max {MAX_PARALLEL_SUBAGENTS} at once."
+    ),
+)
+def task_parallel_tool(params: TaskParallelParams, context: Dict[str, Any]):
+    """Fan out independent subtasks to concurrent isolated sub-agents."""
+    runner = (context or {}).get("parallel_subagent_runner")
+    if not callable(runner):
+        return {
+            "success": False,
+            "error": "Sub-agents are not available in this context.",
+        }
+    if not params.tasks:
+        return {"success": False, "error": "Provide at least one task."}
+    if len(params.tasks) > MAX_PARALLEL_SUBAGENTS:
+        return {
+            "success": False,
+            "error": (
+                f"Too many parallel tasks ({len(params.tasks)}); max is "
+                f"{MAX_PARALLEL_SUBAGENTS}. Split into batches."
+            ),
+        }
+    try:
+        results = runner([(item.subagent_type, item.task) for item in params.tasks])
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    return {"success": True, "count": len(results), "results": results}
 
 
 def register_core_tools(registry=None):

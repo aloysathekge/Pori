@@ -46,7 +46,7 @@ from .skills import (
     uninstall_skill_from_directory,
 )
 from .skills_learn import build_learn_prompt
-from .subagents import AgentCatalog, make_subagent_runner
+from .subagents import AgentCatalog, make_parallel_subagent_runner, make_subagent_runner
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -1124,6 +1124,9 @@ async def main():
     # .pori/agents/ and build a runner that spawns isolated sub-agents.
     agent_catalog = AgentCatalog.load(Path.cwd() / ".pori" / "agents")
     subagent_runner = make_subagent_runner(orchestrator, agent_catalog)
+    parallel_subagent_runner = make_parallel_subagent_runner(
+        orchestrator, agent_catalog
+    )
 
     # HITL: check if enabled in config
     hitl_handler = None
@@ -1500,7 +1503,10 @@ async def main():
                         validate_output=config.agent.validate_output,
                         max_validation_retries=config.agent.max_validation_retries,
                     ),
-                    tool_context_extra={"subagent_runner": subagent_runner},
+                    tool_context_extra={
+                        "subagent_runner": subagent_runner,
+                        "parallel_subagent_runner": parallel_subagent_runner,
+                    },
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
                     on_event=(

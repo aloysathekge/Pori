@@ -116,9 +116,12 @@ class AgentCatalog:
         return "\n".join(f"- {d.name}: {d.description}" for d in self.types())
 
 
-def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> str:
+MAX_PARALLEL_SUBAGENTS = 8
+
+
+def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> Any:
     """Run a coroutine to completion on its own loop in a worker thread, blocking
-    the caller. Lets the sync ``task`` tool run an async sub-agent without needing
+    the caller. Lets the sync ``task`` tools run async sub-agents without needing
     (or deadlocking) the caller's event loop."""
     box: Dict[str, Any] = {}
 
@@ -133,7 +136,7 @@ def _run_coro_in_thread(coro_factory: Callable[[], Any]) -> str:
     thread.join()
     if "error" in box:
         raise box["error"]
-    return box.get("value", "")
+    return box.get("value")
 
 
 def make_subagent_runner(
@@ -161,5 +164,41 @@ def make_subagent_runner(
                 max_steps=max_steps,
             )
         )
+
+    return run
+
+
+def make_parallel_subagent_runner(
+    orchestrator: Any, catalog: AgentCatalog, *, max_steps: int = 15
+) -> Callable[[List[Tuple[str, str]]], List[Dict[str, Any]]]:
+    """Build the sync ``parallel_subagent_runner``: run several INDEPENDENT subtasks
+    concurrently, each in its own isolated sub-agent, on one loop in one worker
+    thread. Collects a per-task result — one failing does not fail the rest."""
+
+    async def _one(subagent_type: str, task: str) -> Dict[str, Any]:
+        definition = catalog.resolve(subagent_type)
+        if definition is None:
+            available = ", ".join(d.name for d in catalog.types())
+            return {
+                "subagent_type": subagent_type,
+                "success": False,
+                "error": f"Unknown subagent_type {subagent_type!r}. Available: {available}",
+            }
+        try:
+            result = await orchestrator.run_subagent(
+                task,
+                system_prompt=definition.prompt,
+                tool_names=list(definition.tools) if definition.tools else None,
+                max_steps=max_steps,
+            )
+            return {"subagent_type": subagent_type, "success": True, "result": result}
+        except Exception as exc:
+            return {"subagent_type": subagent_type, "success": False, "error": str(exc)}
+
+    def run(items: List[Tuple[str, str]]) -> List[Dict[str, Any]]:
+        async def run_all() -> List[Dict[str, Any]]:
+            return list(await asyncio.gather(*[_one(st, task) for st, task in items]))
+
+        return _run_coro_in_thread(run_all)
 
     return run

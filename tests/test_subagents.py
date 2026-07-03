@@ -5,11 +5,19 @@ import pytest
 from pori.orchestrator.core import Orchestrator
 from pori.subagents import (
     GENERAL_PURPOSE,
+    MAX_PARALLEL_SUBAGENTS,
     AgentCatalog,
+    make_parallel_subagent_runner,
     make_subagent_runner,
     parse_agent_markdown,
 )
-from pori.tools.standard.core_tools import TaskParams, task_tool
+from pori.tools.standard.core_tools import (
+    ParallelTaskItem,
+    TaskParallelParams,
+    TaskParams,
+    task_parallel_tool,
+    task_tool,
+)
 
 pytestmark = [pytest.mark.unit]
 
@@ -105,3 +113,77 @@ async def test_run_subagent_returns_answer_with_isolated_memory(
     # isolation: the sub-agent used its own memory, so the orchestrator's shared
     # memory was never populated by it.
     assert orch.shared_memory is None
+
+
+# --- parallel delegation ----------------------------------------------------
+def test_parallel_runner_collects_per_task_results_and_isolates_failures():
+    class _StubOrch:
+        async def run_subagent(
+            self, task, *, system_prompt=None, tool_names=None, max_steps=15
+        ):
+            return f"done:{task}"
+
+    runner = make_parallel_subagent_runner(_StubOrch(), AgentCatalog())
+    results = runner([(GENERAL_PURPOSE, "a"), (GENERAL_PURPOSE, "b"), ("nope", "c")])
+    assert len(results) == 3
+    assert results[0]["success"] is True and results[0]["result"] == "done:a"
+    assert results[1]["result"] == "done:b"
+    assert results[2]["success"] is False and "Unknown" in results[2]["error"]
+
+
+def test_parallel_runner_actually_runs_concurrently():
+    import asyncio
+
+    state = {"active": 0, "max": 0}
+
+    class _SlowOrch:
+        async def run_subagent(
+            self, task, *, system_prompt=None, tool_names=None, max_steps=15
+        ):
+            state["active"] += 1
+            state["max"] = max(state["max"], state["active"])
+            await asyncio.sleep(0.05)
+            state["active"] -= 1
+            return task
+
+    runner = make_parallel_subagent_runner(_SlowOrch(), AgentCatalog())
+    runner([(GENERAL_PURPOSE, "a"), (GENERAL_PURPOSE, "b"), (GENERAL_PURPOSE, "c")])
+    assert state["max"] >= 2  # they overlapped -> genuinely concurrent
+
+
+def test_task_parallel_tool_delegates():
+    def runner(items):
+        return [{"subagent_type": st, "success": True, "result": t} for st, t in items]
+
+    res = task_parallel_tool(
+        TaskParallelParams(
+            tasks=[
+                ParallelTaskItem(subagent_type=GENERAL_PURPOSE, task="a"),
+                ParallelTaskItem(subagent_type=GENERAL_PURPOSE, task="b"),
+            ]
+        ),
+        {"parallel_subagent_runner": runner},
+    )
+    assert res["success"] is True and res["count"] == 2
+    assert res["results"][0]["result"] == "a"
+
+
+def test_task_parallel_without_runner_errors():
+    res = task_parallel_tool(
+        TaskParallelParams(
+            tasks=[ParallelTaskItem(subagent_type=GENERAL_PURPOSE, task="a")]
+        ),
+        {},
+    )
+    assert res["success"] is False
+
+
+def test_task_parallel_rejects_too_many():
+    items = [
+        ParallelTaskItem(subagent_type=GENERAL_PURPOSE, task=str(i))
+        for i in range(MAX_PARALLEL_SUBAGENTS + 1)
+    ]
+    res = task_parallel_tool(
+        TaskParallelParams(tasks=items), {"parallel_subagent_runner": lambda x: []}
+    )
+    assert res["success"] is False and "max" in res["error"].lower()
