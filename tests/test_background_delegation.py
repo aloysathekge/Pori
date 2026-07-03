@@ -85,7 +85,7 @@ def test_delegate_task_tool_background_dispatches():
     )
     assert res["success"] is True and res["background"] is True
     assert res["dispatched"][0]["handle"] == "bg-9"
-    assert captured["items"] == [{"goal": "a", "context": None}]
+    assert captured["items"] == [{"goal": "a", "context": None, "agent": None}]
 
 
 def test_delegate_task_tool_background_unavailable():

@@ -47,7 +47,7 @@ from .skills import (
     uninstall_skill_from_directory,
 )
 from .skills_learn import build_learn_prompt
-from .subagents import make_background_delegate, make_delegate_runner
+from .subagents import AgentCatalog, make_background_delegate, make_delegate_runner
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -1131,10 +1131,13 @@ async def main():
     # Sub-agent delegation (the `delegate_task` tool): a runner that spawns
     # isolated child agents (goal-driven, role-restricted, HITL auto-denied for
     # children since they have no user to prompt).
-    delegate_runner = make_delegate_runner(orchestrator, hitl_config=hitl_config)
+    agent_catalog = AgentCatalog.load(Path.cwd() / ".pori" / "agents")
+    delegate_runner = make_delegate_runner(
+        orchestrator, catalog=agent_catalog, hitl_config=hitl_config
+    )
     bg_registry = BackgroundDelegationRegistry()
     background_delegate = make_background_delegate(
-        orchestrator, bg_registry, hitl_config=hitl_config
+        orchestrator, bg_registry, catalog=agent_catalog, hitl_config=hitl_config
     )
 
     # Team: check if configured

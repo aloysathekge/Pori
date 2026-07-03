@@ -590,6 +590,11 @@ class DelegateTaskItem(BaseModel):
         description="'leaf' (default) cannot delegate further; 'orchestrator' may "
         "spawn its own sub-agents for reasoning-heavy independent subtasks.",
     )
+    agent: Optional[str] = Field(
+        None,
+        description="Optional: a predefined specialist (from .pori/agents/) to use — "
+        "gives the child a curated prompt + tool allowlist. Omit for goal-driven.",
+    )
 
 
 class DelegateTaskParams(BaseModel):
@@ -641,7 +646,10 @@ def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
                 "error": "Background delegation is not available in this context.",
             }
         dispatched = dispatch(
-            [{"goal": item.goal, "context": item.context} for item in params.tasks]
+            [
+                {"goal": item.goal, "context": item.context, "agent": item.agent}
+                for item in params.tasks
+            ]
         )
         return {
             "success": True,
@@ -662,7 +670,12 @@ def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
     try:
         results = runner(
             [
-                {"goal": item.goal, "context": item.context, "role": item.role}
+                {
+                    "goal": item.goal,
+                    "context": item.context,
+                    "role": item.role,
+                    "agent": item.agent,
+                }
                 for item in params.tasks
             ]
         )
