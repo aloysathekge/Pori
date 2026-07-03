@@ -77,6 +77,12 @@ web = [
 cli = [
     "prompt_toolkit>=3.0.0,<4",
 ]
+# FastAPI surface (the hosted Pori Cloud / Aloy backend). Not used by the CLI.
+api = [
+    "fastapi>=0.110.0,<1",
+    "uvicorn[standard]>=0.29.0,<1",
+    "httpx>=0.27.0,<1",
+]
 # Everything above in one shot.
 all = [
     "sentence-transformers>=3.2.1,<6",
@@ -94,6 +100,9 @@ test = [
     "isort>=5.12.0,<7",
     "mypy>=1.3.0,<2",
     "types-PyYAML>=6.0.0,<7",
+    # API smoke tests (import the app + TestClient); server dep (uvicorn) not needed.
+    "fastapi>=0.110.0,<1",
+    "httpx>=0.27.0,<1",
 ]
 
 [tool.pytest.ini_options]

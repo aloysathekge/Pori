@@ -153,6 +153,11 @@ uv-workspace split (per-package pyprojects) deferred.
   archived 90d, 7d grace, agent-created-only, archive = move to `.archive/`,
   never delete), triggered inactivity-style at CLI startup; selected skills
   recorded as used. Pori now authors, grows, and maintains its own skills. 470 passed.
+- API repair — `pori/api` now imports, starts up, and serves. Bounded `api`
+  extra (fastapi/uvicorn/httpx); `middleware.py` uses the modern
+  `RequestResponseEndpoint`. `tests/test_api_smoke.py` (TestClient /v1/health +
+  lifespan state); the GW-1 isolation test now actually runs. This unblocks GW-4
+  (SSE) and the clarify-button last-mile. 486 passed; mypy clean (91 files).
 - GW-1 — per-request `AgentMemory` isolation (`pori/api/deps.py`
 `get_request_memory` + `Orchestrator.execute_task(memory=...)` override +
 `tests/test_api_memory_isolation.py`; 338 passed, 1 fastapi-guarded skip;
