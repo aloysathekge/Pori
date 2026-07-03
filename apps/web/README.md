@@ -1,44 +1,33 @@
 # `@aloy/web` — Aloy web app
 
-The Aloy chat SPA. Talks to the Pori/Aloy backend over REST + SSE through
-[`@aloy/shared`](../shared) — no other backend coupling.
-
-> **Reconciliation note:** an external `pori_cloud_client` (a Vite/React frontend)
-> also exists — see `docs/Aloy.md` §11.1. Per the agreed *harvest-Hermes*
-> direction this app was scaffolded fresh from Hermes `web/` (below); if
-> `pori_cloud_client` has screens worth keeping, fold them in over this shell.
+The Aloy web SPA. **Adopted from the existing `pori_cloud_client`** (our own
+Vite/React frontend) rather than rebuilt — it already ships the screens we need:
+Chat, **Memory**, **Teams**, **Traces**, **Usage** (charts), AgentConfigs,
+Settings, and Login/Signup. Rebranded to Aloy; talks to the backend over
+REST + SSE.
 
 ## Stack
 
-React 19 · Vite 6 · TypeScript · Tailwind 4 · lucide-react. This is the **build
-scaffold + chat structure harvested from Hermes `web/`** (MIT) and rewired: the
-`@nous-research/ui` design system, `@xterm` terminal / PTY bridge, the
-dashboard-session-token plugin, `/api` proxy, and the dozen Hermes-only pages
-were **not** copied — Aloy has its own theme and talks plain REST + SSE. See
-`docs/Aloy.md` §3a and `references/HARVEST.md`.
+React 19 · Vite · TypeScript · Tailwind · react-router · lucide-react · recharts ·
+`@supabase/supabase-js` (auth). A 12-module API layer (`src/api/*`) with an
+`sse.ts` streaming client.
 
 ## Run
 
 ```bash
 cd apps/web
 npm install
-cp .env.example .env.local   # set your backend URL + API key
-npm run dev                  # http://localhost:5173
+cp .env.example .env.local   # Supabase auth + backend URL
+npm run dev
 ```
 
-The backend is the kernel/Aloy API (`uvicorn`), which streams `PoriEvent`s from
-`POST /v1/tasks/stream`. Set `PORI_API_KEY` on the server and the matching
-`VITE_ALOY_API_KEY` here.
+## Migration status (docs/Aloy.md — "adopt pori_cloud_client, unify on PoriEvent")
 
-## Scripts
+- [x] **Stage 1** — copy `pori_cloud_client` → `apps/web`, rebrand identity to Aloy, builds clean (`tsc -b && vite build`).
+- [ ] **Stage 2** — retarget `src/api/*` + `src/api/sse.ts` to **`@aloy/shared`** so the app speaks the kernel's **`PoriEvent`** contract, gaining **clarify buttons + delegation** (today it uses its own `status/tool/step/message` events).
+- [ ] **Stage 3** — reconcile the backend (`pori_cloud` → `products/aloy/backend`, vs `pori/api`); keep Supabase **Bearer** auth (add Bearer support to the backend + `@aloy/shared`).
 
-- `npm run dev` — Vite dev server
-- `npm run typecheck` — `tsc --noEmit`
-- `npm run build` — production build
-- `npm run preview` — preview the build
-
-## What's here (v1)
-
-Chat with live streaming (answer + collapsible **thinking**), tool-call chips,
-and **clarify buttons** (the `ask_user` bridge). Next: conversations sidebar,
-delegation sub-threads, memory panel, auth screen.
+### Visual rebrand TODO
+Logo assets in `public/` are still `pori-*.svg`/`.png` (referenced from
+`AppLayout`/`Login`). Swap for Aloy marks and tune the accent palette (currently
+Tailwind zinc/indigo) in the visual pass.
