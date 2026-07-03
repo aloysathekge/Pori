@@ -76,6 +76,9 @@ Terminal tools are `answer` / `done` — the agent signals completion by calling
 
 Members do **not** share memory by default; they communicate only through the coordinator's inputs/outputs.
 
+### Sub-agents (`pori/subagents.py`, the `task` tool)
+Distinct from Teams: the **`task` tool** lets the running agent *delegate a subtask* to an isolated, ephemeral sub-agent. `Orchestrator.run_subagent()` spawns a fresh `Agent` with its **own memory** (so the sub-agent's — possibly huge — working transcript never enters the caller's context; only the returned answer does) and a **restricted tool surface**. `AgentCatalog` loads sub-agent definitions from `.pori/agents/*.md` (frontmatter: `name`, `description`, `tools`, `model`; body = the sub-agent's system prompt), plus a built-in `general-purpose` type. A sub-agent has no `subagent_runner` in its context, so **sub-agents cannot nest**. This is the Claude Code / deepagents delegation pattern; the `description` field drives which type the model picks.
+
 ### Tools (`pori/tools/`)
 - `registry.py` — `ToolRegistry` + `ToolExecutor`. Tools are Pydantic-validated and registered via `@Registry.tool(...)` or by implementing the `pori.tools` entry point.
 - `standard/` — built-in tools split by domain (`core_tools`, `filesystem_tools`, `internet_tools`, `planning_tools`, `skills_tools`). `register_all_tools(registry)` installs them all.

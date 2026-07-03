@@ -264,6 +264,50 @@ class Orchestrator:
         except Exception:
             return ""
 
+    async def run_subagent(
+        self,
+        task: str,
+        *,
+        system_prompt: Optional[str] = None,
+        tool_names: Optional[List[str]] = None,
+        max_steps: int = 15,
+    ) -> str:
+        """Run an isolated sub-agent to a single result (the delegation primitive).
+
+        The sub-agent gets a FRESH memory (its working transcript never touches the
+        caller's context — only the returned answer does) and, when ``tool_names`` is
+        given, a restricted tool surface. Returns its final answer.
+        """
+        registry = self.tools_registry
+        if tool_names is not None:
+            all_names = set(self.tools_registry.tools.keys())
+            protected = set(self.tools_registry.protected_tools)
+            allowed = {t.strip() for t in tool_names if t.strip()} | protected
+            try:
+                registry = self.tools_registry.filtered(
+                    exclude_tools=all_names - allowed
+                )
+            except Exception:  # never fail the run on a tool-restriction issue
+                registry = self.tools_registry
+
+        agent = Agent(
+            task=task,
+            llm=self.llm,
+            tools_registry=registry,
+            settings=AgentSettings(max_steps=max_steps, background_review=False),
+            memory=AgentMemory(),  # isolated context — the point of a sub-agent
+            skill_catalog=self.skill_catalog,
+            skill_limit=self.skill_limit,
+            soul_text=system_prompt,
+        )
+        await agent.run()
+        summary = agent.result_summary()
+        return (
+            summary.get("final_answer")
+            or summary.get("reasoning")
+            or "(the sub-agent returned no answer)"
+        )
+
     async def execute_tasks_parallel(
         self,
         tasks: List[str],
