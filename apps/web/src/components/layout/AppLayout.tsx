@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import {
   MessageSquare,
   Bot,
+  Sparkles,
   Users,
   Brain,
   BarChart3,
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/Button';
 const navItems = [
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/agents', icon: Bot, label: 'Agents' },
+  { to: '/skills', icon: Sparkles, label: 'Skills' },
   { to: '/teams', icon: Users, label: 'Teams' },
   { to: '/memory', icon: Brain, label: 'Memory' },
   { to: '/usage', icon: BarChart3, label: 'Usage' },
