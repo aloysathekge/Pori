@@ -1,16 +1,16 @@
-"""SSE streaming for agent execution — the kernel ``PoriEvent`` contract.
+"""SSE streaming for agent execution — kernel ``PoriEvent`` contract + clarify.
 
-Relays the kernel's live ``PoriEvent`` stream (``run_start`` / ``step_*`` /
-``text_delta`` / ``thinking_delta`` / ``tool_call_start`` / ``tool_call_end`` /
-``run_end`` …) as SSE frames — the same contract the kernel API and
-``@aloy/shared`` speak. Replaces the earlier step-polling approach, so the web
-surface gets real token streaming + tool events (and, once the clarify bridge is
-wired, ``clarification_request`` buttons).
+Relays the kernel's live ``PoriEvent`` stream as SSE (``run_start`` / ``step_*`` /
+``text_delta`` / ``thinking_delta`` / ``tool_call_start|end`` / ``run_end``), plus
+a final ``message`` frame with the answer + metrics for DB persistence.
 
-A final ``message`` event is still emitted after the run with the authoritative
-answer + metrics, so ``conversations.py`` persistence (which captures
-``event: message``) is unchanged, and a non-streaming model still yields a final
-answer.
+The run executes on its own loop **in a worker thread**, so a blocking
+``ask_user`` (waiting on a clarify button over HTTP) never blocks the serving
+loop. A :class:`ClarifyBridge` emits ``clarification_request`` frames and pauses
+the run until the client POSTs the answer, which the resolve endpoint routes via
+the module-level :data:`CLARIFY_BRIDGES` registry.
+
+Harvested from the kernel ``pori/api`` stream_task (worker-thread + bridge model).
 """
 
 from __future__ import annotations
@@ -18,18 +18,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Set
 
 from pori import AgentSettings, Orchestrator, RunContext
-from pori.observability import PoriEvent
+from pori.clarify import ClarificationRequest, ClarifyBridge
+from pori.observability import RUN_END, PoriEvent
 
 logger = logging.getLogger("pori_cloud")
 
-_SENTINEL = object()
+# Active clarify bridges; the resolve endpoint routes an answer to whichever
+# stream is awaiting it (see routes/conversations.py).
+CLARIFY_BRIDGES: Set[ClarifyBridge] = set()
+
+_KEEPALIVE_SECONDS = 15
 
 
 def _safe_json(obj: Any) -> Any:
-    """JSON serializer that handles pydantic models and dataclasses."""
     if hasattr(obj, "model_dump"):
         return obj.model_dump()
     if hasattr(obj, "dict"):
@@ -40,7 +44,6 @@ def _safe_json(obj: Any) -> Any:
 
 
 def _sse_event(event: str, data: dict) -> str:
-    """Format a Server-Sent Event frame."""
     return f"event: {event}\ndata: {json.dumps(data, default=_safe_json)}\n\n"
 
 
@@ -55,48 +58,60 @@ async def stream_agent_execution(
     settings: AgentSettings,
     run_context: Optional[RunContext] = None,
 ) -> AsyncGenerator[str, None]:
-    """Run the agent and yield its ``PoriEvent`` stream as SSE, then a final
-    ``message`` event with the answer + metrics for persistence."""
-    queue: asyncio.Queue = asyncio.Queue()
-    holder: dict = {}
+    queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
+    serving_loop = asyncio.get_running_loop()
 
-    def on_event(event: PoriEvent) -> None:
-        # execute_task runs on this event loop, so put_nowait is safe.
-        queue.put_nowait(event)
+    def push(event: PoriEvent) -> None:
+        serving_loop.call_soon_threadsafe(queue.put_nowait, event)
 
-    async def _run() -> None:
-        try:
-            holder["result"] = await orchestrator.execute_task(
+    def emit_clarification(req: ClarificationRequest) -> None:
+        push(PoriEvent("clarification_request", req.to_event(), step=0))
+
+    bridge = ClarifyBridge(emit=emit_clarification)
+    CLARIFY_BRIDGES.add(bridge)
+
+    def run_agent() -> dict:
+        return asyncio.run(
+            orchestrator.execute_task(
                 task=task,
                 agent_settings=settings,
                 run_context=run_context,
-                on_event=on_event,
+                on_event=push,
+                stream=True,
+                tool_context_extra={
+                    "clarify_handler": bridge.as_sync_handler(serving_loop)
+                },
             )
-        except Exception as exc:  # captured, surfaced as an error frame
-            holder["error"] = exc
-            logger.exception("Streaming agent run failed")
-        finally:
-            queue.put_nowait(_SENTINEL)
+        )
 
-    agent_task = asyncio.create_task(_run())
+    run = serving_loop.run_in_executor(None, run_agent)
 
-    # `status` kept for backward compatibility with pre-migration consumers;
-    # the canonical stream is the relayed PoriEvents below.
+    # `status` kept for pre-migration consumers; canonical stream is the PoriEvents.
     yield _sse_event("status", {"status": "running", "task": task})
 
     try:
         while True:
-            event = await queue.get()
-            if event is _SENTINEL:
-                break
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
+            except asyncio.TimeoutError:
+                if run.done() and queue.empty():
+                    break
+                yield ": keepalive\n\n"  # keep the socket open
+                continue
             if isinstance(event, PoriEvent):
                 yield _porievent_frame(event)
+                if event.type == RUN_END:
+                    break
 
-        result = holder.get("result")
-        if result is None:
-            yield _sse_event(
-                "error", {"detail": str(holder.get("error") or "run failed")}
-            )
+        try:
+            result = await run
+        except Exception as exc:  # run raised
+            logger.exception("Streaming agent run failed")
+            yield _sse_event("error", {"detail": str(exc)})
+            return
+
+        if not result:
+            yield _sse_event("error", {"detail": "run produced no result"})
             return
 
         agent = result.get("agent")
@@ -130,11 +145,20 @@ async def stream_agent_execution(
         )
 
     except asyncio.CancelledError:
-        agent_task.cancel()
         yield _sse_event("error", {"detail": "Stream cancelled"})
         raise
     except Exception as exc:
         logger.exception("Streaming error")
         yield _sse_event("error", {"detail": str(exc)})
     finally:
+        bridge.cancel_pending()  # unblock a waiting ask_user on disconnect
+        CLARIFY_BRIDGES.discard(bridge)
         yield _sse_event("done", {})
+
+
+def resolve_clarification(clarification_id: str, value: str) -> bool:
+    """Deliver a clarify answer to whichever active stream awaits it."""
+    for bridge in list(CLARIFY_BRIDGES):
+        if bridge.submit_answer(clarification_id, value):
+            return True
+    return False

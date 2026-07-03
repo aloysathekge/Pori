@@ -36,9 +36,10 @@ Surfaces (`apps/web`, `apps/desktop`) reach it only over REST + SSE.
   replacing the step-polling `status/step/message`. Contract now matches
   `@aloy/shared`. A final `message` frame is kept for DB persistence. (Delegation
   already surfaces as `delegate_task` tool events.)
-- [ ] **Stage 3.3b — clarify buttons** — wire a `ClarifyBridge` per stream +
-  emit `clarification_request` frames + a resolve endpoint (harvest `pori/api`'s
-  bridge + worker-thread execution model).
+- [x] **Stage 3.3b — clarify buttons** — `streaming.py` now runs the agent in a
+  **worker thread** with a **`ClarifyBridge`** (harvested from `pori/api`), emits
+  `clarification_request` frames, and `POST /v1/conversations/clarify/{id}`
+  (`resolve_clarification`) resumes the paused run. Frontend renders the buttons.
 - [ ] `pori/api` → trivial reference server once the frontend consumes this.
 - [ ] Reconcile the two `config.yaml` / duplicate settings with the kernel.
 

@@ -12,7 +12,11 @@ import {
   createConversation,
   deleteConversation,
 } from '@/api/conversations';
-import { streamMessage, type SSECallbacks } from '@/api/sse';
+import {
+  streamMessage,
+  submitClarification,
+  type SSECallbacks,
+} from '@/api/sse';
 import type {
   ConversationResponse,
   MessageResponse,
@@ -38,6 +42,11 @@ export function ChatPage() {
     { step: number; max_steps: number } | undefined
   >(undefined);
   const [streamText, setStreamText] = useState('');
+  const [clarify, setClarify] = useState<{
+    id: string;
+    question: string;
+    options: string[];
+  } | null>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -123,6 +132,7 @@ export function ChatPage() {
     setStreamTools([]);
     setStreamStep(undefined);
     setStreamText('');
+    setClarify(null);
 
     const userMsg: MessageResponse = {
       id: `temp-${Date.now()}`,
@@ -157,6 +167,8 @@ export function ChatPage() {
           }
           return next;
         }),
+      onClarification: (req) =>
+        setClarify({ id: req.id, question: req.question, options: req.options }),
       onMessage: (data: SSEMessageEvent) => {
         const assistantMsg: MessageResponse = {
           id: `msg-${Date.now()}`,
@@ -195,6 +207,7 @@ export function ChatPage() {
         setStreamTools([]);
         setStreamStep(undefined);
         setStreamText('');
+        setClarify(null);
         loadConversations();
       },
     };
@@ -204,6 +217,17 @@ export function ChatPage() {
     } catch {
       setStreaming(false);
       setSending(false);
+    }
+  }
+
+  async function answerClarify(value: string) {
+    if (!clarify) return;
+    const id = clarify.id;
+    setClarify(null);
+    try {
+      await submitClarification(id, value);
+    } catch {
+      // the error surfaces via the stream
     }
   }
 
@@ -276,6 +300,25 @@ export function ChatPage() {
                       tools={streamTools}
                       step={streamStep}
                     />
+                  )}
+                  {clarify && (
+                    <div className="mx-auto max-w-3xl rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+                      <p className="mb-3 text-sm text-zinc-200">
+                        {clarify.question}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {clarify.options.map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => answerClarify(opt)}
+                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-indigo-500 hover:text-indigo-300"
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                   <div ref={messagesEndRef} />
                 </div>
