@@ -62,6 +62,19 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
 
 ---
 
+## 3a. Surface strategy — copy Hermes, then make it Aloy
+
+Hermes's web, desktop, shared-transport, and gateway are **MIT-licensed**, so for the **surfaces** we **copy the actual code, then make it ours** — not a clean-room rewrite. Every surface starts as a Hermes copy:
+
+1. **Copy** the Hermes shell (`web/`, `apps/desktop`, `apps/shared`, gateway) into Aloy's `apps/` / `products/aloy/`.
+2. **Retarget the transport** — strip the PTY / JSON-RPC bridge to `hermes --tui` (Pori has no TUI); point everything at Pori's **REST + SSE / `PoriEvent`** via `apps/shared`.
+3. **Rebrand fully** — name (**Aloy**), logo + assets, color palette + theme tokens, typography, all copy/strings; remove every Hermes brand mark.
+4. **License hygiene** — retain the MIT notice + attribution on copied files; log each copy in `references/HARVEST.md` (source → license → destination → what changed).
+
+**⚠ Boundary (do not blur):** copy-then-rebrand is for **surfaces** (MIT UI shells). It does **not** override two standing rules — the **kernel (`pori`) stays pattern-harvest** ("never paste"; this is what keeps it from rotting into a god-file), and **Claude Code-derived ideas stay clean-room** (non-permissive — design/behavior only). Copy freely from *Hermes UI*; adapt *patterns* for the kernel.
+
+---
+
 ## 4. API / backend — the keystone
 
 **Home:** `products/aloy/backend/` — evolves from the repo's `pori/api` (and the external `pori_cloud` sibling; **⚠ OPEN §11.1** to reconcile). It is the *only* thing every surface depends on.
@@ -111,7 +124,7 @@ GET    /v1/org/{org}/policy   /members  ...    # org admin (later)
 A small **TypeScript** package both the webapp and the desktop app import — the single client for the backend so surfaces never duplicate protocol logic.
 
 - **Owns:** REST client, **SSE `PoriEvent` decoder** (text / thinking / tool-call / delegation-progress / `clarification_request`), the **clarify-button** round-trip, auth/token handling, and shared TS types generated from the backend schema.
-- **Harvest:** Hermes `apps/shared` (a TS transport pkg) — **strip the PTY/JSON-RPC bridge**, retarget to Pori REST + SSE.
+- **Harvest:** **copy** Hermes `apps/shared` (a TS transport pkg) → **strip the PTY/JSON-RPC bridge** → retarget to Pori REST + SSE (see §3a).
 - **Why:** one protocol implementation, two shells. Changes to the event contract land in one place.
 
 ---
@@ -135,7 +148,7 @@ A small **TypeScript** package both the webapp and the desktop app import — th
 - Org/team switcher; **admin** (members, roles, policy); **audit & cost** dashboards (from receipts); shared org knowledge editor.
 
 ### 6.4 Harvest
-Hermes web: keep the SPA shell + chat components + streaming UX; **strip the PTY bridge**; point the transport at `apps/shared`.
+**Copy** Hermes `web/` (React 19 + Vite + Tailwind SPA) → keep the shell + chat components + streaming UX → **strip the PTY bridge** → point the transport at `apps/shared` → **rebrand** (Aloy name, color/theme tokens, typography, logo/assets, copy). Per §3a.
 
 ---
 
@@ -144,7 +157,7 @@ Hermes web: keep the SPA shell + chat components + streaming UX; **strip the PTY
 **Purpose:** the same webapp in a native shell, plus local system reach a browser can't offer.
 
 ### 7.1 Stack
-**Electron** wrapping the `apps/web` build, sharing `apps/shared`. (Harvest Hermes `apps/desktop`.)
+**Electron** wrapping the `apps/web` build, sharing `apps/shared`. **Copy** Hermes `apps/desktop` → strip the PTY bridge → retarget to REST + SSE → **rebrand** (app name, icon, window chrome, tray assets). Per §3a.
 
 ### 7.2 Why desktop (what it adds over the webapp)
 - **Local filesystem / workspace** access for the agent (real local files, not uploads).
@@ -201,7 +214,7 @@ Website can be built anytime (it's decoupled); it's sequenced late only because 
 
 **Purpose:** the public front door — product story, positioning, pricing, docs links, **signup/waitlist** → hands off to the webapp.
 
-- **Stack:** a static marketing site — recommend **Astro** (or Next.js static) for content + fast loads; can reuse the external `pori_website` sibling if it exists (**⚠ OPEN §11.1**).
+- **Stack:** if Hermes ships a marketing/landing site, **copy + rebrand** it (per §3a); otherwise a static site — recommend **Astro** (or reuse the external `pori_website` sibling, **⚠ OPEN §11.1**). Either way, rebrand fully (name/colors/theme/copy).
 - **Scope:** landing (the "personal + org OS agent" story), features, pricing, docs/changelog links, auth entry (sign in / sign up → webapp), waitlist for org.
 - **Decoupled:** talks to the backend only for signup/waitlist; everything else is static. Not on the critical path to a working product.
 
