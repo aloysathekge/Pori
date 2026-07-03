@@ -598,6 +598,13 @@ class DelegateTaskParams(BaseModel):
         description="Subtasks to delegate. One runs alone; several run CONCURRENTLY "
         "(a parallel batch) — only for INDEPENDENT subtasks.",
     )
+    background: bool = Field(
+        False,
+        description="Run in the BACKGROUND without blocking: dispatch the task(s) and "
+        "get handles back immediately; results arrive later as a new turn. Use for "
+        "long-running work you don't need to wait on. Ignores 'role' (children are "
+        "leaves).",
+    )
 
 
 @Registry.tool(
@@ -613,16 +620,8 @@ class DelegateTaskParams(BaseModel):
     ),
 )
 def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
-    """Delegate to isolated sub-agents (single or a concurrent batch), Hermes-style."""
-    runner = (context or {}).get("delegate_runner")
-    if not callable(runner):
-        return {
-            "success": False,
-            "error": (
-                "Delegation is not available in this context "
-                "(e.g. you are a leaf sub-agent, which cannot delegate further)."
-            ),
-        }
+    """Delegate to isolated sub-agents (single, a concurrent batch, or background)."""
+    ctx = context or {}
     if not params.tasks:
         return {"success": False, "error": "Provide at least one task."}
     if len(params.tasks) > MAX_CONCURRENT_CHILDREN:
@@ -631,6 +630,33 @@ def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
             "error": (
                 f"Too many tasks ({len(params.tasks)}); max is "
                 f"{MAX_CONCURRENT_CHILDREN}. Split into batches."
+            ),
+        }
+
+    if params.background:
+        dispatch = ctx.get("background_delegate")
+        if not callable(dispatch):
+            return {
+                "success": False,
+                "error": "Background delegation is not available in this context.",
+            }
+        dispatched = dispatch(
+            [{"goal": item.goal, "context": item.context} for item in params.tasks]
+        )
+        return {
+            "success": True,
+            "background": True,
+            "dispatched": dispatched,
+            "note": "Running in the background; results arrive as a new turn when each finishes.",
+        }
+
+    runner = ctx.get("delegate_runner")
+    if not callable(runner):
+        return {
+            "success": False,
+            "error": (
+                "Delegation is not available in this context "
+                "(e.g. you are a leaf sub-agent, which cannot delegate further)."
             ),
         }
     try:
