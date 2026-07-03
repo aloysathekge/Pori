@@ -1,0 +1,26 @@
+from fastapi import APIRouter
+
+from .agent_configs import router as agent_configs_router
+from .conversations import router as conversations_router
+from .evolution import router as evolution_router
+from .memory import router as memory_router
+from .organizations import router as organizations_router
+from .runs import router as runs_router
+from .skills import router as skills_router
+from .teams import router as teams_router
+from .traces import router as traces_router
+from .usage import router as usage_router
+from .users import router as users_router
+
+router = APIRouter()
+router.include_router(runs_router)
+router.include_router(organizations_router)
+router.include_router(conversations_router)
+router.include_router(agent_configs_router)
+router.include_router(teams_router)
+router.include_router(skills_router)
+router.include_router(evolution_router)
+router.include_router(usage_router)
+router.include_router(users_router)
+router.include_router(memory_router)
+router.include_router(traces_router)
