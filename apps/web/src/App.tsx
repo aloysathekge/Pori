@@ -1,17 +1,96 @@
-import { Sparkles } from "lucide-react";
-import { ChatView } from "./components/ChatView";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { LoginPage } from '@/pages/LoginPage';
+import { SignupPage } from '@/pages/SignupPage';
+import { ChatPage } from '@/pages/ChatPage';
+import { AgentConfigsPage } from '@/pages/AgentConfigsPage';
+import { TeamsPage } from '@/pages/TeamsPage';
+import { MemoryPage } from '@/pages/MemoryPage';
+import { UsagePage } from '@/pages/UsagePage';
+import { TracesPage } from '@/pages/TracesPage';
+import { SettingsPage } from '@/pages/SettingsPage';
+import { Spinner } from '@/components/ui/Spinner';
+import type { ReactNode } from 'react';
 
-export function App() {
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950">
+        <Spinner className="h-8 w-8" />
+      </div>
+    );
+  }
+
+  if (!session) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function PublicRoute({ children }: { children: ReactNode }) {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950">
+        <Spinner className="h-8 w-8" />
+      </div>
+    );
+  }
+
+  if (session) return <Navigate to="/chat" replace />;
+  return <>{children}</>;
+}
+
+function AppRoutes() {
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b border-aloy-border px-4 py-3">
-        <Sparkles className="h-5 w-5 text-aloy-accent" />
-        <span className="font-semibold tracking-tight">Aloy</span>
-        <span className="ml-1 text-sm text-aloy-muted">personal &amp; org OS agent</span>
-      </header>
-      <main className="min-h-0 flex-1">
-        <ChatView />
-      </main>
-    </div>
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          <PublicRoute>
+            <SignupPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/chat" replace />} />
+        <Route path="chat" element={<ChatPage />} />
+        <Route path="chat/:conversationId" element={<ChatPage />} />
+        <Route path="agents" element={<AgentConfigsPage />} />
+        <Route path="teams" element={<TeamsPage />} />
+        <Route path="memory" element={<MemoryPage />} />
+        <Route path="usage" element={<UsagePage />} />
+        <Route path="traces" element={<TracesPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/chat" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
