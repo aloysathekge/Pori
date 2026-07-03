@@ -153,6 +153,11 @@ uv-workspace split (per-package pyprojects) deferred.
   archived 90d, 7d grace, agent-created-only, archive = move to `.archive/`,
   never delete), triggered inactivity-style at CLI startup; selected skills
   recorded as used. Pori now authors, grows, and maintains its own skills. 470 passed.
+- GW-4 SSE — `POST /v1/tasks/stream` streams normalized `PoriEvent`s as
+  Server-Sent Events over an `asyncio.Queue` (`on_event` →
+  `call_soon_threadsafe`), keepalive on idle, closes on `RUN_END`; client
+  disconnect cancels the run. `tests/test_api_sse.py`. This is also the transport
+  the clarify `ClarifyBridge` (#58) needs. 487 passed.
 - API repair — `pori/api` now imports, starts up, and serves. Bounded `api`
   extra (fastapi/uvicorn/httpx); `middleware.py` uses the modern
   `RequestResponseEndpoint`. `tests/test_api_smoke.py` (TestClient /v1/health +
