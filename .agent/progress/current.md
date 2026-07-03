@@ -153,6 +153,14 @@ uv-workspace split (per-package pyprojects) deferred.
   archived 90d, 7d grace, agent-created-only, archive = move to `.archive/`,
   never delete), triggered inactivity-style at CLI startup; selected skills
   recorded as used. Pori now authors, grows, and maintains its own skills. 470 passed.
+- Sub-agents / `task` tool (harvested from Claude Code + deepagents) — the running
+  agent delegates a subtask to an isolated, ephemeral sub-agent with its own memory
+  + restricted tools; `Orchestrator.run_subagent` (generalizes SK-1 background-review
+  spawn), `pori/subagents.py` (`AgentCatalog` loads `.pori/agents/*.md` + built-in
+  `general-purpose`; thread-based runner), `task` tool refuses nesting. Context-heavy
+  work now happens in a throwaway context — raises Pori's ceiling to project-scale
+  tasks. Follow-ups: model-per-agent, dynamic type listing, parallel delegation.
+  507 passed.
 - Clarify buttons (full loop) — a streamed run that calls `ask_user` with options
   emits a `clarification_request` SSE frame and pauses; `POST /v1/clarify/{id}`
   resumes it with the tapped answer. `clarify.ask_sync` (threading.Event) blocks
