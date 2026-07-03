@@ -55,3 +55,4 @@ Donor OSS repos live **outside this git repo**, at `../references/` (i.e. `Pori/
 | Date | Pattern | Source (file if known) | License | Landed in | Why |
 |---|---|---|---|---|---|
 | _template_ | _e.g. hash-chained receipts_ | _OpenHands event stream / Hermes verification_evidence.py_ | _MIT_ | _packages/pori/receipts_ | _tamper-evident, replayable audit substrate_ |
+| 2026-07-03 | Shared TS transport package (typed client + package/tsconfig layout) | Hermes `apps/shared` (`json-rpc-gateway.ts`, `websocket-url.ts`, `package.json`, `tsconfig.json`) | MIT | `apps/shared` (`@aloy/shared`) | one REST+SSE client for web+desktop — **PTY/JSON-RPC-over-WebSocket bridge stripped**, retargeted to Pori's `PoriEvent` SSE contract, rebranded `@hermes/shared`→`@aloy/shared` (surface copy-then-rebrand, per docs/Aloy.md §3a) |
