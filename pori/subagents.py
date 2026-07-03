@@ -156,11 +156,11 @@ def build_child_system_prompt(
 
 def _resolve_specialist(
     catalog: Optional["AgentCatalog"], agent_name: str
-) -> Tuple[Optional[str], Optional[List[str]]]:
-    """Return (specialist_prompt, tool_names) for a named agent, or raise ValueError
-    listing the available specialists. Empty name -> (None, None) = goal-driven."""
+) -> Tuple[Optional[str], Optional[List[str]], Optional[str]]:
+    """Return (specialist_prompt, tool_names, model_ref) for a named agent, or raise
+    ValueError listing available specialists. Empty name -> goal-driven (all None)."""
     if not agent_name:
-        return None, None
+        return None, None, None
     definition = catalog.resolve(agent_name) if catalog else None
     if definition is None:
         available = (
@@ -169,7 +169,11 @@ def _resolve_specialist(
             else "(none defined)"
         )
         raise ValueError(f"unknown agent {agent_name!r}; available: {available}")
-    return definition.prompt, (list(definition.tools) if definition.tools else None)
+    return (
+        definition.prompt,
+        (list(definition.tools) if definition.tools else None),
+        definition.model,
+    )
 
 
 def _auto_deny_handler() -> Any:
@@ -216,6 +220,7 @@ def make_delegate_runner(
     orchestrator: Any,
     *,
     catalog: Optional[AgentCatalog] = None,
+    llm_resolver: Optional[Callable[[Optional[str]], Any]] = None,
     hitl_config: Any = None,
     subagent_auto_approve: bool = False,
     max_steps: int = 15,
@@ -238,9 +243,12 @@ def make_delegate_runner(
         role = str(item.get("role") or LEAF).strip().lower()
         agent_name = str(item.get("agent") or "").strip()
         try:
-            specialist_prompt, tool_names = _resolve_specialist(catalog, agent_name)
+            specialist_prompt, tool_names, model_ref = _resolve_specialist(
+                catalog, agent_name
+            )
         except ValueError as exc:
             return {"success": False, "agent": agent_name, "error": str(exc)}
+        child_llm = llm_resolver(model_ref) if (llm_resolver and model_ref) else None
 
         can_delegate = role == ORCHESTRATOR and child_depth < max_depth
         child_context: Optional[Dict[str, Any]] = None
@@ -249,6 +257,7 @@ def make_delegate_runner(
                 "delegate_runner": make_delegate_runner(
                     orchestrator,
                     catalog=catalog,
+                    llm_resolver=llm_resolver,
                     hitl_config=hitl_config,
                     subagent_auto_approve=subagent_auto_approve,
                     max_steps=max_steps,
@@ -273,6 +282,7 @@ def make_delegate_runner(
                 hitl_config=None if subagent_auto_approve else hitl_config,
                 hitl_handler=None if subagent_auto_approve else _auto_deny_handler(),
                 child_tool_context=child_context,
+                llm=child_llm,
             )
             return {
                 "success": True,
@@ -302,6 +312,7 @@ def make_background_delegate(
     registry: Any,
     *,
     catalog: Optional[AgentCatalog] = None,
+    llm_resolver: Optional[Callable[[Optional[str]], Any]] = None,
     hitl_config: Any = None,
     subagent_auto_approve: bool = False,
     max_steps: int = 15,
@@ -322,10 +333,15 @@ def make_background_delegate(
                 continue
             agent_name = str(item.get("agent") or "").strip()
             try:
-                specialist_prompt, tool_names = _resolve_specialist(catalog, agent_name)
+                specialist_prompt, tool_names, model_ref = _resolve_specialist(
+                    catalog, agent_name
+                )
             except ValueError as exc:
                 out.append({"success": False, "agent": agent_name, "error": str(exc)})
                 continue
+            child_llm = (
+                llm_resolver(model_ref) if (llm_resolver and model_ref) else None
+            )
             prompt = build_child_system_prompt(
                 goal,
                 item.get("context"),
@@ -337,6 +353,7 @@ def make_background_delegate(
                 goal: str = goal,
                 prompt: str = prompt,
                 tool_names: Optional[List[str]] = tool_names,
+                child_llm: Any = child_llm,
             ) -> Any:
                 return orchestrator.run_subagent(
                     goal,
@@ -348,6 +365,7 @@ def make_background_delegate(
                     hitl_handler=(
                         None if subagent_auto_approve else _auto_deny_handler()
                     ),
+                    llm=child_llm,
                 )
 
             out.append(

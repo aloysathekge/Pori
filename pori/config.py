@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Union
 
 import yaml
 from dotenv import load_dotenv
@@ -50,6 +50,18 @@ class LLMConfig(BaseModel):
 
     # Provider-specific settings
     extra_params: Dict[str, Any] = Field(default_factory=dict)
+
+    tiers: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional map of provider-agnostic tier names to concrete model ids for "
+            "THIS provider, e.g. {fast: claude-haiku-4-5, powerful: claude-opus-4-8} "
+            "or {fast: gpt-5-mini}. A sub-agent whose definition sets `model: <tier>` "
+            "runs on the mapped model; an unmapped tier or none set inherits the "
+            "default model. Provider-agnostic — works for Anthropic/OpenAI/Google and "
+            "OSS (OpenRouter/Fireworks/local)."
+        ),
+    )
 
     @field_validator("provider")
     @classmethod
@@ -408,6 +420,48 @@ def create_llm(config: LLMConfig):
         return ChatFireworks(api_key=api_key, **common_params)
 
     raise AssertionError(f"No adapter dispatch for validated provider '{provider}'")
+
+
+KNOWN_TIERS = frozenset({"fast", "balanced", "powerful"})
+
+
+def make_llm_resolver(
+    config: LLMConfig, base_llm: Any
+) -> Callable[[Optional[str]], Any]:
+    """Resolve a sub-agent's model reference to an LLM instance (provider-agnostic).
+
+    ``model_ref`` may be a **tier** name (mapped via ``config.tiers``) or a concrete
+    model id. It resolves to a model built with the SAME provider/settings/keys but
+    that model. An empty ref, a known tier with no mapping, or the default model
+    itself all return ``base_llm`` (inherit) — so single-model / OSS deployments
+    that set no tiers just keep running on their one model. Variants are cached.
+    """
+    cache: Dict[str, Any] = {}
+
+    def resolve(model_ref: Optional[str]) -> Any:
+        ref = (model_ref or "").strip()
+        if not ref:
+            return base_llm
+        if ref in config.tiers:
+            model_name = config.tiers[ref]
+        elif ref in KNOWN_TIERS:
+            return (
+                base_llm  # a tier with no mapping -> inherit, don't build a bogus model
+            )
+        else:
+            model_name = ref  # concrete model id (escape hatch)
+        if model_name == config.model:
+            return base_llm
+        if model_name not in cache:
+            try:
+                cache[model_name] = create_llm(
+                    config.model_copy(update={"model": model_name})
+                )
+            except Exception:  # never fail delegation on a model-resolution issue
+                cache[model_name] = base_llm
+        return cache[model_name]
+
+    return resolve
 
 
 def get_configured_llm(config_path: Optional[Union[str, Path]] = None):

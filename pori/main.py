@@ -18,7 +18,7 @@ from .agent import Agent, AgentSettings
 from .background_delegation import BackgroundDelegationRegistry
 from .cli_commands import COMMAND_REGISTRY, command_help_lines
 from .cli_prompt import read_user_input
-from .config import Config, LLMConfig, get_configured_llm
+from .config import Config, LLMConfig, get_configured_llm, make_llm_resolver
 from .curator import record_skill_use, run_curation, should_run_now
 from .evolution import (
     EvolutionEvalResult,
@@ -1132,12 +1132,20 @@ async def main():
     # isolated child agents (goal-driven, role-restricted, HITL auto-denied for
     # children since they have no user to prompt).
     agent_catalog = AgentCatalog.load(Path.cwd() / ".pori" / "agents")
+    llm_resolver = make_llm_resolver(config.llm, llm)
     delegate_runner = make_delegate_runner(
-        orchestrator, catalog=agent_catalog, hitl_config=hitl_config
+        orchestrator,
+        catalog=agent_catalog,
+        llm_resolver=llm_resolver,
+        hitl_config=hitl_config,
     )
     bg_registry = BackgroundDelegationRegistry()
     background_delegate = make_background_delegate(
-        orchestrator, bg_registry, catalog=agent_catalog, hitl_config=hitl_config
+        orchestrator,
+        bg_registry,
+        catalog=agent_catalog,
+        llm_resolver=llm_resolver,
+        hitl_config=hitl_config,
     )
 
     # Team: check if configured
