@@ -5,7 +5,7 @@ Core tools required for agent operation.
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from pori.clarify import resolve_clarify_handler
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
 from pori.skill_provenance import is_agent_origin, mark_agent_created
+from pori.subagents import MAX_CONCURRENT_CHILDREN
 from pori.threat_patterns import first_threat_message
 
 from ..registry import tool_registry
@@ -577,50 +578,71 @@ def write_skill_tool(params: WriteSkillParams, context: Dict[str, Any]):
     }
 
 
-class TaskParams(BaseModel):
-    subagent_type: str = Field(
-        ...,
-        description=(
-            "Which sub-agent to delegate to. Use 'general-purpose' for open-ended "
-            "research/exploration/multi-step work if no more specific type applies."
-        ),
+class DelegateTaskItem(BaseModel):
+    goal: str = Field(
+        ..., description="A detailed, self-contained description of the subtask."
     )
-    task: str = Field(
+    context: Optional[str] = Field(
+        None, description="Optional background/context the sub-agent needs."
+    )
+    role: Literal["leaf", "orchestrator"] = Field(
+        "leaf",
+        description="'leaf' (default) cannot delegate further; 'orchestrator' may "
+        "spawn its own sub-agents for reasoning-heavy independent subtasks.",
+    )
+
+
+class DelegateTaskParams(BaseModel):
+    tasks: List[DelegateTaskItem] = Field(
         ...,
-        description=(
-            "A detailed, self-contained brief. The sub-agent is stateless and returns "
-            "one result — tell it exactly what to do and precisely what to return."
-        ),
+        description="Subtasks to delegate. One runs alone; several run CONCURRENTLY "
+        "(a parallel batch) — only for INDEPENDENT subtasks.",
     )
 
 
 @Registry.tool(
-    name="task",
-    param_model=TaskParams,
+    name="delegate_task",
+    param_model=DelegateTaskParams,
     description=(
-        "Delegate a subtask to an isolated sub-agent that has its OWN context window, "
-        "runs autonomously, and returns a single result. Use it for context-heavy or "
-        "parallelizable work (research, codebase exploration, review) so your own "
-        "context stays clean. The sub-agent is STATELESS — give it a complete brief; "
-        "you only see its final answer."
+        "Delegate one or more subtasks to focused sub-agents, each with its OWN "
+        "context window and a restricted toolset built from the goal you give. "
+        "Provide SEVERAL tasks to run them concurrently (a parallel batch). Use for "
+        "context-heavy or parallelizable work (research, exploration, review) — you "
+        "get back only their summaries, so your context stays clean. Give each a "
+        "complete, self-contained goal."
     ),
 )
-def task_tool(params: TaskParams, context: Dict[str, Any]):
-    """Delegate to an isolated sub-agent (SK-1 spawn machinery, run in foreground)."""
-    runner = (context or {}).get("subagent_runner")
+def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
+    """Delegate to isolated sub-agents (single or a concurrent batch), Hermes-style."""
+    runner = (context or {}).get("delegate_runner")
     if not callable(runner):
         return {
             "success": False,
             "error": (
-                "Sub-agents are not available in this context "
-                "(e.g. you are already a sub-agent — nesting is not allowed)."
+                "Delegation is not available in this context "
+                "(e.g. you are a leaf sub-agent, which cannot delegate further)."
+            ),
+        }
+    if not params.tasks:
+        return {"success": False, "error": "Provide at least one task."}
+    if len(params.tasks) > MAX_CONCURRENT_CHILDREN:
+        return {
+            "success": False,
+            "error": (
+                f"Too many tasks ({len(params.tasks)}); max is "
+                f"{MAX_CONCURRENT_CHILDREN}. Split into batches."
             ),
         }
     try:
-        result = runner(params.subagent_type, params.task)
+        results = runner(
+            [
+                {"goal": item.goal, "context": item.context, "role": item.role}
+                for item in params.tasks
+            ]
+        )
     except Exception as exc:
         return {"success": False, "error": str(exc)}
-    return {"success": True, "subagent_type": params.subagent_type, "result": result}
+    return {"success": True, "count": len(results), "results": results}
 
 
 def register_core_tools(registry=None):
