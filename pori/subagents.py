@@ -162,3 +162,51 @@ def make_delegate_runner(
         return _run_coro_in_thread(run_all)
 
     return run
+
+
+def make_background_delegate(
+    orchestrator: Any,
+    registry: Any,
+    *,
+    hitl_config: Any = None,
+    subagent_auto_approve: bool = False,
+    max_steps: int = 15,
+) -> Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    """Build the ``background_delegate`` callable: dispatch each task to run in the
+    background (as a leaf child) via ``registry``, returning handles immediately so
+    the parent keeps working. Completed children surface later, drained by the CLI.
+    """
+
+    def dispatch(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for item in items:
+            goal = str(item.get("goal") or "").strip()
+            if not goal:
+                out.append(
+                    {"success": False, "error": "each task needs a non-empty goal"}
+                )
+                continue
+            prompt = build_child_system_prompt(goal, item.get("context"), role=LEAF)
+
+            def factory(goal: str = goal, prompt: str = prompt) -> Any:
+                return orchestrator.run_subagent(
+                    goal,
+                    system_prompt=prompt,
+                    max_steps=max_steps,
+                    allow_delegation=False,
+                    hitl_config=None if subagent_auto_approve else hitl_config,
+                    hitl_handler=(
+                        None if subagent_auto_approve else _auto_deny_handler()
+                    ),
+                )
+
+            out.append(
+                {
+                    "success": True,
+                    "handle": registry.dispatch(goal, factory),
+                    "goal": goal,
+                }
+            )
+        return out
+
+    return dispatch
