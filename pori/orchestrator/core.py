@@ -275,6 +275,7 @@ class Orchestrator:
         hitl_config: Any = None,
         hitl_handler: Optional[HITLHandler] = None,
         child_tool_context: Optional[Dict[str, Any]] = None,
+        llm: Optional[Any] = None,
     ) -> str:
         """Run an isolated sub-agent to a single result (the delegation primitive).
 
@@ -302,7 +303,8 @@ class Orchestrator:
 
         agent = Agent(
             task=task,
-            llm=self.llm,
+            llm=llm
+            or self.llm,  # model-per-agent override (tier-resolved) else inherit
             tools_registry=registry,
             settings=AgentSettings(max_steps=max_steps, background_review=False),
             memory=AgentMemory(),  # isolated context — the point of a sub-agent

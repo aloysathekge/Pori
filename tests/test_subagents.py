@@ -242,3 +242,73 @@ def test_runner_without_agent_stays_goal_driven():
 
     result = make_delegate_runner(_Stub())([{"goal": "x"}])  # no catalog, no agent
     assert result[0]["result"] == "tools=None"
+
+
+# --- model-per-agent (provider-agnostic tiers) ------------------------------
+def test_llm_resolver_tiers_concrete_and_inherit(monkeypatch):
+    import pori.config as cfg
+
+    monkeypatch.setattr(cfg, "create_llm", lambda config: f"llm:{config.model}")
+    config = cfg.LLMConfig(
+        provider="anthropic",
+        model="claude-sonnet-5",
+        tiers={"fast": "claude-haiku-4-5"},
+    )
+    base = object()
+    resolve = cfg.make_llm_resolver(config, base)
+
+    assert resolve(None) is base  # no ref -> inherit
+    assert resolve("") is base
+    assert (
+        resolve("balanced") is base
+    )  # known tier, unmapped -> inherit (no bogus build)
+    assert resolve("claude-sonnet-5") is base  # same as default -> base
+    assert resolve("fast") == "llm:claude-haiku-4-5"  # tier -> mapped model
+    assert resolve("some-concrete-id") == "llm:some-concrete-id"  # escape hatch
+
+
+def test_llm_resolver_no_tiers_always_inherits(monkeypatch):
+    import pori.config as cfg
+
+    monkeypatch.setattr(cfg, "create_llm", lambda config: f"llm:{config.model}")
+    config = cfg.LLMConfig(
+        provider="openai", model="local-oss-model"
+    )  # single OSS model
+    base = object()
+    resolve = cfg.make_llm_resolver(config, base)
+    assert (
+        resolve("fast") is base and resolve("powerful") is base
+    )  # nothing to route to
+
+
+def test_runner_specialist_model_resolves_and_passes_llm():
+    catalog = AgentCatalog(
+        {"fast-sum": AgentDefinition("fast-sum", "d", "You summarize.", model="fast")}
+    )
+    seen = {}
+
+    class _Stub:
+        async def run_subagent(self, goal, *, llm=None, **kw):
+            seen["llm"] = llm
+            return "ok"
+
+    make_delegate_runner(
+        _Stub(), catalog=catalog, llm_resolver=lambda ref: f"llm-for:{ref}"
+    )([{"goal": "sum X", "agent": "fast-sum"}])
+    assert seen["llm"] == "llm-for:fast"
+
+
+def test_runner_specialist_without_model_inherits():
+    catalog = AgentCatalog({"rev": AgentDefinition("rev", "d", "p")})  # no model
+
+    seen = {}
+
+    class _Stub:
+        async def run_subagent(self, goal, *, llm=None, **kw):
+            seen["llm"] = llm
+            return "ok"
+
+    make_delegate_runner(
+        _Stub(), catalog=catalog, llm_resolver=lambda ref: "SHOULD-NOT-BE-USED"
+    )([{"goal": "x", "agent": "rev"}])
+    assert seen["llm"] is None  # no model on the def -> inherit
