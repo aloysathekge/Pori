@@ -1523,6 +1523,7 @@ async def main():
                     )
                     pending_bg = []
                 result = await orchestrator.execute_task(
+                    task=task,
                     agent_settings=AgentSettings(
                         max_steps=config.agent.max_steps,
                         planning_mode=config.agent.planning_mode,
