@@ -27,9 +27,10 @@ Surfaces (`apps/web`, `apps/desktop`) reach it only over REST + SSE.
 - [x] **Stage 3.1** — copy `pori_cloud` → here; wire the kernel path to the repo
   root (`../../..`); drop `pori_cloud`'s AI-tooling cruft; all Python
   syntax-compiles clean.
-- [ ] **Stage 3.2 — boot** — `uv sync` the backend deps, provide `.env`
-  (Supabase + `DATABASE_URL`), run Alembic migrations, boot uvicorn against a
-  local Postgres.
+- [ ] **Stage 3.2 — boot** — bring the stack up locally. Copy-paste guide in
+  [`../BOOT.md`](../BOOT.md): defaults to **SQLite** (no Postgres needed), needs
+  only a free Supabase project (auth) + an LLM key. `uv sync` → `alembic upgrade
+  head` → `uvicorn pori_cloud.api:app`. *(Written; run it to verify end to end.)*
 - [x] **Stage 3.3 — unify on `PoriEvent`** — `streaming.py` now **relays the
   kernel's live `PoriEvent` stream** (`run_start`/`step_*`/`text_delta`/
   `thinking_delta`/`tool_call_start|end`/`run_end`) via `execute_task(on_event=…)`,
