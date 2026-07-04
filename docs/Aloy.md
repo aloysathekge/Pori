@@ -41,9 +41,9 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
 ## 3. Topology
 
 ```
- website/ (marketing) ──signup──▶  apps/web (SPA)          apps/desktop (Electron)
+ products/aloy/website ──signup──▶  products/aloy/web (SPA)     products/aloy/desktop (Electron)
                                         │                          │
-                                        └──── apps/shared (typed REST + SSE client, TS) ────┘
+                                        └──── packages/pori-client (typed REST + SSE client, TS) ────┘
                                                           │
                                                           ▼   REST + SSE  (PoriEvent stream)
                                     products/aloy/backend  (FastAPI)
@@ -58,7 +58,7 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
                                             memory engine · validators · receipts · llm · tools · sandbox)
 ```
 
-**Dependency direction:** `website / apps → (REST+SSE) → products/aloy/backend → extensions → pori`. Never upward.
+**Dependency direction:** `surfaces (products/aloy/{web,desktop,website}) → (REST+SSE) → products/aloy/backend → extensions → pori`. Never upward.
 
 ---
 
@@ -66,8 +66,8 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
 
 Hermes's web, desktop, shared-transport, and gateway are **MIT-licensed**, so for the **surfaces** we **copy the actual code, then make it ours** — not a clean-room rewrite. Every surface starts as a Hermes copy:
 
-1. **Copy** the Hermes shell (`web/`, `apps/desktop`, `apps/shared`, gateway) into Aloy's `apps/` / `products/aloy/`.
-2. **Retarget the transport** — strip the PTY / JSON-RPC bridge to `hermes --tui` (Pori has no TUI); point everything at Pori's **REST + SSE / `PoriEvent`** via `apps/shared`.
+1. **Copy** the Hermes shell (`web/`, `apps/desktop`, `apps/shared`, gateway) into `packages/` (the shared client) and `products/aloy/` (the surfaces).
+2. **Retarget the transport** — strip the PTY / JSON-RPC bridge to `hermes --tui` (Pori has no TUI); point everything at Pori's **REST + SSE / `PoriEvent`** via `packages/pori-client`.
 3. **Rebrand fully** — name (**Aloy**), logo + assets, color palette + theme tokens, typography, all copy/strings; remove every Hermes brand mark.
 4. **License hygiene** — retain the MIT notice + attribution on copied files; log each copy in `references/HARVEST.md` (source → license → destination → what changed).
 
@@ -119,22 +119,22 @@ GET    /v1/org/{org}/policy   /members  ...    # org admin (later)
 
 ---
 
-## 5. `apps/shared` — the typed transport package
+## 5. `packages/pori-client` — the typed transport package
 
 A small **TypeScript** package both the webapp and the desktop app import — the single client for the backend so surfaces never duplicate protocol logic.
 
 - **Owns:** REST client, **SSE `PoriEvent` decoder** (text / thinking / tool-call / delegation-progress / `clarification_request`), the **clarify-button** round-trip, auth/token handling, and shared TS types generated from the backend schema.
-- **Harvest:** **copy** Hermes `apps/shared` (a TS transport pkg) → **strip the PTY/JSON-RPC bridge** → retarget to Pori REST + SSE (see §3a).
+- **Harvest:** **copy** Hermes `packages/pori-client` (a TS transport pkg) → **strip the PTY/JSON-RPC bridge** → retarget to Pori REST + SSE (see §3a).
 - **Why:** one protocol implementation, two shells. Changes to the event contract land in one place.
 
 ---
 
-## 6. Webapp (`apps/web`)
+## 6. Webapp (`products/aloy/web`)
 
 **Purpose:** the primary daily-driver UI in the browser.
 
 ### 6.1 Stack (matches the harvest source)
-**React 19 + Vite + TypeScript + Tailwind 4 + react-router + lucide-react** — the Hermes `web/` shell, retargeted. Consumes `apps/shared`.
+**React 19 + Vite + TypeScript + Tailwind 4 + react-router + lucide-react** — the Hermes `web/` shell, retargeted. Consumes `packages/pori-client`.
 
 ### 6.2 v1 scope (personal)
 - **Chat** with live streaming (text + separate **thinking** block), tool-call previews, and **artifact/receipt** affordances.
@@ -148,16 +148,16 @@ A small **TypeScript** package both the webapp and the desktop app import — th
 - Org/team switcher; **admin** (members, roles, policy); **audit & cost** dashboards (from receipts); shared org knowledge editor.
 
 ### 6.4 Harvest
-**Copy** Hermes `web/` (React 19 + Vite + Tailwind SPA) → keep the shell + chat components + streaming UX → **strip the PTY bridge** → point the transport at `apps/shared` → **rebrand** (Aloy name, color/theme tokens, typography, logo/assets, copy). Per §3a.
+**Copy** Hermes `web/` (React 19 + Vite + Tailwind SPA) → keep the shell + chat components + streaming UX → **strip the PTY bridge** → point the transport at `packages/pori-client` → **rebrand** (Aloy name, color/theme tokens, typography, logo/assets, copy). Per §3a.
 
 ---
 
-## 7. Desktop (`apps/desktop`, Electron)
+## 7. Desktop (`products/aloy/desktop`, Electron)
 
 **Purpose:** the same webapp in a native shell, plus local system reach a browser can't offer.
 
 ### 7.1 Stack
-**Electron** wrapping the `apps/web` build, sharing `apps/shared`. **Copy** Hermes `apps/desktop` → strip the PTY bridge → retarget to REST + SSE → **rebrand** (app name, icon, window chrome, tray assets). Per §3a.
+**Electron** wrapping the `products/aloy/web` build, sharing `packages/pori-client`. **Copy** Hermes `products/aloy/desktop` → strip the PTY bridge → retarget to REST + SSE → **rebrand** (app name, icon, window chrome, tray assets). Per §3a.
 
 ### 7.2 Why desktop (what it adds over the webapp)
 - **Local filesystem / workspace** access for the agent (real local files, not uploads).
@@ -189,7 +189,7 @@ Layered inheritance **org → team → personal**; on collision, **personal wins
 
 ## 9. Cross-cutting contracts
 
-- **Streaming = `PoriEvent` over SSE.** One event contract for every surface (text, thinking, tool_call_start/end, delegation progress, `clarification_request`). Already live in the kernel API; `apps/shared` is its only decoder.
+- **Streaming = `PoriEvent` over SSE.** One event contract for every surface (text, thinking, tool_call_start/end, delegation progress, `clarification_request`). Already live in the kernel API; `packages/pori-client` is its only decoder.
 - **Auth/identity.** `org:team:user` on every request → the isolation boundary *and* the audit/cost tag. Personal = a degenerate single-member org, so nothing is retrofitted for orgs.
 - **Receipts everywhere.** Audit log, replay, and per-tenant cost all read the same receipt chain the kernel emits — surfaces just visualize it.
 - **Delegation is first-class in the UI.** `delegate_task` (single/batch/background) surfaces as sub-threads + background toasts; specialists (`.pori/agents/`) are editable in settings.
@@ -199,8 +199,8 @@ Layered inheritance **org → team → personal**; on collision, **personal wins
 ## 10. Build order (phased, personal-first, tenancy-aware from day 1)
 
 1. **P0 — Backend foundation.** Extract/reconcile the API into `products/aloy/backend`; per-request isolation; fail-closed auth; SSE + clarify buttons end-to-end. *(Most kernel pieces exist; this is port + Postgres + reconcile.)*
-2. **P1 — `apps/shared`.** Typed REST + SSE client (harvest Hermes shared; strip PTY).
-3. **P2 — Webapp v1 (personal).** Chat + streaming + delegation view + clarify UI + memory panel + conversations, on `apps/shared`.
+2. **P1 — `packages/pori-client`.** Typed REST + SSE client (harvest Hermes shared; strip PTY).
+3. **P2 — Webapp v1 (personal).** Chat + streaming + delegation view + clarify UI + memory panel + conversations, on `packages/pori-client`.
 4. **P3 — Desktop v1 (thin).** Electron shell around the webapp + tray/notifications + local files + keychain.
 5. **P4 — Website.** Marketing/onboarding front door → signup → webapp.
 6. **P5 — Org plane.** Tenancy/RBAC/policy-validators; org admin + audit/cost dashboards; scope resolver populated for org/team.
@@ -223,17 +223,17 @@ Website can be built anytime (it's decoupled); it's sequenced late only because 
 ## 11. Open questions & risks
 
 **Open:**
-1. **`pori_cloud` / `pori_website` reconciliation.** External sibling repos (`Pori/pori_cloud`, `pori_website`, `pori_cloud_client`) vs. in-repo `products/aloy/backend`, `website/`, `apps/`. Decide: copy-in vs. submodule vs. keep external. (Backend README already flags copy-in.)
+1. **`pori_cloud` / `pori_website` reconciliation.** External sibling repos (`Pori/pori_cloud`, `pori_website`, `pori_cloud_client`) vs. in-repo `products/aloy/{backend,web,website}` + `packages/pori-client`. Decide: copy-in vs. submodule vs. keep external. (Backend README already flags copy-in.)
 2. **`pori/api` vs `products/aloy/backend`.** The small in-kernel API vs. the product backend — one must become canonical (recommend: backend is canonical; kernel keeps only a trivial reference server, if any).
 3. **Backend auth for org.** API-key + session now; OAuth/SSO (Google/Microsoft) for org — when.
 4. **Desktop v1 mode.** Thin (hosted) vs. local-first backend — recommend thin-first, local-first fast-follow (§7.3).
 5. **Website stack.** Astro vs. Next vs. reuse `pori_website`.
-6. **Monorepo packaging for TS.** pnpm/npm workspace for `apps/{web,desktop,shared}` — layout + shared build.
+6. **✓ RESOLVED — TS workspace.** Bun workspace over `packages/*` + `products/*/{web,desktop,website}`; the shared client is `@pori/client` (`packages/pori-client`), linked via `workspace:*`. Surfaces live under their product; only product-neutral libs sit in `packages/`. See [`MONOREPO.md`](../MONOREPO.md).
 7. **Hosting/deploy.** Backend (Fly/Render/K8s?), Postgres, SSE at scale (keep-alive, proxies).
 8. **Real-server SSE e2e** for the clarify-button flow (noted follow-up from the kernel API work).
 
 **Risks:**
-- **Surface/backend coupling drift** → mitigated by the REST+SSE-only rule and `apps/shared` as the single client.
+- **Surface/backend coupling drift** → mitigated by the REST+SSE-only rule and `packages/pori-client` as the single client.
 - **Kernel rot** (backend logic leaking into `pori`) → mitigated by the CI-enforced one-way dependency.
 - **Org retrofit** → mitigated by tenancy-aware-from-day-1 + the scope resolver built before it's needed.
 - **Harvest Frankenstein** (web/desktop from Hermes) → keep the shells + components, strip the PTY bridge, retarget to `PoriEvent`; log in `HARVEST.md`.
@@ -243,7 +243,7 @@ Website can be built anytime (it's decoupled); it's sequenced late only because 
 ## 12. Glossary
 
 - **Surface** — a client (webapp, desktop, website) that talks to the backend over REST + SSE only.
-- **`apps/shared`** — the one TS transport package (REST + SSE `PoriEvent` decoder + clarify bridge) both shells consume.
+- **`packages/pori-client`** — the one TS transport package (REST + SSE `PoriEvent` decoder + clarify bridge) both shells consume.
 - **Scope resolver** — backend component merging org→team→personal knowledge at prompt-build time (personal wins).
 - **Knowledge plane** — the layered-inheritance memory that is Aloy's moat.
 - **`PoriEvent`** — the kernel's typed streaming event contract carried over SSE.

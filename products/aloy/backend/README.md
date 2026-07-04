@@ -20,7 +20,7 @@ uvicorn · Docker. Auth is **Supabase JWT** (verified server-side via JWKS in
 ## Dependency rule
 
 Imports `pori` (kernel) + (later) `extensions/pori-*`; **never imported by them.**
-Surfaces (`apps/web`, `apps/desktop`) reach it only over REST + SSE.
+Surfaces (`products/aloy/web`, `products/aloy/desktop`) reach it only over REST + SSE.
 
 ## Migration status (docs/Aloy.md — "adopt pori_cloud, unify on PoriEvent")
 
@@ -35,7 +35,7 @@ Surfaces (`apps/web`, `apps/desktop`) reach it only over REST + SSE.
   kernel's live `PoriEvent` stream** (`run_start`/`step_*`/`text_delta`/
   `thinking_delta`/`tool_call_start|end`/`run_end`) via `execute_task(on_event=…)`,
   replacing the step-polling `status/step/message`. Contract now matches
-  `@aloy/shared`. A final `message` frame is kept for DB persistence. (Delegation
+  `@pori/client`. A final `message` frame is kept for DB persistence. (Delegation
   already surfaces as `delegate_task` tool events.)
 - [x] **Stage 3.3b — clarify buttons** — `streaming.py` now runs the agent in a
   **worker thread** with a **`ClarifyBridge`** (harvested from `pori/api`), emits

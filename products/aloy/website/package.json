@@ -1,0 +1,10 @@
+{
+  "name": "@aloy/website",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Aloy public marketing site — a self-contained static landing page",
+  "scripts": {
+    "dev": "bun index.html",
+    "start": "bun index.html"
+  }
+}

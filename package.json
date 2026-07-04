@@ -1,0 +1,12 @@
+{
+  "name": "pori-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Pori kernel + products built on it (Aloy, …). Python lives under pori/, extensions/, and products/*/backend; TypeScript surfaces + shared client are workspaces below.",
+  "workspaces": [
+    "packages/*",
+    "products/*/web",
+    "products/*/desktop",
+    "products/*/website"
+  ]
+}

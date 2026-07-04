@@ -170,7 +170,7 @@ Build in dependency order to minimize rework. Preserves the Evaluator loop, Core
 ## 8. Phase 5 (Milestone M7+) — Surfaces & org plane (Aloy product)
 
 - **SSE on the backend:** `TaskCreateRequest.stream` is currently a no-op (`api/models.py:11`); implement SSE by bridging the existing `PoriEvent` stream onto an async queue (keepalive, disconnect→interrupt). *(Donor: Hermes `api_server.py` pull-adapter.)*
-- **Surfaces (harvest, don't clone):** adapt Hermes `web/` (SPA) and `apps/desktop` (Electron shell + shared transport), **strip the PTY/JSON-RPC bridge**, retarget to REST + SSE.
+- **Surfaces (harvest, don't clone):** adapt Hermes `web/` (SPA) and `products/aloy/desktop` (Electron shell + shared transport), **strip the PTY/JSON-RPC bridge**, retarget to REST + SSE.
 - **Gateway:** port the *architecture* (thin adapter ABC, typed streaming, session lanes) onto Pori's events; start Slack (org) + Telegram (personal) — not the monolithic runner.
 - **Org plane:** tenancy/RBAC models, the org **policy engine** (as scoped validators), audit + cost attribution (from receipts), and an admin/control plane (seed: Hermes managed-scope).
 

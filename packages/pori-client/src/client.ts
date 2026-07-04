@@ -1,7 +1,7 @@
 /**
- * `AloyClient` — the single typed client for the Aloy backend.
+ * `PoriClient` — the single typed client for a Pori backend.
  *
- * Talks to the Pori/Aloy REST + SSE surface (`/v1/...`): submit a task, stream
+ * Talks to the Pori REST + SSE surface (`/v1/...`): submit a task, stream
  * its `PoriEvent`s, answer a structured clarification, and poll status/result.
  * Both the web and desktop surfaces consume this so the wire protocol lives in
  * one place. Auth is the `X-API-Key` header.
@@ -10,7 +10,7 @@
 import type { ClarificationRequestPayload, PoriEvent } from "./events";
 import { parseSseStream } from "./sse";
 
-export interface AloyClientOptions {
+export interface PoriClientOptions {
   /** Backend origin, e.g. "http://localhost:8000" (no trailing slash needed). */
   baseUrl: string;
   /** Sent as the `X-API-Key` header when present. */
@@ -57,21 +57,21 @@ export interface StreamTaskOptions {
   signal?: AbortSignal;
 }
 
-export class AloyApiError extends Error {
+export class PoriApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
-    super(`Aloy API error ${status}: ${message}`);
-    this.name = "AloyApiError";
+    super(`Pori API error ${status}: ${message}`);
+    this.name = "PoriApiError";
     this.status = status;
   }
 }
 
-export class AloyClient {
+export class PoriClient {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly doFetch: typeof fetch;
 
-  constructor(options: AloyClientOptions) {
+  constructor(options: PoriClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -96,7 +96,7 @@ export class AloyClient {
       headers: this.headers(),
       body: JSON.stringify({ task, max_steps: options.maxSteps ?? 50 }),
     });
-    if (!res.ok) throw new AloyApiError(res.status, await safeText(res));
+    if (!res.ok) throw new PoriApiError(res.status, await safeText(res));
     return (await res.json()) as TaskCreateResponse;
   }
 
@@ -123,7 +123,7 @@ export class AloyClient {
       throw error;
     }
     if (!res.ok || !res.body) {
-      const error = new AloyApiError(res.status, await safeText(res));
+      const error = new PoriApiError(res.status, await safeText(res));
       handlers.onError?.(error);
       throw error;
     }
@@ -150,7 +150,7 @@ export class AloyClient {
         body: JSON.stringify({ value }),
       },
     );
-    if (!res.ok) throw new AloyApiError(res.status, await safeText(res));
+    if (!res.ok) throw new PoriApiError(res.status, await safeText(res));
   }
 
   async getTaskStatus(taskId: string): Promise<TaskStatusResponse> {
@@ -158,7 +158,7 @@ export class AloyClient {
       `${this.baseUrl}/v1/tasks/${encodeURIComponent(taskId)}`,
       { headers: this.headers() },
     );
-    if (!res.ok) throw new AloyApiError(res.status, await safeText(res));
+    if (!res.ok) throw new PoriApiError(res.status, await safeText(res));
     return (await res.json()) as TaskStatusResponse;
   }
 
@@ -167,7 +167,7 @@ export class AloyClient {
       `${this.baseUrl}/v1/tasks/${encodeURIComponent(taskId)}/result`,
       { headers: this.headers() },
     );
-    if (!res.ok) throw new AloyApiError(res.status, await safeText(res));
+    if (!res.ok) throw new PoriApiError(res.status, await safeText(res));
     return (await res.json()) as TaskResultResponse;
   }
 }

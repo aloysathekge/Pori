@@ -1,9 +1,9 @@
 {
-  "name": "@aloy/shared",
+  "name": "@pori/client",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Aloy shared transport — a typed REST + SSE (PoriEvent) client for the Aloy backend, consumed by the web and desktop surfaces.",
+  "description": "Pori client — a typed REST + SSE (PoriEvent) transport for any Pori-based backend, consumed by product surfaces (web, desktop).",
   "exports": {
     ".": "./src/index.ts"
   },
