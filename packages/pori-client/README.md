@@ -1,7 +1,7 @@
-# `@aloy/shared` — Aloy transport
+# `@pori/client` — Aloy transport
 
-The single typed client for the Aloy backend. The **web** (`apps/web`) and
-**desktop** (`apps/desktop`) surfaces both import it, so the wire protocol lives
+The single typed client for the Aloy backend. The **web** (`products/aloy/web`) and
+**desktop** (`products/aloy/desktop`) surfaces both import it, so the wire protocol lives
 in exactly one place.
 
 **Owns:**
@@ -15,7 +15,7 @@ in exactly one place.
 - **`parseSseStream`** — incremental SSE decoder for the event stream.
 
 ```ts
-import { AloyClient } from "@aloy/shared";
+import { AloyClient } from "@pori/client";
 
 const client = new AloyClient({ baseUrl: "http://localhost:8000", apiKey });
 
@@ -30,10 +30,10 @@ await client.streamTask("Compare Postgres and SQLite for our use case", {
 
 ## Provenance
 
-Harvested from Hermes `apps/shared` (**MIT**) — the package structure and
+Harvested from Hermes `packages/pori-client` (**MIT**) — the package structure and
 `tsconfig` were kept; the PTY / JSON-RPC-over-WebSocket gateway was **stripped**
 and replaced with a REST + SSE (`PoriEvent`) client targeting the Pori/Aloy
-backend. Rebranded `@hermes/shared` → `@aloy/shared`. See `references/HARVEST.md`.
+backend. Rebranded `@hermes/shared` → `@pori/client`. See `references/HARVEST.md`.
 
 ## Auth
 

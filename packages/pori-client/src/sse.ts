@@ -1,5 +1,5 @@
 /**
- * Incremental SSE decoder for the Pori/Aloy event stream.
+ * Incremental SSE decoder for the Pori event stream.
  *
  * The backend streams `text/event-stream` frames of the form
  * `event: <type>\ndata: {"payload": ..., "step": N}\n\n`. Because the stream

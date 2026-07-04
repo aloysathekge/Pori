@@ -1,60 +1,105 @@
 # Pori / Aloy Monorepo — Structure & Rules
 
-**Status:** v0.2 — flat, intent-named · 2026-07-02
-**See also:** [`docs/Pori.md`](./docs/Pori.md) (PRD), [`docs/Pori_Implementation_Plan.md`](./docs/Pori_Implementation_Plan.md), [`HARVEST.md`](./HARVEST.md)
+**Status:** v0.3 — platform + products · 2026-07-04
+**See also:** [`docs/Pori.md`](./docs/Pori.md) (PRD), [`docs/Aloy.md`](./docs/Aloy.md) (product plan), [`docs/Pori_Implementation_Plan.md`](./docs/Pori_Implementation_Plan.md), [`HARVEST.md`](./HARVEST.md)
 
-## Layout
+## The shape: one platform, many products
 
-Flat and intent-named — like Hermes (top-level packages, no generic `packages/`
-wrapper), and no `name/name` nesting.
+**Pori is a kernel; products are built on it.** So the tree separates the shared
+**platform** (kernel + shared libraries) from **products**, and each product owns
+its *whole* stack — backend and every surface — under one folder. A second product
+is a sibling of `aloy/`, with nothing to move at the root.
 
 ```
-repo root (this git repo — one distribution for now)
-├─ pori/          KERNEL — the `pori` package (import pori). Product-agnostic.
-│                 (pori/api is a product/backend concern; moves to products/aloy/backend next)
-├─ extensions/    reusable pori-* libraries (opt-in; created on promotion, not on spec)
+repo root (one git repo; TS workspace + single Python distribution)
+├─ pori/                 KERNEL — the `pori` package (import pori). Product-agnostic.
+├─ extensions/           reusable pori-* libraries (opt-in; created on promotion)
+├─ packages/             shared, product-neutral TypeScript libraries
+│  └─ pori-client/       @pori/client — the REST + SSE (PoriEvent) transport every UI uses
 ├─ products/
-│  └─ aloy/       Aloy — product #1: backend · cli · gateway (+ org policy, tenancy)
-├─ apps/          frontend surfaces (talk to a product backend over REST + SSE)
-│  ├─ web/        ← pori_cloud_client
-│  └─ desktop/    ← desktop shell (later)
-├─ website/       public marketing site ← pori_website
-├─ docs/          PRD, plan, ALIGNMENT tracker, design docs
-├─ tools/ci/      dependency-boundary contract (staged)
-└─ (donors)       external OSS at ../references/ — never a runtime dep
+│  └─ aloy/              Aloy — product #1, self-contained:
+│     ├─ backend/        FastAPI (Python) — composes the kernel; tenancy/auth/persistence
+│     ├─ web/            SPA (Vite + React) — @aloy/web
+│     ├─ desktop/        Electron shell (later)
+│     └─ website/        public marketing landing (self-contained static)
+├─ docs/                 PRD, product plan, design docs
+├─ tools/ci/             dependency-boundary contract (staged)
+├─ package.json          root TS workspace (packages/* + products/*/{web,desktop,website})
+└─ pyproject.toml        builds the `pori` package
 ```
+
+**Why products own their surfaces (not a root `apps/`):** a root `apps/` and
+`website/` quietly assume *one* app and *one* site. The moment a second product
+lands, its surfaces have nowhere to go. Grouping by product scales to N products
+with zero root churn. Only genuinely shared, product-neutral code lives at the root
+(`packages/*`) — the transport client is the same for every product's UI, so it is
+`@pori/client`, not `@aloy/anything`.
 
 ## The one rule: one-way dependencies
 
 ```
-products / apps → extensions → pori        (never upward)
+products (backend + surfaces) → extensions → pori        (never upward)
+surfaces → (REST + SSE only) → a product backend         (never a Python import)
 ```
 
-- `pori` (kernel) imports **nothing** from `extensions`/`products`/`apps`.
+- `pori` (kernel) imports **nothing** from `extensions` / `products` / `packages`.
 - `extensions/*` may import `pori` only.
-- `products/*` may import `extensions` and `pori`.
-- Surfaces (`apps/web`, `apps/desktop`) talk to a product backend over **REST + SSE**, never by Python import.
+- `products/*/backend` may import `extensions` and `pori`.
+- Surfaces (`products/aloy/web`, `desktop`, `website`) reach the backend **only over
+  REST + SSE**, via `@pori/client`. Never a Python import. This is the single
+  safeguard against the Hermes-monolith trap.
 
-**Dependency inversion:** the kernel defines interfaces; `extensions`/`products` implement them. Enforced (staged) by [`tools/ci/`](./tools/ci/).
+## TypeScript workspace
 
-## Packaging
+The root `package.json` declares a workspace over `packages/*` and each product's
+`web` / `desktop` / `website`. Shared libraries are consumed as real workspace
+packages, not path-alias hacks:
 
-A **single** root `pyproject.toml` builds the `pori` package (`[tool.setuptools.packages.find] where = ["."]`, `isort known_first_party = ["pori"]`). When we publish `pori` standalone or add `extensions`/`products` Python packages, we split into a uv workspace with per-package `pyproject.toml`s. Not yet.
+```jsonc
+// products/aloy/web/package.json
+"dependencies": { "@pori/client": "workspace:*", … }
+```
 
-## Absorbing the sibling projects (copy-in)
+`bun install` at the root links `@pori/client` into every surface
+(`node_modules/@pori/client` → `packages/pori-client`); `bun.lock` is the single
+lockfile. Surfaces also keep a Vite alias / tsconfig path to the client's TS source
+so there's no build step for the internal package (just-in-time source).
 
-Four projects at the `Pori/` level are folded in by **copying contents** into the homes below (their standalone git histories are not preserved; sources left untouched until then).
+## Python packaging
 
-| Source (external, `../`) | → Home | What it is |
+A **single** root `pyproject.toml` builds the `pori` package
+(`[tool.setuptools.packages.find] where = ["."]`). Each `products/*/backend`
+depends on the kernel via an editable path source. When we publish `pori` standalone
+or add `extensions` Python packages, we split into a uv workspace. Not yet.
+
+## Extracting a product to its own repo (the exit is designed in)
+
+A product is meant to be liftable into a standalone repo the day it outgrows the
+monorepo. `products/aloy/` is self-contained; the **only** things it reaches for
+outside its own folder are the two **platform** dependencies — the kernel and the
+shared client — and each is a *single, replaceable dependency declaration*:
+
+| Coupling | In the monorepo (dev) | On extraction (standalone) |
 |---|---|---|
-| `pori_cloud` (git) | `products/aloy/backend/` | the API — "our api"; Aloy's backend |
-| `pori_cloud_client` (git) | `apps/web/` | frontend (Vite/React) |
-| `pori_website` (git) | `website/` | public marketing site |
-| `pori_docs` (folder) | `docs/` | design/architecture markdown |
+| Python → kernel | `products/aloy/backend/pyproject.toml`: `pori = { path = "../../.." }` | `pori = ">=X.Y"` from **PyPI** |
+| TS → client | `products/aloy/web/package.json`: `"@pori/client": "workspace:*"` | `"@pori/client": "^X.Y"` from **npm** |
 
-## ⚠ Open questions
+So extraction is:
 
-1. **Repo topology.** Sibling projects (`pori_cloud`, `pori_cloud_client`, `pori_website`, `pori_docs`) live *outside* this git repo at the `Pori/` level; `pori/api` vs the standalone `pori_cloud` still need reconciling.
-2. **Workspace split.** When to move from a single root `pyproject.toml` to a real uv workspace with per-package projects.
+```bash
+git subtree split -P products/aloy -b aloy-extract   # history-preserving slice
+# → push aloy-extract to the new repo, then swap the two dep sources above
+```
 
-Donor provenance & rules: see [`HARVEST.md`](./HARVEST.md).
+**The rule that keeps this cheap:** nothing under `products/aloy/` may import another
+product, or any root file, *except* the kernel (Python) and `@pori/client` (TS). Keep
+those two the only bridges and the exit stays a two-line swap — while, in the
+monorepo, many products still share one kernel and one client (no duplication, no
+drift). The platform pieces (`pori`, `@pori/client`) are shaped to be published for
+exactly this reason.
+
+## Provenance
+
+Surfaces were harvested from Hermes (MIT) and the external `pori_cloud` /
+`pori_cloud_client` / `pori_website` siblings, then rebranded. Donor provenance &
+rules: [`HARVEST.md`](./HARVEST.md).

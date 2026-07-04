@@ -5,8 +5,8 @@ import {
   THINKING_DELTA,
   TOOL_CALL_END,
   TOOL_CALL_START,
-} from '@aloy/shared';
-import type { ClarificationRequestPayload } from '@aloy/shared';
+} from '@pori/client';
+import type { ClarificationRequestPayload } from '@pori/client';
 import type { SSEMessageEvent } from '@/types';
 
 /**

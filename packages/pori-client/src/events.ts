@@ -1,5 +1,5 @@
 /**
- * The Aloy event contract — a 1:1 mirror of the Pori kernel's `PoriEvent`
+ * The Pori event contract — a 1:1 mirror of the Pori kernel's `PoriEvent`
  * (`pori/observability/events.py`). Every backend SSE frame decodes to one of
  * these; every surface renders from this single shape.
  */
@@ -52,7 +52,7 @@ export interface ToolCallEndPayload {
 }
 
 /** A structured `ask_user` request the UI renders as buttons; answer it via
- *  `AloyClient.submitClarification(id, value)`. */
+ *  `PoriClient.submitClarification(id, value)`. */
 export interface ClarificationRequestPayload {
   type: typeof CLARIFICATION_REQUEST;
   id: string;
