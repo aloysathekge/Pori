@@ -8,12 +8,12 @@ Pages / Cloudflare Pages).
 ## Preview
 
 ```bash
-# just open it
-open website/index.html          # or double-click
-
-# or serve it
-python -m http.server -d website 4321   # http://localhost:4321
+bun run dev        # → http://localhost:4321  (hot reload; set PORT to change)
 ```
+
+No dependencies — bun serves the self-contained `index.html` directly, so there's
+nothing to `install`. You can also just open the file, or serve it any other way
+(`python -m http.server -d website 4321`).
 
 ## Design
 
