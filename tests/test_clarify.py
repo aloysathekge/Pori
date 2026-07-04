@@ -60,3 +60,18 @@ def test_ask_user_tool_routes_through_handler():
     assert res["success"] is True
     assert res["user_response"] == "Beta"
     assert seen["options"] == ["Alpha", "Beta"]
+
+
+def test_agent_stores_tool_context_extra(mock_llm, tool_registry):
+    from pori.agent import Agent
+    from pori.memory import AgentMemory
+
+    extra = {"clarify_handler": lambda q, o: "x"}
+    agent = Agent(
+        task="t",
+        llm=mock_llm,
+        tools_registry=tool_registry,
+        tool_context_extra=extra,
+        memory=AgentMemory(),
+    )
+    assert agent._tool_context_extra == extra

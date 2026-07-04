@@ -1,7 +1,7 @@
 # Pori — Product Requirements Document (PRD)
 
 **Status:** Draft v0.1
-**Date:** 2026-07-02
+**Date:** 2026-07-03
 **Scope:** Pori as a standalone, publishable agent **kernel**. Aloy and future products are *consumers* of Pori and appear here only as context.
 **Companion:** [`Pori_Implementation_Plan.md`](./Pori_Implementation_Plan.md) — the engineering plan derived from this PRD.
 
@@ -144,7 +144,10 @@ Memory **tenancy** (org → team → personal scope resolution), RBAC, concrete 
 
 ### 7.5 Runtime (manager/worker)
 The kernel runtime owns the manager/worker execution model, the turn lifecycle, the iteration budget, and the **Evaluator** step (Pori's differentiator that Hermes lacks).
-**⚠ OPEN QUESTION:** whether the multi-agent `Team` modes (ROUTER / BROADCAST / DELEGATE) are kernel runtime or an extension (see §14).
+
+*Implemented today:* the codebase already ships **sub-agent delegation** (the `delegate_task` tool + `Orchestrator.run_subagent`): isolated-context children that run **single / parallel batch / background**, with **role-based depth** (`leaf` / `orchestrator`), a **sub-agent security policy** (children auto-deny HITL-gated tools — they have no user to prompt), **optional curated specialists** (`.pori/agents/*.md`, layered on goal-driven prompts), and **model-per-agent** via provider-agnostic tiers. This is the Claude Code / Hermes delegation pattern re-expressed on Pori's machinery; its kernel-vs-extension placement is part of the open question below.
+
+**⚠ OPEN QUESTION:** whether the multi-agent `Team` modes (ROUTER / BROADCAST / DELEGATE) and the `delegate_task` sub-agent runtime are kernel runtime or an extension (see §14).
 
 ### 7.6 LLM & transport
 The kernel exposes a provider-agnostic transport with a single normalized response type (`NormalizedResponse`, incl. usage/cache tokens). Provider quirks are quarantined in adapters. *(Seed: Pori `llm/base.py` + `anthropic/openai/google`; donors: Hermes transports, LiteLLM.)*
@@ -286,7 +289,7 @@ Detailed steps live in the Implementation Plan. At PRD altitude:
 2. **Receipt storage & hashing.** Storage backend (append-only log / SQLite / content-addressed store) and the exact hash-chain algorithm are undecided.
 3. **Event/streaming protocol.** Adopt an existing standard (AG-UI / ACP) vs. a Pori-native contract atop today's `PoriEvent` — undecided.
 4. **MCP placement.** Native MCP in the kernel vs. an extension — undecided.
-5. **`Team` placement.** Multi-agent modes (ROUTER/BROADCAST/DELEGATE) as kernel runtime vs. an extension — undecided.
+5. **`Team` / sub-agent placement.** Multi-agent modes (ROUTER/BROADCAST/DELEGATE) and the now-implemented `delegate_task` sub-agent runtime (single/batch/background, role-depth, security, specialists, model-per-agent) as kernel runtime vs. an extension — undecided.
 6. **Provenance ContextVar placement.** Write-origin provenance (for gated autonomy) as a kernel receipts concern vs. an extension — undecided.
 7. **Auth default (Aloy backend).** Proposed default: require-key + `PORI_ALLOW_NO_AUTH=1` dev opt-in — proposed, not confirmed.
 8. **Python floor.** Current Pori targets 3.10; donors (Hermes) target 3.11+. Kernel floor undecided.

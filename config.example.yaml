@@ -13,7 +13,19 @@ llm:
   # OpenRouter: meta-llama/llama-3.3-70b-instruct, mistralai/mistral-nemo, qwen/qwen-2.5-72b-instruct,
   #             deepseek/deepseek-chat, google/gemma-2-27b-it, openai/gpt-4o-mini
   model: claude-sonnet-4-5-20250929
-  
+
+  # Optional: model tiers for sub-agent delegation (model-per-agent).
+  # A specialist in .pori/agents/*.md can declare `model: fast` (or balanced/
+  # powerful); it resolves to the concrete model mapped here FOR THIS PROVIDER,
+  # so the same specialist file is portable across providers. Omit `tiers`
+  # entirely (e.g. a single local OSS model) and every sub-agent just inherits
+  # the default `model` above. An unmapped tier also inherits.
+  # tiers:
+  #   fast: claude-haiku-4-5          # Anthropic
+  #   powerful: claude-opus-4-8
+  #   # OpenAI:      fast: gpt-5-mini      powerful: gpt-5
+  #   # OSS (OpenRouter): fast: qwen/qwen-2.5-7b-instruct   powerful: deepseek/deepseek-r1
+
   # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
   temperature: 0.0
   

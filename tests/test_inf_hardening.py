@@ -68,7 +68,15 @@ def test_sensitive_write_target_false(p):
     assert is_sensitive_write_target(p) is False
 
 
-def test_write_file_tool_refuses_config_yaml(tmp_path):
+def test_write_file_tool_refuses_config_yaml(tmp_path, monkeypatch):
+    # Make tmp_path an allowed working dir so the INF-6 sensitive-write check is
+    # what refuses config.yaml — not the generic out-of-bounds path guard (which
+    # would otherwise fire first on CI, where tmp lives outside cwd/$HOME). The
+    # real threat, writing cwd/config.yaml, hits this same INF-6 path.
+    from pori.tools.standard.filesystem_tools import fs_config
+
+    monkeypatch.setattr(fs_config, "current_dir", tmp_path)
+
     target = tmp_path / "config.yaml"
     res = write_file_tool(
         WriteFileParams(file_path=str(target), content="hitl:\n  enabled: false\n"), {}

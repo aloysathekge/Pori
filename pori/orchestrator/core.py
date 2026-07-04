@@ -81,6 +81,7 @@ class Orchestrator:
         hitl_config: Optional[HITLConfig] = None,
         run_context: Optional[RunContext] = None,
         selected_skill_ids: Optional[List[str]] = None,
+        tool_context_extra: Optional[Dict[str, Any]] = None,
         session_key: Optional[str] = None,
         on_busy: str = "reject",
     ) -> Dict[str, Any]:
@@ -110,6 +111,7 @@ class Orchestrator:
                     hitl_config=hitl_config,
                     run_context=run_context,
                     selected_skill_ids=selected_skill_ids,
+                    tool_context_extra=tool_context_extra,
                 )
 
         if session_key is None:
@@ -145,6 +147,7 @@ class Orchestrator:
         hitl_config: Optional[HITLConfig] = None,
         run_context: Optional[RunContext] = None,
         selected_skill_ids: Optional[List[str]] = None,
+        tool_context_extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -178,6 +181,7 @@ class Orchestrator:
             soul_path=self.soul_path,
             soul_text=self.soul_text,
             load_project_context=self.load_project_context,
+            tool_context_extra=tool_context_extra,
         )
         self.agents[task_id] = agent
 
@@ -259,6 +263,65 @@ class Orchestrator:
             return memory.get_recent_messages(12) or ""
         except Exception:
             return ""
+
+    async def run_subagent(
+        self,
+        task: str,
+        *,
+        system_prompt: Optional[str] = None,
+        tool_names: Optional[List[str]] = None,
+        max_steps: int = 15,
+        allow_delegation: bool = False,
+        hitl_config: Any = None,
+        hitl_handler: Optional[HITLHandler] = None,
+        child_tool_context: Optional[Dict[str, Any]] = None,
+        llm: Optional[Any] = None,
+    ) -> str:
+        """Run an isolated sub-agent to a single result (the delegation primitive).
+
+        The child gets a FRESH memory (its working transcript never touches the
+        caller's context — only the returned answer does), a restricted tool surface,
+        and a non-interactive HITL policy. Unless ``allow_delegation`` is set,
+        ``delegate_task`` is stripped so the child cannot spawn its own sub-agents.
+        """
+        all_names = set(self.tools_registry.tools.keys())
+        protected = set(self.tools_registry.protected_tools)
+        exclude: set = set()
+        if tool_names is not None:
+            allowed = {t.strip() for t in tool_names if t.strip()} | protected
+            exclude |= all_names - allowed
+        if not allow_delegation:
+            exclude |= {"delegate_task"}
+        exclude -= protected  # never exclude protected/kernel tools
+
+        registry = self.tools_registry
+        if exclude:
+            try:
+                registry = self.tools_registry.filtered(exclude_tools=exclude)
+            except Exception:  # never fail the run on a tool-restriction issue
+                registry = self.tools_registry
+
+        agent = Agent(
+            task=task,
+            llm=llm
+            or self.llm,  # model-per-agent override (tier-resolved) else inherit
+            tools_registry=registry,
+            settings=AgentSettings(max_steps=max_steps, background_review=False),
+            memory=AgentMemory(),  # isolated context — the point of a sub-agent
+            skill_catalog=self.skill_catalog,
+            skill_limit=self.skill_limit,
+            soul_text=system_prompt,
+            hitl_config=hitl_config,
+            hitl_handler=hitl_handler,
+            tool_context_extra=child_tool_context,
+        )
+        await agent.run()
+        summary = agent.result_summary()
+        return (
+            summary.get("final_answer")
+            or summary.get("reasoning")
+            or "(the sub-agent returned no answer)"
+        )
 
     async def execute_tasks_parallel(
         self,

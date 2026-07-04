@@ -1,0 +1,11 @@
+__pycache__
+.env/
+.venv/
+*.pyc
+pori_cloud.egg-info
+uv.lock
+alembic.ini
+pori_cloud/alembic/script.py.mako
+uv.lock
+uv.lock
+.env

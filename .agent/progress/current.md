@@ -153,6 +153,34 @@ uv-workspace split (per-package pyprojects) deferred.
   archived 90d, 7d grace, agent-created-only, archive = move to `.archive/`,
   never delete), triggered inactivity-style at CLI startup; selected skills
   recorded as used. Pori now authors, grows, and maintains its own skills. 470 passed.
+- Sub-agent delegation (`pori/subagents.py`, `delegate_task`) — studied Claude Code +
+  deepagents + Hermes and landed the full model on Pori's own machinery (PRs #63→#67,
+  519 passed). Arc: (1) Claude Code-style `task`/`task_parallel` + `AgentCatalog`
+  (#63/#64); (2) **rewritten Hermes-style** — one goal-driven `delegate_task`
+  (`{goal, context?, role?}`), `build_child_system_prompt`, role-based depth
+  (leaf/orchestrator via recursive `make_delegate_runner`, `MAX_SPAWN_DEPTH`), and a
+  **subagent security policy** (children auto-deny HITL-gated tools — they can't
+  prompt a user) (#65); (3) **background delegation** — `delegate_task(background=true)`
+  + `BackgroundDelegationRegistry` (daemon-thread children, drain between turns,
+  prepend to next task) (#66); (4) **optional specialist layer** — a per-task `agent`
+  names a curated `.pori/agents/*.md` specialist (tuned prompt + tool allowlist),
+  layered ON the goal-driven base, `AgentCatalog` restored (#67). `Orchestrator.run_subagent`
+  is the primitive (isolated memory, tool restriction, `allow_delegation`, hitl).
+  Full model now: single/batch/background · depth · security · optional specialists.
+  Follow-ups: model-per-agent (haiku for grunt work), operational RPCs
+  (pause/status/interrupt), auto-forge an agent turn on completion while fully idle.
+  For Aloy: `.pori/agents/` is the org-shareable specialist library.
+- Clarify buttons (full loop) — a streamed run that calls `ask_user` with options
+  emits a `clarification_request` SSE frame and pauses; `POST /v1/clarify/{id}`
+  resumes it with the tapped answer. `clarify.ask_sync` (threading.Event) blocks
+  the run (which executes on its own loop in a worker thread, so `ask_user` can't
+  deadlock the serving loop); `Agent`/`Orchestrator` thread a `tool_context_extra`
+  (the bridge's `clarify_handler`). Completes CLI-menu → gateway-buttons. 490 passed.
+- GW-4 SSE — `POST /v1/tasks/stream` streams normalized `PoriEvent`s as
+  Server-Sent Events over an `asyncio.Queue` (`on_event` →
+  `call_soon_threadsafe`), keepalive on idle, closes on `RUN_END`; client
+  disconnect cancels the run. `tests/test_api_sse.py`. This is also the transport
+  the clarify `ClarifyBridge` (#58) needs. 487 passed.
 - API repair — `pori/api` now imports, starts up, and serves. Bounded `api`
   extra (fastapi/uvicorn/httpx); `middleware.py` uses the modern
   `RequestResponseEndpoint`. `tests/test_api_smoke.py` (TestClient /v1/health +

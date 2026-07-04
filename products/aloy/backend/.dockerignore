@@ -1,0 +1,48 @@
+# Applies to the parent build context (containing Pori/ + pori_cloud/).
+# Keep the image small and avoid shipping dev cruft.
+
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+
+**/.venv
+**/venv
+**/node_modules
+
+**/.git
+**/.github
+**/.gitignore
+
+**/.env
+**/.env.*
+!**/.env.example
+
+**/*.md
+!**/README.md
+**/CHANGELOG.md
+**/CONTRIBUTING.md
+**/ROADMAP.md
+**/SECURITY.md
+**/CODE_OF_CONDUCT.md
+
+**/dist
+**/build
+**/*.egg-info
+
+**/tests
+**/examples
+**/docs
+
+# pori runtime state
+**/.pori
+**/.pori_sandbox
+
+# client and website trees are never part of the API build
+pori_cloud_client
+pori_website
+pori_docs

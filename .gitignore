@@ -2,6 +2,10 @@
 .env
 .env.local
 
+# JS/TS surfaces (apps/) — deps + lockfiles managed by the workspace (docs/Aloy.md §11.6)
+node_modules/
+apps/**/package-lock.json
+
 # Python
 __pycache__/
 *.py[cod]

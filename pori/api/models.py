@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class TaskCreateRequest(BaseModel):
     task: str
     max_steps: int = 50
-    stream: bool = False  # Reserved for future SSE/WebSocket implementation
+    stream: bool = False  # legacy flag; for streaming, POST /v1/tasks/stream (SSE)
 
 
 class TaskCreateResponse(BaseModel):
@@ -27,3 +27,9 @@ class TaskResultResponse(BaseModel):
     success: bool
     final_answer: str | None = None
     reasoning: str | None = None
+
+
+class ClarifyAnswer(BaseModel):
+    """The user's answer to a clarification (a tapped option or free text)."""
+
+    value: str

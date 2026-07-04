@@ -15,9 +15,10 @@ load_dotenv()
 from pathlib import Path
 
 from .agent import Agent, AgentSettings
+from .background_delegation import BackgroundDelegationRegistry
 from .cli_commands import COMMAND_REGISTRY, command_help_lines
 from .cli_prompt import read_user_input
-from .config import Config, LLMConfig, get_configured_llm
+from .config import Config, LLMConfig, get_configured_llm, make_llm_resolver
 from .curator import record_skill_use, run_curation, should_run_now
 from .evolution import (
     EvolutionEvalResult,
@@ -46,6 +47,7 @@ from .skills import (
     uninstall_skill_from_directory,
 )
 from .skills_learn import build_learn_prompt
+from .subagents import AgentCatalog, make_background_delegate, make_delegate_runner
 from .team import Team
 from .tools.registry import ToolRegistry, tool_registry
 from .tools.standard import register_all_tools
@@ -1126,6 +1128,26 @@ async def main():
         hitl_handler = CLIHITLHandler(timeout_seconds=hitl_config.timeout_seconds)
         logger.info("HITL enabled in CLI mode")
 
+    # Sub-agent delegation (the `delegate_task` tool): a runner that spawns
+    # isolated child agents (goal-driven, role-restricted, HITL auto-denied for
+    # children since they have no user to prompt).
+    agent_catalog = AgentCatalog.load(Path.cwd() / ".pori" / "agents")
+    llm_resolver = make_llm_resolver(config.llm, llm)
+    delegate_runner = make_delegate_runner(
+        orchestrator,
+        catalog=agent_catalog,
+        llm_resolver=llm_resolver,
+        hitl_config=hitl_config,
+    )
+    bg_registry = BackgroundDelegationRegistry()
+    background_delegate = make_background_delegate(
+        orchestrator,
+        bg_registry,
+        catalog=agent_catalog,
+        llm_resolver=llm_resolver,
+        hitl_config=hitl_config,
+    )
+
     # Team: check if configured
     team_config = getattr(config, "team", None)
     use_team = team_config is not None and len(team_config.members) > 0
@@ -1261,9 +1283,21 @@ async def main():
 
     pending_skill_ids: Optional[List[str]] = None
     pending_skill_task: Optional[str] = None
+    pending_bg: List[str] = []
 
     # Interactive loop for tasks
     while True:
+        # Surface background delegations that finished since the last turn; queue
+        # their results to prepend to the next task the agent runs.
+        for done in bg_registry.drain_completed():
+            line = (
+                f"[background {done.handle}] {done.goal} -> {done.result}"
+                if done.success
+                else f"[background {done.handle}] {done.goal} FAILED: {done.error}"
+            )
+            _safe_print("\n" + line)
+            pending_bg.append(line)
+
         print("\n Pori at your service!")
         try:
             if pending_skill_ids:
@@ -1479,6 +1513,15 @@ async def main():
                 _stream_state["active"] = False
                 _stream_state["buffer"] = ""
                 _stream_state["block"] = None
+                if pending_bg:
+                    task = (
+                        "Results from background sub-agents you dispatched earlier "
+                        "(use them if relevant):\n"
+                        + "\n".join(pending_bg)
+                        + "\n\n---\nCurrent request:\n"
+                        + task
+                    )
+                    pending_bg = []
                 result = await orchestrator.execute_task(
                     task=task,
                     agent_settings=AgentSettings(
@@ -1494,6 +1537,10 @@ async def main():
                         validate_output=config.agent.validate_output,
                         max_validation_retries=config.agent.max_validation_retries,
                     ),
+                    tool_context_extra={
+                        "delegate_runner": delegate_runner,
+                        "background_delegate": background_delegate,
+                    },
                     on_step_start=on_step_start,
                     on_step_end=on_step_end,
                     on_event=(

@@ -5,7 +5,7 @@ Core tools required for agent operation.
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from pori.clarify import resolve_clarify_handler
 from pori.evolution import EvolutionArtifactKind, EvolutionEvalCase, EvolutionProposal
 from pori.skill_provenance import is_agent_origin, mark_agent_created
+from pori.subagents import MAX_CONCURRENT_CHILDREN
 from pori.threat_patterns import first_threat_message
 
 from ..registry import tool_registry
@@ -575,6 +576,112 @@ def write_skill_tool(params: WriteSkillParams, context: Dict[str, Any]):
             "next session."
         ),
     }
+
+
+class DelegateTaskItem(BaseModel):
+    goal: str = Field(
+        ..., description="A detailed, self-contained description of the subtask."
+    )
+    context: Optional[str] = Field(
+        None, description="Optional background/context the sub-agent needs."
+    )
+    role: Literal["leaf", "orchestrator"] = Field(
+        "leaf",
+        description="'leaf' (default) cannot delegate further; 'orchestrator' may "
+        "spawn its own sub-agents for reasoning-heavy independent subtasks.",
+    )
+    agent: Optional[str] = Field(
+        None,
+        description="Optional: a predefined specialist (from .pori/agents/) to use — "
+        "gives the child a curated prompt + tool allowlist. Omit for goal-driven.",
+    )
+
+
+class DelegateTaskParams(BaseModel):
+    tasks: List[DelegateTaskItem] = Field(
+        ...,
+        description="Subtasks to delegate. One runs alone; several run CONCURRENTLY "
+        "(a parallel batch) — only for INDEPENDENT subtasks.",
+    )
+    background: bool = Field(
+        False,
+        description="Run in the BACKGROUND without blocking: dispatch the task(s) and "
+        "get handles back immediately; results arrive later as a new turn. Use for "
+        "long-running work you don't need to wait on. Ignores 'role' (children are "
+        "leaves).",
+    )
+
+
+@Registry.tool(
+    name="delegate_task",
+    param_model=DelegateTaskParams,
+    description=(
+        "Delegate one or more subtasks to focused sub-agents, each with its OWN "
+        "context window and a restricted toolset built from the goal you give. "
+        "Provide SEVERAL tasks to run them concurrently (a parallel batch). Use for "
+        "context-heavy or parallelizable work (research, exploration, review) — you "
+        "get back only their summaries, so your context stays clean. Give each a "
+        "complete, self-contained goal."
+    ),
+)
+def delegate_task_tool(params: DelegateTaskParams, context: Dict[str, Any]):
+    """Delegate to isolated sub-agents (single, a concurrent batch, or background)."""
+    ctx = context or {}
+    if not params.tasks:
+        return {"success": False, "error": "Provide at least one task."}
+    if len(params.tasks) > MAX_CONCURRENT_CHILDREN:
+        return {
+            "success": False,
+            "error": (
+                f"Too many tasks ({len(params.tasks)}); max is "
+                f"{MAX_CONCURRENT_CHILDREN}. Split into batches."
+            ),
+        }
+
+    if params.background:
+        dispatch = ctx.get("background_delegate")
+        if not callable(dispatch):
+            return {
+                "success": False,
+                "error": "Background delegation is not available in this context.",
+            }
+        dispatched = dispatch(
+            [
+                {"goal": item.goal, "context": item.context, "agent": item.agent}
+                for item in params.tasks
+            ]
+        )
+        return {
+            "success": True,
+            "background": True,
+            "dispatched": dispatched,
+            "note": "Running in the background; results arrive as a new turn when each finishes.",
+        }
+
+    runner = ctx.get("delegate_runner")
+    if not callable(runner):
+        return {
+            "success": False,
+            "error": (
+                "Delegation is not available in this context "
+                "(e.g. you are a leaf sub-agent, which cannot delegate further)."
+            ),
+        }
+    try:
+        results = runner(
+            [
+                {
+                    "goal": item.goal,
+                    "context": item.context,
+                    "role": item.role,
+                    "agent": item.agent,
+                }
+                for item in params.tasks
+            ]
+        )
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    return {"success": True, "count": len(results), "results": results}
 
 
 def register_core_tools(registry=None):

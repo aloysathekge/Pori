@@ -56,6 +56,11 @@ def get_orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator
 
 
+def get_clarify_bridges(request: Request) -> set:
+    """The app-level set of active per-stream clarify bridges."""
+    return request.app.state.clarify_bridges
+
+
 def get_request_memory(request: Request) -> AgentMemory:
     """Per-request ``AgentMemory`` — the isolation boundary.
 
