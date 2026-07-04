@@ -18,7 +18,7 @@ jobs:
     # Optional: add "environment: pypi" and store PYPI_API_TOKEN in that environment
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
