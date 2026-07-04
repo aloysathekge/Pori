@@ -344,7 +344,13 @@ models, adapter dependencies, and capability flags live in declarative
 
 ```
 pori/
-├── agent.py              # Core reasoning loop (Plan → Act → Reflect → Evaluate)
+├── agent/                # Core reasoning-loop package (Plan → Act → Reflect → Evaluate)
+│   ├── core.py           #   the loop + lifecycle
+│   ├── prompting.py      #   system-prompt / message-window / context rendering
+│   ├── planning.py       #   optional plan/reflect phases + gating
+│   ├── artifacts.py      #   execution-receipt / tool-artifact tracking
+│   ├── authorization.py  #   tool side-effect authorization + HITL
+│   └── schemas.py        #   Agent data models
 ├── memory.py             # Persistent memory system (CoreMemory, Archival, MemoryStore)
 ├── metrics.py            # Token usage, cost tracking, run metrics
 ├── evaluation.py         # Action result evaluation, task completion
