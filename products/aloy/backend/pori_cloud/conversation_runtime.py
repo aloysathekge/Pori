@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from pori import AgentMemory
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -16,6 +17,7 @@ from .models import (
     KnowledgeEntry,
     Message,
 )
+from .scope_resolver import ORG, resolve_layered
 
 
 async def flush_context_artifact(
@@ -80,20 +82,31 @@ async def load_conversation_memory(
         if row and row.value:
             memory.core_memory.get_block(label).set_value(row.value)
 
+    # The moat: assemble knowledge from the org + personal layers (team slots in
+    # once membership exists), then let the most-specific level win per
+    # ``conflict_key`` (personal > team > org). See scope_resolver.py.
     result = await session.execute(
         select(KnowledgeEntry)
         .where(
             KnowledgeEntry.organization_id == organization_id,
-            KnowledgeEntry.user_id == user_id,
+            or_(
+                KnowledgeEntry.user_id == user_id,
+                KnowledgeEntry.scope_level == ORG,
+            ),
         )
         .order_by(KnowledgeEntry.created_at.desc())
-        .limit(100)
+        .limit(200)
     )
-    for entry in result.scalars().all():
+    for entry in resolve_layered(list(result.scalars().all())):
         record = row_to_record(entry)
-        if memory.scope.can_access(record.scope) and record.is_retrievable():
-            record.metadata["legacy_collection"] = "experience"
-            memory.memory_records.append(record)
+        if not record.is_retrievable():
+            continue
+        # Org-level knowledge is org-shared, so it bypasses the per-user access
+        # check; team/personal stay user-scoped.
+        if entry.scope_level != ORG and not memory.scope.can_access(record.scope):
+            continue
+        record.metadata["legacy_collection"] = "experience"
+        memory.memory_records.append(record)
 
     result = await session.execute(
         select(Message)
