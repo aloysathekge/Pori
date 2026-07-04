@@ -20,7 +20,7 @@ uvicorn · Docker. Auth is **Supabase JWT** (verified server-side via JWKS in
 ## Dependency rule
 
 Imports `pori` (kernel) + (later) `extensions/pori-*`; **never imported by them.**
-Surfaces (`products/aloy/web`, `products/aloy/desktop`) reach it only over REST + SSE.
+Surfaces (`products/aloy/app`, `products/aloy/desktop`) reach it only over REST + SSE.
 
 ## Migration status (docs/Aloy.md — "adopt pori_cloud, unify on PoriEvent")
 

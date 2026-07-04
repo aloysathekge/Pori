@@ -1,6 +1,6 @@
 # `@pori/client` — Aloy transport
 
-The single typed client for the Aloy backend. The **web** (`products/aloy/web`) and
+The single typed client for the Aloy backend. The **web** (`products/aloy/app`) and
 **desktop** (`products/aloy/desktop`) surfaces both import it, so the wire protocol lives
 in exactly one place.
 

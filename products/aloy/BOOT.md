@@ -1,7 +1,7 @@
 # Boot Aloy locally — quickstart
 
 Bring the whole stack up on your machine: **backend** (`products/aloy/backend`) +
-**web app** (`products/aloy/web`). ~10 minutes. No Postgres or Docker required for dev — the
+**web app** (`products/aloy/app`). ~10 minutes. No Postgres or Docker required for dev — the
 backend defaults to **SQLite**.
 
 ## What you need
@@ -53,7 +53,7 @@ Backend is up at <http://localhost:8000> (OpenAPI docs at `/docs`).
 In a second terminal:
 
 ```bash
-cd products/aloy/web
+cd products/aloy/app
 cp .env.example .env.local
 ```
 
