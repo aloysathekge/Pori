@@ -384,6 +384,10 @@ class KnowledgeEntry(SQLModel, table=True):
     provenance: dict | None = Field(default=None, sa_column=Column(JSON))
     retention: dict | None = Field(default=None, sa_column=Column(JSON))
     conflict_key: str | None = Field(default=None, index=True)
+    # Aloy layered-knowledge scope (the moat): "org" | "team" | "personal". Existing
+    # rows default to personal; org/team populate later. See scope_resolver.py.
+    scope_level: str = Field(default="personal", index=True)
+    team_id: str | None = Field(default=None, index=True)
     status: str = "active"
     superseded_by: str | None = None
     metadata_: dict | None = Field(default=None, sa_column=Column("metadata", JSON))
