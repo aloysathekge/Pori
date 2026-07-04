@@ -18,6 +18,27 @@ from pori.agent import Agent, AgentOutput, AgentSettings
 from pori.evaluation import ActionResult, Evaluator
 from pori.llm import AssistantMessage, SystemMessage, ToolTurn, UserMessage
 from pori.orchestrator import Orchestrator
+
+
+@pytest.fixture(autouse=True)
+def _allow_pytest_tmp_for_filesystem_tools(tmp_path_factory, monkeypatch):
+    """Let filesystem tools write under the pytest tmp base on every platform.
+
+    The tools restrict writes to ``$HOME``/cwd (captured at import in
+    ``FilesystemConfig.current_dir``). On Linux CI the pytest tmp base lives under
+    ``/tmp`` — outside both — so file-tool tests that write to ``tmp_path`` are
+    refused as "Path not allowed" (they pass locally only because Windows' tmp is
+    under ``$HOME``). Point ``current_dir`` at the session tmp base so those tests
+    exercise real behavior everywhere. Out-of-bounds paths (e.g. ``/etc/passwd``)
+    stay rejected; the product's restriction is unchanged.
+    """
+    try:
+        from pori.tools.standard.filesystem_tools import fs_config
+    except Exception:
+        return
+    monkeypatch.setattr(fs_config, "current_dir", tmp_path_factory.getbasetemp())
+
+
 from pori.tools.registry import ToolInfo, ToolRegistry
 
 # ========== Mock LLM Fixtures ==========
