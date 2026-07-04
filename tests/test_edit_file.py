@@ -58,7 +58,12 @@ def test_edit_without_reading_warns_but_applies(tmp_path):
     assert f.read_text(encoding="utf-8") == "foo baz"
 
 
-def test_edit_refuses_protected_file(tmp_path):
+def test_edit_refuses_protected_file(tmp_path, monkeypatch):
+    # Make tmp_path in-bounds so the INF-6 sensitive check refuses config.yaml,
+    # not the generic out-of-bounds path guard (which fires first on CI).
+    from pori.tools.standard.filesystem_tools import fs_config
+
+    monkeypatch.setattr(fs_config, "current_dir", tmp_path)
     f = tmp_path / "config.yaml"
     f.write_text("hitl:\n  enabled: true\n", encoding="utf-8")
     read_file_tool(ReadFileParams(file_path=str(f)), {})
