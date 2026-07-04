@@ -1,12 +1,25 @@
 # Pori Core
 
-Core Pori AI agent framework repo.
+Kernel + products monorepo. **Pori** is an eval-native, memory-native agent
+**kernel** (`pori/`, `import pori`, product-agnostic). **Aloy** is the first
+product built on it (`products/aloy/`).
 
-- Stack: Python / AI agent framework.
-- Safe verification: Python tests likely; prefer uv run pytest, pytest, or repo README command when dependencies are available..
-- Source of truth: Python source, pyproject.toml, README/docs, env-key names only..
-- Never touch: secrets, credentials, generated dependency folders, deployment config, or production-impacting settings without approval.
-- Current active work: unknown.
+- Stack: Python kernel (uv) + TypeScript surfaces (bun workspace).
+- **Layout & the one-way dependency rule:** see [`MONOREPO.md`](./MONOREPO.md)
+  (`products → extensions → pori`, never upward; surfaces reach the backend only
+  over REST + SSE). Products are self-contained + extractable.
+- **Where things are:** kernel `pori/` (the agent is a package, `pori/agent/`);
+  shared TS client `packages/pori-client` (`@pori/client`); Aloy's stack under
+  `products/aloy/{backend,app,desktop,website}`.
+- Safe verification: `uv run --no-sync pytest tests/ -q` and
+  `uv run mypy pori/ --ignore-missing-imports` (both green on `main`).
+- Source of truth: Python source, `pyproject.toml`, README/docs; env-key names only.
+- Never touch: secrets, credentials, generated dependency folders, deployment
+  config, or production-impacting settings without approval. **No Claude/AI
+  attribution on commits or PRs.**
+- **Current active work + next steps: [`.agent/progress/current.md`](./.agent/progress/current.md)**
+  (read this first). Product plan: [`docs/Aloy.md`](./docs/Aloy.md); boot guide:
+  [`products/aloy/BOOT.md`](./products/aloy/BOOT.md).
 
 ## Aloy Agent Layer
 

@@ -52,7 +52,9 @@ Runtime config comes from two files, loaded by `pori/config.py`:
 
 The codebase layers responsibilities intentionally — don't bypass layers. Reading across these modules together is the fastest way to understand a change's blast radius.
 
-### Agent loop (`pori/agent.py`)
+### Agent loop (`pori/agent/`)
+`pori/agent/` is a package (`from pori.agent import Agent, AgentSettings, …` unchanged): `core.py` holds the `Agent` class + loop; cohesive method groups live in sibling modules bound onto the class (`prompting.py`, `planning.py`, `artifacts.py`, `authorization.py`) and the data models in `schemas.py`. The loop stays whole in `core.py`.
+
 `Agent.run()` executes a **Plan → Act → Reflect → Evaluate** loop bounded by `AgentSettings.max_steps` and `max_failures`. Each step:
 1. Builds a prompt from `AgentMemory` (CoreMemory blocks + recent messages, trimmed to `context_window_tokens`).
 2. Calls the LLM via `pori.llm.BaseChatModel` with tool schemas from `ToolRegistry`.
