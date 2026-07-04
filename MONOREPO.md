@@ -19,8 +19,8 @@ repo root (one git repo; TS workspace + single Python distribution)
 ├─ products/
 │  └─ aloy/              Aloy — product #1, self-contained:
 │     ├─ backend/        FastAPI (Python) — composes the kernel; tenancy/auth/persistence
-│     ├─ web/            SPA (Vite + React) — @aloy/web
-│     ├─ desktop/        Electron shell (later)
+│     ├─ app/            web SPA (Vite + React) — @aloy/app
+│     ├─ desktop/        Electron shell wrapping app/ (later)
 │     └─ website/        public marketing landing (self-contained static)
 ├─ docs/                 PRD, product plan, design docs
 ├─ tools/ci/             dependency-boundary contract (staged)
@@ -45,7 +45,7 @@ surfaces → (REST + SSE only) → a product backend         (never a Python imp
 - `pori` (kernel) imports **nothing** from `extensions` / `products` / `packages`.
 - `extensions/*` may import `pori` only.
 - `products/*/backend` may import `extensions` and `pori`.
-- Surfaces (`products/aloy/web`, `desktop`, `website`) reach the backend **only over
+- Surfaces (`products/aloy/app`, `desktop`, `website`) reach the backend **only over
   REST + SSE**, via `@pori/client`. Never a Python import. This is the single
   safeguard against the Hermes-monolith trap.
 
@@ -56,7 +56,7 @@ The root `package.json` declares a workspace over `packages/*` and each product'
 packages, not path-alias hacks:
 
 ```jsonc
-// products/aloy/web/package.json
+// products/aloy/app/package.json
 "dependencies": { "@pori/client": "workspace:*", … }
 ```
 
@@ -82,7 +82,7 @@ shared client — and each is a *single, replaceable dependency declaration*:
 | Coupling | In the monorepo (dev) | On extraction (standalone) |
 |---|---|---|
 | Python → kernel | `products/aloy/backend/pyproject.toml`: `pori = { path = "../../.." }` | `pori = ">=X.Y"` from **PyPI** |
-| TS → client | `products/aloy/web/package.json`: `"@pori/client": "workspace:*"` | `"@pori/client": "^X.Y"` from **npm** |
+| TS → client | `products/aloy/app/package.json`: `"@pori/client": "workspace:*"` | `"@pori/client": "^X.Y"` from **npm** |
 
 So extraction is:
 

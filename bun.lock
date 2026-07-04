@@ -12,8 +12,8 @@
         "typescript": "^5.6.0",
       },
     },
-    "products/aloy/web": {
-      "name": "@aloy/web",
+    "products/aloy/app": {
+      "name": "@aloy/app",
       "version": "0.0.0",
       "dependencies": {
         "@pori/client": "workspace:*",
@@ -48,7 +48,7 @@
     },
   },
   "packages": {
-    "@aloy/web": ["@aloy/web@workspace:products/aloy/web"],
+    "@aloy/app": ["@aloy/app@workspace:products/aloy/app"],
 
     "@aloy/website": ["@aloy/website@workspace:products/aloy/website"],
 

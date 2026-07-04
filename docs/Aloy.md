@@ -41,7 +41,7 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
 ## 3. Topology
 
 ```
- products/aloy/website ──signup──▶  products/aloy/web (SPA)     products/aloy/desktop (Electron)
+ products/aloy/appsite ──signup──▶  products/aloy/app (SPA)     products/aloy/desktop (Electron)
                                         │                          │
                                         └──── packages/pori-client (typed REST + SSE client, TS) ────┘
                                                           │
@@ -129,7 +129,7 @@ A small **TypeScript** package both the webapp and the desktop app import — th
 
 ---
 
-## 6. Webapp (`products/aloy/web`)
+## 6. Webapp (`products/aloy/app`)
 
 **Purpose:** the primary daily-driver UI in the browser.
 
@@ -157,7 +157,7 @@ A small **TypeScript** package both the webapp and the desktop app import — th
 **Purpose:** the same webapp in a native shell, plus local system reach a browser can't offer.
 
 ### 7.1 Stack
-**Electron** wrapping the `products/aloy/web` build, sharing `packages/pori-client`. **Copy** Hermes `products/aloy/desktop` → strip the PTY bridge → retarget to REST + SSE → **rebrand** (app name, icon, window chrome, tray assets). Per §3a.
+**Electron** wrapping the `products/aloy/app` build, sharing `packages/pori-client`. **Copy** Hermes `products/aloy/desktop` → strip the PTY bridge → retarget to REST + SSE → **rebrand** (app name, icon, window chrome, tray assets). Per §3a.
 
 ### 7.2 Why desktop (what it adds over the webapp)
 - **Local filesystem / workspace** access for the agent (real local files, not uploads).
