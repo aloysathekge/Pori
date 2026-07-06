@@ -2,6 +2,18 @@
 
 _Last updated: 2026-07-06 (professionalism audit session)._
 
+## NEW: Legacy donor repos retired (2026-07-06)
+
+`pori_cloud`, `pori_cloud_client`, `pori_website` — local folders deleted
+(verified fully pushed first; zero unpushed commits) and their GitHub repos
+**archived** (read-only, reversible via unarchive). `pori_docs` also deleted at
+the user's direction (was not a git repo; held only historical design notes —
+Letta memory research, old implementation plans — all superseded by shipped
+code and docs/). The monorepo is now the single source of truth; the workspace
+holds only `Pori/` (monorepo) + `references/` (Hermes deep-dives). The
+"pori_docs will be merged in" note in docs/README.md is now stale — remove it
+next time docs/ is touched.
+
 ## NEW: Kernel/product separation is now ENFORCED (2026-07-06)
 
 The Pori-vs-Aloy boundary went from designed-on-paper to CI-enforced:

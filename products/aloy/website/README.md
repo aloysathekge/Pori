@@ -20,9 +20,12 @@ nothing to `install`. You can also just open the file, or serve it any other way
 Calm, modern-SaaS identity: warm off-white ground, soft neutrals, a single teal
 accent (`#0F8571`), crisp system-font type, airy spacing. The hero graphic renders
 the moat directly — org → team → personal knowledge, most-specific wins (personal
-highlighted in the accent). Sections: hero · four pillars · the Pori kernel ·
-capabilities · CTA · footer. Real product copy; deliberately not the AI-default
-blue-purple-gradient look.
+highlighted in the accent). Sections: hero · four pillars · capabilities · CTA ·
+footer. Real product copy; deliberately not the AI-default blue-purple-gradient look.
+
+**Identity rule: the page never mentions Pori or "the kernel."** Aloy is the
+product; visitors don't need the plumbing. Positioning is personal-first (your
+agent, your memory), with team/org as the growth story.
 
 Not a product surface and not in the Python import graph. (Supersedes the earlier
 plan to import `../pori_website`, which was the Pori marketing site.)
