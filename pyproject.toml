@@ -149,6 +149,6 @@ include = '\.pyi?$'
 [tool.isort]
 profile = "black"
 line_length = 88
-# The `pori` package now lives under packages/pori/, so isort can no longer
-# auto-detect it as first-party from the repo root — declare it explicitly.
+# Declare the kernel package explicitly so isort treats it as first-party
+# regardless of where it is invoked from in the monorepo.
 known_first_party = ["pori"]

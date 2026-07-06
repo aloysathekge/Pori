@@ -27,7 +27,28 @@ Most agent frameworks are either too simple (no memory, no teams) or too complex
 
 ---
 
+## One kernel, many products
+
+This repository is a monorepo. **Pori is the kernel** — the product-agnostic `pori` Python package this README documents. **Products are built on top of it**; the first is **[Aloy](products/aloy/)**, a personal + org OS agent with its own FastAPI backend, web app, and website.
+
+```
+repo root
+├─ pori/                  the kernel (this README) — `import pori`, product-agnostic
+├─ packages/pori-client/  @pori/client — shared TypeScript REST + SSE client
+└─ products/aloy/         Aloy — backend, web app, desktop shell, website
+```
+
+The dependency rule is one-way and enforced in CI with import-linter: products depend on the kernel; the kernel never imports from a product. Products consume `pori` as a normal versioned dependency, so any product can be lifted into its own repository without touching the kernel. See [MONOREPO.md](MONOREPO.md) for the layout rules and the extraction playbook.
+
+---
+
 ## Quick Start
+
+### Install
+
+```bash
+pip install pori
+```
 
 ### Install from source
 

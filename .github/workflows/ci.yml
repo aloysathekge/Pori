@@ -54,6 +54,21 @@ jobs:
           path: coverage.xml
           retention-days: 7
 
+  boundaries:
+    name: Import boundaries (products -> pori, never upward)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install import-linter
+        run: pip install import-linter
+      - name: Enforce one-way dependency rule
+        run: bash tools/ci/check-boundaries.sh
+
   dep-bounds:
     name: Dependency upper-bounds
     runs-on: ubuntu-latest

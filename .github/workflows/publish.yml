@@ -1,6 +1,6 @@
-# DISABLED: Rename to publish.yml to re-enable (was disabled due to billing)
-# CD: Build and publish to PyPI on release
-# Setup: Add repository secret PYPI_API_TOKEN (pypi.org API token)
+# CD: Build and publish the `pori` kernel to PyPI on release (or manual dispatch).
+# Uses PyPI Trusted Publishing (OIDC via id-token: write) — configure this repo +
+# workflow as a Trusted Publisher on pypi.org; no API token secret needed.
 name: Publish to PyPI
 
 on:

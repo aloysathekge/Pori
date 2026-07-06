@@ -23,7 +23,7 @@ repo root (one git repo; TS workspace + single Python distribution)
 │     ├─ desktop/        Electron shell wrapping app/ (later)
 │     └─ website/        public marketing landing (self-contained static)
 ├─ docs/                 PRD, product plan, design docs
-├─ tools/ci/             dependency-boundary contract (staged)
+├─ tools/ci/             dependency-boundary contract (CI-enforced)
 ├─ package.json          root TS workspace (packages/* + products/*/{web,desktop,website})
 └─ pyproject.toml        builds the `pori` package
 ```
@@ -48,6 +48,11 @@ surfaces → (REST + SSE only) → a product backend         (never a Python imp
 - Surfaces (`products/aloy/app`, `desktop`, `website`) reach the backend **only over
   REST + SSE**, via `@pori/client`. Never a Python import. This is the single
   safeguard against the Hermes-monolith trap.
+
+The Python side of this rule is **enforced in CI**: the `boundaries` job runs
+import-linter against `tools/ci/importlinter.ini` (`pori` may never import
+`pori_cloud`; layering is `pori_cloud → pori`). Run it locally with
+`bash tools/ci/check-boundaries.sh`.
 
 ## TypeScript workspace
 
