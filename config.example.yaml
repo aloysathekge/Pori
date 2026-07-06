@@ -71,9 +71,10 @@ agent:
   max_validation_retries: 2
 
 memory:
-  # memory (ephemeral) or sqlite (persistent)
-  backend: memory
-  # Used when backend=sqlite
+  # sqlite (persistent — the default, so sessions survive restarts and
+  # interrupted runs can resume) or memory (ephemeral)
+  backend: sqlite
+  # Used when backend=sqlite (defaults to .pori/memory.db)
   # sqlite_path: .pori/memory.db
   user_id: default_user
   agent_id: default_agent

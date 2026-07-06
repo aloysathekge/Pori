@@ -147,8 +147,13 @@ class AgentConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Configuration for memory persistence and identity boundaries."""
 
+    # sqlite by default so an interactive session (the CLI, a product backend)
+    # survives a process restart — losing all memory on a crash is the wrong
+    # default for anything long-running. The kernel's AgentMemory itself still
+    # defaults to in-memory when constructed without a store (a library must
+    # not write files unasked); this config default is the product-layer choice.
     backend: str = Field(
-        default="memory", description="Memory backend: memory, sqlite, or plugin name"
+        default="sqlite", description="Memory backend: memory, sqlite, or plugin name"
     )
     sqlite_path: Optional[str] = Field(
         default=None, description="Path to SQLite DB when backend=sqlite"

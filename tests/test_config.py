@@ -25,7 +25,8 @@ class TestLoadConfig:
         assert config.llm.model == "claude-opus-4-8"
         # Defaults applied for the rest.
         assert config.agent.max_steps == 10
-        assert config.memory.backend == "memory"
+        # sqlite by default so sessions survive restarts (marathon Phase 1).
+        assert config.memory.backend == "sqlite"
 
     def test_explicit_path_takes_precedence_over_env(self, tmp_path, monkeypatch):
         explicit = _write_yaml(
