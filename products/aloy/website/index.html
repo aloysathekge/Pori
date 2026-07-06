@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Aloy — the personal & org OS agent</title>
-<meta name="description" content="Aloy is a personal and organizational OS agent — it streams its work, delegates to focused sub-agents, and draws on knowledge layered org → team → personal, where your own always wins. Built on Pori, an open eval-native kernel." />
-<meta property="og:title" content="Aloy — the personal & org OS agent" />
-<meta property="og:description" content="An agent that knows what your whole org knows — and what only you do. Layered memory, built-in delegation, transparent by default." />
+<title>Aloy — your personal AI agent</title>
+<meta name="description" content="Aloy is your personal AI agent. It remembers what matters to you, works through real tasks by delegating to focused sub-agents, streams every step as it happens — and grows with your team when you're ready." />
+<meta property="og:title" content="Aloy — your personal AI agent" />
+<meta property="og:description" content="An agent that's actually yours. It remembers you, shows its work, and handles the heavy lifting with focused sub-agents." />
 <meta property="og:type" content="website" />
 <meta name="theme-color" content="#0F8571" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%230F8571'/%3E%3Cpath%20d='M16%207.5%20L24%2024%20H19.6%20L16%2016.2%20L12.4%2024%20H8%20Z'%20fill='white'/%3E%3C/svg%3E" />
@@ -136,24 +136,6 @@
   .pillar p { color: var(--body); font-size: 15.5px; margin: 0; line-height: 1.58; }
   .pillar p em { color: var(--ink); font-style: normal; font-weight: 550; }
 
-  /* kernel */
-  .kernel { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
-  @media (max-width: 860px) { .kernel { grid-template-columns: 1fr; gap: 32px; } }
-  .kernel-copy h2 { font-size: clamp(26px, 3.2vw, 34px); }
-  .kernel-copy p { color: var(--body); margin: 16px 0 0; }
-  .taglist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
-  .tag { font-size: 13.5px; color: var(--body); border: 1px solid var(--line); border-radius: 100px; padding: 6px 13px; background: var(--surface); }
-  .tag b { color: var(--accent); font-weight: 600; }
-  .stack { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; box-shadow: 0 1px 2px rgba(25,28,30,0.04), 0 22px 48px -32px rgba(25,28,30,0.2); }
-  .tier { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; border-radius: 11px; border: 1px solid var(--line-soft); background: var(--bg); }
-  .tier + .tier { margin-top: 8px; }
-  .tier .t-name { font-weight: 600; font-size: 15px; }
-  .tier .t-desc { font-size: 12.5px; color: var(--muted); text-align: right; }
-  .tier.kernel-tier { background: var(--accent-wash); border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
-  .tier.kernel-tier .t-name { color: var(--accent-deep); }
-  .tier.kernel-tier .t-desc { color: var(--accent-deep); }
-  .flowarr { text-align: center; color: var(--faint); font-size: 12px; padding: 5px 0; }
-
   /* capabilities */
   .caps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
   @media (max-width: 820px) { .caps { grid-template-columns: repeat(2, 1fr); } }
@@ -207,7 +189,6 @@
     <nav class="nav-links">
       <a href="#capabilities">Product</a>
       <a href="#how">How it works</a>
-      <a href="#kernel">Kernel</a>
       <a href="#start" class="nav-cta">Get started</a>
     </nav>
   </div>
@@ -217,13 +198,13 @@
   <section class="hero" style="border-top:none;">
     <div class="wrap hero-grid">
       <div>
-        <span class="pill"><span class="dot"></span> Personal &amp; org OS agent</span>
-        <h1>The agent that knows what your <span class="hl">whole org</span> knows — and what only <span class="hl">you</span> do.</h1>
+        <span class="pill"><span class="dot"></span> Your personal AI agent</span>
+        <h1>An agent that's actually <span class="hl">yours</span>. It remembers <span class="hl">you</span>.</h1>
         <p class="lede">
-          Aloy is a personal <em>and</em> organizational OS agent. It streams its work,
-          hands the heavy parts to focused sub-agents, and draws on knowledge layered
-          org&nbsp;→&nbsp;team&nbsp;→&nbsp;personal — where your own always wins. Built on Pori,
-          an open eval-native kernel, so you can see every step it takes.
+          Aloy is your personal AI agent. It learns your preferences, your projects,
+          and your way of working — and remembers them tomorrow. It streams its work
+          as it happens, hands the heavy parts to focused sub-agents, and shows you
+          every step it takes.
         </p>
         <div class="cta-row">
           <a class="btn btn-primary" href="#start">Get started
@@ -231,7 +212,7 @@
           </a>
           <a class="btn btn-ghost" href="#how">See how it works</a>
         </div>
-        <p class="microline"><b>Streams</b> answers · <b>delegates</b> to sub-agents · <b>remembers</b> across scopes · <b>shows</b> its work</p>
+        <p class="microline"><b>Streams</b> answers · <b>delegates</b> to sub-agents · <b>remembers</b> what matters · <b>shows</b> its work</p>
       </div>
 
       <div class="kcard reveal" aria-hidden="true">
@@ -255,13 +236,13 @@
       <div class="sec-head reveal">
         <span class="eyebrow">What makes it different</span>
         <h2>Four things most agents bolt on. Aloy builds them in.</h2>
-        <p>A daily-driver you'll actually keep, and a substrate an organization can govern — the same product, not two.</p>
+        <p>A daily driver that's yours first — and grows into your team when you're ready, without becoming someone else's product.</p>
       </div>
       <div class="pillars reveal">
         <div class="pillar">
           <div class="picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 7h16M4 12h16M4 17h16"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg></div>
-          <h3>Layered knowledge</h3>
-          <p>Org, team, and personal knowledge inherit downward; on a conflict the most specific wins. <em>Your</em> note overrides the team's, the team's overrides the org's — automatically, at prompt-build time.</p>
+          <h3>Memory that's yours</h3>
+          <p>Your notes, your preferences, your decisions — remembered and applied automatically. On a team, knowledge layers and the most specific wins: <em>yours always overrides</em> the team's, the team's overrides the org's.</p>
         </div>
         <div class="pillar">
           <div class="picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="6" cy="6" r="2.3"/><circle cx="18" cy="6" r="2.3"/><circle cx="12" cy="18" r="2.3"/><path d="M6 8.3v3.7a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8.3M12 14v1.7"/></svg></div>
@@ -271,43 +252,12 @@
         <div class="pillar">
           <div class="picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
           <h3>Transparent by default</h3>
-          <p>Every run is a trace you can open — what it did, what it cost, why it stopped. <em>Governance lives in the loop,</em> not bolted on as an afterthought dashboard.</p>
+          <p>Every run is a trace you can open — what it did, what it cost, why it stopped. <em>You're never guessing</em> what your agent just did with your name on it.</p>
         </div>
         <div class="pillar">
           <div class="picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-2a4 4 0 0 0-3-3.87M16 4.13A4 4 0 0 1 16 12"/></svg></div>
           <h3>Personal <span style="color:var(--muted);font-weight:400">and</span> org, day one</h3>
           <p>Multi-tenant from the first line. A private agent that grows into an organization — teams, roles, shared knowledge — <em>without a rewrite.</em></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="kernel">
-    <div class="wrap sec">
-      <div class="kernel">
-        <div class="kernel-copy reveal">
-          <span class="eyebrow">Built on Pori</span>
-          <h2>An open, eval-native kernel.</h2>
-          <p>
-            Aloy isn't a wrapper around a chat box. It runs on <b style="color:var(--ink)">Pori</b> —
-            an open agent kernel with an explicit Plan&nbsp;→&nbsp;Act&nbsp;→&nbsp;Reflect&nbsp;→&nbsp;Evaluate loop,
-            memory as a first-class engine, and direct SDK calls to every major provider. No LangChain,
-            no glue tower. The surfaces you see talk to it over one streamed event contract.
-          </p>
-          <div class="taglist">
-            <span class="tag"><b>+</b> Anthropic · OpenAI · Google · OSS</span>
-            <span class="tag"><b>+</b> prompt caching</span>
-            <span class="tag"><b>+</b> model-per-agent</span>
-            <span class="tag"><b>+</b> approval gates</span>
-            <span class="tag"><b>+</b> sandboxed tools</span>
-          </div>
-        </div>
-        <div class="stack reveal" aria-hidden="true">
-          <div class="tier"><span class="t-name">Web &amp; Desktop</span><span class="t-desc">chat · memory · teams · traces</span></div>
-          <div class="flowarr">↑ REST + SSE · one event contract</div>
-          <div class="tier"><span class="t-name">Aloy backend</span><span class="t-desc">tenancy · auth · policy · traces</span></div>
-          <div class="flowarr">↑ composes</div>
-          <div class="tier kernel-tier"><span class="t-name">Pori kernel</span><span class="t-desc">loop · delegation · memory · evals</span></div>
         </div>
       </div>
     </div>
@@ -322,7 +272,7 @@
       <div class="caps reveal">
         <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h7"/></svg></span><h4>Live streaming</h4><p>Answers and a separate, collapsible reasoning view stream as they're written.</p></div>
         <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M6 8.4v3.6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8.4M12 14v1.6"/></svg></span><h4>Sub-agent delegation</h4><p>Single, parallel batch, or fire-and-forget — each in its own clean context.</p></div>
-        <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 0 0-4 4v1a3 3 0 0 0 0 6v1a4 4 0 0 0 8 0v-1a3 3 0 0 0 0-6V7a4 4 0 0 0-4-4Z"/></svg></span><h4>Scoped memory</h4><p>Org → team → personal knowledge, resolved so the most specific wins.</p></div>
+        <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 0 0-4 4v1a3 3 0 0 0 0 6v1a4 4 0 0 0 8 0v-1a3 3 0 0 0 0-6V7a4 4 0 0 0-4-4Z"/></svg></span><h4>Personal memory</h4><p>It remembers your preferences, projects, and decisions — and applies them next time.</p></div>
         <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2 3 3.5.5-2.5 2.5.6 3.5L12 10l-3.6 1.5.6-3.5L6.5 5.5 10 5z"/><path d="M6 20h12"/></svg></span><h4>Skills</h4><p>Reusable, on-demand instruction packs the agent loads when relevant.</p></div>
         <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 11h4M8 15h6"/><circle cx="16" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></span><h4>Clarify buttons</h4><p>When it needs a decision, it asks with buttons and waits for your tap.</p></div>
         <div class="cap"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg></span><h4>Traces &amp; cost</h4><p>Every run is a span tree with per-tenant token and cost accounting.</p></div>
@@ -335,12 +285,11 @@
   <div class="final">
     <div class="final-card reveal">
       <h2>Run your own Aloy.</h2>
-      <p>Bring the whole stack up on your machine in about ten minutes — the kernel is open, the backend is yours, the knowledge is layered.</p>
+      <p>Your agent, your data, your machine — up and running in about ten minutes.</p>
       <div class="cta-row">
         <a class="btn btn-onaccent" href="#">Read the quickstart
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
-        <a class="btn btn-onaccent-ghost" href="#">Explore the Pori kernel</a>
       </div>
     </div>
   </div>
@@ -353,13 +302,12 @@
         <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0F8571"/><path d="M16 7.5 L24 24 H19.6 L16 16.2 L12.4 24 H8 Z" fill="white"/></svg>
         Aloy
       </span>
-      <div class="foot-meta">Built on the open Pori kernel · eval-native · memory-native</div>
+      <div class="foot-meta">Yours by design · remembers what matters · shows its work</div>
     </div>
     <div class="foot-links">
       <a href="#capabilities">Product</a>
-      <a href="#kernel">Kernel</a>
-      <a href="#start">Docs</a>
-      <a href="#">GitHub</a>
+      <a href="#how">How it works</a>
+      <a href="#start">Get started</a>
     </div>
   </div>
 </footer>
