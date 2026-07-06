@@ -1,6 +1,51 @@
 # Current State
 
-_Last updated: 2026-07-04 (end of a large multi-part session)._
+_Last updated: 2026-07-06 (professionalism audit session)._
+
+## NEW: Legacy donor repos retired (2026-07-06)
+
+`pori_cloud`, `pori_cloud_client`, `pori_website` — local folders deleted
+(verified fully pushed first; zero unpushed commits) and their GitHub repos
+**archived** (read-only, reversible via unarchive). `pori_docs` also deleted at
+the user's direction (was not a git repo; held only historical design notes —
+Letta memory research, old implementation plans — all superseded by shipped
+code and docs/). The monorepo is now the single source of truth; the workspace
+holds only `Pori/` (monorepo) + `references/` (Hermes deep-dives). The
+"pori_docs will be merged in" note in docs/README.md is now stale — remove it
+next time docs/ is touched.
+
+## NEW: Kernel/product separation is now ENFORCED (2026-07-06)
+
+The Pori-vs-Aloy boundary went from designed-on-paper to CI-enforced:
+- `tools/ci/importlinter.ini` rewritten for the REAL layout (`pori` at root,
+  `pori_cloud` under `products/aloy/backend`) — was inert, referenced a
+  never-built `packages/pori` layout. `check-boundaries.sh` activated (handles
+  Git Bash/Windows paths via cygpath). Verified both ways: clean tree → 2
+  contracts KEPT; injected `import pori_cloud` into kernel → BROKEN, exit 1.
+- New `boundaries` CI job in `ci.yml` runs it on every push/PR.
+- Kernel wheel verified self-contained: only `pori` + prompts, zero product
+  leakage (`uv build` + zip inspection).
+- **Discovery: `pori` 1.4.0 IS on PyPI already** (2026-04-23, by Aloy) — the
+  kernel is separately consumable today, just 219 commits stale. Next release
+  (1.5.0 + changelog) closes the gap. `publish.yml` stale DISABLED header fixed;
+  it uses Trusted Publishing — user must configure the Trusted Publisher on
+  pypi.org before the next release, or wire the token path.
+- README now has a "One kernel, many products" section + `pip install pori`;
+  MONOREPO.md and tools/ci/README.md updated from "staged" to enforced.
+- User's decision pending (asked, was AFK): enforced monorepo (recommended,
+  what was implemented — extraction stays a 2-line swap) vs splitting repos now.
+  Nothing done blocks a later split.
+
+## NEW: Full professionalism audit (2026-07-06)
+
+A 4-agent audit of every surface (kernel, backend, app+client, website, desktop, repo
+hygiene) produced a prioritized findings list with file:line refs and a suggested order
+of attack. **Read `.agent/progress/audits/2026-07-06-professionalism-audit.md` before
+starting improvement work.** Headline blockers: LICENSE file missing (MIT advertised in
+3 places), release story broken (no PyPI, CHANGELOG 219 commits stale), zero TS tests/CI,
+backend durable worker never started in docker-compose, clarify/rate-limit break under
+`--workers 2`, ~20 silent catches + no Error Boundary in the app, landing-page CTAs all
+`href="#"`, tracked `debug.log`/`config.yaml` at root.
 
 ## What Pori/Aloy is
 
