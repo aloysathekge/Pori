@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .agent_configs import router as agent_configs_router
 from .conversations import router as conversations_router
+from .cron import router as cron_router
 from .evolution import router as evolution_router
 from .memory import router as memory_router
 from .organizations import router as organizations_router
@@ -24,3 +25,4 @@ router.include_router(usage_router)
 router.include_router(users_router)
 router.include_router(memory_router)
 router.include_router(traces_router)
+router.include_router(cron_router)

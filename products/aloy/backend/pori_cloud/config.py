@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Durable worker
     worker_poll_seconds: float = 1.0
     worker_lease_seconds: int = 900
+    # How often the worker loop checks for due cron jobs
+    cron_tick_seconds: float = 20.0
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

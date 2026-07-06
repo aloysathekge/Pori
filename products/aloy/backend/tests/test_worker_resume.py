@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+
 from pori_cloud.background import (
     _make_progress_checkpointer,
     execute_claimed_run,

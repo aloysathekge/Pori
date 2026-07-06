@@ -1,6 +1,26 @@
 # Current State
 
-_Last updated: 2026-07-06 (professionalism audit session)._
+_Last updated: 2026-07-06 (marathon implementation session)._
+
+## NEW: Marathon Phases 1–3 IMPLEMENTED (2026-07-06, stacked PRs #95/#96/#97)
+
+All three phases of `docs/long-running.md` landed as stacked PRs (merge in
+order; user merges). Phase 1 (kernel): write-ahead tool journal
+(`status='dispatched'` persisted before side effects; `pending_dispatches()`
+after crash), per-step TaskState checkpoint (n_steps/plan/activity),
+`Agent(resume_task_id=…)` resume, salvage summary on dead runs
+(`result['partial_result']`), compress_context default ON, sqlite config
+default. Phase 2: wall-clock budget (`BudgetLedger.start_clock`), orchestrator
+resume passthrough, Aloy worker resumes re-claimed runs from `runs.progress`
+(new column, migration j6e7f8a9b0c1) — the per-step checkpoint callback IS the
+lease heartbeat; docker-compose worker service added (audit blocker closed).
+Phase 3: cron engine (`pori_cloud/cron.py`, CronJob table k7a8b9c0d1e2,
+croniter dep, /v1/cron CRUD, tick piggybacked on worker loop,
+advance-before-enqueue at-most-once); delivery = cron job's conversation_id →
+assistant Message on completion. NOT done: delegate_task(background)→run-queue
+bridge (API/worker support exists), team checkpointing. Kernel 540 tests,
+backend 57 tests, all green. Fixed pre-existing broken
+test_streaming_plan (stale poll_interval kwarg).
 
 ## NEW: Legacy donor repos retired (2026-07-06)
 
