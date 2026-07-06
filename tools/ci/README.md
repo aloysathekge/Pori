@@ -8,22 +8,18 @@ products → ext → pori        (never upward)
 
 `pori` (kernel) must import nothing from `ext`/`products`. This is enforced with **[import-linter](https://github.com/seddonym/import-linter)** using [`importlinter.ini`](./importlinter.ini).
 
-### Status: STAGED (inert until Phase 4)
+### Status: ACTIVE
 
-The contract targets the post-migration package layout (`packages/pori`, `packages/ext/pori-*`, `products/aloy`). Those packages don't exist yet (the kernel still lives at repo-root `pori/`), so the check is **staged, not active**. It activates during the Phase 4 migration.
+The contract targets the real layout — the kernel at repo-root `pori/` and the Aloy backend package `pori_cloud` under `products/aloy/backend/`. It is enforced by the `boundaries` job in `.github/workflows/ci.yml`, which fails the build if the kernel imports from any product.
 
-### Run it (once packages exist)
+### Run it locally
 
 ```bash
 pip install import-linter
-lint-imports --config tools/ci/importlinter.ini
-# or:
 bash tools/ci/check-boundaries.sh
 ```
 
-### Wire into CI (Phase 4)
-
-Add a required job that runs `lint-imports --config tools/ci/importlinter.ini`. Until then, keep it out of the required set so it doesn't block on nonexistent packages.
+The script puts the repo root and `products/aloy/backend` on `PYTHONPATH` (Windows/Git Bash handled) and runs `lint-imports --config tools/ci/importlinter.ini`. As extension packages appear under `extensions/`, add them to `root_packages` and the layers in the ini.
 
 ## Supply-chain gates (to add — see Implementation Plan M0)
 
