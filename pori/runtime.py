@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -51,10 +52,30 @@ class BudgetLedger:
         self.steps_used = 0
         self.tokens_used = 0
         self.cost_used_usd = 0.0
+        # Wall-clock deadline (max_duration_seconds): armed by the first
+        # start_clock() so parent + children share one clock.
+        self._clock_started_at: Optional[float] = None
         self._lock = threading.Lock()
+
+    def start_clock(self) -> None:
+        """Arm the wall-clock deadline. Idempotent — first caller wins, so a
+        ledger shared with child runs measures from the parent's start."""
+        with self._lock:
+            if self._clock_started_at is None:
+                self._clock_started_at = time.monotonic()
+
+    def _check_deadline_locked(self) -> None:
+        if (
+            self.budget.max_duration_seconds is not None
+            and self._clock_started_at is not None
+            and time.monotonic() - self._clock_started_at
+            > self.budget.max_duration_seconds
+        ):
+            raise BudgetExceeded("Duration budget exceeded")
 
     def consume_step(self, count: int = 1) -> None:
         with self._lock:
+            self._check_deadline_locked()
             next_value = self.steps_used + count
             if self.budget.max_steps is not None and next_value > self.budget.max_steps:
                 raise BudgetExceeded("Step budget exceeded")
@@ -90,9 +111,15 @@ class BudgetLedger:
                 "max_steps": self.budget.max_steps,
                 "max_tokens": self.budget.max_tokens,
                 "max_cost_usd": self.budget.max_cost_usd,
+                "max_duration_seconds": self.budget.max_duration_seconds,
                 "steps_used": self.steps_used,
                 "tokens_used": self.tokens_used,
                 "cost_used_usd": self.cost_used_usd,
+                "duration_seconds_used": (
+                    time.monotonic() - self._clock_started_at
+                    if self._clock_started_at is not None
+                    else 0.0
+                ),
             }
 
 

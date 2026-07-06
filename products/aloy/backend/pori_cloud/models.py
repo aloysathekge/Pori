@@ -437,6 +437,12 @@ class Run(SQLModel, table=True):
     selected_skills: list[str] | None = Field(default=None, sa_column=Column(JSON))
     artifacts: list[dict] | None = Field(default=None, sa_column=Column(JSON))
     plan: list[dict] | None = Field(default=None, sa_column=Column(JSON))
+    # Live loop checkpoint written every step while the run executes:
+    # {kernel_task_id, n_steps, consecutive_failures, current_activity, plan,
+    #  updated_at}. On a re-claim after a crash/expired lease, the worker
+    # injects this into memory and RESUMES the kernel task from its last step
+    # instead of restarting from zero (docs/long-running.md Phase 2).
+    progress: dict | None = Field(default=None, sa_column=Column(JSON))
     attempt_count: int = 0
     max_attempts: int = 3
     timeout_seconds: int = 900

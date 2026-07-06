@@ -334,6 +334,46 @@ class TestSalvageSummary:
         assert result["partial_result"] is None
         assert llm.plain_calls == 0
 
+    async def test_duration_budget_enforced(self):
+        import time as _time
+
+        from pori.runtime import BudgetExceeded, BudgetLedger, ExecutionBudget
+
+        ledger = BudgetLedger(ExecutionBudget(max_duration_seconds=0.01))
+        ledger.start_clock()
+        _time.sleep(0.05)
+        with pytest.raises(BudgetExceeded, match="Duration"):
+            ledger.consume_step()
+        snapshot = ledger.snapshot()
+        assert snapshot["max_duration_seconds"] == 0.01
+        assert snapshot["duration_seconds_used"] > 0
+
+    async def test_no_duration_budget_never_expires(self):
+        from pori.runtime import BudgetLedger, ExecutionBudget
+
+        ledger = BudgetLedger(ExecutionBudget())
+        ledger.start_clock()
+        ledger.consume_step()  # must not raise
+
+    async def test_orchestrator_forwards_resume_task_id(self, registry):
+        from pori import Orchestrator
+
+        store = InMemoryMemoryStore()
+        memory = AgentMemory(session_id="orch-resume", store=store)
+        orchestrator = Orchestrator(
+            llm=MockLLM([ANSWER, DONE]), tools_registry=registry
+        )
+        result = await orchestrator.execute_task(
+            task="stable task",
+            agent_settings=AgentSettings(max_steps=5),
+            memory=memory,
+            resume_task_id="stable-orch-id",
+        )
+        assert result["success"] is True
+        # The kernel task ran under the caller-supplied stable id
+        assert "stable-orch-id" in memory.tasks
+        assert memory.tasks["stable-orch-id"].status == "completed"
+
     async def test_salvage_fails_open(self, registry):
         class ExplodingLLM(MockLLM):
             async def ainvoke(self, messages):

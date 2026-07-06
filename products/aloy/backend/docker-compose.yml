@@ -28,3 +28,21 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Durable run executor. Without this service, POST /v1/runs and the durable
+  # send_message path enqueue runs that nothing ever executes. Leases are
+  # DB-based (skip_locked on Postgres), so scale with --scale worker=N.
+  worker:
+    image: pori-cloud:latest
+    container_name: pori-cloud-worker
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - /opt/pori-cloud/.env
+    command: ["pori-cloud-worker"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

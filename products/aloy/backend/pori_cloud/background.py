@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from pori import AgentSettings
 from sqlmodel import select
+
+from pori import AgentMemory, AgentSettings
 
 from .conversation_runtime import (
     flush_context_artifact,
@@ -51,6 +52,92 @@ def _serialize_metrics(metrics: dict | None) -> dict | None:
         return str(obj)
 
     return json.loads(json.dumps(metrics, default=_default))
+
+
+def kernel_task_id_for_run(run_id: str) -> str:
+    """Stable kernel task id derived from the Run row.
+
+    Passing this as ``resume_task_id`` on every attempt means: first attempt
+    creates the kernel task under this id; a re-claimed attempt resumes it
+    from the checkpoint instead of minting a new task and starting over.
+    """
+    return f"run-{run_id[:12]}"
+
+
+def _make_progress_checkpointer(run_id: str, worker_id: str, kernel_task_id: str):
+    """Per-step callback: persist the loop checkpoint AND renew the lease.
+
+    This is the heartbeat (docs/long-running.md Phase 2): while steps advance,
+    the checkpoint lands in ``runs.progress`` (its own short session + commit,
+    so it survives a later rollback of the main run transaction) and the lease
+    is extended. A hung or dead worker stops renewing, the lease expires, and
+    another worker re-claims + resumes from the last persisted step. Failures
+    here must never break the run itself.
+    """
+    from .config import settings as app_settings
+
+    async def _checkpoint(agent) -> None:
+        try:
+            async with async_session() as beat_session:
+                run = await beat_session.get(Run, run_id)
+                if run is None or run.lease_owner != worker_id:
+                    return
+                run.progress = {
+                    "kernel_task_id": kernel_task_id,
+                    "n_steps": agent.state.n_steps,
+                    "consecutive_failures": agent.state.consecutive_failures,
+                    "current_activity": agent.state.current_activity,
+                    "plan": agent._plan_snapshot(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                run.steps_taken = agent.state.n_steps
+                # Heartbeat: progress is proof of life — extend the lease so a
+                # long-but-advancing run is never re-claimed out from under us.
+                run.lease_expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=max(
+                        app_settings.worker_lease_seconds,
+                        run.timeout_seconds + 30,
+                    )
+                )
+                beat_session.add(run)
+                await beat_session.commit()
+        except Exception:  # pragma: no cover - heartbeat must never kill a run
+            logger.warning(
+                "Progress checkpoint failed for run %s", run_id, exc_info=True
+            )
+
+    return _checkpoint
+
+
+def _inject_resume_checkpoint(memory, run: Run, kernel_task_id: str) -> bool:
+    """Seed a reconstructed AgentMemory with the persisted loop checkpoint.
+
+    The worker's AgentMemory is rebuilt from the database each attempt, so the
+    kernel's own per-step checkpoint is not in it. If this run has prior
+    progress, recreate the task record and restore the checkpoint so
+    ``resume_task_id`` continues from the recorded step. Returns True when a
+    resume was injected.
+    """
+    progress = run.progress or {}
+    n_steps = int(progress.get("n_steps") or 0)
+    if progress.get("kernel_task_id") != kernel_task_id or n_steps <= 0:
+        return False
+    if kernel_task_id not in memory.tasks:
+        memory.create_task(kernel_task_id, run.task)
+    memory.checkpoint_task_progress(
+        kernel_task_id,
+        n_steps=n_steps,
+        consecutive_failures=0,  # fresh attempt: don't inherit a failure streak
+        current_activity=str(progress.get("current_activity") or ""),
+        plan=list(progress.get("plan") or []),
+    )
+    logger.info(
+        "Run %s resuming kernel task %s from step %s",
+        run.id,
+        kernel_task_id,
+        n_steps,
+    )
+    return True
 
 
 async def execute_claimed_run(run_id: str, worker_id: str) -> None:
@@ -161,17 +248,47 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     allowed_models=policy.allowed_models or None,
                     skill_catalog=skill_catalog,
                 )
+                # Resume-not-restart: run under a stable kernel task id. A
+                # first attempt creates it; a re-claim after a crash/expired
+                # lease injects the persisted checkpoint and continues from
+                # the recorded step (docs/long-running.md Phase 2).
+                kernel_task_id = kernel_task_id_for_run(run.id)
+                if memory is None:
+                    memory = AgentMemory(
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        agent_id=run.agent_id,
+                        session_id=run.session_id,
+                    )
+                _inject_resume_checkpoint(memory, run, kernel_task_id)
+                checkpoint = _make_progress_checkpointer(
+                    run.id, worker_id, kernel_task_id
+                )
                 result = await asyncio.wait_for(
                     orchestrator.execute_task(
                         task=run.task,
                         agent_settings=AgentSettings(max_steps=run.max_steps),
                         run_context=run_context,
+                        memory=memory,
+                        resume_task_id=kernel_task_id,
+                        on_step_end=checkpoint,
                     ),
                     timeout=run.timeout_seconds,
                 )
                 agent = result.get("agent")
                 final = agent.memory.get_final_answer() if agent else None
                 metrics = result.get("result", {}).get("metrics")
+                # Salvage passthrough: a run that exhausted its budget without
+                # an answer still surfaces its best-effort handoff (Phase 1).
+                partial = (result.get("result") or {}).get("partial_result")
+                if partial and not (final or {}).get("final_answer"):
+                    final = {
+                        "final_answer": partial.get("summary"),
+                        "reasoning": (
+                            f"Partial result — run stopped early "
+                            f"({partial.get('reason', 'unknown')})."
+                        ),
+                    }
 
             if run.cancel_requested:
                 run.status = "cancelled"
