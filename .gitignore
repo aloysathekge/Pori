@@ -2,9 +2,14 @@
 .env
 .env.local
 
-# JS/TS surfaces (apps/) — deps + lockfiles managed by the workspace (docs/Aloy.md §11.6)
+# JS/TS surfaces — deps + lockfiles managed by the bun workspace
 node_modules/
-apps/**/package-lock.json
+products/**/package-lock.json
+packages/**/package-lock.json
+
+# Local runtime state — create config.yaml from config.example.yaml
+/config.yaml
+/debug.log
 
 # Python
 __pycache__/
