@@ -465,3 +465,42 @@ class Run(SQLModel, table=True):
         default_factory=_utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
+
+
+class CronJob(SQLModel, table=True):
+    """A recurring task: each due tick enqueues a normal Run on the worker
+    queue (docs/long-running.md Phase 3). At-most-once firing is guaranteed by
+    advancing next_run_at inside the same transaction that enqueues the Run,
+    before commit — the Hermes cron pattern."""
+
+    __tablename__ = "cron_jobs"
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    name: str
+    task: str
+    # Either a 5-field cron expression ("0 7 * * 1-5") or "@every:SECONDS".
+    schedule: str
+    enabled: bool = True
+    max_steps: int = 15
+    # When set, completed runs deliver their answer into this conversation as
+    # an assistant message — the existing surface the app already renders.
+    conversation_id: str | None = Field(default=None, index=True)
+    next_run_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    last_run_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    last_run_id: str | None = None
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )

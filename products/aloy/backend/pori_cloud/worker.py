@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import socket
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -14,6 +15,7 @@ from sqlmodel import select
 
 from .background import execute_claimed_run
 from .config import settings
+from .cron import tick_cron_jobs
 from .database import async_session
 from .models import Run
 
@@ -70,7 +72,17 @@ async def run_once(worker_id: str | None = None) -> bool:
 async def serve(worker_id: str | None = None) -> None:
     resolved_worker_id = worker_id or default_worker_id()
     logger.info("Pori Cloud worker started: %s", resolved_worker_id)
+    # Cron piggybacks on the worker loop: every cron_tick_seconds, due jobs
+    # are advanced-then-enqueued (at-most-once even with several workers —
+    # see cron.tick_cron_jobs). No separate scheduler process to deploy.
+    last_cron_tick = 0.0
     while True:
+        if time.monotonic() - last_cron_tick >= settings.cron_tick_seconds:
+            last_cron_tick = time.monotonic()
+            try:
+                await tick_cron_jobs()
+            except Exception:
+                logger.exception("Cron tick failed; will retry next tick")
         worked = await run_once(resolved_worker_id)
         if not worked:
             await asyncio.sleep(settings.worker_poll_seconds)

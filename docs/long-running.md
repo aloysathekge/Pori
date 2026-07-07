@@ -3,6 +3,17 @@
 _2026-07-06. Source: two deep audits — Hermes marathon mechanisms (references/hermes-agent)
 crossed against Pori's current state. Pattern-harvest only (kernel never pastes Hermes code)._
 
+**Status (2026-07-06, same session):** Phases 1–3 are implemented across three
+stacked PRs (#95 Phase 1, #96 Phase 2, Phase 3 follows #96). Implemented:
+write-ahead tool journal, per-step checkpoint, `Agent(resume_task_id=…)`,
+salvage summary, compression-on-by-default, sqlite config default, wall-clock
+budget, worker resume-not-restart with checkpoint-as-heartbeat lease renewal,
+docker-compose worker service, cron engine (at-most-once → run queue) with
+CRUD routes, delivery into conversations via the existing Message path.
+**Still open:** wiring the kernel's `delegate_task(background=true)` to enqueue
+backend child Runs (API + worker support exist; the tool→queue bridge needs its
+own focused pass), and team-run checkpointing.
+
 ## The verdict in one line
 
 Pori is resilient **within** a process (LLM retry+jitter, layered loop-detection

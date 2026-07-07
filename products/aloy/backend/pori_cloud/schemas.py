@@ -609,3 +609,39 @@ class AgentConfigResponse(BaseModel):
     tools: list[str] | None
     is_default: bool
     created_at: datetime
+
+
+# --- Cron jobs (recurring runs, marathon Phase 3) ---
+
+
+class CronJobCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    task: str = Field(min_length=1, max_length=100_000)
+    # 5-field cron expression or "@every:SECONDS" (validated in the route)
+    schedule: str = Field(min_length=1, max_length=120)
+    max_steps: int = Field(15, ge=1, le=10_000)
+    conversation_id: str | None = None
+
+
+class CronJobUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=120)
+    task: str | None = Field(None, min_length=1, max_length=100_000)
+    schedule: str | None = Field(None, min_length=1, max_length=120)
+    max_steps: int | None = Field(None, ge=1, le=10_000)
+    conversation_id: str | None = None
+    enabled: bool | None = None
+
+
+class CronJobResponse(BaseModel):
+    id: str
+    name: str
+    task: str
+    schedule: str
+    enabled: bool
+    max_steps: int
+    conversation_id: str | None
+    next_run_at: datetime | None
+    last_run_at: datetime | None
+    last_run_id: str | None
+    created_at: datetime
+    updated_at: datetime

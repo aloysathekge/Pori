@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from pori_cloud.streaming import stream_agent_execution
 
 pytestmark = pytest.mark.asyncio
