@@ -1067,9 +1067,15 @@ async def main():
         and config.sandbox.enabled
         and config.sandbox.base_dir
     ):
-        from pori.sandbox import LocalSandboxProvider, set_sandbox_provider
+        from pori.sandbox import (
+            LocalSandboxProvider,
+            create_sandbox_provider,
+            set_sandbox_provider,
+        )
 
-        set_sandbox_provider(LocalSandboxProvider())
+        set_sandbox_provider(
+            create_sandbox_provider(getattr(config.sandbox, "backend", "local"))
+        )
         sandbox_base_dir = str(Path(config.sandbox.base_dir).resolve())
         logger.info(f"Sandbox enabled; base_dir={sandbox_base_dir}")
 

@@ -1,7 +1,7 @@
 """initial_run_table
 
 Revision ID: a577558e49f6
-Revises: 
+Revises:
 Create Date: 2026-03-25 12:14:18.102357
 
 """

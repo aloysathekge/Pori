@@ -123,6 +123,9 @@ memory:
 # sandbox:
 #   enabled: true
 #   base_dir: .pori_sandbox   # or e.g. /tmp/pori_sandbox
+#   # Execution backend: local (host, cooperative) or e2b (cloud microVM,
+#   # true isolation). e2b needs E2B_API_KEY and: pip install 'pori[sandbox-e2b]'
+#   backend: local
 
 # Human-in-the-Loop: require approval before executing certain tools
 # hitl:

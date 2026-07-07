@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Save, User } from 'lucide-react';
+import { useCallback, useState, useEffect } from 'react';
+import { Save, ShieldCheck, ShieldAlert, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { Badge } from '@/components/ui/Badge';
 import { getProfile, updateProfile } from '@/api/profile';
+import { getExecutionStatus, type ExecutionStatus } from '@/api/system';
 import type { UserProfileResponse } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { SoulEditor } from '@/components/settings/SoulEditor';
@@ -13,18 +14,14 @@ import { SoulEditor } from '@/components/settings/SoulEditor';
 export function SettingsPage() {
   const { session } = useAuth();
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
+  const [execution, setExecution] = useState<ExecutionStatus | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function load() {
-    setLoading(true);
+  const load = useCallback(async () => {
     try {
       const p = await getProfile();
       setProfile(p);
@@ -32,10 +29,20 @@ export function SettingsPage() {
       setAvatarUrl(p.avatar_url || '');
     } catch {
       // handle silently
+    }
+    try {
+      setExecution(await getExecutionStatus());
+    } catch {
+      // execution status is best-effort; hide the card if it fails
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
 
   async function handleSave() {
     setSaving(true);
@@ -115,6 +122,43 @@ export function SettingsPage() {
           )}
         </div>
       </Card>
+
+      {execution && (
+        <Card className="mb-6 space-y-3">
+          <h2 className="text-sm font-semibold text-zinc-300">
+            Secure execution
+          </h2>
+          <div className="flex items-start gap-3">
+            <span
+              className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                execution.isolated
+                  ? 'bg-accent-50 text-accent-600'
+                  : 'bg-zinc-800 text-zinc-500'
+              }`}
+            >
+              {execution.isolated ? (
+                <ShieldCheck size={18} />
+              ) : (
+                <ShieldAlert size={18} />
+              )}
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-zinc-200">
+                  {execution.label}
+                </span>
+                {execution.isolated && (
+                  <Badge color="accent">isolated</Badge>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-zinc-400">{execution.detail}</p>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-500">
+            Managed by Aloy — nothing to configure here.
+          </p>
+        </Card>
+      )}
 
       <div className="mb-6">
         <SoulEditor />

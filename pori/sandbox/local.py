@@ -13,6 +13,7 @@ from typing import Dict, Optional
 
 from .base import Sandbox, SandboxProvider
 from .command_safety import hardline_violation
+from .env_safety import sanitized_subprocess_env
 
 
 class LocalSandbox(Sandbox):
@@ -67,6 +68,9 @@ class LocalSandbox(Sandbox):
                 text=True,
                 timeout=300,
                 cwd=resolved_cwd,
+                # Never hand the agent the host's secrets: provider API keys,
+                # tokens, and DB URLs are stripped before every command.
+                env=sanitized_subprocess_env(),
             )
             out = result.stdout or ""
             err = result.stderr or ""

@@ -9,6 +9,7 @@ from .memory import router as memory_router
 from .organizations import router as organizations_router
 from .runs import router as runs_router
 from .skills import router as skills_router
+from .system import router as system_router
 from .teams import router as teams_router
 from .traces import router as traces_router
 from .usage import router as usage_router
