@@ -2,6 +2,23 @@
 
 _Last updated: 2026-07-06 (marathon implementation session)._
 
+## NEW: Tier 1 of the Hermes gap IMPLEMENTED (2026-07-07, PRs #102/#103/#104)
+
+All three Tier-1 items from docs/hermes-gap-2026-07.md, as independent PRs:
+(1) #102 multimodal message content — TextBlock/ImageBlock in llm/messages.py,
+mapped in all provider adapters (OpenRouter/Fireworks inherit via ChatOpenAI);
+str content stays valid everywhere. (2) #103 cross-provider failover —
+FailoverChatModel chain consuming the existing error classifier; llm.fallbacks
+config; sticky switch; overflow/content-policy deliberately NOT triggers;
+credential POOLING still open. (3) #104 Telegram gateway slice —
+pori_cloud/gateway/ (BasePlatformAdapter ABC, TelegramAdapter over raw Bot API
+via httpx, registry, DeliveryRouter), pairing codes (POST /v1/gateway/pair →
+send code to bot), GatewayLink+migration l8b9c0d1e2f3, inbound messages become
+durable Runs in a per-chat Conversation (get resume/salvage free), results
+delivered back on completion; pori-cloud-gateway entrypoint + compose service
+(profile 'gateway'). NEXT gateway steps: voice-note STT, images-in (needs
+#102), group semantics, Slack adapter, cron-delivery via DeliveryRouter.
+
 ## NEW: Second Hermes mining pass — gap analysis (2026-07-07)
 
 Source-level sweep of references/hermes-agent for everything NOT yet

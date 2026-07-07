@@ -51,6 +51,7 @@ dev = [
 [project.scripts]
 pori-cloud = "pori_cloud.main:run"
 pori-cloud-worker = "pori_cloud.worker:run"
+pori-cloud-gateway = "pori_cloud.gateway.service:run"
 
 [tool.black]
 line-length = 88
