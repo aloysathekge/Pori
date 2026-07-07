@@ -15,6 +15,7 @@ export interface MessageMetadata {
   artifacts?: Artifact[];
   plan?: PlanItem[];
   selected_skills?: string[];
+  run_id?: string | null;
 }
 
 export interface MessageResponse {

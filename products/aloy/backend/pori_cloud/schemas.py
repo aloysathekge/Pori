@@ -663,3 +663,14 @@ class GatewayLinkResponse(BaseModel):
     chat_title: str | None
     conversation_id: str | None
     created_at: datetime
+
+
+# --- Run event log (read-only replay) ---
+
+
+class RunEventLogResponse(BaseModel):
+    run_id: str
+    conversation_id: str | None
+    events: list[dict]
+    event_count: int
+    created_at: datetime

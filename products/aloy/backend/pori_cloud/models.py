@@ -467,6 +467,30 @@ class Run(SQLModel, table=True):
     )
 
 
+class RunEventLog(SQLModel, table=True):
+    """A coalesced, replayable log of a run's kernel PoriEvents.
+
+    One row per run: the ordered event stream (streamed token deltas coalesced
+    into text/thinking blocks; tool calls, steps, retries kept verbatim) so the
+    app can offer a read-only replay of what the agent did. Tenant-scoped;
+    written in the same transaction that persists the Run."""
+
+    __tablename__ = "run_event_logs"
+
+    run_id: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    conversation_id: str | None = Field(default=None, index=True)
+    events: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    event_count: int = 0
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class GatewayLink(SQLModel, table=True):
     """A paired external chat (e.g. one Telegram chat) bound to an Aloy user.
 

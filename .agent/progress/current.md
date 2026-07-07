@@ -2,6 +2,26 @@
 
 _Last updated: 2026-07-07 (Tier-1 + sandbox + app design session)._
 
+## NEW: Read-only run replay viewer (2026-07-07)
+
+Aloy-only (kernel untouched — the boundary paid off). The kernel already
+EMITS the full PoriEvent stream via on_event; Aloy taps the existing SSE
+`push` sink and persists a coalesced log. Backend: `RunEventLog` table (one
+row per run, migration m9c0d1e2f3a4), `pori_cloud/event_log.py`
+EventLogCollector (coalesces consecutive text/thinking deltas into blocks,
+keeps structural events verbatim, caps at MAX_EVENTS), recorded on the
+serving-loop consume side in streaming.py (no thread race), persisted in the
+same txn as the Run in conversations.py send_message, `run_id` added to
+assistant Message metadata, `GET /v1/runs/{id}/events` (RUN_READ, tenant-
+scoped). App: `api/runEvents.ts`, `RunReplay` modal (read-only timeline with
+play/pause + scrubber), a "Replay" button on assistant MessageBubbles that
+carry a run_id. Backend 77 tests (8 new: collector coalescing/caps + endpoint
+happy/404/cross-org). NOTE: capture is on the STREAMING (interactive chat)
+path only; durable-worker/cron/gateway runs don't yet capture a log — clean
+follow-up (pass a collector on_event in background.py). This is the cheap-80%
+of the OpenHands event-stream idea; NOT event-sourcing (state still resumes
+from checkpoints, not replay).
+
 ## SESSION SUMMARY — everything below is MERGED to main, CI green (2026-07-07)
 
 PRs #92–#106 all merged; zero open PRs; the branches are deleted. Do NOT

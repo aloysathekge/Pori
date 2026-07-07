@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ..database import get_session
+from ..event_log import EventLogCollector
 from ..memory_records import record_to_row, request_scope, row_to_record
 from ..models import (
     AgentConfig,
@@ -23,6 +24,7 @@ from ..models import (
     KnowledgeEntry,
     Message,
     Run,
+    RunEventLog,
     TeamConfig,
     TraceRecord,
     UsageRecord,
@@ -834,6 +836,8 @@ async def send_message(
             isolation_profile="shared-process",
         )
 
+        event_collector = EventLogCollector()
+
         async def _stream():
             result_holder: dict = {}
 
@@ -842,6 +846,7 @@ async def send_message(
                 task=req.content,
                 settings=agent_settings,
                 run_context=stream_context,
+                collector=event_collector,
             ):
                 # Capture the final message event so we can persist it
                 if event.startswith("event: message\n"):
@@ -867,6 +872,8 @@ async def send_message(
                         "selected_skills": msg_data.get("selected_skills") or [],
                         "artifacts": msg_data.get("artifacts") or [],
                         "plan": msg_data.get("plan") or [],
+                        # Links the message to its replay log (GET /runs/{id}/events).
+                        "run_id": stream_context.run_id,
                     },
                 )
                 session.add(assistant_msg)
@@ -900,6 +907,25 @@ async def send_message(
                     plan=msg_data.get("plan") or [],
                 )
                 session.add(run)
+
+                # Read-only replay log: the coalesced event stream for this run,
+                # persisted in the same transaction (best-effort — a log failure
+                # must never lose the message/run).
+                try:
+                    events = event_collector.finalize()
+                    if events:
+                        session.add(
+                            RunEventLog(
+                                run_id=stream_context.run_id,
+                                organization_id=stream_context.organization_id,
+                                user_id=user_id,
+                                conversation_id=conv.id,
+                                events=events,
+                                event_count=len(events),
+                            )
+                        )
+                except Exception:
+                    logger.warning("Failed to persist run event log", exc_info=True)
 
                 conv.updated_at = datetime.now(timezone.utc)
                 session.add(conv)
