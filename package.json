@@ -6,7 +6,6 @@
   "workspaces": [
     "packages/*",
     "products/*/app",
-    "products/*/desktop",
     "products/*/website"
   ]
 }

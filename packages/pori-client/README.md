@@ -1,23 +1,22 @@
-# `@pori/client` — Aloy transport
+# `@pori/client` — product-neutral transport
 
-The single typed client for the Aloy backend. The **web** (`products/aloy/app`) and
-**desktop** (`products/aloy/desktop`) surfaces both import it, so the wire protocol lives
-in exactly one place.
+The shared typed client for Pori product backends (`/v1` surface). Product UIs
+(e.g. `products/aloy/app`) import it so the wire protocol lives in one place.
 
 **Owns:**
 
-- **`AloyClient`** — REST + SSE client for the `/v1` surface: `submitTask`,
+- **`PoriClient`** — REST + SSE client for the `/v1` surface: `submitTask`,
   `streamTask` (SSE over a POST body), `submitClarification` (the `ask_user`
   button bridge), `getTaskStatus`, `getTaskResult`.
-- **`PoriEvent` types** — a 1:1 mirror of the kernel's event contract
-  (`text_delta`, `thinking_delta`, `tool_call_start/end`, `clarification_request`,
-  `run_end`, …).
-- **`parseSseStream`** — incremental SSE decoder for the event stream.
+- **`PoriEvent` types + event-name constants** — a 1:1 mirror of the kernel's
+  event contract (`text_delta`, `thinking_delta`, `tool_call_start/end`,
+  `clarification_request`, `run_end`, …).
+- **`parseFrame`** — incremental SSE frame decoder for the event stream.
 
 ```ts
-import { AloyClient } from "@pori/client";
+import { PoriClient } from "@pori/client";
 
-const client = new AloyClient({ baseUrl: "http://localhost:8000", apiKey });
+const client = new PoriClient({ baseUrl: "http://localhost:8000", apiKey });
 
 await client.streamTask("Compare Postgres and SQLite for our use case", {
   onText: (chunk) => appendAnswer(chunk),
@@ -38,4 +37,4 @@ backend. Rebranded `@hermes/shared` → `@pori/client`. See `references/HARVEST.
 ## Auth
 
 The backend expects the API key in the `X-API-Key` header (`PORI_API_KEY` on the
-server). Pass it as `apiKey` to `AloyClient`.
+server). Pass it as `apiKey` to `PoriClient`.
