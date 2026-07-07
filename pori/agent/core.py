@@ -172,9 +172,15 @@ class Agent:
         soul_text: Optional[str] = None,
         load_project_context: bool = False,
         tool_context_extra: Optional[Dict[str, Any]] = None,
+        resume_task_id: Optional[str] = None,
     ):
-        # Generate unique task ID for tracking (also used as thread_id for sandbox)
-        self.task_id = str(uuid.uuid4())[:8]  # Short ID for logging
+        # Generate unique task ID for tracking (also used as thread_id for sandbox).
+        # A caller may pass resume_task_id to adopt an existing (interrupted)
+        # task instead: the loop position, plan, and history are restored from
+        # the memory store's per-step checkpoint and the run continues from
+        # where it stopped rather than from step 0.
+        self.task_id = resume_task_id or str(uuid.uuid4())[:8]
+        self._resuming = resume_task_id is not None
         # Extra keys merged into every tool's context (e.g. a clarify_handler that
         # renders options as gateway buttons instead of a CLI menu).
         self._tool_context_extra = dict(tool_context_extra or {})
@@ -317,9 +323,41 @@ class Agent:
         self._trace: Optional[Trace] = None
         self._current_step_span: Optional[Span] = None
 
-        # Create task record
-        self.memory.create_task(self.task_id, task)
-        logger.info(f"Created task record in memory", extra={"task_id": self.task_id})
+        # Create (or, when resuming, re-adopt) the task record
+        resumed_task = self.memory.tasks.get(self.task_id) if self._resuming else None
+        if resumed_task is not None:
+            if resumed_task.status != "in_progress":
+                raise ValueError(
+                    f"Cannot resume task {self.task_id}: "
+                    f"status is '{resumed_task.status}', expected 'in_progress'"
+                )
+            # Restore the loop position and plan from the last step checkpoint.
+            self.state.n_steps = resumed_task.n_steps
+            self.state.consecutive_failures = resumed_task.consecutive_failures
+            self.state.current_activity = resumed_task.current_activity
+            if resumed_task.plan:
+                self.plan_store.write(resumed_task.plan)
+            self.memory.begin_task(self.task_id)
+            # Surface write-ahead journal entries that never completed: the
+            # previous process died mid-tool, so those side effects are unknown.
+            interrupted = self.memory.pending_dispatches(self.task_id)
+            if interrupted:
+                names = ", ".join(sorted({r.tool_name for r in interrupted}))
+                self.memory.add_message(
+                    "system",
+                    f"[resume] The previous run was interrupted while executing: "
+                    f"{names}. Those side effects may or may not have taken "
+                    f"place — verify their outcome before re-running them.",
+                )
+            logger.info(
+                f"Resuming task from step {self.state.n_steps}",
+                extra={"task_id": self.task_id},
+            )
+        else:
+            self.memory.create_task(self.task_id, task)
+            logger.info(
+                f"Created task record in memory", extra={"task_id": self.task_id}
+            )
 
         # Set up system message
         self._setup_system_message()
@@ -553,6 +591,22 @@ class Agent:
                     )
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
+
+        # Checkpoint the loop position on the task record so an interrupted run
+        # can resume from here instead of step 0 (fail-open).
+        try:
+            self.memory.checkpoint_task_progress(
+                self.task_id,
+                n_steps=self.state.n_steps,
+                consecutive_failures=self.state.consecutive_failures,
+                current_activity=self.state.current_activity,
+                plan=self._plan_snapshot(),
+            )
+        except Exception as checkpoint_err:
+            logger.debug(
+                f"Failed to checkpoint task progress: {checkpoint_err}",
+                extra={"task_id": self.task_id},
+            )
 
     async def _invoke_for_action(self) -> AgentOutput:
         """Build messages, call the model, and parse one action decision."""
@@ -851,6 +905,8 @@ class Agent:
             # Extract tool name and parameters
             tool_name = list(action_dict.keys())[0]
             params = action_dict[tool_name]
+            # Write-ahead journal id for this action (set just before execution)
+            dispatch_id: Optional[str] = None
 
             logger.info(
                 f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
@@ -1203,6 +1259,19 @@ class Agent:
                     "task_id": self.task_id,
                     **self._tool_context_extra,
                 }
+                # Write-ahead journal: persist the dispatch BEFORE side effects
+                # run, so a crash mid-tool is distinguishable on resume from a
+                # call that never happened (fail-open).
+                try:
+                    dispatch_id = self.memory.record_tool_dispatch(
+                        tool_name, params if isinstance(params, dict) else {}
+                    )
+                except Exception as dispatch_err:
+                    logger.debug(
+                        f"Failed to journal dispatch for {tool_name}: {dispatch_err}",
+                        extra={"task_id": self.task_id},
+                    )
+
                 tool_result = self.tool_executor.execute_tool(
                     tool_name=tool_name,
                     params=params,
@@ -1276,13 +1345,18 @@ class Agent:
                         extra={"task_id": self.task_id},
                     )
 
-                # Record the tool call
-                self.memory.add_tool_call(
-                    tool_name=tool_name,
-                    parameters=params,
-                    result=tool_result,
-                    success=success,
-                )
+                # Complete the write-ahead journal entry with the real result
+                if dispatch_id is not None:
+                    self.memory.complete_tool_dispatch(
+                        dispatch_id, tool_result, success
+                    )
+                else:
+                    self.memory.add_tool_call(
+                        tool_name=tool_name,
+                        parameters=params,
+                        result=tool_result,
+                        success=success,
+                    )
 
                 # Cache the result for potential reuse within this step
                 try:
@@ -1320,6 +1394,19 @@ class Agent:
                     extra={"task_id": self.task_id},
                     exc_info=True,
                 )
+                # Close the write-ahead journal entry: the process survived, so
+                # the outcome is known (failed) — only a real crash may leave a
+                # record in "dispatched".
+                if dispatch_id is not None:
+                    try:
+                        self.memory.complete_tool_dispatch(
+                            dispatch_id, {"error": str(e)}, success=False
+                        )
+                    except Exception as journal_err:
+                        logger.debug(
+                            f"Failed to close dispatch journal: {journal_err}",
+                            extra={"task_id": self.task_id},
+                        )
                 results.append(
                     ActionResult(
                         success=False,
@@ -1449,7 +1536,11 @@ class Agent:
                     "metrics": None,
                 }
 
-        for step_count in range(self.settings.max_steps):
+        # Budget the loop by remaining steps so a resumed run continues from its
+        # checkpoint instead of getting max_steps all over again. Fresh runs
+        # (n_steps == 0) behave exactly as before.
+        remaining_steps = max(0, self.settings.max_steps - self.state.n_steps)
+        for _ in range(remaining_steps):
             # Check control flags
             if self.cancellation_token.cancelled:
                 logger.info("Agent cancelled", extra={"task_id": self.task_id})
@@ -1566,6 +1657,18 @@ class Agent:
         current_task = self.memory.tasks.get(self.task_id)
         completed = current_task is not None and current_task.status == "completed"
 
+        # Salvage: a run that dies without an answer still delivers a handoff.
+        partial_result = None
+        if (
+            not completed
+            and self.settings.salvage_summary
+            and self.state.n_steps > 0
+            and not self.cancellation_token.cancelled
+            and not self.state.stopped
+            and self.memory.get_final_answer() is None
+        ):
+            partial_result = await self._salvage_best_effort_summary()
+
         # Finalize metrics
         if self._run_metrics is not None:
             try:
@@ -1650,7 +1753,59 @@ class Agent:
             "artifacts": self._run_artifacts(),
             "plan": self._plan_snapshot(),
             "budget_usage": self.budget_ledger.snapshot(),
+            "partial_result": partial_result,
         }
+
+    async def _salvage_best_effort_summary(self) -> Optional[Dict[str, Any]]:
+        """One tools-stripped LLM call that turns a dead run into a handoff.
+
+        When the loop stops without an answer (step limit, failure limit,
+        budget), the work already paid for is summarized — what was done, what
+        was found, what remains — instead of discarded. Fails open: any error
+        returns None and the run result is unchanged.
+        """
+        try:
+            if self.state.consecutive_failures >= self.settings.max_failures:
+                reason = "failure_limit"
+            elif self.state.n_steps >= self.settings.max_steps:
+                reason = "step_limit"
+            else:
+                reason = "budget_exhausted"
+            messages = self._build_messages()
+            messages.append(
+                UserMessage(
+                    content=(
+                        f"The run has stopped before completing the task "
+                        f"(reason: {reason}). Do not attempt any further "
+                        "actions or tool calls. In plain text, briefly "
+                        "summarize: (1) what was accomplished, (2) key "
+                        "findings or artifacts produced so far, (3) what "
+                        "remains to be done and the best next step."
+                    )
+                )
+            )
+            response = await self.llm.ainvoke(messages)
+            text = (response if isinstance(response, str) else str(response)).strip()
+            if not text:
+                return None
+            partial = {
+                "summary": text,
+                "reason": reason,
+                "steps_taken": self.state.n_steps,
+            }
+            self.memory.add_message("assistant", f"[partial-result] {text}")
+            self.memory.update_state("partial_result", partial)
+            logger.info(
+                f"Salvaged best-effort summary after {reason}",
+                extra={"task_id": self.task_id},
+            )
+            return partial
+        except Exception as salvage_err:
+            logger.debug(
+                f"Salvage summary failed (fail-open): {salvage_err}",
+                extra={"task_id": self.task_id},
+            )
+            return None
 
     def pause(self) -> None:
         """Pause the agent."""

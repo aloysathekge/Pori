@@ -299,6 +299,12 @@ class ToolCallRecord(BaseModel):
     success: bool
     timestamp: datetime = Field(default_factory=datetime.now)
     task_id: Optional[str] = None
+    # Write-ahead journal state: "dispatched" is persisted BEFORE the tool runs,
+    # then flipped to "completed" with the real result. A record still marked
+    # "dispatched" after a restart means the process died mid-tool — the call
+    # may or may not have taken effect, so a resumed run must verify before
+    # redoing it rather than blindly re-executing a side-effecting tool.
+    status: str = "completed"
 
 
 class TaskState(BaseModel):
@@ -307,6 +313,14 @@ class TaskState(BaseModel):
     status: str = "in_progress"
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
+    # Loop-state checkpoint (persisted every step) so an interrupted run can be
+    # resumed by a new Agent instead of restarting from step 0. `plan` mirrors
+    # the model-owned PlanStore items as plain dicts.
+    n_steps: int = 0
+    consecutive_failures: int = 0
+    current_activity: str = ""
+    plan: List[Dict[str, Any]] = Field(default_factory=list)
+    progress_updated_at: Optional[datetime] = None
 
     def complete(self, success: bool = True):
         self.status = "completed" if success else "failed"
@@ -673,6 +687,86 @@ class AgentMemory:
         self.tool_call_history.append(tool_call)
         self._persist()
         return tool_call.id
+
+    def record_tool_dispatch(self, tool_name: str, parameters: Dict[str, Any]) -> str:
+        """Write-ahead journal a tool call BEFORE it executes.
+
+        Persisting the dispatch first means a crash mid-tool leaves evidence the
+        call was attempted (status stays "dispatched"), so recovery can verify
+        the side effect instead of blindly re-running it. Pair with
+        :meth:`complete_tool_dispatch` after execution.
+        """
+        tool_call = ToolCallRecord(
+            tool_name=tool_name,
+            parameters=parameters,
+            result={},
+            success=False,
+            task_id=self.current_task_id,
+            status="dispatched",
+        )
+        self.tool_call_history.append(tool_call)
+        self._persist()
+        return tool_call.id
+
+    def complete_tool_dispatch(
+        self,
+        record_id: str,
+        result: Dict[str, Any],
+        success: bool,
+    ) -> None:
+        """Fill in the result for a write-ahead dispatch record.
+
+        Falls back to appending a fresh completed record if the dispatch record
+        is missing, so a bookkeeping slip never loses the actual result.
+        """
+        for record in reversed(self.tool_call_history):
+            if record.id == record_id:
+                record.result = result
+                record.success = success
+                record.status = "completed"
+                self._persist()
+                return
+        self.add_tool_call(
+            tool_name="unknown", parameters={}, result=result, success=success
+        )
+
+    def pending_dispatches(self, task_id: str) -> List[ToolCallRecord]:
+        """Tool calls journaled as dispatched but never completed for a task.
+
+        Non-empty after a reload means a previous process died mid-tool; a
+        resumed run should verify those side effects before repeating them.
+        """
+        return [
+            record
+            for record in self.tool_call_history
+            if record.task_id == task_id and record.status == "dispatched"
+        ]
+
+    def checkpoint_task_progress(
+        self,
+        task_id: str,
+        *,
+        n_steps: int,
+        consecutive_failures: int = 0,
+        current_activity: str = "",
+        plan: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Persist the run loop's position on the task record (every step).
+
+        This is what makes an interrupted run resumable: a new Agent constructed
+        with ``resume_task_id`` restores its step counter and plan from here
+        instead of starting over.
+        """
+        task = self.tasks.get(task_id)
+        if task is None:
+            return
+        task.n_steps = n_steps
+        task.consecutive_failures = consecutive_failures
+        task.current_activity = current_activity
+        if plan is not None:
+            task.plan = plan
+        task.progress_updated_at = datetime.now()
+        self._persist()
 
     def create_task(self, task_id: str, description: str) -> TaskState:
         task = TaskState(task_id=task_id, description=description)

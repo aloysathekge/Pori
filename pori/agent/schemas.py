@@ -50,10 +50,18 @@ class AgentSettings(BaseModel):
     context_window_auto: bool = True
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
-    # AC-3: when True, summarize context that would overflow the window with an
-    # aux LLM call before it is dropped (instead of the cheap deterministic
-    # stub). Off by default — it adds an occasional auxiliary call on overflow.
-    compress_context: bool = False
+    # AC-3: when True (default), summarize context that would overflow the
+    # window with an aux LLM call before it is dropped (instead of the cheap
+    # deterministic stub). The call only fires on genuine overflow — with
+    # context_window_auto sizing that is rare on modern models — and losing
+    # real information on long runs costs far more than the occasional
+    # auxiliary call. Set False to fall back to the deterministic stub.
+    compress_context: bool = True
+    # When a run dies without an answer (step limit, failure limit, budget),
+    # make ONE final tools-stripped LLM call that salvages a best-effort
+    # summary of what was done, found, and what remains — instead of returning
+    # nothing. Skipped when no steps ran or an answer already exists.
+    salvage_summary: bool = True
     # AC-5: detect cross-step tool loops (same call failing repeatedly, or an
     # idempotent read returning the same result across steps) and nudge/halt.
     # Only fires on a detected loop, so it's cheap; on by default.
