@@ -111,7 +111,7 @@ export function SettingsPage() {
             Save
           </Button>
           {saved && (
-            <span className="text-sm text-emerald-400">Saved!</span>
+            <span className="text-sm text-emerald-700">Saved!</span>
           )}
         </div>
       </Card>

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { AloyMark } from '@/components/icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -30,7 +31,10 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center">
-          <img src="/pori-logo.svg" alt="Aloy" className="mx-auto mb-4 h-12" />
+          <span className="mb-4 inline-flex items-center gap-3">
+            <AloyMark size={40} />
+            <span className="font-display text-3xl font-semibold tracking-tight text-zinc-100">Aloy</span>
+          </span>
           <h1 className="text-2xl font-bold text-zinc-100">Welcome back</h1>
           <p className="mt-1 text-sm text-zinc-400">Sign in to Aloy</p>
         </div>
@@ -53,7 +57,7 @@ export function LoginPage() {
             required
           />
           {error && (
-            <p className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-400">
+            <p className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-600">
               {error}
             </p>
           )}
@@ -64,7 +68,7 @@ export function LoginPage() {
 
         <p className="text-center text-sm text-zinc-500">
           Don&apos;t have an account?{' '}
-          <Link to="/signup" className="text-indigo-400 hover:text-indigo-300">
+          <Link to="/signup" className="text-accent-600 hover:text-accent-700">
             Sign up
           </Link>
         </p>

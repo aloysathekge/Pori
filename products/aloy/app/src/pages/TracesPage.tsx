@@ -218,7 +218,7 @@ export function TracesPage() {
                 </span>
               </button>
               <button onClick={() => handleDelete(trace.id)}>
-                <Trash2 size={14} className="text-zinc-500 hover:text-red-400" />
+                <Trash2 size={14} className="text-zinc-500 hover:text-red-600" />
               </button>
             </Card>
           ))}

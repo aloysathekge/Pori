@@ -174,7 +174,7 @@ export function TeamsPage() {
                 <Badge
                   color={
                     team.mode === 'delegate'
-                      ? 'indigo'
+                      ? 'accent'
                       : team.mode === 'broadcast'
                         ? 'green'
                         : 'blue'
@@ -269,7 +269,7 @@ export function TeamsPage() {
                   <span className="text-xs text-zinc-500">Member {i + 1}</span>
                   {form.members.length > 1 && (
                     <button onClick={() => removeMember(i)}>
-                      <X size={14} className="text-zinc-500 hover:text-red-400" />
+                      <X size={14} className="text-zinc-500 hover:text-red-600" />
                     </button>
                   )}
                 </div>

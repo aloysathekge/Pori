@@ -312,7 +312,7 @@ export function ChatPage() {
                             key={opt}
                             type="button"
                             onClick={() => answerClarify(opt)}
-                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-indigo-500 hover:text-indigo-300"
+                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-accent-500 hover:text-accent-700"
                           >
                             {opt}
                           </button>
@@ -329,7 +329,7 @@ export function ChatPage() {
             <div className="border-t border-zinc-800 p-4">
               <div className="mx-auto flex max-w-3xl gap-3">
                 <input
-                  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
                   placeholder="Type a message..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

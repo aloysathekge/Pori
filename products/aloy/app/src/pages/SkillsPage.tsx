@@ -21,7 +21,7 @@ const EMPTY: SkillCreate = {
 };
 
 const INPUT =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none';
+  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none';
 
 export function SkillsPage() {
   const [skills, setSkills] = useState<SkillResponse[]>([]);
@@ -113,7 +113,7 @@ export function SkillsPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {error && (
-          <div className="mb-4 rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 text-sm text-red-300">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {error}
           </div>
         )}
