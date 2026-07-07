@@ -1,10 +1,10 @@
 # Pori Cloud API image.
 #
 # Build context MUST be the parent directory containing both `Pori/` and
-# `pori_cloud/` side-by-side, because pori_cloud's pyproject.toml declares
+# `aloy_backend/` side-by-side, because aloy_backend's pyproject.toml declares
 # pori as an editable local path dep (`../Pori`).
 #
-#   docker build -f pori_cloud/Dockerfile -t pori-cloud:latest ..
+#   docker build -f aloy_backend/Dockerfile -t aloy-backend:latest ..
 #
 # or equivalently via docker-compose.yml (context: ..).
 
@@ -24,9 +24,9 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 COPY Pori /app/Pori
-COPY pori_cloud /app/pori_cloud
+COPY aloy_backend /app/aloy_backend
 
-WORKDIR /app/pori_cloud
+WORKDIR /app/aloy_backend
 # --frozen uses the committed uv.lock. --no-dev skips the [dev] extras.
 RUN uv sync --frozen --no-dev
 
@@ -35,7 +35,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/pori_cloud/.venv/bin:$PATH"
+    PATH="/app/aloy_backend/.venv/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
@@ -46,14 +46,14 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app /app
 
 USER app
-WORKDIR /app/pori_cloud
+WORKDIR /app/aloy_backend
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/v1/health || exit 1
 
-CMD ["uvicorn", "pori_cloud.api:app", \
+CMD ["uvicorn", "aloy_backend.api:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--workers", "2", \

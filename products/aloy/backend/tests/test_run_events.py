@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 import pytest
 from pori.observability import PoriEvent
 
-from pori_cloud.event_log import MAX_EVENTS, EventLogCollector
-from pori_cloud.models import RunEventLog
+from aloy_backend.event_log import MAX_EVENTS, EventLogCollector
+from aloy_backend.models import RunEventLog
 
 pytestmark = pytest.mark.asyncio
 

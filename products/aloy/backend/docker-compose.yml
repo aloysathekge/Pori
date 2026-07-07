@@ -1,22 +1,22 @@
-# Invoke from /opt/pori-cloud/pori_cloud/ on the EC2 instance:
+# Invoke from /opt/aloy-backend/aloy_backend/ on the EC2 instance:
 #   docker compose up -d --build
 #
 # The build context is the parent dir so the image can see both
-# `Pori/` (the framework, editable path dep) and `pori_cloud/` (the API).
+# `Pori/` (the framework, editable path dep) and `aloy_backend/` (the API).
 
 services:
   api:
     build:
       context: ..
-      dockerfile: pori_cloud/Dockerfile
-    image: pori-cloud:latest
-    container_name: pori-cloud-api
+      dockerfile: aloy_backend/Dockerfile
+    image: aloy-backend:latest
+    container_name: aloy-backend-api
     restart: unless-stopped
     # Bind to loopback only — nginx terminates TLS and proxies in.
     ports:
       - "127.0.0.1:8000:8000"
     env_file:
-      - /opt/pori-cloud/.env
+      - /opt/aloy-backend/.env
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/v1/health"]
       interval: 30s
@@ -33,14 +33,14 @@ services:
   # send_message path enqueue runs that nothing ever executes. Leases are
   # DB-based (skip_locked on Postgres), so scale with --scale worker=N.
   worker:
-    image: pori-cloud:latest
-    container_name: pori-cloud-worker
+    image: aloy-backend:latest
+    container_name: aloy-backend-worker
     restart: unless-stopped
     depends_on:
       - api
     env_file:
-      - /opt/pori-cloud/.env
-    command: ["pori-cloud-worker"]
+      - /opt/aloy-backend/.env
+    command: ["aloy-backend-worker"]
     logging:
       driver: json-file
       options:
@@ -51,15 +51,15 @@ services:
   # in the env file; exits immediately otherwise, so enable with:
   #   docker compose --profile gateway up -d
   gateway:
-    image: pori-cloud:latest
-    container_name: pori-cloud-gateway
+    image: aloy-backend:latest
+    container_name: aloy-backend-gateway
     restart: unless-stopped
     profiles: ["gateway"]
     depends_on:
       - api
     env_file:
-      - /opt/pori-cloud/.env
-    command: ["pori-cloud-gateway"]
+      - /opt/aloy-backend/.env
+    command: ["aloy-backend-gateway"]
     logging:
       driver: json-file
       options:

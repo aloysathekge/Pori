@@ -13,7 +13,7 @@ if ! command -v lint-imports >/dev/null 2>&1; then
   exit 1
 fi
 
-# pori lives at the repo root; pori_cloud under the Aloy backend. Both must be
+# pori lives at the repo root; aloy_backend under the Aloy backend. Both must be
 # importable for grimp to build the graph. On Git Bash / MSYS, Windows Python
 # needs Windows-style paths and the ';' separator.
 SEP=":"

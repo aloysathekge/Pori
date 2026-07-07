@@ -1,6 +1,6 @@
 import pytest
 
-from pori_cloud.runtime import authenticated_run_context
+from aloy_backend.runtime import authenticated_run_context
 
 
 def test_authenticated_context_uses_server_owned_personal_tenant():

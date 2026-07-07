@@ -2,12 +2,26 @@
 
 _Last updated: 2026-07-07 (Tier-1 + sandbox + app design session)._
 
+## NEW: Backend package renamed pori_cloud -> aloy_backend (2026-07-07)
+
+The Aloy backend's Python package was `pori_cloud` (a leftover from when the
+hosted product was "Pori Cloud", before it was named Aloy). Renamed to
+`aloy_backend` for identity consistency: `git mv` the package + the deploy
+service file; scoped text replace `pori_cloud`->`aloy_backend` and
+`pori-cloud`->`aloy-backend` across the backend + tools/ci (51 files); entry
+points now `aloy-backend`/`aloy-backend-worker`/`aloy-backend-gateway`;
+`uv lock` regenerated; importlinter boundary updated (still KEPT). 77 backend
+tests pass. Note: the archived DONOR REPOS keep their historical names
+(pori_cloud/pori_cloud_client/pori_website) in provenance docs — only the
+in-repo package was renamed. Deploy Dockerfile/compose still assume the
+pre-monorepo sibling layout (known deploy-pass debt, unchanged here).
+
 ## NEW: Read-only run replay viewer (2026-07-07)
 
 Aloy-only (kernel untouched — the boundary paid off). The kernel already
 EMITS the full PoriEvent stream via on_event; Aloy taps the existing SSE
 `push` sink and persists a coalesced log. Backend: `RunEventLog` table (one
-row per run, migration m9c0d1e2f3a4), `pori_cloud/event_log.py`
+row per run, migration m9c0d1e2f3a4), `aloy_backend/event_log.py`
 EventLogCollector (coalesces consecutive text/thinking deltas into blocks,
 keeps structural events verbatim, caps at MAX_EVENTS), recorded on the
 serving-loop consume side in streaming.py (no thread race), persisted in the
@@ -65,7 +79,7 @@ str content stays valid everywhere. (2) #103 cross-provider failover —
 FailoverChatModel chain consuming the existing error classifier; llm.fallbacks
 config; sticky switch; overflow/content-policy deliberately NOT triggers;
 credential POOLING still open. (3) #104 Telegram gateway slice —
-pori_cloud/gateway/ (BasePlatformAdapter ABC, TelegramAdapter over raw Bot API
+aloy_backend/gateway/ (BasePlatformAdapter ABC, TelegramAdapter over raw Bot API
 via httpx, registry, DeliveryRouter), pairing codes (POST /v1/gateway/pair →
 send code to bot), GatewayLink+migration l8b9c0d1e2f3, inbound messages become
 durable Runs in a per-chat Conversation (get resume/salvage free), results
@@ -100,7 +114,7 @@ default. Phase 2: wall-clock budget (`BudgetLedger.start_clock`), orchestrator
 resume passthrough, Aloy worker resumes re-claimed runs from `runs.progress`
 (new column, migration j6e7f8a9b0c1) — the per-step checkpoint callback IS the
 lease heartbeat; docker-compose worker service added (audit blocker closed).
-Phase 3: cron engine (`pori_cloud/cron.py`, CronJob table k7a8b9c0d1e2,
+Phase 3: cron engine (`aloy_backend/cron.py`, CronJob table k7a8b9c0d1e2,
 croniter dep, /v1/cron CRUD, tick piggybacked on worker loop,
 advance-before-enqueue at-most-once); delivery = cron job's conversation_id →
 assistant Message on completion. NOT done: delegate_task(background)→run-queue
@@ -124,10 +138,10 @@ next time docs/ is touched.
 
 The Pori-vs-Aloy boundary went from designed-on-paper to CI-enforced:
 - `tools/ci/importlinter.ini` rewritten for the REAL layout (`pori` at root,
-  `pori_cloud` under `products/aloy/backend`) — was inert, referenced a
+  `aloy_backend` under `products/aloy/backend`) — was inert, referenced a
   never-built `packages/pori` layout. `check-boundaries.sh` activated (handles
   Git Bash/Windows paths via cygpath). Verified both ways: clean tree → 2
-  contracts KEPT; injected `import pori_cloud` into kernel → BROKEN, exit 1.
+  contracts KEPT; injected `import aloy_backend` into kernel → BROKEN, exit 1.
 - New `boundaries` CI job in `ci.yml` runs it on every push/PR.
 - Kernel wheel verified self-contained: only `pori` + prompts, zero product
   leakage (`uv build` + zip inspection).
@@ -202,7 +216,7 @@ the landing: `cd products/aloy/website && bun run dev`.
   delegation, clarify buttons, a Skills screen), and the **backend**
   (`products/aloy/backend`, harvested from `pori_cloud`) — multi-tenant, Supabase
   JWT auth, clarify via a worker-thread `ClarifyBridge`.
-- **The moat** (`products/aloy/backend/pori_cloud/scope_resolver.py`): layered
+- **The moat** (`products/aloy/backend/aloy_backend/scope_resolver.py`): layered
   org→team→personal knowledge; most-specific wins on a `conflict_key`. Personal
   layer populated; org/team slot in with no resolver change.
 - **The landing page** (`products/aloy/website/index.html`): calm modern-SaaS

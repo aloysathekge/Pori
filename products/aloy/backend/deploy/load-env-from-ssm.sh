@@ -4,14 +4,14 @@
 #
 #   load-env-from-ssm.sh [SSM_PATH] [OUT_FILE]
 #
-# Defaults: /pori-cloud/prod → /opt/pori-cloud/.env
+# Defaults: /aloy-backend/prod → /opt/aloy-backend/.env
 # Requires the AWS CLI and an IAM role (or credentials) with
 # ssm:GetParametersByPath + kms:Decrypt on the SSM KMS key.
 
 set -euo pipefail
 
-PREFIX="${1:-/pori-cloud/prod}"
-OUT="${2:-/opt/pori-cloud/.env}"
+PREFIX="${1:-/aloy-backend/prod}"
+OUT="${2:-/opt/aloy-backend/.env}"
 REGION="${AWS_REGION:-eu-west-1}"
 
 umask 077

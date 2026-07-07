@@ -3,9 +3,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import select
 
-from pori_cloud.background import execute_claimed_run
-from pori_cloud.models import Organization, OrganizationMembership, Run, TraceRecord
-from pori_cloud.worker import claim_next_run
+from aloy_backend.background import execute_claimed_run
+from aloy_backend.models import Organization, OrganizationMembership, Run, TraceRecord
+from aloy_backend.worker import claim_next_run
 
 pytestmark = pytest.mark.asyncio
 
@@ -32,7 +32,7 @@ async def test_api_enqueues_without_executing(client):
 async def test_worker_claims_pending_and_recovers_expired_lease(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.worker.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.worker.async_session", db_session_maker)
     async with db_session_maker() as session:
         pending = Run(
             organization_id="org-1",
@@ -80,7 +80,7 @@ async def test_worker_claims_pending_and_recovers_expired_lease(
 async def test_leased_worker_revalidates_membership_and_persists_trace(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
 
     class FakeOrchestrator:
         async def execute_task(self, **kwargs):
@@ -115,7 +115,7 @@ async def test_leased_worker_revalidates_membership_and_persists_trace(
             }
 
     monkeypatch.setattr(
-        "pori_cloud.background.build_orchestrator",
+        "aloy_backend.background.build_orchestrator",
         lambda **kwargs: FakeOrchestrator(),
     )
     async with db_session_maker() as session:
@@ -180,7 +180,7 @@ async def test_leased_worker_revalidates_membership_and_persists_trace(
 async def test_worker_rejects_run_after_membership_revocation(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
     invoked = False
 
     def should_not_build(**kwargs):
@@ -188,7 +188,7 @@ async def test_worker_rejects_run_after_membership_revocation(
         invoked = True
         raise AssertionError("model path must not run")
 
-    monkeypatch.setattr("pori_cloud.background.build_orchestrator", should_not_build)
+    monkeypatch.setattr("aloy_backend.background.build_orchestrator", should_not_build)
     async with db_session_maker() as session:
         session.add(
             Organization(

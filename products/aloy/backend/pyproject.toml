@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pori-cloud"
+name = "aloy-backend"
 version = "0.1"
 description = "Hosted service for Pori (multi-tenant runs, metrics, and enterprise features)"
 readme = "README.md"
@@ -49,9 +49,9 @@ dev = [
 ]
 
 [project.scripts]
-pori-cloud = "pori_cloud.main:run"
-pori-cloud-worker = "pori_cloud.worker:run"
-pori-cloud-gateway = "pori_cloud.gateway.service:run"
+aloy-backend = "aloy_backend.main:run"
+aloy-backend-worker = "aloy_backend.worker:run"
+aloy-backend-gateway = "aloy_backend.gateway.service:run"
 
 [tool.black]
 line-length = 88
@@ -62,4 +62,4 @@ profile = "black"
 line_length = 88
 
 [tool.setuptools.packages.find]
-include = ["pori_cloud*"]
+include = ["aloy_backend*"]

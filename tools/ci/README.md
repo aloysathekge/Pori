@@ -10,7 +10,7 @@ products → ext → pori        (never upward)
 
 ### Status: ACTIVE
 
-The contract targets the real layout — the kernel at repo-root `pori/` and the Aloy backend package `pori_cloud` under `products/aloy/backend/`. It is enforced by the `boundaries` job in `.github/workflows/ci.yml`, which fails the build if the kernel imports from any product.
+The contract targets the real layout — the kernel at repo-root `pori/` and the Aloy backend package `aloy_backend` under `products/aloy/backend/`. It is enforced by the `boundaries` job in `.github/workflows/ci.yml`, which fails the build if the kernel imports from any product.
 
 ### Run it locally
 
