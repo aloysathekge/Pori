@@ -1,20 +1,104 @@
+/* Aloy design system — warm-dark surfaces, teal identity, humanist type.
+   Fonts are self-hosted variable fonts (no CDN, no layout-shifting swap). */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
 
-html, body, #root {
+@theme {
+  /* Type: Inter for UI legibility, Bricolage Grotesque for identity moments
+     (brand, headings), JetBrains Mono for anything machine-shaped. */
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", monospace;
+
+  /* Aloy accent — the teal the brand owns (website: #0F8571). */
+  --color-accent-50: #ecf8f5;
+  --color-accent-100: #d0eee6;
+  --color-accent-200: #a5ddcd;
+  --color-accent-300: #6fc5ae;
+  --color-accent-400: #3aa88d;
+  --color-accent-500: #169176;
+  --color-accent-600: #0f8571;
+  --color-accent-700: #0c6a5b;
+  --color-accent-800: #0b5449;
+  --color-accent-900: #0a453c;
+  --color-accent-950: #052a25;
+
+  /* The neutral ramp maps the app onto the LANDING PAGE's warm-light
+     palette (off-white ground, white surfaces, warm paper lines, deep ink).
+     The components are authored in dark-mode utilities (bg-zinc-950 as the
+     page, zinc-100 as primary text), so this ramp is deliberately inverted:
+     one definition here restyles every screen to match the marketing site. */
+  --color-zinc-50: #14181a; /* deepest ink (rare) */
+  --color-zinc-100: #191c1e; /* primary text — landing --ink */
+  --color-zinc-200: #31373b; /* strong body / hover text */
+  --color-zinc-300: #4a5157; /* body text — near landing --body */
+  --color-zinc-400: #666e74; /* secondary text, inactive nav */
+  --color-zinc-500: #838a90; /* muted / placeholders — landing --muted */
+  --color-zinc-600: #c6c0b6; /* strong warm line (outline borders) */
+  --color-zinc-700: #dcd6cc; /* input borders, scrollbar thumb */
+  --color-zinc-800: #ece8e1; /* hairlines + hover fills + input fills */
+  --color-zinc-900: #ffffff; /* cards / surfaces — landing --surface */
+  --color-zinc-950: #fcfbf9; /* the page — landing --bg */
+}
+
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
 }
 
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  background: var(--color-zinc-950); /* landing off-white — no dark flash */
+  color: var(--color-zinc-100);
+  font-size: 15px;
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01"; /* Inter: open digits + friendlier a */
 }
 
-/* Scrollbar styling */
+/* Identity moments read in the display face. */
+h1,
+h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+}
+
+/* Numbers in dashboards should line up. */
+td,
+th {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent-600) 35%, transparent);
+}
+
+/* One focus language everywhere: a calm teal ring, only for keyboards. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars that belong to the surface, with a brand wink on hover. */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -22,10 +106,24 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 3px;
+  background: var(--color-zinc-700);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--color-accent-700);
+  background-clip: content-box;
+}
+
+/* Motion respects the reader. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

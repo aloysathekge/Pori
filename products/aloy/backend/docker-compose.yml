@@ -46,3 +46,22 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Messaging gateway (Telegram). Only useful when TELEGRAM_BOT_TOKEN is set
+  # in the env file; exits immediately otherwise, so enable with:
+  #   docker compose --profile gateway up -d
+  gateway:
+    image: pori-cloud:latest
+    container_name: pori-cloud-gateway
+    restart: unless-stopped
+    profiles: ["gateway"]
+    depends_on:
+      - api
+    env_file:
+      - /opt/pori-cloud/.env
+    command: ["pori-cloud-gateway"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

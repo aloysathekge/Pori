@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     sandbox_backend: str = "local"
     sandbox_enabled: bool = False
 
+    # Messaging gateway (pori-cloud-gateway). Telegram is enabled by setting
+    # the bot token; no token -> the adapter simply doesn't exist.
+    telegram_bot_token: str = ""
+    gateway_idle_sleep_seconds: float = 1.0
+    gateway_error_backoff_seconds: float = 5.0
+    gateway_pairing_ttl_seconds: int = 600
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @property

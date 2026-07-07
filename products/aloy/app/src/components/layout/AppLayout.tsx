@@ -1,32 +1,31 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import {
-  MessageSquare,
-  Bot,
-  Sparkles,
-  CalendarClock,
-  Users,
-  Brain,
-  BarChart3,
-  Activity,
-  Settings,
-  LogOut,
-  Menu,
-  X,
-} from 'lucide-react';
+import { LogOut, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
+import {
+  AgentsIcon,
+  AloyMark,
+  ChatIcon,
+  MemoryIcon,
+  SchedulesIcon,
+  SettingsIcon,
+  SkillsIcon,
+  TeamsIcon,
+  TracesIcon,
+  UsageIcon,
+} from '@/components/icons';
 
 const navItems = [
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/agents', icon: Bot, label: 'Agents' },
-  { to: '/skills', icon: Sparkles, label: 'Skills' },
-  { to: '/schedules', icon: CalendarClock, label: 'Schedules' },
-  { to: '/teams', icon: Users, label: 'Teams' },
-  { to: '/memory', icon: Brain, label: 'Memory' },
-  { to: '/usage', icon: BarChart3, label: 'Usage' },
-  { to: '/traces', icon: Activity, label: 'Traces' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/chat', icon: ChatIcon, label: 'Chat' },
+  { to: '/agents', icon: AgentsIcon, label: 'Agents' },
+  { to: '/skills', icon: SkillsIcon, label: 'Skills' },
+  { to: '/schedules', icon: SchedulesIcon, label: 'Schedules' },
+  { to: '/teams', icon: TeamsIcon, label: 'Teams' },
+  { to: '/memory', icon: MemoryIcon, label: 'Memory' },
+  { to: '/usage', icon: UsageIcon, label: 'Usage' },
+  { to: '/traces', icon: TracesIcon, label: 'Traces' },
+  { to: '/settings', icon: SettingsIcon, label: 'Settings' },
 ];
 
 export function AppLayout() {
@@ -38,49 +37,66 @@ export function AppLayout() {
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/30 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-zinc-800 bg-zinc-950 transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-zinc-800/80 bg-zinc-900/60 backdrop-blur transition-transform lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-14 items-center gap-3 border-b border-zinc-800 px-5">
-          <img src="/pori-icon.svg" alt="Aloy" className="h-8 w-8" />
-          <span className="text-lg font-semibold tracking-tight">Aloy</span>
+        <div className="flex h-16 items-center gap-3 border-b border-zinc-800/80 px-5">
+          <AloyMark size={30} />
+          <span className="font-display text-xl font-semibold tracking-tight">
+            Aloy
+          </span>
           <button
-            className="ml-auto lg:hidden"
+            className="ml-auto rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 lg:hidden"
+            aria-label="Close menu"
             onClick={() => setSidebarOpen(false)}
           >
             <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                   isActive
-                    ? 'bg-indigo-600/10 text-indigo-400'
-                    : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    ? 'bg-accent-600/15 text-accent-700'
+                    : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
                 }`
               }
             >
-              <item.icon size={18} />
-              {item.label}
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-500" />
+                  )}
+                  <item.icon
+                    size={19}
+                    className={
+                      isActive
+                        ? 'text-accent-600'
+                        : 'text-zinc-500 transition-colors group-hover:text-zinc-300'
+                    }
+                  />
+                  {item.label}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="border-t border-zinc-800 p-3">
+        <div className="border-t border-zinc-800/80 p-3">
           <Button
             variant="ghost"
             size="md"
@@ -95,12 +111,18 @@ export function AppLayout() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center border-b border-zinc-800 px-4 lg:hidden">
-          <button onClick={() => setSidebarOpen(true)}>
+        <header className="flex h-14 items-center border-b border-zinc-800/80 px-4 lg:hidden">
+          <button
+            aria-label="Open menu"
+            className="rounded-lg p-1.5 text-zinc-300 hover:bg-zinc-800"
+            onClick={() => setSidebarOpen(true)}
+          >
             <Menu size={20} />
           </button>
-          <img src="/pori-icon.svg" alt="Aloy" className="ml-3 h-6 w-6" />
-          <span className="font-semibold">Aloy</span>
+          <span className="ml-3 flex items-center gap-2">
+            <AloyMark size={22} />
+            <span className="font-display font-semibold">Aloy</span>
+          </span>
         </header>
         <main className="flex-1 overflow-y-auto">
           <Outlet />

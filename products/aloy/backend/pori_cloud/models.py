@@ -467,6 +467,50 @@ class Run(SQLModel, table=True):
     )
 
 
+class GatewayLink(SQLModel, table=True):
+    """A paired external chat (e.g. one Telegram chat) bound to an Aloy user.
+
+    Created by the pairing flow: the user mints a code in the product
+    (POST /v1/gateway/pair), sends it to the bot, and the gateway service
+    exchanges it for this link. All inbound messages from the chat run as
+    that user; all outbound delivery for the user can target the chat.
+    """
+
+    __tablename__ = "gateway_links"
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    platform: str = Field(index=True)  # "telegram" (more adapters later)
+    chat_id: str = Field(index=True)  # platform-native chat identifier
+    chat_title: str | None = None
+    # Dedicated conversation this chat maps to — inbound messages become runs
+    # in it, so history/memory behave exactly like the web app.
+    conversation_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class GatewayPairingCode(SQLModel, table=True):
+    """A short-lived one-time code that links an external chat to a user."""
+
+    __tablename__ = "gateway_pairing_codes"
+
+    code: str = Field(primary_key=True)  # 8 chars, uppercase
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    platform: str = "telegram"
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class CronJob(SQLModel, table=True):
     """A recurring task: each due tick enqueues a normal Run on the worker
     queue (docs/long-running.md Phase 3). At-most-once firing is guaranteed by

@@ -645,3 +645,21 @@ class CronJobResponse(BaseModel):
     last_run_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# --- Gateway (external chat pairing) ---
+
+
+class GatewayPairResponse(BaseModel):
+    code: str
+    platform: str
+    expires_at: datetime
+
+
+class GatewayLinkResponse(BaseModel):
+    id: str
+    platform: str
+    chat_id: str
+    chat_title: str | None
+    conversation_id: str | None
+    created_at: datetime
