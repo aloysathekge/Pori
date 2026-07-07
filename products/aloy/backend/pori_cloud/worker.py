@@ -88,7 +88,26 @@ async def serve(worker_id: str | None = None) -> None:
             await asyncio.sleep(settings.worker_poll_seconds)
 
 
+def _configure_sandbox() -> None:
+    """Aloy-managed isolation: point the kernel's sandbox provider at the
+    configured backend once, at worker startup. When e2b is selected but its
+    prereqs are missing, log and fall back to local rather than crash."""
+    if not settings.sandbox_enabled:
+        return
+    try:
+        from pori.sandbox import create_sandbox_provider, set_sandbox_provider
+
+        set_sandbox_provider(create_sandbox_provider(settings.sandbox_backend))
+        logger.info("Sandbox backend active: %s", settings.sandbox_backend)
+    except Exception:
+        logger.exception(
+            "Could not enable sandbox backend %r; agent code will run locally",
+            settings.sandbox_backend,
+        )
+
+
 def run() -> None:
+    _configure_sandbox()
     asyncio.run(serve())
 
 

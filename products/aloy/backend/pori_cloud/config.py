@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # How often the worker loop checks for due cron jobs
     cron_tick_seconds: float = 20.0
 
+    # Execution backend for agent shell/code: 'local' (runs on the worker
+    # host) or 'e2b' (isolated cloud microVM per session — needs E2B_API_KEY
+    # and the pori[sandbox-e2b] extra). Aloy-managed: users never configure
+    # this; it's an operator setting reflected read-only in the app.
+    sandbox_backend: str = "local"
+    sandbox_enabled: bool = False
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @property
