@@ -24,6 +24,8 @@ from pori import AgentSettings, Orchestrator, RunContext
 from pori.clarify import ClarificationRequest, ClarifyBridge
 from pori.observability import RUN_END, PoriEvent
 
+from .event_log import EventLogCollector
+
 logger = logging.getLogger("pori_cloud")
 
 # Active clarify bridges; the resolve endpoint routes an answer to whichever
@@ -57,6 +59,7 @@ async def stream_agent_execution(
     task: str,
     settings: AgentSettings,
     run_context: Optional[RunContext] = None,
+    collector: Optional[EventLogCollector] = None,
 ) -> AsyncGenerator[str, None]:
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
     serving_loop = asyncio.get_running_loop()
@@ -99,6 +102,13 @@ async def stream_agent_execution(
                 yield ": keepalive\n\n"  # keep the socket open
                 continue
             if isinstance(event, PoriEvent):
+                # Record on the serving loop (single-threaded here) for the
+                # read-only replay log — no race with the worker-thread push.
+                if collector is not None:
+                    try:
+                        collector.record(event)
+                    except Exception:  # logging must never break a run
+                        logger.debug("Event log capture failed", exc_info=True)
                 yield _porievent_frame(event)
                 if event.type == RUN_END:
                     break

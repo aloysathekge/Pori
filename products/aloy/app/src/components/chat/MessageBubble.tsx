@@ -1,9 +1,13 @@
-import { Bot, FileText, User } from 'lucide-react';
+import { useState } from 'react';
+import { Bot, FileText, History, User } from 'lucide-react';
 import type { MessageResponse } from '@/types';
+import { RunReplay } from './RunReplay';
 
 export function MessageBubble({ message }: { message: MessageResponse }) {
   const isUser = message.role === 'user';
   const artifacts = message.metadata?.artifacts ?? [];
+  const runId = message.metadata?.run_id ?? null;
+  const [replaying, setReplaying] = useState(false);
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -46,10 +50,10 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
         )}
 
         {message.metadata?.steps_taken != null && !isUser && (
-          <div className="mt-2 flex items-center gap-2 border-t border-zinc-700 pt-2 text-xs text-zinc-400">
+          <div className="mt-2 flex items-center gap-3 border-t border-zinc-700 pt-2 text-xs text-zinc-400">
             <span>{message.metadata.steps_taken} steps</span>
             {message.metadata.reasoning && (
-              <details className="ml-2">
+              <details className="ml-1">
                 <summary className="cursor-pointer hover:text-zinc-300">
                   Reasoning
                 </summary>
@@ -58,9 +62,22 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
                 </p>
               </details>
             )}
+            {runId && (
+              <button
+                type="button"
+                onClick={() => setReplaying(true)}
+                className="ml-auto inline-flex items-center gap-1 text-zinc-500 hover:text-accent-600"
+              >
+                <History size={12} /> Replay
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {replaying && runId && (
+        <RunReplay runId={runId} onClose={() => setReplaying(false)} />
+      )}
     </div>
   );
 }

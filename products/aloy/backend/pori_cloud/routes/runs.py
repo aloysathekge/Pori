@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ..database import get_session
-from ..models import Run
-from ..schemas import ChildRunCreate, RunRequest, RunResponse
+from ..models import Run, RunEventLog
+from ..schemas import ChildRunCreate, RunEventLogResponse, RunRequest, RunResponse
 from ..tenancy import OrganizationContext, Permission, require_permission
 
 logger = logging.getLogger("pori_cloud")
@@ -122,6 +122,19 @@ async def get_run(
     if not run or run.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+@router.get("/{run_id}/events", response_model=RunEventLogResponse)
+async def get_run_events(
+    run_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
+    session: AsyncSession = Depends(get_session),
+):
+    """The coalesced event log for a run — powers the read-only replay view."""
+    log = await session.get(RunEventLog, run_id)
+    if not log or log.organization_id != context.organization_id:
+        raise HTTPException(status_code=404, detail="Run event log not found")
+    return log
 
 
 @router.post("/{run_id}/children", response_model=RunResponse, status_code=202)
