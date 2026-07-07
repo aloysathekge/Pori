@@ -1,6 +1,40 @@
 # Current State
 
-_Last updated: 2026-07-06 (marathon implementation session)._
+_Last updated: 2026-07-07 (Tier-1 + sandbox + app design session)._
+
+## SESSION SUMMARY — everything below is MERGED to main, CI green (2026-07-07)
+
+PRs #92–#106 all merged; zero open PRs; the branches are deleted. Do NOT
+re-open or re-implement any of it — read this file, then AGENTS.md, before
+starting. What shipped this stretch, newest first:
+
+- **Sandbox / execution isolation (#106).** Kernel: `pori/sandbox/env_safety.py`
+  strips host secrets (API keys/tokens/DB URLs/venv markers) from every
+  agent-run subprocess — the LocalSandbox previously leaked the full env; this
+  is the cheap universal win, live now. New `E2BSandboxProvider`
+  (`pori/sandbox/e2b.py`, modeled on Hermes's Daytona backend): optional cloud
+  microVM, resume-or-create via a thread→sandbox-id JSON ledger (a resumed run
+  reconnects the SAME sandbox, files intact). Gated: needs `E2B_API_KEY` +
+  `pori[sandbox-e2b]` extra; `create_sandbox_provider(backend)` factory +
+  `config.sandbox.backend`. Aloy: worker sets the provider at startup from
+  `settings.sandbox_enabled`/`sandbox_backend` (falls back to local on error);
+  `GET /v1/system/execution` + a read-only "Secure execution" card in app
+  Settings REFLECTS it (Aloy-managed model — user configures nothing).
+  **Open decision:** bring-your-own-key (per-tenant E2B keys) NOT built — left
+  for the user (managed vs BYO-key is a real product fork).
+- **App design system (#105).** Aloy identity: self-hosted variable fonts
+  (Inter/Bricolage Grotesque/JetBrains Mono), a hand-drawn signal-dot icon
+  family (`src/components/icons.tsx`) replacing lucide in nav, the AloyMark
+  everywhere the pori-* logos were (all deleted). Palette matches the LANDING
+  PAGE (warm off-white light theme) via one remap of the zinc ramp in
+  `@theme` (src/index.css) — components authored dark-mode, ramp inverted, so
+  one block restyles all screens. Closes the "visual rebrand of the app"
+  roadmap item.
+- **Tier-1 Hermes gap (#102/#103/#104)** — details in the older section below.
+
+**Verification reality unchanged:** all of this is green in CI and
+verified-by-construction, but the stack has STILL never run end-to-end. That
+remains milestone #1 (see below) and is the highest-value next step.
 
 ## NEW: Tier 1 of the Hermes gap IMPLEMENTED (2026-07-07, PRs #102/#103/#104)
 
@@ -158,21 +192,43 @@ the landing: `cd products/aloy/website && bun run dev`.
 - **agent.py → package** (see layout above); public API unchanged; 524 tests +
   mypy green.
 
-## NOT done — next-session targets (roughly in priority)
+## NOT done — next-session targets (roughly in priority, refreshed 2026-07-07)
 
-1. **BOOT THE STACK.** Everything is verified-by-construction but has **never run
-   end-to-end.** Follow `products/aloy/BOOT.md` (SQLite default, needs a free
-   Supabase project + an LLM key). This is *the* milestone; a real run will surface
-   the first genuine bugs. Blocked on the user's Supabase + key.
-2. **Finish the moat**: user↔team membership + a way to tag knowledge as org/team
+1. **BOOT THE STACK — still milestone #1, still blocked on the user.** Everything
+   through #106 is CI-green + verified-by-construction but has **never run
+   end-to-end.** Follow `products/aloy/BOOT.md` (needs a free Supabase project +
+   an LLM key; optionally `E2B_API_KEY` to exercise the sandbox and a Telegram
+   bot token for the gateway). A real run surfaces the first genuine bugs — the
+   marathon/resume, cron, gateway, and sandbox paths are all unexercised live.
+2. **Cheap-win batch from `docs/hermes-gap-2026-07.md`** (each small, high-ROI):
+   docx/xlsx/ipynb extraction folded into `read_file` (stdlib, no new tool);
+   large tool-result spill-to-file; `pori doctor` (expose the existing
+   `diagnose_provider()`); blueprints (skill-with-cron-frontmatter — Pori now
+   has both halves).
+3. **Gateway follow-ups (Tier-1 continues):** voice-note STT (the #1 chat input),
+   image input (plumbing exists via #102 — needs an upload path + vision tool),
+   group-chat semantics (per-user session lanes, mention gating), a Slack
+   adapter, and wiring cron/background completions through the `DeliveryRouter`.
+4. **Sandbox end-to-end:** reap idle E2B sandboxes off the worker lease; store
+   the sandbox id in `runs.progress` so Aloy resume reconnects it; port the env
+   blocklist to the Aloy worker's own subprocess surface. **Open product fork:**
+   bring-your-own-key (per-tenant E2B keys) vs Aloy-managed (built) — user decides.
+5. **Credential pooling** (multiple keys per provider + cooldown) — the noted
+   follow-up to the #103 failover chain.
+6. **Finish the moat**: user↔team membership + tagging knowledge as org/team
    (today everything defaults personal) + a Profiles/scope UI.
-3. **Visual rebrand of the app**: swap `pori-*` logo/assets in
-   `products/aloy/app/public`, tune the palette to Aloy's.
-4. **`main.py` (1699 loc, the CLI)** — same package-split treatment as agent.py, if
-   we keep paying down god-files.
-5. Other Hermes control screens needing backend: Cron, MCP, Channels/Webhooks,
-   Files/Logs. **MCP is explicitly parked** (do not plan it unless asked).
-6. Desktop (Electron) is a stub.
+7. **`main.py` (~1700 loc, the CLI)** — package-split like agent.py, if still
+   paying down god-files.
+8. **PyPI release:** published `pori` is 1.4.0 (~220+ commits stale now). Cut
+   1.5.0 + refresh CHANGELOG; Trusted Publisher must be configured on pypi.org.
+9. Other control screens needing backend: MCP (**explicitly parked** — don't
+   plan unless asked), Channels/Webhooks, Files/Logs. Desktop (Electron) still a
+   README-only stub.
+
+**DONE this stretch (do not re-do):** visual rebrand of the app (#105) + landing
+match; cron/Schedules (#97/#100); LICENSE + audit quick wins (#99); kernel/product
+boundary in CI (#92); multimodal (#102); failover (#103); Telegram gateway (#104);
+sandbox + secrets blocklist + execution-status UI (#106).
 
 ## Constraints / process notes to carry forward (do not relearn these)
 
