@@ -6,8 +6,44 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from google import genai
 from pydantic import BaseModel
 
-from .messages import BaseMessage, ToolCall, ToolResultMessage, ToolTurn
+from .messages import (
+    BaseMessage,
+    ImageBlock,
+    MessageContent,
+    TextBlock,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+)
 from .retry import RetryConfig, retry_async
+
+
+def _to_google_parts(content: MessageContent) -> "list[genai.types.Part]":
+    """Map message content to Gemini Parts (str becomes one text part).
+
+    URL image sources degrade to a text placeholder — Gemini inline content
+    requires bytes, and silently dropping the image would hide information.
+    """
+    if isinstance(content, str):
+        return [genai.types.Part(text=content)]
+    import base64 as _base64
+
+    parts: "list[genai.types.Part]" = []
+    for block in content:
+        if isinstance(block, TextBlock):
+            parts.append(genai.types.Part(text=block.text))
+        elif isinstance(block, ImageBlock):
+            if block.source == "base64" and block.data:
+                parts.append(
+                    genai.types.Part.from_bytes(
+                        data=_base64.b64decode(block.data),
+                        mime_type=block.media_type,
+                    )
+                )
+            else:
+                parts.append(genai.types.Part(text=f"[image at {block.url}]"))
+    return parts or [genai.types.Part(text="")]
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -61,7 +97,7 @@ class ChatGoogle:
                 contents.append(
                     genai.types.Content(
                         role=role,
-                        parts=[genai.types.Part(text=msg.content)],
+                        parts=_to_google_parts(msg.content),
                     )
                 )
 
@@ -165,7 +201,7 @@ class ChatGoogle:
                 contents.append(
                     genai.types.Content(
                         role=role,
-                        parts=[genai.types.Part(text=msg.content)],
+                        parts=_to_google_parts(msg.content),
                     )
                 )
 

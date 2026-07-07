@@ -10,12 +10,34 @@ from ..observability.events import TEXT_DELTA, THINKING_DELTA, PoriEvent
 from .messages import (
     AssistantMessage,
     BaseMessage,
+    ImageBlock,
+    MessageContent,
+    TextBlock,
     ToolCall,
     ToolResultMessage,
     ToolTurn,
 )
 from .reasoning import StreamingThinkScrubber
 from .retry import RetryConfig, retry_async
+
+
+def _to_openai_content(content: MessageContent) -> Any:
+    """Map message content to OpenAI's shape (str passes through)."""
+    if isinstance(content, str):
+        return content
+    parts: list[dict[str, Any]] = []
+    for block in content:
+        if isinstance(block, TextBlock):
+            parts.append({"type": "text", "text": block.text})
+        elif isinstance(block, ImageBlock):
+            url = (
+                block.url
+                if block.source == "url"
+                else f"data:{block.media_type};base64,{block.data}"
+            )
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts or ""
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -58,7 +80,9 @@ class ChatOpenAI:
         output_format: type[T] | None = None,
     ) -> str | T:
         """Invoke OpenAI model."""
-        openai_messages = [{"role": m.role, "content": m.content} for m in messages]
+        openai_messages = [
+            {"role": m.role, "content": _to_openai_content(m.content)} for m in messages
+        ]
 
         request: dict[str, Any] = {
             "model": self.model,
@@ -160,7 +184,9 @@ class ChatOpenAI:
                     }
                 )
             else:
-                openai_messages.append({"role": m.role, "content": m.content})
+                openai_messages.append(
+                    {"role": m.role, "content": _to_openai_content(m.content)}
+                )
 
         request: dict[str, Any] = {
             "model": self.model,

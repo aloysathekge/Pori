@@ -6,9 +6,46 @@ from typing import Any, Callable, Generic, Optional, TypeVar, cast
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
-from .messages import BaseMessage, SystemMessage, ToolCall, ToolResultMessage, ToolTurn
+from .messages import (
+    BaseMessage,
+    ImageBlock,
+    MessageContent,
+    SystemMessage,
+    TextBlock,
+    ToolCall,
+    ToolResultMessage,
+    ToolTurn,
+)
 from .prompt_caching import cached_system, mark_last_messages
 from .retry import RetryConfig, retry_async
+
+
+def _to_anthropic_content(content: MessageContent) -> Any:
+    """Map message content to Anthropic's shape (str passes through)."""
+    if isinstance(content, str):
+        return content
+    blocks: list[dict[str, Any]] = []
+    for block in content:
+        if isinstance(block, TextBlock):
+            blocks.append({"type": "text", "text": block.text})
+        elif isinstance(block, ImageBlock):
+            if block.source == "base64":
+                blocks.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": block.media_type,
+                            "data": block.data,
+                        },
+                    }
+                )
+            else:
+                blocks.append(
+                    {"type": "image", "source": {"type": "url", "url": block.url}}
+                )
+    return blocks or ""
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -47,7 +84,9 @@ class ChatAnthropic:
             if isinstance(msg, SystemMessage):
                 system_prompt = msg.content
             else:
-                anthropic_messages.append({"role": msg.role, "content": msg.content})
+                anthropic_messages.append(
+                    {"role": msg.role, "content": _to_anthropic_content(msg.content)}
+                )
 
         # Build request
         request: dict[str, Any] = {
@@ -176,7 +215,9 @@ class ChatAnthropic:
                     }
                 )
             else:
-                anthropic_messages.append({"role": msg.role, "content": msg.content})
+                anthropic_messages.append(
+                    {"role": msg.role, "content": _to_anthropic_content(msg.content)}
+                )
 
         # Cache the stable prefix: mark the last few messages so that, combined
         # with the single volatile trailing message from Agent._build_messages,
