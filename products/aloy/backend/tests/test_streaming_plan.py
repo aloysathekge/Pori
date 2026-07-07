@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from pori_cloud.streaming import stream_agent_execution
 
 pytestmark = pytest.mark.asyncio
@@ -62,7 +61,6 @@ async def test_stream_final_message_includes_plan():
         _Orchestrator(plan),
         task="test",
         settings=_Settings(),
-        poll_interval=0,
     ):
         events.append(event)
 

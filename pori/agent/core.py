@@ -1492,6 +1492,9 @@ class Agent:
         """
         self._on_event = on_event
         self._stream = stream
+        # Arm the wall-clock budget (max_duration_seconds); idempotent, so a
+        # shared ledger measures from the first run that starts.
+        self.budget_ledger.start_clock()
         self._emit(RUN_START, {"task": self.task, "task_id": self.task_id})
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
         print(f"Starting task: {self.task}")

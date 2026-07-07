@@ -84,6 +84,7 @@ class Orchestrator:
         tool_context_extra: Optional[Dict[str, Any]] = None,
         session_key: Optional[str] = None,
         on_busy: str = "reject",
+        resume_task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent.
 
@@ -92,6 +93,10 @@ class Orchestrator:
         ``ConversationBusy`` (``on_busy='reject'``, the default) or awaits the
         in-flight run (``on_busy='coalesce'``), so a double-submit (retry,
         double-click) can't run one conversation twice into the same memory.
+
+        ``resume_task_id`` is forwarded to the Agent so an interrupted run can
+        continue from its per-step checkpoint instead of restarting from step 0
+        (see docs/long-running.md Phase 2).
         """
 
         async def _run() -> Dict[str, Any]:
@@ -112,6 +117,7 @@ class Orchestrator:
                     run_context=run_context,
                     selected_skill_ids=selected_skill_ids,
                     tool_context_extra=tool_context_extra,
+                    resume_task_id=resume_task_id,
                 )
 
         if session_key is None:
@@ -148,6 +154,7 @@ class Orchestrator:
         run_context: Optional[RunContext] = None,
         selected_skill_ids: Optional[List[str]] = None,
         tool_context_extra: Optional[Dict[str, Any]] = None,
+        resume_task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -182,6 +189,7 @@ class Orchestrator:
             soul_text=self.soul_text,
             load_project_context=self.load_project_context,
             tool_context_extra=tool_context_extra,
+            resume_task_id=resume_task_id,
         )
         self.agents[task_id] = agent
 
