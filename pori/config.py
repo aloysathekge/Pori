@@ -175,6 +175,14 @@ class SandboxConfig(BaseModel):
         default=None,
         description="Base directory for per-thread workspace/uploads/outputs (e.g. .pori_sandbox or /tmp/pori_sandbox)",
     )
+    backend: str = Field(
+        default="local",
+        description=(
+            "Execution backend: 'local' (host, cooperative sandbox) or 'e2b' "
+            "(cloud microVM — true isolation; needs E2B_API_KEY and the "
+            "pori[sandbox-e2b] extra)"
+        ),
+    )
 
 
 from pori.hitl import HITLConfig

@@ -77,6 +77,10 @@ web = [
 cli = [
     "prompt_toolkit>=3.0.0,<4",
 ]
+# E2B cloud sandbox backend (true VM isolation for agent commands).
+sandbox-e2b = [
+    "e2b>=2.0.0,<3",
+]
 # FastAPI surface (the hosted Pori Cloud / Aloy backend). Not used by the CLI.
 api = [
     "fastapi>=0.110.0,<1",
