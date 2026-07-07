@@ -1,7 +1,7 @@
 <div align="center">
   <img src="pori.png" alt="Pori" width="500"/>
 
-  <p><strong>A lightweight, extensible AI agent framework with persistent memory, multi-agent teams, and built-in evaluations.</strong></p>
+  <p><strong>The agent runtime that survives. Long-running tasks that resume after a crash — and skills the agent grows from its own work.</strong></p>
 
   [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat)](LICENSE)
@@ -14,16 +14,49 @@
 
 ## Why Pori?
 
-Most agent frameworks are either too simple (no memory, no teams) or too complex (heavy abstractions, LangChain dependency graphs). Pori sits in the middle:
+Most agent frameworks treat a run as a fire-and-forget prompt loop: if the
+process dies, the work is gone, and the agent is exactly as capable on run
+1,000 as on run 1. Pori is built on the opposite two bets — **runs that
+survive** and **an agent that improves with use.**
 
-- **Persistent memory** — Letta-inspired CoreMemory blocks that survive across conversations. Your agent actually remembers users.
-- **Sub-agent delegation** — the agent hands context-heavy subtasks to isolated sub-agents (single, parallel batch, or background), keeping its own context clean. Optional curated specialists + model-per-agent.
-- **Multi-agent teams** — Router, broadcast, and delegate modes. Agents coordinate without sharing state.
-- **Skills & learning** — progressive on-demand skills; an optional background learning loop that grows and curates its own skills.
-- **Built-in evals & guardrails** — Accuracy, reliability, performance evals. Runtime safety checks before and after every response.
-- **Human-in-the-loop** — per-tool approval gates + a structured `ask_user` clarify tool.
-- **Tracing** — Hierarchical span trees for every agent run. See exactly what happened.
-- **No LangChain** — Direct SDK integration with Anthropic, OpenAI, and Google (plus OpenRouter/Fireworks/local OSS). Lightweight, fast, debuggable.
+### 🛡️ Durable by design — runs that survive a crash
+
+An agent run is a checkpointed, resumable process, not a transient loop.
+Every tool call is **write-ahead journaled before its side effects**; the
+step counter and plan are checkpointed **every step**; and a restarted (or
+re-leased) run **resumes from exactly where it stopped** — same step, same
+plan, same working files — instead of starting over. A run that hits its
+step or time budget still returns a **best-effort salvage summary** rather
+than nothing. This is the hard-to-copy part: it's designed into the loop and
+the memory model, not bolted on.
+
+### 🌱 Self-improving — skills the agent grows from its own work
+
+After a run, an optional background review mines the finished session for a
+reusable **skill** and writes it to disk; a deterministic **curator** ages
+skills (active → stale → archived) by real usage; **provenance-gating** means
+autonomy has a ceiling (the curator only ever archives, never deletes). The
+result compounds: the more the agent works, the better its skill library
+gets — without a human in the loop.
+
+### Everything else you'd expect
+
+- **Memory-native** — Letta-inspired CoreMemory blocks that persist across
+  conversations, plus archival semantic recall. Your agent remembers users.
+- **Eval-native** — one `BaseEval` interface serves *both* offline evaluation
+  and runtime guardrails (accuracy, reliability, performance) before and after
+  every response.
+- **Sub-agent delegation** — isolated children (single, parallel batch, or
+  background), curated specialists, model-per-agent tiers — heavy work stays
+  in a throwaway context; you get the summary.
+- **Multi-agent teams** — router, broadcast, and delegate-DAG modes.
+- **True isolation, optional** — run agent code in a cloud microVM (E2B) with
+  one config line; secrets are stripped from every command.
+- **Provider-agnostic + resilient** — direct SDK calls to Anthropic, OpenAI,
+  Google (plus OpenRouter/Fireworks/local OSS), a cross-provider failover
+  chain, and multimodal (text + image) messages. No LangChain.
+- **Human-in-the-loop**, **span tracing**, and a strict **context budget** so
+  every registered tool earns its place.
 
 ---
 

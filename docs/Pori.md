@@ -11,14 +11,37 @@
 
 ## 1. Summary
 
-**Pori is an eval-native, receipt-first, memory-native agent kernel.** It is the small, opinion-light substrate on which agent *products* are built — starting with **Aloy** (a personal + org OS agent), and any number of future agent products, each with its own niche.
+**Pori is the durable, self-improving agent kernel.** It is the small,
+opinion-light substrate on which agent *products* are built — starting with
+**Aloy** (a personal + org OS agent), and any number of future agent products,
+each with its own niche.
 
-Pori's defining property is a single, closed, auditable loop:
+Two positioning bets define it, and they are the moat:
+
+1. **Durable runs — an agent run survives a crash.** A run is a checkpointed,
+   resumable process, not a fire-and-forget prompt loop: tool calls are
+   write-ahead journaled before their side effects, the step and plan are
+   checkpointed every step, and a restarted or re-leased run resumes from
+   exactly where it stopped (down to the working files, when a remote sandbox
+   is used). Most frameworks lose the run when the process dies; Pori doesn't.
+
+2. **A compounding learning loop — the agent improves with use.** Finished
+   sessions are mined (autonomously, provenance-gated) into reusable skills
+   that a deterministic curator ages by real usage. Capability grows with
+   work, not just with model upgrades — the one property that widens the gap
+   over time rather than being copied once.
+
+Underneath both sits a single, closed, auditable contract that makes them
+trustworthy rather than magic:
 
 > **work runs on a manager/worker runtime → emits *receipts* → *validators* judge the receipts → each verdict is itself a receipt → the loop continues or halts.**
 > Memory writes ride the same rails: **write → receipt → validate → commit.**
 
-Where other frameworks treat verification, evaluation, and memory management as add-ons, Pori makes them the **kernel contract**. That contract is the moat, and it is exactly what org/enterprise agent products need (audit, governance, policy, cost attribution) — so Pori's differentiator and its flagship consumer's requirements are the same thing.
+Where other frameworks treat durability, verification, evaluation, and memory
+management as add-ons, Pori makes them the **kernel contract** — which is
+exactly what org/enterprise agent products need (audit, governance, policy,
+cost attribution). So Pori's differentiator and its flagship consumer's
+requirements are the same thing.
 
 Pori is **independently publishable** (e.g. to PyPI) and usable on its own. "The open framework" is **Pori (kernel) + a reusable extension band**; products (Aloy and others) compose on top.
 
