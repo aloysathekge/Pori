@@ -26,6 +26,17 @@ llm:
   #   # OpenAI:      fast: gpt-5-mini      powerful: gpt-5
   #   # OSS (OpenRouter): fast: qwen/qwen-2.5-7b-instruct   powerful: deepseek/deepseek-r1
 
+  # Optional: ordered failover chain. When the model above is unavailable
+  # (auth/billing/rate-limit/overload/5xx/timeout after its own retries), the
+  # run switches to the first buildable fallback — sticky for the rest of the
+  # session. Fallbacks whose provider has no credentials are skipped at
+  # startup with a warning, so one config ships everywhere.
+  # fallbacks:
+  #   - provider: openai
+  #     model: gpt-4o
+  #   - provider: openrouter
+  #     model: deepseek/deepseek-chat
+
   # Temperature (0.0 - 2.0): lower = more deterministic, higher = more creative
   temperature: 0.0
   

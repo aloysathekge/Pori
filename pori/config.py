@@ -7,6 +7,7 @@ a factory pattern for easy switching between providers.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -21,12 +22,27 @@ from pori.providers import diagnose_provider, get_provider_profile
 # Load environment variables
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
+
+class LLMFallback(BaseModel):
+    """One link in the failover chain: a provider+model to switch to when the
+    one before it is unavailable (auth/billing/rate-limit/overload/5xx/timeout
+    after its own retries)."""
+
+    provider: str = Field(description="Provider profile name or alias")
+    model: str = Field(description="Model name/identifier")
+
 
 class LLMConfig(BaseModel):
     """Base configuration for LLM providers."""
 
     provider: str = Field(description="LLM provider profile name or alias")
     model: str = Field(description="Model name/identifier")
+    # Ordered failover chain. Fallbacks whose provider has no credentials are
+    # skipped at build time (with a warning) instead of failing startup, so
+    # one config can ship to machines with different keys available.
+    fallbacks: List[LLMFallback] = Field(default_factory=list)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
@@ -338,6 +354,11 @@ def create_llm(config: LLMConfig):
     """
     Factory function to create LLM instance based on configuration.
 
+    When ``config.fallbacks`` is set, the result is a
+    :class:`~pori.llm.failover.FailoverChatModel` chaining the primary and
+    every buildable fallback in order; otherwise the bare provider wrapper is
+    returned unchanged.
+
     Args:
         config: LLM configuration
 
@@ -348,6 +369,39 @@ def create_llm(config: LLMConfig):
         ValueError: If provider is not supported
         ImportError: If required provider package is not installed
     """
+    primary = _create_single_llm(config)
+    if not config.fallbacks:
+        return primary
+
+    from pori.llm.failover import FailoverChatModel
+
+    chain = [primary]
+    labels = [f"{config.provider}:{config.model}"]
+    for fallback in config.fallbacks:
+        fallback_config = config.model_copy(
+            update={
+                "provider": fallback.provider,
+                "model": fallback.model,
+                "fallbacks": [],
+            }
+        )
+        try:
+            chain.append(_create_single_llm(fallback_config))
+            labels.append(f"{fallback.provider}:{fallback.model}")
+        except Exception as exc:
+            logger.warning(
+                "Skipping unavailable LLM fallback %s:%s — %s",
+                fallback.provider,
+                fallback.model,
+                exc,
+            )
+    if len(chain) == 1:
+        return primary
+    return FailoverChatModel(chain, labels=labels)
+
+
+def _create_single_llm(config: LLMConfig):
+    """Build one provider wrapper (no failover) from a config."""
     profile = get_provider_profile(config.provider)
     provider = profile.name
     diagnostic = diagnose_provider(provider, model=config.model)
