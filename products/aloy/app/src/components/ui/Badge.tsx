@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 
 const colorMap: Record<string, string> = {
-  green: 'bg-emerald-900/50 text-emerald-300 border-emerald-700',
-  red: 'bg-red-900/50 text-red-300 border-red-700',
-  yellow: 'bg-amber-900/50 text-amber-300 border-amber-700',
+  green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  red: 'bg-red-900/50 text-red-700 border-red-700',
+  yellow: 'bg-amber-50 text-amber-700 border-amber-200',
   blue: 'bg-blue-900/50 text-blue-300 border-blue-700',
   gray: 'bg-zinc-800 text-zinc-400 border-zinc-700',
-  accent: 'bg-accent-900/50 text-accent-300 border-accent-700',
+  accent: 'bg-accent-50 text-accent-700 border-accent-200',
 };
 
 export function Badge({

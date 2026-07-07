@@ -26,20 +26,22 @@
   --color-accent-900: #0a453c;
   --color-accent-950: #052a25;
 
-  /* Retune the neutral ramp the whole app is written in: zinc becomes a
-     warm ink with a whisper of the brand's green — cooler than stone,
-     warmer than slate. Every existing zinc-* class picks this up. */
-  --color-zinc-50: #f4f6f5;
-  --color-zinc-100: #e8ece9;
-  --color-zinc-200: #d3d9d5;
-  --color-zinc-300: #b3bdb7;
-  --color-zinc-400: #8a968f;
-  --color-zinc-500: #65726c;
-  --color-zinc-600: #4b5851;
-  --color-zinc-700: #363f3b;
-  --color-zinc-800: #232a28;
-  --color-zinc-900: #161c1a;
-  --color-zinc-950: #0e1312;
+  /* The neutral ramp maps the app onto the LANDING PAGE's warm-light
+     palette (off-white ground, white surfaces, warm paper lines, deep ink).
+     The components are authored in dark-mode utilities (bg-zinc-950 as the
+     page, zinc-100 as primary text), so this ramp is deliberately inverted:
+     one definition here restyles every screen to match the marketing site. */
+  --color-zinc-50: #14181a; /* deepest ink (rare) */
+  --color-zinc-100: #191c1e; /* primary text — landing --ink */
+  --color-zinc-200: #31373b; /* strong body / hover text */
+  --color-zinc-300: #4a5157; /* body text — near landing --body */
+  --color-zinc-400: #666e74; /* secondary text, inactive nav */
+  --color-zinc-500: #838a90; /* muted / placeholders — landing --muted */
+  --color-zinc-600: #c6c0b6; /* strong warm line (outline borders) */
+  --color-zinc-700: #dcd6cc; /* input borders, scrollbar thumb */
+  --color-zinc-800: #ece8e1; /* hairlines + hover fills + input fills */
+  --color-zinc-900: #ffffff; /* cards / surfaces — landing --surface */
+  --color-zinc-950: #fcfbf9; /* the page — landing --bg */
 }
 
 html,
@@ -52,6 +54,8 @@ body,
 
 body {
   font-family: var(--font-sans);
+  background: var(--color-zinc-950); /* landing off-white — no dark flash */
+  color: var(--color-zinc-100);
   font-size: 15px;
   letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;

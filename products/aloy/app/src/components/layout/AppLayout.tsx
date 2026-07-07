@@ -37,7 +37,7 @@ export function AppLayout() {
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-30 bg-black/30 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -71,7 +71,7 @@ export function AppLayout() {
               className={({ isActive }) =>
                 `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                   isActive
-                    ? 'bg-accent-600/15 text-accent-300'
+                    ? 'bg-accent-600/15 text-accent-700'
                     : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
                 }`
               }
@@ -85,7 +85,7 @@ export function AppLayout() {
                     size={19}
                     className={
                       isActive
-                        ? 'text-accent-400'
+                        ? 'text-accent-600'
                         : 'text-zinc-500 transition-colors group-hover:text-zinc-300'
                     }
                   />

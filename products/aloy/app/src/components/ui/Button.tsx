@@ -2,7 +2,7 @@ import { type ButtonHTMLAttributes, forwardRef } from 'react';
 
 const variants = {
   primary:
-    'bg-accent-600 text-white shadow-sm shadow-accent-950/50 hover:bg-accent-500 focus-visible:ring-accent-500',
+    'bg-accent-600 text-white shadow-sm shadow-accent-900/15 hover:bg-accent-500 focus-visible:ring-accent-500',
   secondary:
     'bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 focus-visible:ring-zinc-500',
   danger:
@@ -10,7 +10,7 @@ const variants = {
   ghost:
     'bg-transparent text-zinc-300 hover:bg-zinc-800 focus-visible:ring-zinc-500',
   outline:
-    'border border-zinc-600 text-zinc-300 hover:border-accent-600 hover:text-accent-300 focus-visible:ring-zinc-500',
+    'border border-zinc-600 text-zinc-300 hover:border-accent-600 hover:text-accent-700 focus-visible:ring-zinc-500',
 } as const;
 
 const sizes = {

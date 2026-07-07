@@ -116,10 +116,10 @@ export function SoulEditor() {
         <span className="ml-auto text-xs text-zinc-500">
           {content.length}/{limit}
         </span>
-        {saved && <span className="text-xs text-emerald-400">Saved!</span>}
+        {saved && <span className="text-xs text-emerald-700">Saved!</span>}
       </div>
 
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </Card>
   );
 }

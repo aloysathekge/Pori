@@ -18,8 +18,8 @@ const PLAN_MARK: Record<PlanItemStatus, string> = {
 };
 
 const PLAN_CLASS: Record<PlanItemStatus, string> = {
-  completed: 'text-emerald-400 line-through opacity-70',
-  in_progress: 'text-accent-300 font-medium',
+  completed: 'text-emerald-700 line-through opacity-70',
+  in_progress: 'text-accent-700 font-medium',
   pending: 'text-zinc-400',
   cancelled: 'text-zinc-500 line-through opacity-60',
 };

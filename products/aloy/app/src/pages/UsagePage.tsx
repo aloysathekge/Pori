@@ -134,27 +134,27 @@ export function UsagePage() {
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={history}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis dataKey="date" stroke="#71717a" fontSize={12} />
-                <YAxis stroke="#71717a" fontSize={12} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E9E5DE" />
+                <XAxis dataKey="date" stroke="#838A90" fontSize={12} />
+                <YAxis stroke="#838A90" fontSize={12} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#18181b',
-                    border: '1px solid #27272a',
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E9E5DE',
                     borderRadius: 8,
-                    color: '#e4e4e7',
+                    color: '#191C1E',
                   }}
                 />
                 <Legend />
                 <Bar
                   dataKey="tokens"
-                  fill="#6366f1"
+                  fill="#0F8571"
                   radius={[4, 4, 0, 0]}
                   name="Tokens"
                 />
                 <Bar
                   dataKey="requests"
-                  fill="#22d3ee"
+                  fill="#3AA88D"
                   radius={[4, 4, 0, 0]}
                   name="Requests"
                 />

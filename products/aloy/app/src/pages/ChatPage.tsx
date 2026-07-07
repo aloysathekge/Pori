@@ -312,7 +312,7 @@ export function ChatPage() {
                             key={opt}
                             type="button"
                             onClick={() => answerClarify(opt)}
-                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-accent-500 hover:text-accent-300"
+                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-accent-500 hover:text-accent-700"
                           >
                             {opt}
                           </button>

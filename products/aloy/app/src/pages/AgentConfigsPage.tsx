@@ -286,7 +286,7 @@ export function AgentConfigsPage() {
                     onClick={() => toggleTool(tool.name)}
                     className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                       active
-                        ? 'border-accent-500 bg-accent-600/20 text-accent-300'
+                        ? 'border-accent-500 bg-accent-600/20 text-accent-700'
                         : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                     }`}
                     title={tool.description}

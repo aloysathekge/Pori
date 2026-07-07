@@ -57,7 +57,7 @@ export function LoginPage() {
             required
           />
           {error && (
-            <p className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-400">
+            <p className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-600">
               {error}
             </p>
           )}
@@ -68,7 +68,7 @@ export function LoginPage() {
 
         <p className="text-center text-sm text-zinc-500">
           Don&apos;t have an account?{' '}
-          <Link to="/signup" className="text-accent-400 hover:text-accent-300">
+          <Link to="/signup" className="text-accent-600 hover:text-accent-700">
             Sign up
           </Link>
         </p>

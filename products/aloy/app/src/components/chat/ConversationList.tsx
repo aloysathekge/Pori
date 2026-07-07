@@ -37,7 +37,7 @@ export function ConversationList({
             onClick={() => onSelect(c.id)}
             className={`group flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
               activeId === c.id
-                ? 'bg-accent-600/10 text-accent-400'
+                ? 'bg-accent-600/10 text-accent-600'
                 : 'text-zinc-400 hover:bg-zinc-800'
             }`}
           >
@@ -56,7 +56,7 @@ export function ConversationList({
               className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
               title="Delete"
             >
-              <Trash2 size={14} className="text-zinc-500 hover:text-red-400" />
+              <Trash2 size={14} className="text-zinc-500 hover:text-red-600" />
             </button>
           </button>
         ))}

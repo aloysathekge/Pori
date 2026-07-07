@@ -123,7 +123,7 @@ export function SchedulesPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {error && (
-          <div className="mb-4 rounded-lg border border-red-800 bg-red-950/50 px-4 py-2 text-sm text-red-300">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {error}
           </div>
         )}
@@ -206,7 +206,7 @@ export function SchedulesPage() {
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs ${
                         s.enabled
-                          ? 'bg-emerald-950 text-emerald-400'
+                          ? 'bg-emerald-50 text-emerald-700'
                           : 'bg-zinc-800 text-zinc-500'
                       }`}
                     >
@@ -228,7 +228,7 @@ export function SchedulesPage() {
                       aria-label="Delete schedule"
                       disabled={busyId === s.id}
                       onClick={() => remove(s)}
-                      className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-red-400 disabled:opacity-50"
+                      className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-red-600 disabled:opacity-50"
                     >
                       <Trash2 size={16} />
                     </button>

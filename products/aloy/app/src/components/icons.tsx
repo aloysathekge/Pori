@@ -128,9 +128,9 @@ export function SettingsIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
       <path d="M5 7.5h14M5 12h14M5 16.5h14" />
-      <circle cx="9.2" cy="7.5" r="1.9" fill="var(--color-zinc-900, #161c1a)" />
-      <circle cx="15" cy="12" r="1.9" fill="var(--color-zinc-900, #161c1a)" />
-      <circle cx="7.6" cy="16.5" r="1.9" fill="var(--color-zinc-900, #161c1a)" />
+      <circle cx="9.2" cy="7.5" r="1.9" fill="var(--color-zinc-900, #ffffff)" />
+      <circle cx="15" cy="12" r="1.9" fill="var(--color-zinc-900, #ffffff)" />
+      <circle cx="7.6" cy="16.5" r="1.9" fill="var(--color-zinc-900, #ffffff)" />
     </svg>
   );
 }
