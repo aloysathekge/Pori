@@ -6,6 +6,7 @@ import { SignupPage } from '@/pages/SignupPage';
 import { ChatPage } from '@/pages/ChatPage';
 import { AgentConfigsPage } from '@/pages/AgentConfigsPage';
 import { SkillsPage } from '@/pages/SkillsPage';
+import { SchedulesPage } from '@/pages/SchedulesPage';
 import { TeamsPage } from '@/pages/TeamsPage';
 import { MemoryPage } from '@/pages/MemoryPage';
 import { UsagePage } from '@/pages/UsagePage';
@@ -76,6 +77,7 @@ function AppRoutes() {
         <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="agents" element={<AgentConfigsPage />} />
         <Route path="skills" element={<SkillsPage />} />
+        <Route path="schedules" element={<SchedulesPage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="usage" element={<UsagePage />} />
