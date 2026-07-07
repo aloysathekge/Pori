@@ -51,7 +51,7 @@ surfaces → (REST + SSE only) → a product backend         (never a Python imp
 
 The Python side of this rule is **enforced in CI**: the `boundaries` job runs
 import-linter against `tools/ci/importlinter.ini` (`pori` may never import
-`pori_cloud`; layering is `pori_cloud → pori`). Run it locally with
+`aloy_backend`; layering is `aloy_backend → pori`). Run it locally with
 `bash tools/ci/check-boundaries.sh`.
 
 ## TypeScript workspace

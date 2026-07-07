@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import select
 
-from pori_cloud.cron import compute_next_run, tick_cron_jobs, validate_schedule
-from pori_cloud.models import CronJob, Run
+from aloy_backend.cron import compute_next_run, tick_cron_jobs, validate_schedule
+from aloy_backend.models import CronJob, Run
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,7 +50,7 @@ class TestTick:
     async def test_due_job_enqueues_run_and_advances(
         self, db_session_maker, monkeypatch
     ):
-        monkeypatch.setattr("pori_cloud.cron.async_session", db_session_maker)
+        monkeypatch.setattr("aloy_backend.cron.async_session", db_session_maker)
         job_id = await _seed_job(db_session_maker)
 
         enqueued = await tick_cron_jobs()
@@ -72,7 +72,7 @@ class TestTick:
             assert nxt > datetime.now(timezone.utc)
 
     async def test_at_most_once_per_due_time(self, db_session_maker, monkeypatch):
-        monkeypatch.setattr("pori_cloud.cron.async_session", db_session_maker)
+        monkeypatch.setattr("aloy_backend.cron.async_session", db_session_maker)
         await _seed_job(db_session_maker)
 
         first = await tick_cron_jobs()
@@ -85,7 +85,7 @@ class TestTick:
             assert len(runs) == 1
 
     async def test_disabled_job_skipped(self, db_session_maker, monkeypatch):
-        monkeypatch.setattr("pori_cloud.cron.async_session", db_session_maker)
+        monkeypatch.setattr("aloy_backend.cron.async_session", db_session_maker)
         await _seed_job(db_session_maker, enabled=False)
 
         assert await tick_cron_jobs() == 0
@@ -93,7 +93,7 @@ class TestTick:
     async def test_invalid_schedule_disables_instead_of_crashing(
         self, db_session_maker, monkeypatch
     ):
-        monkeypatch.setattr("pori_cloud.cron.async_session", db_session_maker)
+        monkeypatch.setattr("aloy_backend.cron.async_session", db_session_maker)
         job_id = await _seed_job(db_session_maker, schedule="corrupted !!")
 
         assert await tick_cron_jobs() == 0

@@ -2,7 +2,13 @@
 
 from dataclasses import dataclass
 
-from pori_cloud.scope_resolver import ORG, PERSONAL, TEAM, resolve_layered, specificity
+from aloy_backend.scope_resolver import (
+    ORG,
+    PERSONAL,
+    TEAM,
+    resolve_layered,
+    specificity,
+)
 
 
 @dataclass

@@ -1,8 +1,8 @@
 import pytest
 from pori import ToolRegistry
 
-from pori_cloud.models import SkillDefinition, SkillGrant
-from pori_cloud.skills import load_skill_catalog
+from aloy_backend.models import SkillDefinition, SkillGrant
+from aloy_backend.skills import load_skill_catalog
 
 pytestmark = pytest.mark.asyncio
 

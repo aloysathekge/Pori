@@ -5,16 +5,16 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 
-from pori_cloud.api import app
-from pori_cloud.auth import get_current_user
-from pori_cloud.database import get_session
+from aloy_backend.api import app
+from aloy_backend.auth import get_current_user
+from aloy_backend.database import get_session
 
 TEST_USER_ID = "test-user"
 
 
 @pytest_asyncio.fixture
 async def db_session_maker(tmp_path):
-    db_path = tmp_path / "pori_cloud_test.db"
+    db_path = tmp_path / "aloy_backend_test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
 

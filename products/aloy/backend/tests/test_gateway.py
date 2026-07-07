@@ -5,15 +5,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import select
 
-from pori_cloud.gateway.base import BasePlatformAdapter
-from pori_cloud.gateway.delivery import DeliveryRouter
-from pori_cloud.gateway.service import (
+from aloy_backend.gateway.base import BasePlatformAdapter
+from aloy_backend.gateway.delivery import DeliveryRouter
+from aloy_backend.gateway.service import (
     PAIRED_REPLY,
     PAIRING_HELP,
     collect_finished,
     handle_message,
 )
-from pori_cloud.models import Conversation, GatewayLink, GatewayPairingCode, Run
+from aloy_backend.models import Conversation, GatewayLink, GatewayPairingCode, Run
 
 pytestmark = pytest.mark.asyncio
 
@@ -67,7 +67,7 @@ async def _seed_pairing(db_session_maker, code="AB12CD34", expired=False):
 class TestPairing:
     async def test_unpaired_chat_gets_help(self, db_session_maker, monkeypatch):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         adapter = FakeAdapter()
         run_id = await handle_message(adapter, "chat-1", "Alice", "hello there")
@@ -78,7 +78,7 @@ class TestPairing:
         self, db_session_maker, monkeypatch
     ):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         await _seed_pairing(db_session_maker)
         adapter = FakeAdapter()
@@ -100,7 +100,7 @@ class TestPairing:
 
     async def test_expired_code_rejected(self, db_session_maker, monkeypatch):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         await _seed_pairing(db_session_maker, expired=True)
         adapter = FakeAdapter()
@@ -109,7 +109,7 @@ class TestPairing:
 
     async def test_start_command_carries_code(self, db_session_maker, monkeypatch):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         await _seed_pairing(db_session_maker, code="ZZ99YY88")
         adapter = FakeAdapter()
@@ -140,7 +140,7 @@ class TestInboundRuns:
         self, db_session_maker, monkeypatch
     ):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         conversation_id = await self._pair(db_session_maker)
         adapter = FakeAdapter()
@@ -157,7 +157,7 @@ class TestInboundRuns:
 
     async def test_finished_runs_collected_once(self, db_session_maker, monkeypatch):
         monkeypatch.setattr(
-            "pori_cloud.gateway.service.async_session", db_session_maker
+            "aloy_backend.gateway.service.async_session", db_session_maker
         )
         await self._pair(db_session_maker)
         adapter = FakeAdapter()

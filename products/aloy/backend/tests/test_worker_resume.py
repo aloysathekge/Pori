@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from pori_cloud.background import (
+from aloy_backend.background import (
     _make_progress_checkpointer,
     execute_claimed_run,
     kernel_task_id_for_run,
 )
-from pori_cloud.models import Organization, OrganizationMembership, Run
+from aloy_backend.models import Organization, OrganizationMembership, Run
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,7 +55,7 @@ async def _seed_org_and_run(db_session_maker, run_kwargs=None):
 async def test_reclaim_resumes_kernel_task_from_checkpoint(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
     captured = {}
 
     class FakeOrchestrator:
@@ -70,7 +70,7 @@ async def test_reclaim_resumes_kernel_task_from_checkpoint(
             }
 
     monkeypatch.setattr(
-        "pori_cloud.background.build_orchestrator",
+        "aloy_backend.background.build_orchestrator",
         lambda **kwargs: FakeOrchestrator(),
     )
 
@@ -111,7 +111,7 @@ async def test_reclaim_resumes_kernel_task_from_checkpoint(
 async def test_first_attempt_gets_stable_task_id_without_checkpoint(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
     captured = {}
 
     class FakeOrchestrator:
@@ -126,7 +126,7 @@ async def test_first_attempt_gets_stable_task_id_without_checkpoint(
             }
 
     monkeypatch.setattr(
-        "pori_cloud.background.build_orchestrator",
+        "aloy_backend.background.build_orchestrator",
         lambda **kwargs: FakeOrchestrator(),
     )
     run_id = await _seed_org_and_run(db_session_maker)
@@ -141,7 +141,7 @@ async def test_first_attempt_gets_stable_task_id_without_checkpoint(
 async def test_step_checkpoint_persists_progress_and_renews_lease(
     db_session_maker, monkeypatch
 ):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
     run_id = await _seed_org_and_run(db_session_maker)
     kernel_task_id = kernel_task_id_for_run(run_id)
 
@@ -178,7 +178,7 @@ async def test_step_checkpoint_persists_progress_and_renews_lease(
 
 
 async def test_checkpoint_refuses_when_lease_lost(db_session_maker, monkeypatch):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
     run_id = await _seed_org_and_run(db_session_maker)
 
     checkpoint = _make_progress_checkpointer(
@@ -199,7 +199,7 @@ async def test_checkpoint_refuses_when_lease_lost(db_session_maker, monkeypatch)
 
 
 async def test_salvage_partial_result_surfaces_on_run(db_session_maker, monkeypatch):
-    monkeypatch.setattr("pori_cloud.background.async_session", db_session_maker)
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
 
     class FakeOrchestrator:
         async def execute_task(self, **kwargs):
@@ -219,7 +219,7 @@ async def test_salvage_partial_result_surfaces_on_run(db_session_maker, monkeypa
             }
 
     monkeypatch.setattr(
-        "pori_cloud.background.build_orchestrator",
+        "aloy_backend.background.build_orchestrator",
         lambda **kwargs: FakeOrchestrator(),
     )
     run_id = await _seed_org_and_run(db_session_maker)

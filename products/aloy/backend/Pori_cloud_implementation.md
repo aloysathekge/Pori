@@ -12,7 +12,7 @@
 ### Current Files
 
 ```
-pori_cloud/
+aloy_backend/
   __init__.py
   api.py              # Routes + lifespan
   auth.py             # JWT verification via Supabase JWKS
@@ -69,7 +69,7 @@ Add:
 
 ### 1.6 Alembic Migrations
 
-Replace `SQLModel.metadata.create_all` with proper Alembic migrations so the schema can evolve without data loss. Run `alembic init pori_cloud/alembic`, configure `env.py` for async engine.
+Replace `SQLModel.metadata.create_all` with proper Alembic migrations so the schema can evolve without data loss. Run `alembic init aloy_backend/alembic`, configure `env.py` for async engine.
 
 ---
 
@@ -386,7 +386,7 @@ Both return the same `user_id`.
 ## Final Directory Structure
 
 ```
-pori_cloud/
+aloy_backend/
   __init__.py
   main.py                 # Uvicorn entry
   api.py                  # App factory, mounts routers, middleware
@@ -437,7 +437,7 @@ pori_cloud/
 
 ### Wire `on_step_start`/`on_step_end` callbacks into `agent.run()`
 
-**Problem:** The orchestrator's `execute_task()` defines `on_step_start` and `on_step_end` callback parameters, but `agent.run()` never calls them. The step loop in `agent.py` calls `self.step()` directly without any hooks. This means SSE streaming in pori_cloud can only poll agent state, not receive rich step data (tool inputs/outputs, reasoning, errors, memory summaries).
+**Problem:** The orchestrator's `execute_task()` defines `on_step_start` and `on_step_end` callback parameters, but `agent.run()` never calls them. The step loop in `agent.py` calls `self.step()` directly without any hooks. This means SSE streaming in aloy_backend can only poll agent state, not receive rich step data (tool inputs/outputs, reasoning, errors, memory summaries).
 
 **What the CLI shows that the API doesn't:**
 - Tool input parameters and raw results
@@ -448,11 +448,11 @@ pori_cloud/
 
 **Fix:** In `pori/agent.py`, modify the `run()` method to accept and call `on_step_start`/`on_step_end` callbacks around each `self.step()` call, passing the agent instance so the callback can read `agent.state`, `agent.memory.tool_call_history`, etc. Then wire the orchestrator's callbacks through to `agent.run()`.
 
-**Impact:** Once fixed, pori_cloud's SSE streaming can emit rich step events with full tool I/O, reasoning, and error details — matching what the CLI shows.
+**Impact:** Once fixed, aloy_backend's SSE streaming can emit rich step events with full tool I/O, reasoning, and error details — matching what the CLI shows.
 
 ### Persistent Memory per User (CRITICAL)
 
-**Problem:** Currently pori_cloud creates a fresh `AgentMemory` per request, seeds it with conversation history, and throws it away. This means the agent has NO persistent memory — it doesn't remember user preferences, prior context, or anything across conversations. This defeats the purpose of Pori's memory system, which is the core differentiator.
+**Problem:** Currently aloy_backend creates a fresh `AgentMemory` per request, seeds it with conversation history, and throws it away. This means the agent has NO persistent memory — it doesn't remember user preferences, prior context, or anything across conversations. This defeats the purpose of Pori's memory system, which is the core differentiator.
 
 **What Pori's memory system provides:**
 - `CoreMemory` blocks (persona, human, notes) — editable, persistent knowledge about the user and agent
@@ -464,4 +464,4 @@ pori_cloud/
 - Build a `PostgresMemoryStore` (implementing pori's `MemoryStore` protocol) that stores memory state in Supabase Postgres, scoped per user
 - Each user gets persistent `CoreMemory` blocks — the agent remembers preferences, context, and learned information across ALL conversations
 - The `memory_insert` and `memory_rethink` tools work as designed — when the agent decides to remember something, it persists
-- This is NOT optional — it's the moat. Without persistent memory, pori_cloud is just an API wrapper around an LLM
+- This is NOT optional — it's the moat. Without persistent memory, aloy_backend is just an API wrapper around an LLM

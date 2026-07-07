@@ -1,4 +1,4 @@
-# Applies to the parent build context (containing Pori/ + pori_cloud/).
+# Applies to the parent build context (containing Pori/ + aloy_backend/).
 # Keep the image small and avoid shipping dev cruft.
 
 **/__pycache__
@@ -43,6 +43,6 @@
 **/.pori_sandbox
 
 # client and website trees are never part of the API build
-pori_cloud_client
+aloy_backend_client
 pori_website
 pori_docs

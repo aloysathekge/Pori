@@ -1,6 +1,6 @@
 # Pori Cloud API Reference
 
-Complete API documentation for the pori_cloud backend. This document describes every endpoint, request/response schema, authentication, and architectural decisions needed to build the frontend.
+Complete API documentation for the aloy_backend backend. This document describes every endpoint, request/response schema, authentication, and architectural decisions needed to build the frontend.
 
 ---
 
@@ -456,7 +456,7 @@ Get all CoreMemory blocks.
   "blocks": [
     {"label": "persona", "value": "I am a helpful assistant", "limit": 2000, "read_only": false},
     {"label": "human", "value": "User is a senior engineer who prefers concise answers", "limit": 2000, "read_only": false},
-    {"label": "notes", "value": "Working on pori_cloud project", "limit": 2000, "read_only": false}
+    {"label": "notes", "value": "Working on aloy_backend project", "limit": 2000, "read_only": false}
   ]
 }
 ```
