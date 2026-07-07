@@ -1,8 +1,76 @@
 """Simple message types for LLM conversations."""
 
+import base64
+import mimetypes
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 from pydantic import BaseModel, Field
+
+
+class TextBlock(BaseModel):
+    """One text segment of a multimodal message."""
+
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ImageBlock(BaseModel):
+    """One image segment of a multimodal message.
+
+    ``source="base64"`` carries the payload inline in ``data``;
+    ``source="url"`` points at a fetchable image. Provider adapters map this
+    to their native shape (Anthropic image blocks, OpenAI ``image_url``,
+    Google inline data). Not every provider supports URL sources — adapters
+    degrade to a text placeholder rather than failing the call.
+    """
+
+    type: Literal["image"] = "image"
+    source: Literal["base64", "url"] = "base64"
+    media_type: str = "image/png"
+    data: str = ""  # base64 payload when source="base64"
+    url: str = ""  # location when source="url"
+
+    @classmethod
+    def from_bytes(cls, raw: bytes, media_type: str = "image/png") -> "ImageBlock":
+        return cls(
+            source="base64",
+            media_type=media_type,
+            data=base64.b64encode(raw).decode("ascii"),
+        )
+
+    @classmethod
+    def from_file(cls, path: "str | Path") -> "ImageBlock":
+        p = Path(path)
+        media_type = mimetypes.guess_type(p.name)[0] or "image/png"
+        return cls.from_bytes(p.read_bytes(), media_type=media_type)
+
+
+ContentBlock = Union[TextBlock, ImageBlock]
+
+# A message body: plain text (the overwhelmingly common case) or an ordered
+# list of text/image blocks. Everything that only needs the words should go
+# through content_text() instead of assuming str.
+MessageContent = Union[str, List[ContentBlock]]
+
+
+def content_text(content: MessageContent) -> str:
+    """The textual portion of a message body (images contribute a marker)."""
+    if isinstance(content, str):
+        return content
+    parts: List[str] = []
+    for block in content:
+        if isinstance(block, TextBlock):
+            parts.append(block.text)
+        elif isinstance(block, ImageBlock):
+            parts.append(f"[image: {block.media_type}]")
+    return "\n".join(parts)
+
+
+def content_has_images(content: MessageContent) -> bool:
+    return not isinstance(content, str) and any(
+        isinstance(block, ImageBlock) for block in content
+    )
 
 
 class SystemMessage(BaseModel):
@@ -13,10 +81,10 @@ class SystemMessage(BaseModel):
 
 
 class UserMessage(BaseModel):
-    """User message."""
+    """User message. ``content`` may be plain text or text+image blocks."""
 
     role: Literal["user"] = "user"
-    content: str
+    content: MessageContent
 
 
 class ToolCall(BaseModel):
@@ -106,4 +174,22 @@ BaseMessage = Union[
     UserMessage,
     AssistantMessage,
     ToolResultMessage,
+]
+
+__all__ = [
+    "AssistantMessage",
+    "BaseMessage",
+    "ContentBlock",
+    "ImageBlock",
+    "MessageContent",
+    "SystemMessage",
+    "TextBlock",
+    "ToolCall",
+    "ToolResultMessage",
+    "ToolTurn",
+    "Usage",
+    "UserMessage",
+    "content_has_images",
+    "content_text",
+    "normalize_usage",
 ]
