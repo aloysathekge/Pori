@@ -9,3 +9,7 @@ aloy_backend/alembic/script.py.mako
 uv.lock
 uv.lock
 .env
+
+# Local dev SQLite database (created by BOOT.md)
+aloy.db
+*.db
