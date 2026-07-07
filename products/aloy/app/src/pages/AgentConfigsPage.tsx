@@ -170,7 +170,7 @@ export function AgentConfigsPage() {
                   </p>
                 </div>
                 <div className="flex gap-1">
-                  {config.is_default && <Badge color="indigo">Default</Badge>}
+                  {config.is_default && <Badge color="accent">Default</Badge>}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -286,7 +286,7 @@ export function AgentConfigsPage() {
                     onClick={() => toggleTool(tool.name)}
                     className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                       active
-                        ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
+                        ? 'border-accent-500 bg-accent-600/20 text-accent-300'
                         : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                     }`}
                     title={tool.description}

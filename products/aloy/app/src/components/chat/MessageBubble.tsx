@@ -9,7 +9,7 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          isUser ? 'bg-indigo-600' : 'bg-zinc-700'
+          isUser ? 'bg-accent-600' : 'bg-zinc-700'
         }`}
       >
         {isUser ? <User size={16} /> : <Bot size={16} />}
@@ -17,7 +17,7 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
       <div
         className={`max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-indigo-600 text-white'
+            ? 'bg-accent-600 text-white'
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >

@@ -6,7 +6,7 @@ const colorMap: Record<string, string> = {
   yellow: 'bg-amber-900/50 text-amber-300 border-amber-700',
   blue: 'bg-blue-900/50 text-blue-300 border-blue-700',
   gray: 'bg-zinc-800 text-zinc-400 border-zinc-700',
-  indigo: 'bg-indigo-900/50 text-indigo-300 border-indigo-700',
+  accent: 'bg-accent-900/50 text-accent-300 border-accent-700',
 };
 
 export function Badge({

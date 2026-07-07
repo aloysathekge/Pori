@@ -174,7 +174,7 @@ export function TeamsPage() {
                 <Badge
                   color={
                     team.mode === 'delegate'
-                      ? 'indigo'
+                      ? 'accent'
                       : team.mode === 'broadcast'
                         ? 'green'
                         : 'blue'

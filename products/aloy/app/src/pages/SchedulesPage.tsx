@@ -19,7 +19,7 @@ const EMPTY: ScheduleCreate = {
 };
 
 const INPUT =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none';
+  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none';
 
 function formatWhen(iso: string | null): string {
   if (!iso) return '—';

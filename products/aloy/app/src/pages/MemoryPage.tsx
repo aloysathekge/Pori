@@ -247,7 +247,7 @@ export function MemoryPage() {
                       </Badge>
                     ))}
                     <Badge color="gray">importance: {entry.importance}</Badge>
-                    {entry.kind && <Badge color="indigo">{entry.kind}</Badge>}
+                    {entry.kind && <Badge color="accent">{entry.kind}</Badge>}
                     <Badge color="gray">{entry.source}</Badge>
                   </div>
                   <button onClick={() => handleDeleteEntry(entry.id)}>
