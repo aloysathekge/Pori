@@ -2,6 +2,21 @@
 
 _Last updated: 2026-07-06 (marathon implementation session)._
 
+## NEW: Second Hermes mining pass — gap analysis (2026-07-07)
+
+Source-level sweep of references/hermes-agent for everything NOT yet
+harvested/tracked. **Canonical output: `docs/hermes-gap-2026-07.md`** (ranked
+by Aloy leverage). Headline: loop-quality is now at parity+; the gap is
+SURFACE BREADTH. Tier 1: (1) multimodal message plumbing — messages.py is
+str-only, blocks vision/screenshots/photos; (2) messaging gateway — Hermes has
+~20 platform adapters + DeliveryRouter + relay, Pori has zero (GW-7 now
+UNBLOCKED, Telegram first); (3) provider failover chains + credential pool
+(classifier exists, no cross-provider switch). Cheap wins identified:
+docx/xlsx/ipynb extraction folded into read_file (stdlib), large tool-result
+spill-to-file, `pori doctor`, blueprints (skills x cron frontmatter — both
+halves now exist). ALIGNMENT.md updated: SK-5 DONE-with-deviation (cron landed
+product-layer), GW-7 unblocked.
+
 ## NEW: Marathon Phases 1–3 IMPLEMENTED (2026-07-06, stacked PRs #95/#96/#97)
 
 All three phases of `docs/long-running.md` landed as stacked PRs (merge in
