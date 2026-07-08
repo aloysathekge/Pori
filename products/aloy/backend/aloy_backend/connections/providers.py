@@ -37,16 +37,17 @@ class ProviderSpec:
 
 GOOGLE = ProviderSpec(
     name="google",
-    label="Gmail",
-    description="Let the agent search, read, and (later) send your email.",
+    label="Google",
+    description="Let the agent search, read, and send Gmail and manage your "
+    "Google Calendar.",
     authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
     token_url="https://oauth2.googleapis.com/token",
     revoke_url="https://oauth2.googleapis.com/revoke",
     userinfo_url="https://www.googleapis.com/oauth2/v2/userinfo",
-    # Phase 1: read-only (search + read). Send is Phase 2 (adds gmail.send).
-    # Minimal restricted scopes => faster Google verification.
     scopes=[
         "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/userinfo.email",
         "openid",
     ],
