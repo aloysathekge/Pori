@@ -683,9 +683,15 @@ class ProviderInfo(BaseModel):
     provider: str
     label: str
     description: str
+    # The member's own (user-scoped) connection.
     connected: bool
     status: str | None = None
     account_email: str | None = None
+    # The organization's shared (org-scoped) connection.
+    org_connected: bool = False
+    org_status: str | None = None
+    org_account_email: str | None = None
+    can_manage_org: bool = False
 
 
 class ConnectionStartResponse(BaseModel):

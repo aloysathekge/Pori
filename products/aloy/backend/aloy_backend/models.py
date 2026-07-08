@@ -467,12 +467,22 @@ class Run(SQLModel, table=True):
     )
 
 
+# Reserved user_id for ORG-SHARED connections (scope="org"): the credential
+# belongs to the organization, not a member. A sentinel (rather than NULL) keeps
+# the (org, user, provider) unique constraint dedup'ing org rows per provider
+# and avoids a NOT-NULL column rebuild.
+ORG_CONNECTION_USER = "__org__"
+
+
 class OAuthConnection(SQLModel, table=True):
-    """A user's connected external account (e.g. Gmail), one per (user, provider).
+    """A connected external account (e.g. Gmail).
+
+    scope="user": a member's own connection, keyed (org, user, provider) — private
+    even from org admins. scope="org": org-shared (user_id=ORG_CONNECTION_USER),
+    provisioned by an admin and usable by permitted members.
 
     Access/refresh tokens are stored ENCRYPTED (see connections/crypto.py) — the
-    DB never holds plaintext. Tenant-scoped; the agent's tools use a freshly
-    resolved token, never the stored ciphertext directly."""
+    DB never holds plaintext; tools use a freshly resolved token."""
 
     __tablename__ = "oauth_connections"
     __table_args__ = (
@@ -483,7 +493,9 @@ class OAuthConnection(SQLModel, table=True):
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
-    user_id: str = Field(index=True)
+    user_id: str = Field(index=True)  # a member id, or ORG_CONNECTION_USER
+    scope: str = Field(default="user", index=True)  # "user" | "org"
+    created_by: str | None = None  # who provisioned an org-shared connection
     provider: str = Field(index=True)  # "google" (more later)
     access_token_enc: str
     refresh_token_enc: str | None = None
@@ -513,6 +525,7 @@ class OAuthFlowState(SQLModel, table=True):
     state: str = Field(primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    scope: str = Field(default="user")  # "user" | "org" (target of this connect)
     provider: str
     pkce_verifier: str
     expires_at: datetime = Field(
