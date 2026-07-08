@@ -32,33 +32,31 @@ export function ConversationList({
           </p>
         )}
         {conversations.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => onSelect(c.id)}
-            className={`group flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
-              activeId === c.id
-                ? 'bg-accent-600/10 text-accent-600'
-                : 'text-zinc-400 hover:bg-zinc-800'
-            }`}
-          >
-            <MessageSquare size={14} className="shrink-0" />
-            <span className="flex-1 truncate">
-              {c.title || 'New conversation'}
-            </span>
-            <span className="shrink-0 text-xs text-zinc-600">
-              {c.message_count}
-            </span>
+          <div key={c.id} className="group relative">
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(c.id);
-              }}
-              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              onClick={() => onSelect(c.id)}
+              className={`flex w-full items-center gap-2 rounded-lg py-2.5 pl-3 pr-9 text-left text-sm transition-colors ${
+                activeId === c.id
+                  ? 'bg-accent-600/10 text-accent-600'
+                  : 'text-zinc-400 hover:bg-zinc-800'
+              }`}
+            >
+              <MessageSquare size={14} className="shrink-0" />
+              <span className="flex-1 truncate">
+                {c.title || 'New conversation'}
+              </span>
+              <span className="shrink-0 text-xs text-zinc-600">
+                {c.message_count}
+              </span>
+            </button>
+            <button
+              onClick={() => onDelete(c.id)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100"
               title="Delete"
             >
               <Trash2 size={14} className="text-zinc-500 hover:text-red-600" />
             </button>
-          </button>
+          </div>
         ))}
       </div>
     </div>

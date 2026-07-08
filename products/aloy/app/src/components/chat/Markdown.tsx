@@ -1,0 +1,97 @@
+import { memo } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+/**
+ * Renders assistant message text as GitHub-flavored Markdown — bold, italics,
+ * lists, tables, links, and code blocks. Raw HTML is NOT rendered (react-markdown
+ * default), so message content can never inject markup.
+ */
+
+const components: Components = {
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
+  strong: ({ children }) => (
+    <strong className="font-semibold text-zinc-100">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic">{children}</em>,
+  a: ({ children, href }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-accent-600 underline underline-offset-2 hover:text-accent-500"
+    >
+      {children}
+    </a>
+  ),
+  ul: ({ children }) => (
+    <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+  ),
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  h1: ({ children }) => (
+    <h1 className="mb-2 mt-1 text-lg font-semibold text-zinc-100">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mb-2 mt-1 text-base font-semibold text-zinc-100">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mb-1 mt-1 text-sm font-semibold text-zinc-100">{children}</h3>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="mb-3 border-l-2 border-zinc-600 pl-3 italic text-zinc-400 last:mb-0">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-3 border-zinc-700" />,
+  code: ({ className, children, ...props }) => {
+    // Inline code has no language class and no newline; block code is fenced.
+    const isBlock = /language-/.test(className || '') || String(children).includes('\n');
+    if (!isBlock) {
+      return (
+        <code
+          className="rounded bg-zinc-950/60 px-1.5 py-0.5 font-mono text-[0.85em] text-accent-500"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code
+        className={`block font-mono text-[0.85em] leading-relaxed ${className || ''}`}
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => (
+    <pre className="mb-3 overflow-x-auto rounded-lg border border-zinc-700 bg-zinc-950 p-3 last:mb-0">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="mb-3 overflow-x-auto last:mb-0">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-zinc-700 bg-zinc-800 px-2 py-1 text-left font-semibold">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border border-zinc-700 px-2 py-1">{children}</td>
+  ),
+};
+
+export const Markdown = memo(function Markdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {children}
+    </ReactMarkdown>
+  );
+});
