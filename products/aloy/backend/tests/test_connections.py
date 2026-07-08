@@ -135,65 +135,136 @@ class TestEndpoints:
         assert resp.status_code == 404
 
 
-class TestGmailTools:
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def _fake_http(monkeypatch, get_payloads=None, post_payload=None):
+    """Patch google_common.httpx.Client; return the recorded calls list."""
+    from aloy_backend.tools import google_common
+
+    calls: list = []
+    gets = list(get_payloads or [])
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url, headers=None, params=None):
+            calls.append(("GET", url, headers, params))
+            return _FakeResp(gets.pop(0) if gets else {})
+
+        def post(self, url, headers=None, json=None):
+            calls.append(("POST", url, headers, json))
+            return _FakeResp(post_payload or {})
+
+    monkeypatch.setattr(google_common.httpx, "Client", FakeClient)
+    return calls
+
+
+CTX = {"connections": {"google": {"access_token": "TOK"}}}
+
+
+class TestGoogleTools:
     def test_not_connected_message(self):
         from aloy_backend.tools.gmail import GmailSearchParams, gmail_search_tool
 
         out = gmail_search_tool(GmailSearchParams(query="x"), context={})
         assert "not connected" in out["error"].lower()
 
-    def test_search_uses_injected_token(self, monkeypatch):
-        from aloy_backend.tools import gmail
+    def test_gmail_search_uses_injected_token(self, monkeypatch):
+        from aloy_backend.tools.gmail import GmailSearchParams, gmail_search_tool
 
-        calls = []
-
-        class FakeResp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                # first call = list, subsequent = message metadata
-                if calls[-1][0].endswith("/messages"):
-                    return {"messages": [{"id": "m1"}]}
-                return {
-                    "snippet": "hi there",
-                    "payload": {
-                        "headers": [
-                            {"name": "From", "value": "bob@x.com"},
-                            {"name": "Subject", "value": "Hello"},
-                            {"name": "Date", "value": "Mon"},
-                        ]
-                    },
-                }
-
-        class FakeClient:
-            def __init__(self, *a, **k):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                pass
-
-            def get(self, url, headers=None, params=None):
-                calls.append((url, headers))
-                return FakeResp()
-
-        monkeypatch.setattr(gmail.httpx, "Client", FakeClient)
-        ctx = {"connections": {"google": {"access_token": "TOK"}}}
-        out = gmail.gmail_search_tool(gmail.GmailSearchParams(query="from:bob"), ctx)
+        calls = _fake_http(
+            monkeypatch,
+            get_payloads=[
+                {"messages": [{"id": "m1"}]},
+                {
+                    "snippet": "hi",
+                    "payload": {"headers": [{"name": "From", "value": "bob@x.com"}]},
+                },
+            ],
+        )
+        out = gmail_search_tool(GmailSearchParams(query="from:bob"), CTX)
         assert out["count"] == 1
         assert out["messages"][0]["from"] == "bob@x.com"
-        # the token was sent as a Bearer
-        assert any(h and h.get("Authorization") == "Bearer TOK" for _, h in calls)
+        assert any(h and h.get("Authorization") == "Bearer TOK" for _, _, h, _ in calls)
+
+    def test_gmail_send(self, monkeypatch):
+        from aloy_backend.tools.gmail import GmailSendParams, gmail_send_tool
+
+        calls = _fake_http(monkeypatch, post_payload={"id": "sent1"})
+        out = gmail_send_tool(
+            GmailSendParams(to="a@b.com", subject="Hi", body="hello"), CTX
+        )
+        assert out == {"sent": True, "id": "sent1", "to": "a@b.com"}
+        assert calls[0][0] == "POST" and calls[0][1].endswith("/messages/send")
+        assert "raw" in calls[0][3]  # RFC822 base64 payload
+
+    def test_calendar_list(self, monkeypatch):
+        from aloy_backend.tools.calendar import (
+            CalendarListParams,
+            calendar_list_events_tool,
+        )
+
+        _fake_http(
+            monkeypatch,
+            get_payloads=[
+                {
+                    "items": [
+                        {
+                            "id": "e1",
+                            "summary": "Standup",
+                            "start": {"dateTime": "2026-07-09T09:00:00Z"},
+                            "end": {"dateTime": "2026-07-09T09:15:00Z"},
+                        }
+                    ]
+                }
+            ],
+        )
+        out = calendar_list_events_tool(CalendarListParams(max_results=5), CTX)
+        assert out["count"] == 1
+        assert out["events"][0]["summary"] == "Standup"
+
+    def test_calendar_create(self, monkeypatch):
+        from aloy_backend.tools.calendar import (
+            CalendarCreateParams,
+            calendar_create_event_tool,
+        )
+
+        calls = _fake_http(
+            monkeypatch, post_payload={"id": "ev1", "htmlLink": "http://x"}
+        )
+        out = calendar_create_event_tool(
+            CalendarCreateParams(
+                summary="Lunch",
+                start="2026-07-09T12:00:00Z",
+                end="2026-07-09T13:00:00Z",
+            ),
+            CTX,
+        )
+        assert out["created"] is True and out["id"] == "ev1"
+        assert calls[0][3]["summary"] == "Lunch"
 
     def test_register_defines_google_group(self):
         from pori.tools.registry import tool_registry
 
-        from aloy_backend.tools import register_gmail_tools
+        from aloy_backend.tools import GOOGLE_TOOL_NAMES, register_google_tools
 
         reg = tool_registry()
-        register_gmail_tools(reg)
-        assert "gmail_search" in reg.tools
-        assert "gmail_read" in reg.tools
+        register_google_tools(reg)
+        for name in GOOGLE_TOOL_NAMES:
+            assert name in reg.tools

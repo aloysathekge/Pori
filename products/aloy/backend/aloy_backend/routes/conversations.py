@@ -49,7 +49,7 @@ from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
 from ..streaming import resolve_clarification, stream_agent_execution
 from ..tenancy import OrganizationContext, Permission, require_permission
-from ..tools import GMAIL_TOOL_NAMES
+from ..tools import GOOGLE_TOOL_NAMES
 from .teams import _build_team_from_config
 
 logger = logging.getLogger("aloy_backend")
@@ -808,7 +808,7 @@ async def send_message(
     run_connections = await resolve_run_connections(
         session, context.organization_id, context.user_id
     )
-    connection_denied = () if "google" in run_connections else tuple(GMAIL_TOOL_NAMES)
+    connection_denied = () if "google" in run_connections else tuple(GOOGLE_TOOL_NAMES)
 
     orchestrator = build_orchestrator(
         shared_memory=memory,

@@ -119,7 +119,16 @@ export function ConnectionsPage() {
                       : p.description}
                   </p>
                 </div>
-                {p.connected ? (
+                {p.status === 'error' ? (
+                  <Button
+                    size="sm"
+                    disabled={isBusy}
+                    onClick={() => connect(p.provider)}
+                  >
+                    {isBusy ? <Spinner className="h-4 w-4" /> : <Plug size={14} />}
+                    Reconnect
+                  </Button>
+                ) : p.connected ? (
                   <Button
                     variant="outline"
                     size="sm"
