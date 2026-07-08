@@ -61,6 +61,7 @@ async def stream_agent_execution(
     run_context: Optional[RunContext] = None,
     collector: Optional[EventLogCollector] = None,
     tool_context_extra: Optional[dict] = None,
+    mcp_servers: Optional[list] = None,
 ) -> AsyncGenerator[str, None]:
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
     serving_loop = asyncio.get_running_loop()
@@ -86,6 +87,7 @@ async def stream_agent_execution(
                 on_event=push,
                 stream=True,
                 tool_context_extra=merged_tool_context,
+                mcp_servers=mcp_servers,
             )
         )
 

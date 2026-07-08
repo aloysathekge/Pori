@@ -33,6 +33,9 @@ dependencies = [
   # Encrypt account-connection tokens at rest (Fernet)
   "cryptography>=42,<46",
 
+  # MCP client SDK (kernel connects the user's/org's MCP servers per run)
+  "mcp>=1.26.0,<2",
+
   # Your engine
   "pori>=1.3.3,<2"
 ]

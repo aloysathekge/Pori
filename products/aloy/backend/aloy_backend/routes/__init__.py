@@ -6,6 +6,7 @@ from .conversations import router as conversations_router
 from .cron import router as cron_router
 from .evolution import router as evolution_router
 from .gateway import router as gateway_router
+from .mcp_servers import router as mcp_servers_router
 from .memory import router as memory_router
 from .organizations import router as organizations_router
 from .runs import router as runs_router
@@ -32,3 +33,4 @@ router.include_router(cron_router)
 router.include_router(gateway_router)
 router.include_router(system_router)
 router.include_router(connections_router)
+router.include_router(mcp_servers_router)

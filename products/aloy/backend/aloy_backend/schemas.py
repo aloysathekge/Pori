@@ -701,3 +701,29 @@ class ConnectionStartResponse(BaseModel):
 class ConnectionResponse(BaseModel):
     provider: str
     connected: bool
+
+
+class McpServerCreate(BaseModel):
+    name: str
+    url: str
+    transport: str = "http"  # "http" | "sse"
+    auth_kind: str = "none"  # "none" | "static"
+    static_secret: str | None = None  # raw Bearer (encrypted server-side)
+    tools_include: list[str] | None = None
+    tools_exclude: list[str] = []
+    scope: str = "user"  # "user" | "org"
+
+
+class McpServerUpdate(BaseModel):
+    enabled: bool
+
+
+class McpServerInfo(BaseModel):
+    id: str
+    name: str
+    url: str
+    transport: str
+    auth_kind: str
+    scope: str
+    enabled: bool
+    account_managed: bool  # can the caller manage this row?
