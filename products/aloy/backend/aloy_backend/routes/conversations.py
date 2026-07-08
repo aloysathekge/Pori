@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from ..connections.store import resolve_run_connections
 from ..database import get_session
 from ..event_log import EventLogCollector
 from ..memory_records import record_to_row, request_scope, row_to_record
@@ -48,6 +49,7 @@ from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
 from ..streaming import resolve_clarification, stream_agent_execution
 from ..tenancy import OrganizationContext, Permission, require_permission
+from ..tools import GMAIL_TOOL_NAMES
 from .teams import _build_team_from_config
 
 logger = logging.getLogger("aloy_backend")
@@ -801,11 +803,18 @@ async def send_message(
         ):
             raise HTTPException(status_code=404, detail="Agent config not found")
 
+    # Resolve the user's connected accounts (Gmail, …) into fresh tokens for the
+    # run, and exclude a provider's tools when it isn't connected (per-user gate).
+    run_connections = await resolve_run_connections(
+        session, context.organization_id, context.user_id
+    )
+    connection_denied = () if "google" in run_connections else tuple(GMAIL_TOOL_NAMES)
+
     orchestrator = build_orchestrator(
         shared_memory=memory,
         agent_config=agent_config,
         allowed_tools=context.policy.allowed_tools or None,
-        denied_tools=context.policy.denied_tools,
+        denied_tools=tuple(context.policy.denied_tools) + connection_denied,
         allowed_capability_groups=(context.policy.allowed_capability_groups or None),
         allowed_provider_profiles=(context.policy.allowed_provider_profiles or None),
         allowed_models=context.policy.allowed_models or None,
@@ -847,6 +856,7 @@ async def send_message(
                 settings=agent_settings,
                 run_context=stream_context,
                 collector=event_collector,
+                tool_context_extra={"connections": run_connections},
             ):
                 # Capture the final message event so we can persist it
                 if event.startswith("event: message\n"):

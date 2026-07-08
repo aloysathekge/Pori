@@ -674,3 +674,24 @@ class RunEventLogResponse(BaseModel):
     events: list[dict]
     event_count: int
     created_at: datetime
+
+
+# --- Account connections (native OAuth) ---
+
+
+class ProviderInfo(BaseModel):
+    provider: str
+    label: str
+    description: str
+    connected: bool
+    status: str | None = None
+    account_email: str | None = None
+
+
+class ConnectionStartResponse(BaseModel):
+    authorize_url: str
+
+
+class ConnectionResponse(BaseModel):
+    provider: str
+    connected: bool
