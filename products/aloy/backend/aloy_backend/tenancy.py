@@ -33,6 +33,8 @@ class Permission(str, Enum):
     TRACE_READ = "trace:read"
     USAGE_READ = "usage:read"
     POLICY_MANAGE = "policy:manage"
+    # Manage ORG-SHARED account connections / MCP servers (not one's own).
+    CONNECTION_MANAGE = "connection:manage"
 
 
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {

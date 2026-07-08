@@ -107,6 +107,92 @@ class TestTokenStore:
         assert ctx["google"]["account_email"] == "alice@gmail.com"
 
 
+class TestScopeAndUnionResolver:
+    async def test_org_scope_uses_sentinel_and_union_prefers_user(
+        self, db_session_maker
+    ):
+        from aloy_backend.connections.crypto import encrypt
+        from aloy_backend.connections.store import resolve_run_connections
+        from aloy_backend.models import ORG_CONNECTION_USER
+
+        async with db_session_maker() as session:
+            # org-shared google (sentinel user), + the member's own google
+            session.add(
+                OAuthConnection(
+                    organization_id="biz",
+                    user_id=ORG_CONNECTION_USER,
+                    scope="org",
+                    provider="google",
+                    access_token_enc=encrypt("ORG-TOKEN"),
+                    account_email="shared@biz.com",
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    status="active",
+                )
+            )
+            session.add(
+                OAuthConnection(
+                    organization_id="biz",
+                    user_id="alice",
+                    scope="user",
+                    provider="google",
+                    access_token_enc=encrypt("ALICE-TOKEN"),
+                    account_email="alice@gmail.com",
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    status="active",
+                )
+            )
+            await session.commit()
+            ctx = await resolve_run_connections(session, "biz", "alice")
+        # Alice's own token wins for google (her mailbox, not the org's).
+        assert ctx["google"]["access_token"] == "ALICE-TOKEN"
+        assert ctx["google"]["scope"] == "user"
+
+    async def test_org_shared_used_when_member_has_none(self, db_session_maker):
+        from aloy_backend.connections.crypto import encrypt
+        from aloy_backend.connections.store import resolve_run_connections
+        from aloy_backend.models import ORG_CONNECTION_USER
+
+        async with db_session_maker() as session:
+            session.add(
+                OAuthConnection(
+                    organization_id="biz",
+                    user_id=ORG_CONNECTION_USER,
+                    scope="org",
+                    provider="google",
+                    access_token_enc=encrypt("ORG-TOKEN"),
+                    account_email="shared@biz.com",
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    status="active",
+                )
+            )
+            await session.commit()
+            # bob has no personal google -> falls back to the org-shared one
+            ctx = await resolve_run_connections(session, "biz", "bob")
+        assert ctx["google"]["access_token"] == "ORG-TOKEN"
+        assert ctx["google"]["scope"] == "org"
+
+    async def test_personal_connection_private_across_members(self, db_session_maker):
+        from aloy_backend.connections.crypto import encrypt
+        from aloy_backend.connections.store import resolve_run_connections
+
+        async with db_session_maker() as session:
+            session.add(
+                OAuthConnection(
+                    organization_id="biz",
+                    user_id="alice",
+                    scope="user",
+                    provider="google",
+                    access_token_enc=encrypt("ALICE-TOKEN"),
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    status="active",
+                )
+            )
+            await session.commit()
+            # bob must NOT see alice's personal connection
+            ctx = await resolve_run_connections(session, "biz", "bob")
+        assert ctx == {}
+
+
 class TestEndpoints:
     async def test_list_empty_when_unconfigured(self, client):
         resp = await client.get("/v1/connections")

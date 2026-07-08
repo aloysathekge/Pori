@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from sqlmodel import select
 
-from ..models import OAuthConnection
+from ..models import ORG_CONNECTION_USER, OAuthConnection
 from .crypto import decrypt, encrypt
 from .providers import ProviderSpec
 
@@ -20,6 +20,11 @@ logger = logging.getLogger("aloy_backend")
 
 # Refresh a token this many seconds before it actually expires.
 _REFRESH_SKEW = 120
+
+
+def _eff_user(scope: str, user_id: str) -> str:
+    """Org-shared connections are keyed by the org sentinel, not a member."""
+    return ORG_CONNECTION_USER if scope == "org" else user_id
 
 
 def _aware(dt: Optional[datetime]) -> Optional[datetime]:
@@ -69,13 +74,16 @@ async def upsert_connection(
     spec: ProviderSpec,
     token_payload: dict,
     account_email: Optional[str],
+    scope: str = "user",
+    created_by: Optional[str] = None,
 ) -> OAuthConnection:
+    eff_user = _eff_user(scope, user_id)
     existing = (
         (
             await session.execute(
                 select(OAuthConnection).where(
                     OAuthConnection.organization_id == organization_id,
-                    OAuthConnection.user_id == user_id,
+                    OAuthConnection.user_id == eff_user,
                     OAuthConnection.provider == spec.name,
                 )
             )
@@ -100,7 +108,9 @@ async def upsert_connection(
     if existing is None:
         conn = OAuthConnection(
             organization_id=organization_id,
-            user_id=user_id,
+            user_id=eff_user,
+            scope=scope,
+            created_by=created_by,
             provider=spec.name,
             access_token_enc=access_enc,
             refresh_token_enc=refresh_enc,
@@ -166,18 +176,22 @@ async def _refresh(session, conn: OAuthConnection, spec: ProviderSpec) -> Option
 
 
 async def get_access_token(
-    session, organization_id: str, user_id: str, spec: ProviderSpec
+    session,
+    organization_id: str,
+    user_id: str,
+    spec: ProviderSpec,
+    scope: str = "user",
 ) -> Optional[str]:
-    """A valid access token for the user's connection, refreshing if near expiry.
+    """A valid access token for the connection, refreshing if near expiry.
 
-    Returns None when the user has no active connection or a refresh failed.
+    Returns None when there is no active connection or a refresh failed.
     """
     conn = (
         (
             await session.execute(
                 select(OAuthConnection).where(
                     OAuthConnection.organization_id == organization_id,
-                    OAuthConnection.user_id == user_id,
+                    OAuthConnection.user_id == _eff_user(scope, user_id),
                     OAuthConnection.provider == spec.name,
                     OAuthConnection.status == "active",
                 )
@@ -197,18 +211,43 @@ async def get_access_token(
 
 
 async def resolve_run_connections(session, organization_id: str, user_id: str) -> dict:
-    """{provider: {access_token, account_email}} for the user's ACTIVE
-    connections, tokens freshly refreshed. Injected into the run's tool context
-    so sync tools get a valid token without doing async DB work themselves."""
+    """Union of the user's ACTIVE connections for this run:
+
+    (the member's own user-scoped connections) + (the org's shared connections
+    for providers the member hasn't personally connected). The member's own
+    connection wins for a given provider (their mailbox, not the org's). Tokens
+    are freshly refreshed and injected into the run's tool context so sync tools
+    get a valid token without async DB work. The kernel never sees tenancy —
+    it just receives the resolved tokens.
+    """
     from .providers import PROVIDERS
 
     out: dict = {}
-    active = (
+
+    async def _add(conn: OAuthConnection, scope: str) -> None:
+        if conn.provider in out:  # user-scoped already won this provider
+            return
+        spec = PROVIDERS.get(conn.provider)
+        if spec is None:
+            return
+        token = await get_access_token(
+            session, organization_id, user_id, spec, scope=scope
+        )
+        if token:
+            out[conn.provider] = {
+                "access_token": token,
+                "account_email": conn.account_email,
+                "scope": scope,
+            }
+
+    # 1) user-scoped first (precedence)
+    user_rows = (
         (
             await session.execute(
                 select(OAuthConnection).where(
                     OAuthConnection.organization_id == organization_id,
                     OAuthConnection.user_id == user_id,
+                    OAuthConnection.scope == "user",
                     OAuthConnection.status == "active",
                 )
             )
@@ -216,28 +255,41 @@ async def resolve_run_connections(session, organization_id: str, user_id: str) -
         .scalars()
         .all()
     )
-    for conn in active:
-        spec = PROVIDERS.get(conn.provider)
-        if spec is None:
-            continue
-        token = await get_access_token(session, organization_id, user_id, spec)
-        if token:
-            out[conn.provider] = {
-                "access_token": token,
-                "account_email": conn.account_email,
-            }
+    for conn in user_rows:
+        await _add(conn, "user")
+
+    # 2) org-shared fills providers the member hasn't personally connected
+    org_rows = (
+        (
+            await session.execute(
+                select(OAuthConnection).where(
+                    OAuthConnection.organization_id == organization_id,
+                    OAuthConnection.scope == "org",
+                    OAuthConnection.status == "active",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for conn in org_rows:
+        await _add(conn, "org")
     return out
 
 
 async def revoke_connection(
-    session, organization_id: str, user_id: str, spec: ProviderSpec
+    session,
+    organization_id: str,
+    user_id: str,
+    spec: ProviderSpec,
+    scope: str = "user",
 ) -> bool:
     conn = (
         (
             await session.execute(
                 select(OAuthConnection).where(
                     OAuthConnection.organization_id == organization_id,
-                    OAuthConnection.user_id == user_id,
+                    OAuthConnection.user_id == _eff_user(scope, user_id),
                     OAuthConnection.provider == spec.name,
                 )
             )
