@@ -467,6 +467,63 @@ class Run(SQLModel, table=True):
     )
 
 
+class OAuthConnection(SQLModel, table=True):
+    """A user's connected external account (e.g. Gmail), one per (user, provider).
+
+    Access/refresh tokens are stored ENCRYPTED (see connections/crypto.py) — the
+    DB never holds plaintext. Tenant-scoped; the agent's tools use a freshly
+    resolved token, never the stored ciphertext directly."""
+
+    __tablename__ = "oauth_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "user_id", "provider", name="uq_oauth_conn"
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    provider: str = Field(index=True)  # "google" (more later)
+    access_token_enc: str
+    refresh_token_enc: str | None = None
+    scopes: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    account_email: str | None = None
+    expires_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    status: str = "active"  # active | error | revoked
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class OAuthFlowState(SQLModel, table=True):
+    """Short-lived CSRF/PKCE state for an in-flight connect (10-min TTL)."""
+
+    __tablename__ = "oauth_flow_states"
+
+    state: str = Field(primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    provider: str
+    pkce_verifier: str
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class RunEventLog(SQLModel, table=True):
     """A coalesced, replayable log of a run's kernel PoriEvents.
 

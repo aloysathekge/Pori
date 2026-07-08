@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     gateway_error_backoff_seconds: float = 5.0
     gateway_pairing_ttl_seconds: int = 600
 
+    # Account connections (native OAuth — Gmail etc.). Tokens are encrypted at
+    # rest with CONNECTIONS_ENC_KEY (a Fernet key: `python -c "from
+    # cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
+    # A provider is only offered when its client id/secret are set.
+    connections_enc_key: str = ""
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    # Public base URLs for the OAuth redirect round-trip.
+    backend_base_url: str = "http://localhost:8000"
+    app_base_url: str = "http://localhost:5173"
+    connection_flow_ttl_seconds: int = 600
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @property

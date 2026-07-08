@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, Menu, X } from 'lucide-react';
+import { LogOut, Menu, Plug, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/agents', icon: AgentsIcon, label: 'Agents' },
   { to: '/skills', icon: SkillsIcon, label: 'Skills' },
   { to: '/schedules', icon: SchedulesIcon, label: 'Schedules' },
+  { to: '/connections', icon: Plug, label: 'Connections' },
   { to: '/teams', icon: TeamsIcon, label: 'Teams' },
   { to: '/memory', icon: MemoryIcon, label: 'Memory' },
   { to: '/usage', icon: UsageIcon, label: 'Usage' },

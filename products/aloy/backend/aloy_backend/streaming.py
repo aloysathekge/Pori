@@ -60,6 +60,7 @@ async def stream_agent_execution(
     settings: AgentSettings,
     run_context: Optional[RunContext] = None,
     collector: Optional[EventLogCollector] = None,
+    tool_context_extra: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
     serving_loop = asyncio.get_running_loop()
@@ -73,6 +74,9 @@ async def stream_agent_execution(
     bridge = ClarifyBridge(emit=emit_clarification)
     CLARIFY_BRIDGES.add(bridge)
 
+    merged_tool_context = dict(tool_context_extra or {})
+    merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
+
     def run_agent() -> dict:
         return asyncio.run(
             orchestrator.execute_task(
@@ -81,9 +85,7 @@ async def stream_agent_execution(
                 run_context=run_context,
                 on_event=push,
                 stream=True,
-                tool_context_extra={
-                    "clarify_handler": bridge.as_sync_handler(serving_loop)
-                },
+                tool_context_extra=merged_tool_context,
             )
         )
 

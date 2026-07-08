@@ -58,6 +58,11 @@ def build_orchestrator(
     # Build tool registry, optionally filtered
     registry = tool_registry()
     register_all_tools(registry)
+    # Aloy product tools (Gmail, …) added on top of the kernel via its seam.
+    # They're excluded per-run via denied_tools when the user isn't connected.
+    from .tools import register_gmail_tools
+
+    register_gmail_tools(registry)
 
     configured_tools = set(agent_config.tools or ()) if agent_config else set()
     requested_tools = configured_tools or None
