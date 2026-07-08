@@ -81,6 +81,11 @@ cli = [
 sandbox-e2b = [
     "e2b>=2.0.0,<3",
 ]
+# MCP client — connect external MCP tool servers (kernel MCP integration).
+# Gated: importing pori never needs this; the SDK is lazy-imported.
+mcp = [
+    "mcp>=1.26.0,<2",
+]
 # FastAPI surface (the hosted Pori Cloud / Aloy backend). Not used by the CLI.
 api = [
     "fastapi>=0.110.0,<1",
@@ -122,6 +127,7 @@ markers = [
     "tools: tests for tools subsystem",
     "agent: tests for agent functionality",
     "orchestrator: tests for orchestrator functionality",
+    "mcp: tests for the kernel MCP client",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

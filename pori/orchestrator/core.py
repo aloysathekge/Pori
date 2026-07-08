@@ -1,9 +1,12 @@
 import asyncio
 import logging
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from pori.llm import BaseChatModel
+
+if TYPE_CHECKING:
+    from pori.mcp import McpServerConfig
 
 from ..agent import Agent, AgentSettings
 from ..evolution import EvolutionRepository
@@ -50,9 +53,13 @@ class Orchestrator:
         soul_path: Optional[str] = None,
         soul_text: Optional[str] = None,
         load_project_context: bool = False,
+        mcp_connection_factory: Optional[Callable[..., Any]] = None,
     ):
         self.llm = llm
         self.tools_registry = tools_registry
+        # Optional injectable MCP connection factory (tests / custom transports);
+        # None -> the session set uses the default SDK-backed factory.
+        self._mcp_factory = mcp_connection_factory
         self.agents: Dict[str, Agent] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
         # GW-3: at most one in-flight run per session_key (duplicate-run guard).
@@ -85,6 +92,7 @@ class Orchestrator:
         session_key: Optional[str] = None,
         on_busy: str = "reject",
         resume_task_id: Optional[str] = None,
+        mcp_servers: Optional[List["McpServerConfig"]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent.
 
@@ -118,6 +126,7 @@ class Orchestrator:
                     selected_skill_ids=selected_skill_ids,
                     tool_context_extra=tool_context_extra,
                     resume_task_id=resume_task_id,
+                    mcp_servers=mcp_servers,
                 )
 
         if session_key is None:
@@ -155,6 +164,7 @@ class Orchestrator:
         selected_skill_ids: Optional[List[str]] = None,
         tool_context_extra: Optional[Dict[str, Any]] = None,
         resume_task_id: Optional[str] = None,
+        mcp_servers: Optional[List["McpServerConfig"]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -170,11 +180,24 @@ class Orchestrator:
             memory = AgentMemory()
             self.shared_memory = memory
 
+        # MCP (session-scoped): connect this run's servers and register their
+        # tools into a PER-RUN registry copy — never the shared one, so nothing
+        # leaks across concurrent runs/tenants. Connect off the event loop.
+        run_registry = self.tools_registry
+        mcp_set = None
+        if mcp_servers:
+            from pori.mcp import McpSessionSet
+
+            run_registry = self.tools_registry.filtered()
+            mcp_set = McpSessionSet(mcp_servers, connection_factory=self._mcp_factory)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, mcp_set.connect_and_register, run_registry)
+
         # Create and register the agent
         agent = Agent(
             task=task,
             llm=self.llm,
-            tools_registry=self.tools_registry,
+            tools_registry=run_registry,
             settings=settings,
             memory=memory,
             sandbox_base_dir=sandbox_base_dir,
@@ -223,6 +246,12 @@ class Orchestrator:
                 "agent": agent,  # Keep agent reference for accessing final answer
             }
         finally:
+            # Tear down this run's MCP connections (session-scoped).
+            if mcp_set is not None:
+                try:
+                    await asyncio.get_event_loop().run_in_executor(None, mcp_set.close)
+                except Exception:
+                    logger.debug("MCP session-set close failed", exc_info=True)
             # Clean up from agents dict (but keep reference in result)
             if task_id in self.agents:
                 del self.agents[task_id]
