@@ -9,6 +9,7 @@ import {
   type ConnectionScope,
   type ProviderInfo,
 } from '@/api/connections';
+import { McpServersSection } from '@/components/McpServersSection';
 
 const ICONS: Record<string, typeof Mail> = { google: Mail };
 
@@ -128,6 +129,8 @@ export function ConnectionsPage() {
               ))}
             </Section>
           )}
+
+          <McpServersSection />
         </div>
       )}
     </div>

@@ -517,6 +517,47 @@ class OAuthConnection(SQLModel, table=True):
     )
 
 
+class McpServer(SQLModel, table=True):
+    """An MCP server a member (scope='user') or the org (scope='org') has added.
+
+    Resolved per run into a kernel ``McpServerConfig`` (with auth headers) and
+    passed to the agent — the same scope/union machinery as OAuthConnection.
+    Static Bearer secrets are ENCRYPTED at rest; OAuth-authed servers (later)
+    reference an OAuthConnection."""
+
+    __tablename__ = "mcp_servers"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "user_id", "name", name="uq_mcp_server_name"
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)  # a member id, or ORG_CONNECTION_USER
+    scope: str = Field(default="user", index=True)  # "user" | "org"
+    created_by: str | None = None
+    name: str  # namespaces tools as mcp__<name>__<tool>
+    transport: str = "http"  # "http" | "sse"
+    url: str = ""
+    auth_kind: str = "none"  # "none" | "static" | "oauth"
+    static_secret_enc: str | None = None  # encrypted Bearer for auth_kind=static
+    oauth_connection_id: str | None = None  # for auth_kind=oauth (later)
+    tools_include: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    tools_exclude: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    enabled: bool = True
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class OAuthFlowState(SQLModel, table=True):
     """Short-lived CSRF/PKCE state for an in-flight connect (10-min TTL)."""
 

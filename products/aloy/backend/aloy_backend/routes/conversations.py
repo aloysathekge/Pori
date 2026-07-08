@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import get_session
 from ..event_log import EventLogCollector
@@ -809,6 +810,10 @@ async def send_message(
         session, context.organization_id, context.user_id
     )
     connection_denied = () if "google" in run_connections else tuple(GOOGLE_TOOL_NAMES)
+    # Resolve this member's + the org's MCP servers (union) for the run.
+    run_mcp_servers = await resolve_run_mcp_servers(
+        session, context.organization_id, context.user_id
+    )
 
     orchestrator = build_orchestrator(
         shared_memory=memory,
@@ -857,6 +862,7 @@ async def send_message(
                 run_context=stream_context,
                 collector=event_collector,
                 tool_context_extra={"connections": run_connections},
+                mcp_servers=run_mcp_servers,
             ):
                 # Capture the final message event so we can persist it
                 if event.startswith("event: message\n"):
@@ -970,6 +976,8 @@ async def send_message(
             task=req.content,
             agent_settings=agent_settings,
             run_context=run_context,
+            tool_context_extra={"connections": run_connections},
+            mcp_servers=run_mcp_servers,
         )
     except Exception as e:
         logger.exception("Agent failed for conversation %s", conversation_id)
