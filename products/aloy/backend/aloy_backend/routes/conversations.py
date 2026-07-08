@@ -924,6 +924,26 @@ async def send_message(
                 )
                 session.add(run)
 
+                # Save the trace record so the Traces view is populated for
+                # streamed runs too (the non-stream path already does this).
+                trace_data = msg_data.get("trace")
+                if trace_data and isinstance(trace_data, dict):
+                    session.add(
+                        TraceRecord(
+                            organization_id=stream_context.organization_id,
+                            user_id=user_id,
+                            run_id=stream_context.run_id,
+                            conversation_id=conv.id,
+                            trace_data=trace_data,
+                            duration_seconds=float(
+                                (trace_data.get("duration") or "0s").replace("s", "")
+                                or 0
+                            ),
+                            total_spans=int(trace_data.get("total_spans", 0)),
+                            status=trace_data.get("status", "ok"),
+                        )
+                    )
+
                 # Read-only replay log: the coalesced event stream for this run,
                 # persisted in the same transaction (best-effort — a log failure
                 # must never lose the message/run).
