@@ -947,8 +947,11 @@ async def send_message(
                 session.add(conv)
                 await session.commit()
 
-            # Flush core memory changes after stream completes
+            # Flush core memory changes after stream completes. _flush only
+            # stages the rows (session.add); commit here or they're discarded
+            # when the session closes — which left core memory empty across turns.
             await _flush_memory_to_db(session, context, memory)
+            await session.commit()
 
         return StreamingResponse(
             _stream(),
