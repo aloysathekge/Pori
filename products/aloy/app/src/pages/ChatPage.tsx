@@ -15,6 +15,7 @@ import {
   deleteConversation,
 } from '@/api/conversations';
 import {
+  attachLiveRun,
   streamMessage,
   submitClarification,
   type SSECallbacks,
@@ -114,7 +115,10 @@ export function ChatPage() {
       setLoadingConversation(true);
       getConversation(routeConversationId)
         .then((detail) => {
-          if (!cancelled) setMessages(detail.messages);
+          if (cancelled) return;
+          setMessages(detail.messages);
+          // Resume live streaming if this conversation has an in-flight run.
+          void tryReattach(routeConversationId);
         })
         .catch(() => {
           if (!cancelled) setMessages([]);
@@ -236,56 +240,11 @@ export function ChatPage() {
     }
   }
 
-  async function handleSend() {
-    if (
-      (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) ||
-      !activeId
-    )
-      return;
-    const content = input.trim() || 'See the attached content.';
-
-    // If the agent is waiting on a clarification, the message box answers it
-    // (resumes the paused run) instead of starting a new turn.
-    if (clarify) {
-      setInput('');
-      answerClarify(content);
-      return;
-    }
-    if (sending) return;
-    const images = pendingImages;
-    const files = pendingFiles;
-    setPendingImages([]);
-    setPendingFiles([]);
-    setInput('');
-    setSending(true);
-    setStreaming(true);
-    setStreamStatus('Thinking…');
-    setStreamActivity('');
-    setStreamPlan([]);
-    setStreamTools([]);
-    setStreamStep(undefined);
-    setStreamText('');
-    setClarify(null);
-
-    const userMsg: MessageResponse = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content,
-      metadata:
-        images.length > 0 || files.length > 0
-          ? {
-              ...(images.length > 0 ? { images } : {}),
-              ...(files.length > 0
-                ? { files: files.map((f) => ({ name: f.name, size: f.size })) }
-                : {}),
-            }
-          : null,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-
+  /** Shared stream callbacks — used by a fresh send AND by re-attaching to an
+   *  in-flight run after navigating back. */
+  function buildStreamCallbacks(): SSECallbacks {
     let firstText = true;
-    const callbacks: SSECallbacks = {
+    return {
       onText: (text) => {
         if (firstText) {
           firstText = false;
@@ -336,7 +295,14 @@ export function ChatPage() {
           },
           created_at: new Date().toISOString(),
         };
-        setMessages((prev) => [...prev, assistantMsg]);
+        // Dedupe by run_id: on re-attach the persisted message may already be
+        // in the loaded history when the replayed 'message' frame arrives.
+        setMessages((prev) =>
+          data.run_id &&
+          prev.some((m) => m.metadata?.run_id === data.run_id)
+            ? prev
+            : [...prev, assistantMsg],
+        );
         // Tear down the whole streaming UI (bubble + indicator) the instant the
         // final message lands, so nothing lingers/overlaps beneath it.
         setStreamText('');
@@ -365,6 +331,83 @@ export function ChatPage() {
         loadConversations();
       },
     };
+  }
+
+  /** If this conversation has an in-flight run (we navigated away and came
+   *  back), re-attach: the server replays all frames, then continues live. */
+  async function tryReattach(convId: string) {
+    const controller = new AbortController();
+    try {
+      const attached = await attachLiveRun(
+        convId,
+        buildStreamCallbacks(),
+        controller.signal,
+        () => {
+          streamAbortRef.current = controller;
+          setSending(true);
+          setStreaming(true);
+          setStreamStatus('Resuming…');
+        },
+      );
+      if (!attached) return;
+    } catch {
+      resetStreamUi();
+    } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+      }
+    }
+  }
+
+  async function handleSend() {
+    if (
+      (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) ||
+      !activeId
+    )
+      return;
+    const content = input.trim() || 'See the attached content.';
+
+    // If the agent is waiting on a clarification, the message box answers it
+    // (resumes the paused run) instead of starting a new turn.
+    if (clarify) {
+      setInput('');
+      answerClarify(content);
+      return;
+    }
+    if (sending) return;
+    const images = pendingImages;
+    const files = pendingFiles;
+    setPendingImages([]);
+    setPendingFiles([]);
+    setInput('');
+    setSending(true);
+    setStreaming(true);
+    setStreamStatus('Thinking…');
+    setStreamActivity('');
+    setStreamPlan([]);
+    setStreamTools([]);
+    setStreamStep(undefined);
+    setStreamText('');
+    setClarify(null);
+
+    const userMsg: MessageResponse = {
+      id: `temp-${Date.now()}`,
+      role: 'user',
+      content,
+      metadata:
+        images.length > 0 || files.length > 0
+          ? {
+              ...(images.length > 0 ? { images } : {}),
+              ...(files.length > 0
+                ? { files: files.map((f) => ({ name: f.name, size: f.size })) }
+                : {}),
+            }
+          : null,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    const callbacks = buildStreamCallbacks();
 
     // Abortable stream: switching conversations or leaving the page aborts it
     // so tokens can't bleed into another conversation's view.

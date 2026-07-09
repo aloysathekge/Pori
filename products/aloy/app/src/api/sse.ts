@@ -1,4 +1,4 @@
-import { apiFetch, apiStreamFetch } from './client';
+import { ApiError, apiFetch, apiStreamFetch } from './client';
 import {
   CLARIFICATION_REQUEST,
   TEXT_DELTA,
@@ -49,6 +49,57 @@ export async function streamMessage(
   },
 ) {
   const { signal, ...body } = options ?? {};
+  await consumeStream(
+    (watchdogSignal) =>
+      apiStreamFetch(
+        `/conversations/${conversationId}/messages`,
+        { content, stream: true, ...body },
+        watchdogSignal,
+      ),
+    callbacks,
+    signal,
+  );
+}
+
+/**
+ * Re-attach to a conversation's in-flight run (after navigating away and
+ * back): the server replays every frame so far, then continues live.
+ * Returns false when there is no live run.
+ */
+export async function attachLiveRun(
+  conversationId: string,
+  callbacks: SSECallbacks,
+  signal?: AbortSignal,
+  onAttached?: () => void,
+): Promise<boolean> {
+  try {
+    await consumeStream(
+      async (watchdogSignal) => {
+        const res = await apiStreamFetch(
+          `/conversations/${conversationId}/live`,
+          undefined,
+          watchdogSignal,
+          'GET',
+        );
+        onAttached?.();
+        return res;
+      },
+      callbacks,
+      signal,
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return false; // no live run
+    throw err;
+  }
+}
+
+/** Shared SSE pump: watchdog, CRLF tolerance, trailing flush, single onDone. */
+async function consumeStream(
+  open: (watchdogSignal: AbortSignal) => Promise<Response>,
+  callbacks: SSECallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
   // Idle watchdog: chain the caller's signal with our own timeout-based abort
   // so a stalled-open connection can't leave the UI in 'sending' forever.
   const watchdog = new AbortController();
@@ -73,11 +124,7 @@ export async function streamMessage(
   };
 
   try {
-    const res = await apiStreamFetch(
-      `/conversations/${conversationId}/messages`,
-      { content, stream: true, ...body },
-      watchdog.signal,
-    );
+    const res = await open(watchdog.signal);
 
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();

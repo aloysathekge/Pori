@@ -21,6 +21,7 @@ from pori import (
     fuse_retrieval,
 )
 
+from .. import live_runs
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
@@ -58,7 +59,7 @@ from ..schemas import (
 )
 from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
-from ..streaming import resolve_clarification, stream_agent_execution
+from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
 from ..tools import GOOGLE_TOOL_NAMES
 from .teams import _build_team_from_config
@@ -940,6 +941,7 @@ async def send_message(
                     mcp_servers=run_mcp_servers,
                     task_attachments=task_attachments,
                     result_holder=result_holder,
+                    conversation_id=conv.id,
                 ):
                     yield event
             finally:
@@ -1089,6 +1091,31 @@ async def send_message(
         content=assistant_msg.content,
         metadata=assistant_msg.metadata_,
         created_at=assistant_msg.created_at,
+    )
+
+
+@router.get("/{conversation_id}/live")
+async def attach_live_run(
+    conversation_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-attach to this conversation's in-flight run: replays every frame so
+    far, then continues live — so navigating away and back resumes streaming."""
+    conv = await session.get(Conversation, conversation_id)
+    if not conv or conv.organization_id != context.organization_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    live = live_runs.get(conversation_id)
+    if live is None:
+        raise HTTPException(status_code=404, detail="No live run")
+    return StreamingResponse(
+        subscribe_frames(live),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
