@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Paperclip, Send, X } from 'lucide-react';
+import { Plus, Send } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { ConversationList } from '@/components/chat/ConversationList';
+import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
+import { Composer } from '@/components/chat/Composer';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
@@ -20,6 +21,7 @@ import {
 } from '@/api/sse';
 import type {
   ConversationResponse,
+  MessageFile,
   MessageImage,
   MessageResponse,
   SSEMessageEvent,
@@ -29,6 +31,16 @@ import type {
 
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
+const MAX_FILES = 3;
+const MAX_FILE_CHARS = 200_000; // ~200KB of text (backend-enforced too)
+const DOC_MIMES: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+const MAX_DOC_BYTES = 10 * 1024 * 1024; // 10MB per document
+const TEXT_EXTENSIONS =
+  /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|cs|php|html|css|scss|xml|yml|yaml|toml|ini|cfg|conf|env|sh|bash|ps1|sql|log|diff|patch)$/i;
 
 export function ChatPage() {
   const { conversationId: routeConversationId } = useParams();
@@ -39,7 +51,9 @@ export function ChatPage() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFiles, setPendingFiles] = useState<
+    (MessageFile & { content?: string; data?: string; media_type?: string })[]
+  >([]);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -122,6 +136,14 @@ export function ChatPage() {
     return () => streamAbortRef.current?.abort();
   }, []);
 
+  // Landing on /chat with no conversation selected: open the most recent one
+  // (nav 'Chat' should drop you into your chat, not an empty state).
+  useEffect(() => {
+    if (!routeConversationId && conversations.length > 0) {
+      navigate(`/chat/${conversations[0].id}`, { replace: true });
+    }
+  }, [routeConversationId, conversations, navigate]);
+
   async function loadConversations() {
     try {
       const convos = await listConversations(50);
@@ -131,33 +153,62 @@ export function ChatPage() {
     }
   }
 
-  /** Read image files into base64 attachments (attach button, paste, drop). */
-  function addImageFiles(files: Iterable<File>) {
+  /** Route attachments: images render for the model's eyes; text-like files
+   *  embed their content into the task. (Attach button, paste, drag-drop.) */
+  function addAttachments(files: Iterable<File>) {
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-      if (file.size > MAX_IMAGE_BYTES) continue; // silently skip oversized
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result || '');
-        const base64 = url.split(',')[1] ?? '';
-        if (!base64) return;
-        setPendingImages((prev) =>
-          prev.length >= MAX_IMAGES
-            ? prev
-            : [...prev, { data: base64, media_type: file.type }],
-        );
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('image/')) {
+        if (file.size > MAX_IMAGE_BYTES) continue;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = String(reader.result || '').split(',')[1] ?? '';
+          if (!base64) return;
+          setPendingImages((prev) =>
+            prev.length >= MAX_IMAGES
+              ? prev
+              : [...prev, { data: base64, media_type: file.type }],
+          );
+        };
+        reader.readAsDataURL(file);
+      } else if (DOC_MIMES[file.name.split('.').pop()?.toLowerCase() ?? '']) {
+        if (file.size > MAX_DOC_BYTES) continue;
+        const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = String(reader.result || '').split(',')[1] ?? '';
+          if (!base64) return;
+          setPendingFiles((prev) =>
+            prev.length >= MAX_FILES
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    name: file.name,
+                    size: file.size,
+                    data: base64,
+                    media_type: mediaType,
+                  },
+                ],
+          );
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result || '').slice(0, MAX_FILE_CHARS);
+          if (!text) return;
+          setPendingFiles((prev) =>
+            prev.length >= MAX_FILES
+              ? prev
+              : [...prev, { name: file.name, size: text.length, content: text }],
+          );
+        };
+        reader.readAsText(file);
+      }
+      // other types (pdf, binaries): not supported yet — skipped
     }
   }
 
-  function handlePaste(e: React.ClipboardEvent) {
-    const files = Array.from(e.clipboardData.files ?? []);
-    if (files.some((f) => f.type.startsWith('image/'))) {
-      e.preventDefault();
-      addImageFiles(files);
-    }
-  }
 
   function openConversation(id: string) {
     navigate(`/chat/${id}`);
@@ -186,8 +237,12 @@ export function ChatPage() {
   }
 
   async function handleSend() {
-    if ((!input.trim() && pendingImages.length === 0) || !activeId) return;
-    const content = input.trim() || 'See the attached image.';
+    if (
+      (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) ||
+      !activeId
+    )
+      return;
+    const content = input.trim() || 'See the attached content.';
 
     // If the agent is waiting on a clarification, the message box answers it
     // (resumes the paused run) instead of starting a new turn.
@@ -198,7 +253,9 @@ export function ChatPage() {
     }
     if (sending) return;
     const images = pendingImages;
+    const files = pendingFiles;
     setPendingImages([]);
+    setPendingFiles([]);
     setInput('');
     setSending(true);
     setStreaming(true);
@@ -214,7 +271,15 @@ export function ChatPage() {
       id: `temp-${Date.now()}`,
       role: 'user',
       content,
-      metadata: images.length > 0 ? { images } : null,
+      metadata:
+        images.length > 0 || files.length > 0
+          ? {
+              ...(images.length > 0 ? { images } : {}),
+              ...(files.length > 0
+                ? { files: files.map((f) => ({ name: f.name, size: f.size })) }
+                : {}),
+            }
+          : null,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -296,8 +361,22 @@ export function ChatPage() {
     const controller = new AbortController();
     streamAbortRef.current = controller;
     try {
+      const textFiles = files.filter((f) => f.content != null);
+      const binaryDocs = files.filter((f) => f.data != null);
       await streamMessage(activeId, content, callbacks, {
         images: images.length > 0 ? images : undefined,
+        files:
+          textFiles.length > 0
+            ? textFiles.map((f) => ({ name: f.name, content: f.content! }))
+            : undefined,
+        documents:
+          binaryDocs.length > 0
+            ? binaryDocs.map((f) => ({
+                name: f.name,
+                data: f.data!,
+                media_type: f.media_type!,
+              }))
+            : undefined,
         signal: controller.signal,
       });
     } catch {
@@ -321,20 +400,29 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Sidebar */}
-      <div className="hidden w-72 lg:block">
-        <ConversationList
+    <div className="flex h-full flex-col">
+      {/* Slim top bar: the conversation switcher lives HERE (a dropdown), so
+          navigation costs zero horizontal space — the canvas is the chat's. */}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 px-2">
+        <ConversationSwitcher
           conversations={conversations}
           activeId={activeId}
           onSelect={openConversation}
           onCreate={handleCreate}
           onDelete={handleDelete}
         />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleCreate}
+          title="New conversation"
+        >
+          <Plus size={16} />
+        </Button>
       </div>
 
       {/* Chat area */}
-      <div className="flex flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         {!activeId ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-zinc-500">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
@@ -342,16 +430,6 @@ export function ChatPage() {
             </div>
             <p className="text-lg font-medium">Select or start a conversation</p>
             <Button onClick={handleCreate}>New Conversation</Button>
-            {/* Mobile conversation list */}
-            <div className="mt-4 w-full max-w-sm lg:hidden">
-              <ConversationList
-                conversations={conversations}
-                activeId={activeId}
-                onSelect={openConversation}
-                onCreate={handleCreate}
-                onDelete={handleDelete}
-              />
-            </div>
           </div>
         ) : (
           <>
@@ -366,7 +444,7 @@ export function ChatPage() {
                   <p className="text-sm">Send a message to start chatting</p>
                 </div>
               ) : (
-                <div className="mx-auto max-w-3xl space-y-6">
+                <div className="mx-auto max-w-4xl space-y-6">
                   {messages.map((msg) => (
                     <MessageBubble
                       key={msg.id}
@@ -395,7 +473,7 @@ export function ChatPage() {
                     />
                   )}
                   {clarify && (
-                    <div className="mx-auto max-w-3xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
+                    <div className="mx-auto max-w-4xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
                       <p className="mb-3 text-sm text-zinc-200">
                         {clarify.question}
                       </p>
@@ -424,82 +502,35 @@ export function ChatPage() {
               )}
             </div>
 
-            {/* Input bar */}
+            {/* Composer */}
             <div className="border-t border-zinc-800 p-4">
-              {pendingImages.length > 0 && (
-                <div className="mx-auto mb-2 flex max-w-3xl gap-2">
-                  {pendingImages.map((img, i) => (
-                    <div key={i} className="group relative">
-                      <img
-                        src={`data:${img.media_type};base64,${img.data}`}
-                        alt={`attachment ${i + 1}`}
-                        className="h-16 w-16 rounded-lg border border-zinc-700 object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPendingImages((prev) =>
-                            prev.filter((_, idx) => idx !== i),
-                          )
-                        }
-                        className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-red-600"
-                        title="Remove"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mx-auto flex max-w-3xl gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    addImageFiles(Array.from(e.target.files ?? []));
-                    e.target.value = '';
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-12 w-12 rounded-xl"
-                  title="Attach image"
-                  disabled={(sending && !clarify) || pendingImages.length >= MAX_IMAGES}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip size={18} />
-                </Button>
-                <input
-                  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  placeholder={
-                    clarify ? 'Answer the question above…' : 'Type a message...'
-                  }
+              <div className="mx-auto max-w-4xl">
+                <Composer
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onPaste={handlePaste}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  disabled={sending && !clarify}
-                />
-                <Button
-                  onClick={handleSend}
-                  disabled={
-                    (!input.trim() && pendingImages.length === 0) ||
-                    (sending && !clarify)
+                  onChange={setInput}
+                  onSend={handleSend}
+                  onAddFiles={addAttachments}
+                  pendingImages={pendingImages}
+                  onRemoveImage={(i) =>
+                    setPendingImages((prev) =>
+                      prev.filter((_, idx) => idx !== i),
+                    )
                   }
-                  size="icon"
-                  className="h-12 w-12 rounded-xl"
-                >
-                  <Send size={18} />
-                </Button>
+                  pendingFiles={pendingFiles}
+                  onRemoveFile={(i) =>
+                    setPendingFiles((prev) =>
+                      prev.filter((_, idx) => idx !== i),
+                    )
+                  }
+                  disabled={sending && !clarify}
+                  placeholder={
+                    clarify ? 'Answer the question above…' : 'Message Aloy…'
+                  }
+                  attachFull={
+                    pendingImages.length >= MAX_IMAGES &&
+                    pendingFiles.length >= MAX_FILES
+                  }
+                />
               </div>
             </div>
           </>

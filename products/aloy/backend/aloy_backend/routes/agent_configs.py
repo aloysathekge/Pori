@@ -3,6 +3,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from pori import (
     CapabilityResolutionError,
     diagnose_provider,
@@ -11,8 +14,6 @@ from pori import (
     register_all_tools,
     tool_registry,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from ..database import get_session
 from ..models import AgentConfig

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, Menu, Plug, X } from 'lucide-react';
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -31,7 +31,19 @@ const navItems = [
 
 export function AppLayout() {
   const { signOut } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
+  // Desktop: full rail (labels) vs slim icon rail — the icon rail leaves the
+  // content essentially screen-centered. Preference persists.
+  const [expanded, setExpanded] = useState<boolean>(
+    () => localStorage.getItem('aloy.nav') !== 'slim',
+  );
+
+  function toggleExpanded() {
+    setExpanded((prev) => {
+      localStorage.setItem('aloy.nav', prev ? 'slim' : 'full');
+      return !prev;
+    });
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100">
@@ -43,15 +55,23 @@ export function AppLayout() {
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar: full drawer on mobile; full-or-icon rail on desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-zinc-800/80 bg-zinc-900/60 backdrop-blur transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-zinc-800/80 bg-zinc-900/60 backdrop-blur transition-all duration-300 lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${expanded ? 'lg:w-64' : 'lg:w-16'}`}
       >
-        <div className="flex h-16 items-center gap-3 border-b border-zinc-800/80 px-5">
+        <div
+          className={`flex h-16 items-center gap-3 border-b border-zinc-800/80 ${
+            expanded ? 'px-5' : 'px-5 lg:justify-center lg:px-0'
+          }`}
+        >
           <AloyMark size={30} />
-          <span className="font-display text-xl font-semibold tracking-tight">
+          <span
+            className={`font-display text-xl font-semibold tracking-tight ${
+              expanded ? '' : 'lg:hidden'
+            }`}
+          >
             Aloy
           </span>
           <button
@@ -63,14 +83,21 @@ export function AppLayout() {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        <nav
+          className={`flex-1 space-y-0.5 overflow-y-auto py-4 ${
+            expanded ? 'px-3' : 'px-3 lg:px-2.5'
+          }`}
+        >
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={() => setSidebarOpen(false)}
+              title={expanded ? undefined : item.label}
               className={({ isActive }) =>
                 `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                  expanded ? '' : 'lg:justify-center lg:px-0'
+                } ${
                   isActive
                     ? 'bg-accent-600/15 text-accent-700'
                     : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
@@ -90,22 +117,49 @@ export function AppLayout() {
                         : 'text-zinc-500 transition-colors group-hover:text-zinc-300'
                     }
                   />
-                  {item.label}
+                  <span className={expanded ? '' : 'lg:hidden'}>
+                    {item.label}
+                  </span>
                 </>
               )}
             </NavLink>
           ))}
         </nav>
 
-        <div className="border-t border-zinc-800/80 p-3">
+        <div
+          className={`space-y-1 border-t border-zinc-800/80 p-3 ${
+            expanded ? '' : 'lg:p-2.5'
+          }`}
+        >
+          {/* Desktop rail toggle */}
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            className={`hidden w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 lg:flex ${
+              expanded ? '' : 'lg:justify-center lg:px-0'
+            }`}
+          >
+            {expanded ? (
+              <>
+                <PanelLeftClose size={18} className="text-zinc-500" />
+                Collapse
+              </>
+            ) : (
+              <PanelLeftOpen size={18} className="text-zinc-500" />
+            )}
+          </button>
           <Button
             variant="ghost"
             size="md"
-            className="w-full justify-start gap-3 text-zinc-400"
+            className={`w-full gap-3 text-zinc-400 ${
+              expanded ? 'justify-start' : 'justify-start lg:justify-center'
+            }`}
             onClick={signOut}
+            title={expanded ? undefined : 'Sign Out'}
           >
             <LogOut size={18} />
-            Sign Out
+            <span className={expanded ? '' : 'lg:hidden'}>Sign Out</span>
           </Button>
         </div>
       </aside>
@@ -114,11 +168,11 @@ export function AppLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center border-b border-zinc-800/80 px-4 lg:hidden">
           <button
-            aria-label="Open menu"
             className="rounded-lg p-1.5 text-zinc-300 hover:bg-zinc-800"
+            aria-label="Open menu"
             onClick={() => setSidebarOpen(true)}
           >
-            <Menu size={20} />
+            <Menu size={22} />
           </button>
           <span className="ml-3 flex items-center gap-2">
             <AloyMark size={22} />

@@ -259,12 +259,14 @@ def _build_messages(self) -> List[BaseMessage]:
         "Answer this task directly. Use memory only when it is clearly "
         "relevant to this exact task; ignore unrelated remembered facts."
     )
-    task_images = getattr(self, "task_images", None)
-    if task_images:
+    task_attachments = getattr(self, "task_attachments", None)
+    if task_attachments:
         # Multimodal turn: the user's images ride WITH the task as one message
         # (image blocks first, task text last), so every provider adapter maps
         # them natively (Anthropic image blocks / OpenAI image_url / Gemini).
-        messages.append(UserMessage(content=[*task_images, TextBlock(text=task_text)]))
+        messages.append(
+            UserMessage(content=[*task_attachments, TextBlock(text=task_text)])
+        )
     else:
         messages.append(UserMessage(content=task_text))
 

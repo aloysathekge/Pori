@@ -15,13 +15,13 @@ PNG_1PX = (
 )
 
 
-async def test_task_images_ride_with_the_task_message(mock_llm, tool_registry):
+async def test_task_attachments_ride_with_the_task_message(mock_llm, tool_registry):
     image = ImageBlock(source="base64", media_type="image/png", data=PNG_1PX)
     orch = Orchestrator(llm=mock_llm, tools_registry=tool_registry)
     await orch.execute_task(
         "What is in this image?",
         agent_settings=AgentSettings(max_steps=2),
-        task_images=[image],
+        task_attachments=[image],
     )
 
     assert mock_llm.ainvoke_calls, "the LLM was never invoked"
@@ -45,3 +45,36 @@ async def test_no_images_keeps_plain_string_task(mock_llm, tool_registry):
     final = mock_llm.ainvoke_calls[0][-1]
     assert isinstance(final.content, str)
     assert "hello" in final.content
+
+
+def test_document_block_maps_to_anthropic_document():
+    from pori import DocumentBlock
+    from pori.llm.anthropic import _to_anthropic_content
+    from pori.llm.messages import TextBlock
+
+    blocks = _to_anthropic_content(
+        [
+            DocumentBlock(media_type="application/pdf", data="QUJD", name="r.pdf"),
+            TextBlock(text="summarize"),
+        ]
+    )
+    assert blocks[0]["type"] == "document"
+    assert blocks[0]["source"]["media_type"] == "application/pdf"
+    assert blocks[0]["source"]["data"] == "QUJD"
+    assert blocks[1] == {"type": "text", "text": "summarize"}
+
+
+async def test_documents_ride_with_the_task(mock_llm, tool_registry):
+    from pori import AgentSettings, DocumentBlock
+    from pori.orchestrator.core import Orchestrator
+
+    doc = DocumentBlock(media_type="application/pdf", data="QUJD", name="r.pdf")
+    orch = Orchestrator(llm=mock_llm, tools_registry=tool_registry)
+    await orch.execute_task(
+        "Summarize the attached report",
+        agent_settings=AgentSettings(max_steps=2),
+        task_attachments=[doc],
+    )
+    final = mock_llm.ainvoke_calls[0][-1]
+    assert isinstance(final.content, list)
+    assert any(type(b).__name__ == "DocumentBlock" for b in final.content)

@@ -42,6 +42,8 @@ export async function streamMessage(
     max_steps?: number;
     team_id?: string | null;
     images?: { data: string; media_type: string }[];
+    files?: { name: string; content: string }[];
+    documents?: { name: string; data: string; media_type: string }[];
     signal?: AbortSignal;
   },
 ) {

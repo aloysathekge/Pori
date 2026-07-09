@@ -94,7 +94,7 @@ class Orchestrator:
         on_busy: str = "reject",
         resume_task_id: Optional[str] = None,
         mcp_servers: Optional[List["McpServerConfig"]] = None,
-        task_images: Optional[List["ImageBlock"]] = None,
+        task_attachments: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent.
 
@@ -129,7 +129,7 @@ class Orchestrator:
                     tool_context_extra=tool_context_extra,
                     resume_task_id=resume_task_id,
                     mcp_servers=mcp_servers,
-                    task_images=task_images,
+                    task_attachments=task_attachments,
                 )
 
         if session_key is None:
@@ -168,7 +168,7 @@ class Orchestrator:
         tool_context_extra: Optional[Dict[str, Any]] = None,
         resume_task_id: Optional[str] = None,
         mcp_servers: Optional[List["McpServerConfig"]] = None,
-        task_images: Optional[List["ImageBlock"]] = None,
+        task_attachments: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -217,7 +217,7 @@ class Orchestrator:
             load_project_context=self.load_project_context,
             tool_context_extra=tool_context_extra,
             resume_task_id=resume_task_id,
-            task_images=task_images,
+            task_attachments=task_attachments,
         )
         self.agents[task_id] = agent
 

@@ -24,6 +24,7 @@ from pori.llm import (
     AssistantMessage,
     BaseChatModel,
     BaseMessage,
+    DocumentBlock,
     ImageBlock,
     SystemMessage,
     UserMessage,
@@ -175,7 +176,7 @@ class Agent:
         load_project_context: bool = False,
         tool_context_extra: Optional[Dict[str, Any]] = None,
         resume_task_id: Optional[str] = None,
-        task_images: Optional[List["ImageBlock"]] = None,
+        task_attachments: Optional[List[Union["ImageBlock", "DocumentBlock"]]] = None,
     ):
         # Generate unique task ID for tracking (also used as thread_id for sandbox).
         # A caller may pass resume_task_id to adopt an existing (interrupted)
@@ -184,9 +185,9 @@ class Agent:
         # where it stopped rather than from step 0.
         self.task_id = resume_task_id or str(uuid.uuid4())[:8]
         self._resuming = resume_task_id is not None
-        # Images attached to THIS task (multimodal turn) — they ride with the
-        # CURRENT TASK message so every provider adapter maps them natively.
-        self.task_images = list(task_images or [])
+        # Attachments for THIS task (images/PDF documents) — they ride with
+        # the CURRENT TASK message so every provider adapter maps them natively.
+        self.task_attachments = list(task_attachments or [])
         # Extra keys merged into every tool's context (e.g. a clarify_handler that
         # renders options as gateway buttons instead of a CLI menu).
         self._tool_context_extra = dict(tool_context_extra or {})

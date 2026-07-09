@@ -46,7 +46,20 @@ class ImageBlock(BaseModel):
         return cls.from_bytes(p.read_bytes(), media_type=media_type)
 
 
-ContentBlock = Union[TextBlock, ImageBlock]
+class DocumentBlock(BaseModel):
+    """One document segment (PDF) of a multimodal message.
+
+    Providers accept PDFs natively: Anthropic ``document`` blocks, Gemini
+    inline data, OpenAI ``file`` content parts (data URL). Non-PDF formats
+    (docx, …) should be text-extracted by the caller instead."""
+
+    type: Literal["document"] = "document"
+    media_type: str = "application/pdf"
+    data: str = ""  # base64 payload
+    name: str = ""  # original filename, where the provider accepts one
+
+
+ContentBlock = Union[TextBlock, ImageBlock, DocumentBlock]
 
 # A message body: plain text (the overwhelmingly common case) or an ordered
 # list of text/image blocks. Everything that only needs the words should go

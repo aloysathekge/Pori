@@ -70,8 +70,7 @@ line_length = 88
 # matter the working directory (pre-commit runs from the repo root; the CI
 # job runs from this directory — without this, detection flips and they
 # fight each other).
-known_first_party = ["aloy_backend"]
-known_third_party = ["pori"]
+known_first_party = ["aloy_backend", "pori"]
 
 [tool.setuptools.packages.find]
 include = ["aloy_backend*"]

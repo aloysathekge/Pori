@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, History } from 'lucide-react';
+import { Check, Copy, FileText, History } from 'lucide-react';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -15,13 +15,35 @@ export function MessageBubble({
   const artifacts = message.metadata?.artifacts ?? [];
   const runId = message.metadata?.run_id ?? null;
   const [replaying, setReplaying] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function copyMessage() {
+    navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  const copyButton = (
+    <button
+      type="button"
+      onClick={copyMessage}
+      title="Copy message"
+      className={`self-end pb-1 text-zinc-500 transition-opacity hover:text-accent-600 ${
+        copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      }`}
+    >
+      {copied ? <Check size={14} className="text-accent-600" /> : <Copy size={14} />}
+    </button>
+  );
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {isUser && copyButton}
       <div
-        className={`max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-accent-600 text-white'
+            ? 'bg-accent-600 text-white selection:bg-white/35 selection:text-white'
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >
@@ -34,6 +56,24 @@ export function MessageBubble({
                 alt={`attachment ${i + 1}`}
                 className="max-h-64 max-w-full rounded-lg border border-zinc-700 object-contain"
               />
+            ))}
+          </div>
+        )}
+        {(message.metadata?.files?.length ?? 0) > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {message.metadata!.files!.map((f, i) => (
+              <span
+                key={i}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                  isUser
+                    ? 'border-white/25 bg-white/10 text-white'
+                    : 'border-zinc-600/60 bg-zinc-900/60 text-zinc-200'
+                }`}
+              >
+                <FileText size={13} className="shrink-0" />
+                <span className="max-w-44 truncate font-medium">{f.name}</span>
+                <span className="opacity-60">{(f.size / 1024).toFixed(1)} KB</span>
+              </span>
             ))}
           </div>
         )}
@@ -101,6 +141,7 @@ export function MessageBubble({
           </div>
         )}
       </div>
+      {!isUser && copyButton}
 
       {replaying && runId && (
         <RunReplay runId={runId} onClose={() => setReplaying(false)} />

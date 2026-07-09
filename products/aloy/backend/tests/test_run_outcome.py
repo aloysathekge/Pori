@@ -9,7 +9,6 @@ save X" drift that produced three separate bugs.
 from types import SimpleNamespace
 
 import pytest
-from pori import AgentMemory
 from sqlmodel import select
 
 from aloy_backend.models import (
@@ -23,6 +22,7 @@ from aloy_backend.models import (
 )
 from aloy_backend.run_outcome import build_run_outcome, persist_run_outcome
 from aloy_backend.tenancy import OrganizationContext, OrganizationPolicy
+from pori import AgentMemory
 
 pytestmark = pytest.mark.asyncio
 

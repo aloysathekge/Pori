@@ -346,9 +346,8 @@ class TestGoogleTools:
         assert calls[0][3]["summary"] == "Lunch"
 
     def test_register_defines_google_group(self):
-        from pori.tools.registry import tool_registry
-
         from aloy_backend.tools import GOOGLE_TOOL_NAMES, register_google_tools
+        from pori.tools.registry import tool_registry
 
         reg = tool_registry()
         register_google_tools(reg)

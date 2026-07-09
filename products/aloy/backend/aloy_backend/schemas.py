@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pori import get_provider_profile
 from pydantic import BaseModel, Field, field_validator
+
+from pori import get_provider_profile
 
 from .tenancy import OrganizationPolicy
 
@@ -177,6 +178,33 @@ class ImageAttachment(BaseModel):
     media_type: str = Field(..., pattern="^image/(png|jpeg|gif|webp)$")
 
 
+class FileAttachment(BaseModel):
+    """One user-attached text file (code, markdown, csv, …), inline."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    content: str = Field(..., max_length=200_000)  # ~200KB of text
+
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+class DocumentAttachment(BaseModel):
+    """One binary document, inline base64. PDFs go to the model natively
+    (kernel DocumentBlock); DOCX/XLSX are text-extracted server-side."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    data: str = Field(..., min_length=1, max_length=14_000_000)  # ~10MB decoded
+    media_type: str = Field(...)
+
+    @field_validator("media_type")
+    @classmethod
+    def _allowed(cls, v: str) -> str:
+        if v not in {"application/pdf", DOCX_MIME, XLSX_MIME}:
+            raise ValueError("media_type must be pdf, docx, or xlsx")
+        return v
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     max_steps: int = Field(15, ge=1, le=10_000)
@@ -184,6 +212,10 @@ class SendMessageRequest(BaseModel):
     team_id: str | None = None  # If set, route through a multi-agent team
     # Multimodal turn: up to 3 inline images ride with the message.
     images: list[ImageAttachment] = Field(default_factory=list, max_length=3)
+    # Text-file attachments: content is embedded into the task for the model.
+    files: list[FileAttachment] = Field(default_factory=list, max_length=3)
+    # Binary documents (pdf/docx/xlsx), up to 3.
+    documents: list[DocumentAttachment] = Field(default_factory=list, max_length=3)
 
 
 # --- Agent Configs ---

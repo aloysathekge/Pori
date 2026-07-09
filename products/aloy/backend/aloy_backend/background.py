@@ -7,8 +7,9 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from pori import AgentMemory, AgentSettings
 from sqlmodel import select
+
+from pori import AgentMemory, AgentSettings
 
 from .conversation_runtime import (
     flush_context_artifact,

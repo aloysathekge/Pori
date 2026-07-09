@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .messages import (
     BaseMessage,
+    DocumentBlock,
     ImageBlock,
     MessageContent,
     SystemMessage,
@@ -44,6 +45,17 @@ def _to_anthropic_content(content: MessageContent) -> Any:
                 blocks.append(
                     {"type": "image", "source": {"type": "url", "url": block.url}}
                 )
+        elif isinstance(block, DocumentBlock):
+            blocks.append(
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": block.media_type,
+                        "data": block.data,
+                    },
+                }
+            )
     return blocks or ""
 
 
