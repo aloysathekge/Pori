@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Paperclip, Send, X } from 'lucide-react';
+import { PanelLeft, Paperclip, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationList } from '@/components/chat/ConversationList';
@@ -40,6 +40,16 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Conversations panel: collapsible on desktop (persisted), overlay on mobile.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(
+    () => localStorage.getItem('aloy.conv-sidebar') !== 'closed',
+  );
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+
+  function toggleSidebar(open: boolean) {
+    setSidebarOpen(open);
+    localStorage.setItem('aloy.conv-sidebar', open ? 'open' : 'closed');
+  }
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -322,19 +332,71 @@ export function ChatPage() {
 
   return (
     <div className="flex h-full">
-      {/* Sidebar */}
-      <div className="hidden w-72 lg:block">
-        <ConversationList
-          conversations={conversations}
-          activeId={activeId}
-          onSelect={openConversation}
-          onCreate={handleCreate}
-          onDelete={handleDelete}
-        />
+      {/* Desktop sidebar — collapses to zero width with a smooth slide, giving
+          the chat the full width. Preference persists across sessions. */}
+      <div
+        className={`hidden overflow-hidden transition-[width] duration-300 ease-in-out lg:block ${
+          sidebarOpen ? 'w-72' : 'w-0'
+        }`}
+      >
+        <div className="h-full w-72">
+          <ConversationList
+            conversations={conversations}
+            activeId={activeId}
+            onSelect={openConversation}
+            onCreate={handleCreate}
+            onDelete={handleDelete}
+            onCollapse={() => toggleSidebar(false)}
+          />
+        </div>
       </div>
 
+      {/* Mobile: the list is an overlay drawer */}
+      {mobileListOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileListOpen(false)}
+          />
+          <div className="absolute left-0 top-0 h-full w-72 bg-zinc-900 shadow-xl">
+            <ConversationList
+              conversations={conversations}
+              activeId={activeId}
+              onSelect={(id) => {
+                setMobileListOpen(false);
+                openConversation(id);
+              }}
+              onCreate={() => {
+                setMobileListOpen(false);
+                handleCreate();
+              }}
+              onDelete={handleDelete}
+              onCollapse={() => setMobileListOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Chat area */}
-      <div className="flex flex-1 flex-col">
+      <div className="relative flex flex-1 flex-col">
+        {/* Reopen control: floats subtly over the chat when the panel is away */}
+        <button
+          type="button"
+          onClick={() => {
+            if (window.matchMedia('(min-width: 1024px)').matches) {
+              toggleSidebar(true);
+            } else {
+              setMobileListOpen(true);
+            }
+          }}
+          title="Show conversations"
+          className={`absolute left-3 top-3 z-30 rounded-lg border border-zinc-700/60 bg-zinc-900/80 p-2 text-zinc-400 shadow-sm backdrop-blur transition-colors hover:text-accent-600 ${
+            sidebarOpen ? 'lg:hidden' : ''
+          }`}
+        >
+          <PanelLeft size={16} />
+        </button>
+
         {!activeId ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-zinc-500">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
@@ -342,16 +404,6 @@ export function ChatPage() {
             </div>
             <p className="text-lg font-medium">Select or start a conversation</p>
             <Button onClick={handleCreate}>New Conversation</Button>
-            {/* Mobile conversation list */}
-            <div className="mt-4 w-full max-w-sm lg:hidden">
-              <ConversationList
-                conversations={conversations}
-                activeId={activeId}
-                onSelect={openConversation}
-                onCreate={handleCreate}
-                onDelete={handleDelete}
-              />
-            </div>
           </div>
         ) : (
           <>

@@ -1,4 +1,4 @@
-import { MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { MessageSquare, PanelLeftClose, Plus, Trash2 } from 'lucide-react';
 import type { ConversationResponse } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { formatDateTime, formatRelativeTime } from '@/lib/time';
@@ -9,6 +9,8 @@ interface Props {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  /** When provided, shows the collapse control (hides the panel). */
+  onCollapse?: () => void;
 }
 
 export function ConversationList({
@@ -17,14 +19,27 @@ export function ConversationList({
   onSelect,
   onCreate,
   onDelete,
+  onCollapse,
 }: Props) {
   return (
     <div className="flex h-full flex-col border-r border-zinc-800">
       <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
         <h2 className="text-sm font-semibold text-zinc-300">Conversations</h2>
-        <Button variant="ghost" size="icon" onClick={onCreate} title="New chat">
-          <Plus size={16} />
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button variant="ghost" size="icon" onClick={onCreate} title="New chat">
+            <Plus size={16} />
+          </Button>
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onCollapse}
+              title="Hide conversations"
+            >
+              <PanelLeftClose size={16} />
+            </Button>
+          )}
+        </div>
       </div>
       <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
         {conversations.length === 0 && (
