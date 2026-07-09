@@ -4,13 +4,15 @@ from typing import Optional
 
 from pori import (
     AgentMemory,
+    LLMConfig,
     Orchestrator,
     SkillCatalog,
+    create_llm,
+    get_configured_llm,
     register_all_tools,
+    set_prompts_dir,
     tool_registry,
 )
-from pori.config import LLMConfig, create_llm, get_configured_llm
-from pori.utils.prompt_loader import set_prompts_dir
 
 from .models import AgentConfig
 

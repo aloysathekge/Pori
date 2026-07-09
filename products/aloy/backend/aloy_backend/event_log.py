@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pori.observability import PoriEvent
+from pori import PoriEvent
 
 _TEXT = "text_delta"
 _THINKING = "thinking_delta"

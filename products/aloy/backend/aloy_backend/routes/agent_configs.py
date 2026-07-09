@@ -3,8 +3,14 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pori import CapabilityResolutionError, register_all_tools, tool_registry
-from pori.providers import diagnose_provider, get_provider_profile, provider_profiles
+from pori import (
+    CapabilityResolutionError,
+    diagnose_provider,
+    get_provider_profile,
+    provider_profiles,
+    register_all_tools,
+    tool_registry,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 

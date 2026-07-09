@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pori.providers import get_provider_profile
+from pori import get_provider_profile
 from pydantic import BaseModel, Field, field_validator
 
 from .tenancy import OrganizationPolicy

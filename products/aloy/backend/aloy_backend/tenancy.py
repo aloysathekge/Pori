@@ -8,8 +8,7 @@ from enum import Enum
 from typing import Callable
 
 from fastapi import Depends, Header, HTTPException, status
-from pori.providers import get_provider_profile
-from pori.tools.standard import STANDARD_KERNEL_TOOLS
+from pori import STANDARD_KERNEL_TOOLS, get_provider_profile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select

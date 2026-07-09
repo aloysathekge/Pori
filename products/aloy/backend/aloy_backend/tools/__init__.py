@@ -6,7 +6,7 @@ Calendar) share one connection and live in the 'google' capability group,
 gated per-user by whether the user has connected Google.
 """
 
-from pori.tools.registry import CapabilityGroup
+from pori import CapabilityGroup
 
 from .calendar import (
     CALENDAR_TOOL_NAMES,

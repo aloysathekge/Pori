@@ -14,7 +14,7 @@ from sqlmodel import select
 
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
-from ..database import get_session
+from ..database import async_session, get_session
 from ..event_log import EventLogCollector
 from ..memory_records import request_scope, row_to_record
 from ..models import (
@@ -471,7 +471,7 @@ async def _maybe_generate_title(session, conv, llm, first_user_content: str) -> 
         return
     title = ""
     try:
-        from pori.llm.messages import SystemMessage, UserMessage
+        from pori import SystemMessage, UserMessage
 
         raw = await llm.ainvoke(
             [
@@ -869,10 +869,24 @@ async def send_message(
                             fallback_org=context.organization_id,
                             events=event_collector.finalize(),
                         )
-                        await persist_run_outcome(session, conv, context, outcome)
-                        await _maybe_generate_title(
-                            session, conv, orchestrator.llm, req.content
-                        )
+                        # Persist on a session the GENERATOR owns, not the
+                        # request-scoped one: the request's dependency teardown
+                        # order (esp. under BaseHTTPMiddleware, and on client
+                        # disconnect-as-cancellation) is not something run
+                        # durability should be pinned to.
+                        async with async_session() as persist_session:
+                            fresh_conv = await persist_session.get(
+                                Conversation, conv.id
+                            )
+                            await persist_run_outcome(
+                                persist_session, fresh_conv or conv, context, outcome
+                            )
+                            await _maybe_generate_title(
+                                persist_session,
+                                fresh_conv or conv,
+                                orchestrator.llm,
+                                req.content,
+                            )
                         logger.info(
                             "Persisted streamed run %s (conv %s)",
                             stream_context.run_id,
