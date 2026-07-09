@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy, FileText, History } from 'lucide-react';
+import { Check, Copy, FileText, History, RotateCcw } from 'lucide-react';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -7,9 +7,11 @@ import { Markdown } from './Markdown';
 export function MessageBubble({
   message,
   onOpenArtifact,
+  onResend,
 }: {
   message: MessageResponse;
   onOpenArtifact?: (path: string) => void;
+  onResend?: (content: string) => void;
 }) {
   const isUser = message.role === 'user';
   const artifacts = message.metadata?.artifacts ?? [];
@@ -29,7 +31,7 @@ export function MessageBubble({
       type="button"
       onClick={copyMessage}
       title="Copy message"
-      className={`self-end pb-1 text-zinc-500 transition-opacity hover:text-accent-600 ${
+      className={`text-zinc-500 transition-opacity hover:text-accent-600 ${
         copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
       }`}
     >
@@ -39,7 +41,21 @@ export function MessageBubble({
 
   return (
     <div className={`group flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {isUser && copyButton}
+      {isUser && (
+        <div className="flex flex-col items-end justify-end gap-2 pb-1">
+          {onResend && (
+            <button
+              type="button"
+              onClick={() => onResend(message.content)}
+              title="Send again"
+              className="text-zinc-500 opacity-0 transition-opacity hover:text-accent-600 group-hover:opacity-100"
+            >
+              <RotateCcw size={14} />
+            </button>
+          )}
+          {copyButton}
+        </div>
+      )}
       <div
         className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
@@ -141,7 +157,7 @@ export function MessageBubble({
           </div>
         )}
       </div>
-      {!isUser && copyButton}
+      {!isUser && <div className="self-end pb-1">{copyButton}</div>}
 
       {replaying && runId && (
         <RunReplay runId={runId} onClose={() => setReplaying(false)} />

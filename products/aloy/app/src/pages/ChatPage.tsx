@@ -380,6 +380,21 @@ export function ChatPage() {
     setPendingImages([]);
     setPendingFiles([]);
     setInput('');
+    await dispatchSend(content, images, files);
+  }
+
+  /** Re-send an earlier user message as a fresh turn (from its bubble). */
+  async function handleResend(content: string) {
+    if (!activeId || sending || clarify || !content.trim()) return;
+    await dispatchSend(content.trim(), [], []);
+  }
+
+  async function dispatchSend(
+    content: string,
+    images: MessageImage[],
+    files: (MessageFile & { content?: string; data?: string; media_type?: string })[],
+  ) {
+    if (!activeId) return;
     setSending(true);
     setStreaming(true);
     setStreamStatus('Thinking…');
@@ -503,6 +518,7 @@ export function ChatPage() {
                       key={msg.id}
                       message={msg}
                       onOpenArtifact={setArtifactPath}
+                      onResend={sending ? undefined : handleResend}
                     />
                   ))}
                   {streaming && streamText && (
