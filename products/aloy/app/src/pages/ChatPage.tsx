@@ -195,7 +195,15 @@ export function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        // Tear down the whole streaming UI (bubble + indicator) the instant the
+        // final message lands, so nothing lingers/overlaps beneath it.
         setStreamText('');
+        setStreaming(false);
+        setStreamStatus('');
+        setStreamActivity('');
+        setStreamPlan([]);
+        setStreamTools([]);
+        setStreamStep(undefined);
       },
       onError: (err) => {
         const errMsg: MessageResponse = {
