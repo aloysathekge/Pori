@@ -410,12 +410,8 @@ async def _prepare_message(
     )
     session.add(user_msg)
     await session.commit()
-
-    # Auto-set title from first message
-    if not conv.title:
-        conv.title = content[:80]
-        session.add(conv)
-        await session.commit()
+    # NOTE: the conversation title is set AFTER the first exchange by
+    # _maybe_generate_title (a topic title, not the raw first message).
 
     # Create in-memory AgentMemory (no persistent store — we manage persistence)
     agent_id = conv.agent_config_id or "default_agent"
@@ -864,17 +860,34 @@ async def send_message(
             finally:
                 result = result_holder.get("result")
                 if result is not None:
-                    outcome = build_run_outcome(
-                        result,
-                        memory,
-                        stream_context,
-                        req.content,
-                        fallback_org=context.organization_id,
-                        events=event_collector.finalize(),
-                    )
-                    await persist_run_outcome(session, conv, context, outcome)
-                    await _maybe_generate_title(
-                        session, conv, orchestrator.llm, req.content
+                    try:
+                        outcome = build_run_outcome(
+                            result,
+                            memory,
+                            stream_context,
+                            req.content,
+                            fallback_org=context.organization_id,
+                            events=event_collector.finalize(),
+                        )
+                        await persist_run_outcome(session, conv, context, outcome)
+                        await _maybe_generate_title(
+                            session, conv, orchestrator.llm, req.content
+                        )
+                        logger.info(
+                            "Persisted streamed run %s (conv %s)",
+                            stream_context.run_id,
+                            conv.id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to persist streamed run %s", stream_context.run_id
+                        )
+                else:
+                    logger.warning(
+                        "Stream for conv %s ended with NO result — run did not "
+                        "complete (interrupted, errored, or an unanswered "
+                        "clarification). Nothing persisted.",
+                        conv.id,
                     )
 
         return StreamingResponse(
