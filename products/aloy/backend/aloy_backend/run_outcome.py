@@ -9,8 +9,9 @@ so the two paths cannot drift (which is how memory/traces/usage each got
 
 from __future__ import annotations
 
+import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -30,6 +31,25 @@ from .models import (
     UsageRecord,
 )
 from .tenancy import OrganizationContext
+
+
+def _json_default(o: Any) -> Any:
+    if hasattr(o, "model_dump"):
+        return o.model_dump(mode="json")
+    if is_dataclass(o) and not isinstance(o, type):
+        return asdict(o)
+    return str(o)
+
+
+def _json_safe(value: Any) -> Any:
+    """Normalize to plain JSON structures so JSON columns can store it.
+
+    The agent's metrics/trace can carry rich objects (e.g. TokenUsage); the raw
+    result object is authoritative but not always JSON-serializable, so coerce
+    it once here rather than persisting objects that blow up on flush."""
+    if value is None:
+        return None
+    return json.loads(json.dumps(value, default=_json_default))
 
 
 async def flush_memory_to_db(
@@ -133,11 +153,13 @@ def build_run_outcome(
         reasoning=agent_result.get("reasoning") or (final or {}).get("reasoning"),
         success=bool(agent_result.get("success")),
         steps_taken=int(agent_result.get("steps_taken") or 0),
-        metrics=agent_result.get("metrics") or result_data.get("metrics"),
-        trace=agent_result.get("trace") or result_data.get("trace"),
-        artifacts=agent_result.get("artifacts") or result_data.get("artifacts") or [],
-        plan=agent_result.get("plan") or result_data.get("plan") or [],
-        selected_skills=(
+        metrics=_json_safe(agent_result.get("metrics") or result_data.get("metrics")),
+        trace=_json_safe(agent_result.get("trace") or result_data.get("trace")),
+        artifacts=_json_safe(
+            agent_result.get("artifacts") or result_data.get("artifacts") or []
+        ),
+        plan=_json_safe(agent_result.get("plan") or result_data.get("plan") or []),
+        selected_skills=_json_safe(
             agent_result.get("selected_skills")
             or result_data.get("selected_skills")
             or []

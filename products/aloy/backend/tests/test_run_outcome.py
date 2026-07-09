@@ -193,6 +193,45 @@ class TestFinalizer:
             )
             assert len(usages) == 1
 
+    async def test_persists_non_json_serializable_metrics(self, db_session_maker):
+        """Regression: the raw agent result carries rich objects (e.g. a
+        TokenUsage pydantic model) in metrics; persisting must JSON-normalize
+        them, not throw on flush (which silently dropped the assistant message)."""
+        from pydantic import BaseModel as _PBase
+
+        class _TokenUsage(_PBase):
+            input: int = 10
+            output: int = 5
+            total: int = 15
+
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            result = {
+                "final_answer": "hi",
+                "success": True,
+                "steps_taken": 1,
+                "metrics": {
+                    "model": "anthropic/claude",
+                    "tokens": _TokenUsage(),  # NOT a plain dict
+                    "cost_usd": "$0.02",
+                },
+            }
+            outcome = build_run_outcome(
+                result, AgentMemory(), _run_context(), task="hi", fallback_org=ORG
+            )
+            msg = await persist_run_outcome(session, conv, _context(), outcome)
+            assert msg.content == "hi"
+            usage = (
+                (
+                    await session.execute(
+                        select(UsageRecord).where(UsageRecord.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            assert usage is not None and usage.total_tokens == 15
+
     async def test_no_trace_no_usage_when_absent(self, db_session_maker):
         """A run with no metrics/trace still persists the message + run cleanly."""
         async with db_session_maker() as session:

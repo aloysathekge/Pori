@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationList } from '@/components/chat/ConversationList';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import {
   listConversations,
@@ -31,6 +32,7 @@ export function ChatPage() {
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
+  const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -120,9 +122,17 @@ export function ChatPage() {
   }
 
   async function handleSend() {
-    if (!input.trim() || !activeId || sending) return;
-
+    if (!input.trim() || !activeId) return;
     const content = input.trim();
+
+    // If the agent is waiting on a clarification, the message box answers it
+    // (resumes the paused run) instead of starting a new turn.
+    if (clarify) {
+      setInput('');
+      answerClarify(content);
+      return;
+    }
+    if (sending) return;
     setInput('');
     setSending(true);
     setStreaming(true);
@@ -185,7 +195,15 @@ export function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        // Tear down the whole streaming UI (bubble + indicator) the instant the
+        // final message lands, so nothing lingers/overlaps beneath it.
         setStreamText('');
+        setStreaming(false);
+        setStreamStatus('');
+        setStreamActivity('');
+        setStreamPlan([]);
+        setStreamTools([]);
+        setStreamStep(undefined);
       },
       onError: (err) => {
         const errMsg: MessageResponse = {
@@ -279,7 +297,11 @@ export function ChatPage() {
               ) : (
                 <div className="mx-auto max-w-3xl space-y-6">
                   {messages.map((msg) => (
-                    <MessageBubble key={msg.id} message={msg} />
+                    <MessageBubble
+                      key={msg.id}
+                      message={msg}
+                      onOpenArtifact={setArtifactPath}
+                    />
                   ))}
                   {streaming && streamText && (
                     <MessageBubble
@@ -302,22 +324,28 @@ export function ChatPage() {
                     />
                   )}
                   {clarify && (
-                    <div className="mx-auto max-w-3xl rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+                    <div className="mx-auto max-w-3xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
                       <p className="mb-3 text-sm text-zinc-200">
                         {clarify.question}
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {clarify.options.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => answerClarify(opt)}
-                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-accent-500 hover:text-accent-700"
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
+                      {clarify.options.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {clarify.options.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => answerClarify(opt)}
+                              className="rounded-full border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 hover:border-accent-500 hover:bg-accent-600/10 hover:text-accent-600"
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-500">
+                          Type your answer in the message box below.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div ref={messagesEndRef} />
@@ -330,7 +358,9 @@ export function ChatPage() {
               <div className="mx-auto flex max-w-3xl gap-3">
                 <input
                   className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  placeholder="Type a message..."
+                  placeholder={
+                    clarify ? 'Answer the question above…' : 'Type a message...'
+                  }
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -339,11 +369,11 @@ export function ChatPage() {
                       handleSend();
                     }
                   }}
-                  disabled={sending}
+                  disabled={sending && !clarify}
                 />
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!input.trim() || (sending && !clarify)}
                   size="icon"
                   className="h-12 w-12 rounded-xl"
                 >
@@ -354,6 +384,14 @@ export function ChatPage() {
           </>
         )}
       </div>
+
+      {artifactPath && activeId && (
+        <ArtifactDrawer
+          conversationId={activeId}
+          openPath={artifactPath}
+          onClose={() => setArtifactPath(null)}
+        />
+      )}
     </div>
   );
 }
