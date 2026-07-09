@@ -122,6 +122,14 @@ export function ChatPage() {
     return () => streamAbortRef.current?.abort();
   }, []);
 
+  // Landing on /chat with no conversation selected: open the most recent one
+  // (nav 'Chat' should drop you into your chat, not an empty state).
+  useEffect(() => {
+    if (!routeConversationId && conversations.length > 0) {
+      navigate(`/chat/${conversations[0].id}`, { replace: true });
+    }
+  }, [routeConversationId, conversations, navigate]);
+
   async function loadConversations() {
     try {
       const convos = await listConversations(50);

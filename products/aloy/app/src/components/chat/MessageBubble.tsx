@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, History } from 'lucide-react';
+import { Check, Copy, FileText, History } from 'lucide-react';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -15,13 +15,35 @@ export function MessageBubble({
   const artifacts = message.metadata?.artifacts ?? [];
   const runId = message.metadata?.run_id ?? null;
   const [replaying, setReplaying] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function copyMessage() {
+    navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  const copyButton = (
+    <button
+      type="button"
+      onClick={copyMessage}
+      title="Copy message"
+      className={`self-end pb-1 text-zinc-500 transition-opacity hover:text-accent-600 ${
+        copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      }`}
+    >
+      {copied ? <Check size={14} className="text-accent-600" /> : <Copy size={14} />}
+    </button>
+  );
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {isUser && copyButton}
       <div
         className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-accent-600 text-white'
+            ? 'bg-accent-600 text-white selection:bg-white/35 selection:text-white'
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >
@@ -101,6 +123,7 @@ export function MessageBubble({
           </div>
         )}
       </div>
+      {!isUser && copyButton}
 
       {replaying && runId && (
         <RunReplay runId={runId} onClose={() => setReplaying(false)} />
