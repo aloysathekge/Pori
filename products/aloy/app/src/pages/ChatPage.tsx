@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Paperclip, Plus, Send, X } from 'lucide-react';
+import { Plus, Send } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
+import { Composer } from '@/components/chat/Composer';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
@@ -39,7 +40,6 @@ export function ChatPage() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -159,13 +159,6 @@ export function ChatPage() {
     }
   }
 
-  function handlePaste(e: React.ClipboardEvent) {
-    const files = Array.from(e.clipboardData.files ?? []);
-    if (files.some((f) => f.type.startsWith('image/'))) {
-      e.preventDefault();
-      addImageFiles(files);
-    }
-  }
 
   function openConversation(id: string) {
     navigate(`/chat/${id}`);
@@ -431,82 +424,26 @@ export function ChatPage() {
               )}
             </div>
 
-            {/* Input bar */}
+            {/* Composer */}
             <div className="border-t border-zinc-800 p-4">
-              {pendingImages.length > 0 && (
-                <div className="mx-auto mb-2 flex max-w-4xl gap-2">
-                  {pendingImages.map((img, i) => (
-                    <div key={i} className="group relative">
-                      <img
-                        src={`data:${img.media_type};base64,${img.data}`}
-                        alt={`attachment ${i + 1}`}
-                        className="h-16 w-16 rounded-lg border border-zinc-700 object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPendingImages((prev) =>
-                            prev.filter((_, idx) => idx !== i),
-                          )
-                        }
-                        className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-red-600"
-                        title="Remove"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mx-auto flex max-w-4xl gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    addImageFiles(Array.from(e.target.files ?? []));
-                    e.target.value = '';
-                  }}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-12 w-12 rounded-xl"
-                  title="Attach image"
-                  disabled={(sending && !clarify) || pendingImages.length >= MAX_IMAGES}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip size={18} />
-                </Button>
-                <input
-                  className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  placeholder={
-                    clarify ? 'Answer the question above…' : 'Type a message...'
-                  }
+              <div className="mx-auto max-w-4xl">
+                <Composer
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onPaste={handlePaste}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  disabled={sending && !clarify}
-                />
-                <Button
-                  onClick={handleSend}
-                  disabled={
-                    (!input.trim() && pendingImages.length === 0) ||
-                    (sending && !clarify)
+                  onChange={setInput}
+                  onSend={handleSend}
+                  onAddImages={addImageFiles}
+                  pendingImages={pendingImages}
+                  onRemoveImage={(i) =>
+                    setPendingImages((prev) =>
+                      prev.filter((_, idx) => idx !== i),
+                    )
                   }
-                  size="icon"
-                  className="h-12 w-12 rounded-xl"
-                >
-                  <Send size={18} />
-                </Button>
+                  disabled={sending && !clarify}
+                  placeholder={
+                    clarify ? 'Answer the question above…' : 'Message Aloy…'
+                  }
+                  maxImages={MAX_IMAGES}
+                />
               </div>
             </div>
           </>
