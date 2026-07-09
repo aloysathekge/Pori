@@ -70,7 +70,7 @@ embeddings = [
 # Web search tool (Tavily). The `web_search` tool returns a friendly
 # "install tavily-python" error if this extra is not installed.
 web = [
-    "tavily-python>=0.5.0,<1",
+    "tavily-python>=0.7.26,<1",
 ]
 # Rich interactive CLI: slash-command completion + persistent history (CLI-2).
 # Optional — the CLI falls back to plain input() without it.
@@ -89,7 +89,7 @@ mcp = [
 # Everything above in one shot.
 all = [
     "sentence-transformers>=3.2.1,<6",
-    "tavily-python>=0.5.0,<1",
+    "tavily-python>=0.7.26,<1",
     "prompt_toolkit>=3.0.0,<4",
 ]
 test = [
