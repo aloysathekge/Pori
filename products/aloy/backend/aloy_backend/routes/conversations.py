@@ -6,11 +6,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy import func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-
 from pori import (
     AgentMemory,
     AgentSettings,
@@ -18,6 +13,10 @@ from pori import (
     RetrievalEvidence,
     fuse_retrieval,
 )
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections

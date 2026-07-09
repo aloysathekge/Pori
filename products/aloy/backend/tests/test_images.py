@@ -1,8 +1,9 @@
 """Image attachments: request validation + user-message persistence."""
 
 import pytest
-from aloy_backend.schemas import ImageAttachment, SendMessageRequest
 from pydantic import ValidationError
+
+from aloy_backend.schemas import ImageAttachment, SendMessageRequest
 
 pytestmark = pytest.mark.asyncio
 
