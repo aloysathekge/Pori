@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Send } from 'lucide-react';
+import { Paperclip, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationList } from '@/components/chat/ConversationList';
@@ -20,11 +20,15 @@ import {
 } from '@/api/sse';
 import type {
   ConversationResponse,
+  MessageImage,
   MessageResponse,
   SSEMessageEvent,
   SSEToolEvent,
   PlanItem,
 } from '@/types';
+
+const MAX_IMAGES = 3;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
 
 export function ChatPage() {
   const { conversationId: routeConversationId } = useParams();
@@ -34,6 +38,8 @@ export function ChatPage() {
   const [messages, setMessages] = useState<MessageResponse[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -125,6 +131,34 @@ export function ChatPage() {
     }
   }
 
+  /** Read image files into base64 attachments (attach button, paste, drop). */
+  function addImageFiles(files: Iterable<File>) {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > MAX_IMAGE_BYTES) continue; // silently skip oversized
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        const base64 = url.split(',')[1] ?? '';
+        if (!base64) return;
+        setPendingImages((prev) =>
+          prev.length >= MAX_IMAGES
+            ? prev
+            : [...prev, { data: base64, media_type: file.type }],
+        );
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const files = Array.from(e.clipboardData.files ?? []);
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      addImageFiles(files);
+    }
+  }
+
   function openConversation(id: string) {
     navigate(`/chat/${id}`);
   }
@@ -152,8 +186,8 @@ export function ChatPage() {
   }
 
   async function handleSend() {
-    if (!input.trim() || !activeId) return;
-    const content = input.trim();
+    if ((!input.trim() && pendingImages.length === 0) || !activeId) return;
+    const content = input.trim() || 'See the attached image.';
 
     // If the agent is waiting on a clarification, the message box answers it
     // (resumes the paused run) instead of starting a new turn.
@@ -163,6 +197,8 @@ export function ChatPage() {
       return;
     }
     if (sending) return;
+    const images = pendingImages;
+    setPendingImages([]);
     setInput('');
     setSending(true);
     setStreaming(true);
@@ -178,7 +214,7 @@ export function ChatPage() {
       id: `temp-${Date.now()}`,
       role: 'user',
       content,
-      metadata: null,
+      metadata: images.length > 0 ? { images } : null,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -261,6 +297,7 @@ export function ChatPage() {
     streamAbortRef.current = controller;
     try {
       await streamMessage(activeId, content, callbacks, {
+        images: images.length > 0 ? images : undefined,
         signal: controller.signal,
       });
     } catch {
@@ -389,7 +426,53 @@ export function ChatPage() {
 
             {/* Input bar */}
             <div className="border-t border-zinc-800 p-4">
+              {pendingImages.length > 0 && (
+                <div className="mx-auto mb-2 flex max-w-3xl gap-2">
+                  {pendingImages.map((img, i) => (
+                    <div key={i} className="group relative">
+                      <img
+                        src={`data:${img.media_type};base64,${img.data}`}
+                        alt={`attachment ${i + 1}`}
+                        className="h-16 w-16 rounded-lg border border-zinc-700 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingImages((prev) =>
+                            prev.filter((_, idx) => idx !== i),
+                          )
+                        }
+                        className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 hover:bg-red-600"
+                        title="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="mx-auto flex max-w-3xl gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    addImageFiles(Array.from(e.target.files ?? []));
+                    e.target.value = '';
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-12 w-12 rounded-xl"
+                  title="Attach image"
+                  disabled={(sending && !clarify) || pendingImages.length >= MAX_IMAGES}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip size={18} />
+                </Button>
                 <input
                   className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
                   placeholder={
@@ -397,6 +480,7 @@ export function ChatPage() {
                   }
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onPaste={handlePaste}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -407,7 +491,10 @@ export function ChatPage() {
                 />
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || (sending && !clarify)}
+                  disabled={
+                    (!input.trim() && pendingImages.length === 0) ||
+                    (sending && !clarify)
+                  }
                   size="icon"
                   className="h-12 w-12 rounded-xl"
                 >

@@ -25,8 +25,20 @@ export function MessageBubble({
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >
+        {(message.metadata?.images?.length ?? 0) > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {message.metadata!.images!.map((img, i) => (
+              <img
+                key={i}
+                src={`data:${img.media_type};base64,${img.data}`}
+                alt={`attachment ${i + 1}`}
+                className="max-h-64 max-w-full rounded-lg border border-zinc-700 object-contain"
+              />
+            ))}
+          </div>
+        )}
         {isUser ? (
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
           <div className="text-sm">
             <Markdown>{message.content}</Markdown>

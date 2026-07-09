@@ -20,6 +20,7 @@ from pori.llm import (
     BaseChatModel,
     BaseMessage,
     SystemMessage,
+    TextBlock,
     UserMessage,
     normalize_usage,
 )
@@ -252,16 +253,20 @@ def _build_messages(self) -> List[BaseMessage]:
     # markers keep that stable prefix warm across steps.
     messages.append(UserMessage(content=self._get_current_context()))
 
-    messages.append(
-        UserMessage(
-            content=(
-                "CURRENT TASK (highest priority):\n"
-                f"{self.task}\n\n"
-                "Answer this task directly. Use memory only when it is clearly "
-                "relevant to this exact task; ignore unrelated remembered facts."
-            )
-        )
+    task_text = (
+        "CURRENT TASK (highest priority):\n"
+        f"{self.task}\n\n"
+        "Answer this task directly. Use memory only when it is clearly "
+        "relevant to this exact task; ignore unrelated remembered facts."
     )
+    task_images = getattr(self, "task_images", None)
+    if task_images:
+        # Multimodal turn: the user's images ride WITH the task as one message
+        # (image blocks first, task text last), so every provider adapter maps
+        # them natively (Anthropic image blocks / OpenAI image_url / Gemini).
+        messages.append(UserMessage(content=[*task_images, TextBlock(text=task_text)]))
+    else:
+        messages.append(UserMessage(content=task_text))
 
     return messages
 

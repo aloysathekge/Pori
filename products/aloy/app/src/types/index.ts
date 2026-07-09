@@ -8,7 +8,13 @@ export interface ConversationResponse {
   message_count: number;
 }
 
+export interface MessageImage {
+  data: string; // base64 (no data: prefix)
+  media_type: string;
+}
+
 export interface MessageMetadata {
+  images?: MessageImage[];
   reasoning?: string | null;
   steps_taken?: number;
   metrics?: Record<string, unknown> | null;
