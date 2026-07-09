@@ -468,6 +468,161 @@ async def _prepare_message(
     return conv, memory
 
 
+async def _maybe_generate_title(session, conv, llm, first_user_content: str) -> None:
+    """Give an untitled conversation a short topic title from its first message
+    (like ChatGPT/Claude). Best-effort: an LLM title, else a clean heuristic."""
+    if conv.title:
+        return
+    title = ""
+    try:
+        from pori.llm.messages import SystemMessage, UserMessage
+
+        raw = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "Generate a concise 3-6 word title for a conversation that "
+                        "opens with the user's message. Reply with ONLY the title — "
+                        "no quotes, no trailing punctuation."
+                    )
+                ),
+                UserMessage(content=first_user_content[:1000]),
+            ]
+        )
+        title = (raw or "").strip().strip("\"'").splitlines()[0][:60].strip()
+    except Exception:
+        logger.debug("Title generation failed; using heuristic", exc_info=True)
+    if not title:
+        words = first_user_content.strip().split()
+        title = " ".join(words[:6])[:60].strip() or "New conversation"
+        title = title[:1].upper() + title[1:]
+    conv.title = title
+    session.add(conv)
+    await session.commit()
+
+
+# ---- artifacts ----
+
+_LANG_BY_EXT = {
+    ".py": "python",
+    ".md": "markdown",
+    ".js": "javascript",
+    ".jsx": "jsx",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".html": "html",
+    ".css": "css",
+    ".sh": "bash",
+    ".sql": "sql",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".txt": "text",
+    ".toml": "toml",
+    ".env": "bash",
+}
+_ARTIFACT_MAX_BYTES = 200_000
+
+
+def _conversation_artifacts(messages) -> dict:
+    """path -> {path, tool_name, bytes_written, message_id} across a conversation
+    (the allowlist of files its runs actually wrote)."""
+    out: dict = {}
+    for m in messages:
+        for a in (m.metadata_ or {}).get("artifacts", []) or []:
+            path = a.get("path")
+            if path:
+                out[path] = {
+                    "path": path,
+                    "tool_name": a.get("tool_name"),
+                    "bytes_written": a.get("bytes_written"),
+                    "message_id": m.id,
+                }
+    return out
+
+
+async def _load_conv(session, context, conversation_id):
+    conv = await session.get(Conversation, conversation_id)
+    if not conv or conv.organization_id != context.organization_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+@router.get("/{conversation_id}/artifacts")
+async def list_artifacts(
+    conversation_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Files the conversation's agent runs wrote (from message receipts)."""
+    await _load_conv(session, context, conversation_id)
+    msgs = (
+        (
+            await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(_conversation_artifacts(msgs).values())
+
+
+@router.get("/{conversation_id}/artifacts/content")
+async def get_artifact_content(
+    conversation_id: str,
+    path: str = Query(..., max_length=1024),
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Read one artifact's text, allowlisted to paths this conversation wrote
+    (so no arbitrary-file read) and confined to the server working dir."""
+    from pathlib import Path
+
+    await _load_conv(session, context, conversation_id)
+    msgs = (
+        (
+            await session.execute(
+                select(Message).where(Message.conversation_id == conversation_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if path not in _conversation_artifacts(msgs):
+        raise HTTPException(
+            status_code=404, detail="Not an artifact of this conversation"
+        )
+
+    base = Path.cwd().resolve()
+    target = (base / path).resolve()
+    if base not in target.parents and target != base:
+        raise HTTPException(
+            status_code=400, detail="Path outside the working directory"
+        )
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Artifact file no longer available")
+    try:
+        raw = target.read_bytes()
+    except OSError:
+        raise HTTPException(status_code=400, detail="Could not read artifact")
+    truncated = len(raw) > _ARTIFACT_MAX_BYTES
+    content = raw[:_ARTIFACT_MAX_BYTES].decode("utf-8", errors="replace")
+    return {
+        "path": path,
+        "content": content,
+        "language": _LANG_BY_EXT.get(target.suffix.lower(), "text"),
+        "truncated": truncated,
+    }
+
+
 # ---- endpoints ----
 
 
@@ -718,6 +873,9 @@ async def send_message(
                         events=event_collector.finalize(),
                     )
                     await persist_run_outcome(session, conv, context, outcome)
+                    await _maybe_generate_title(
+                        session, conv, orchestrator.llm, req.content
+                    )
 
         return StreamingResponse(
             _stream(),
@@ -777,6 +935,7 @@ async def send_message(
         fallback_org=context.organization_id,
     )
     assistant_msg = await persist_run_outcome(session, conv, context, outcome)
+    await _maybe_generate_title(session, conv, orchestrator.llm, req.content)
 
     logger.info(
         "Message in conversation %s, steps=%d",

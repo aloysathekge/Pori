@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationList } from '@/components/chat/ConversationList';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import {
   listConversations,
@@ -31,6 +32,7 @@ export function ChatPage() {
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
+  const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -279,7 +281,11 @@ export function ChatPage() {
               ) : (
                 <div className="mx-auto max-w-3xl space-y-6">
                   {messages.map((msg) => (
-                    <MessageBubble key={msg.id} message={msg} />
+                    <MessageBubble
+                      key={msg.id}
+                      message={msg}
+                      onOpenArtifact={setArtifactPath}
+                    />
                   ))}
                   {streaming && streamText && (
                     <MessageBubble
@@ -354,6 +360,14 @@ export function ChatPage() {
           </>
         )}
       </div>
+
+      {artifactPath && activeId && (
+        <ArtifactDrawer
+          conversationId={activeId}
+          openPath={artifactPath}
+          onClose={() => setArtifactPath(null)}
+        />
+      )}
     </div>
   );
 }

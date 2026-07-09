@@ -1,6 +1,7 @@
 import { MessageSquare, Plus, Trash2 } from 'lucide-react';
 import type { ConversationResponse } from '@/types';
 import { Button } from '@/components/ui/Button';
+import { formatDateTime, formatRelativeTime } from '@/lib/time';
 
 interface Props {
   conversations: ConversationResponse[];
@@ -35,18 +36,22 @@ export function ConversationList({
           <div key={c.id} className="group relative">
             <button
               onClick={() => onSelect(c.id)}
-              className={`flex w-full items-center gap-2 rounded-lg py-2.5 pl-3 pr-9 text-left text-sm transition-colors ${
+              title={formatDateTime(c.updated_at)}
+              className={`flex w-full flex-col gap-0.5 rounded-lg py-2 pl-3 pr-9 text-left text-sm transition-colors ${
                 activeId === c.id
                   ? 'bg-accent-600/10 text-accent-600'
-                  : 'text-zinc-400 hover:bg-zinc-800'
+                  : 'text-zinc-300 hover:bg-zinc-800'
               }`}
             >
-              <MessageSquare size={14} className="shrink-0" />
-              <span className="flex-1 truncate">
-                {c.title || 'New conversation'}
+              <span className="flex w-full items-center gap-2">
+                <MessageSquare size={13} className="shrink-0 text-zinc-500" />
+                <span className="flex-1 truncate">
+                  {c.title || 'New conversation'}
+                </span>
               </span>
-              <span className="shrink-0 text-xs text-zinc-600">
-                {c.message_count}
+              <span className="pl-[21px] text-xs text-zinc-500">
+                {formatRelativeTime(c.updated_at)}
+                {c.message_count > 0 && ` · ${c.message_count} msg`}
               </span>
             </button>
             <button

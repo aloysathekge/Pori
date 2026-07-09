@@ -4,7 +4,13 @@ import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
 
-export function MessageBubble({ message }: { message: MessageResponse }) {
+export function MessageBubble({
+  message,
+  onOpenArtifact,
+}: {
+  message: MessageResponse;
+  onOpenArtifact?: (path: string) => void;
+}) {
   const isUser = message.role === 'user';
   const artifacts = message.metadata?.artifacts ?? [];
   const runId = message.metadata?.run_id ?? null;
@@ -30,22 +36,31 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
         {!isUser && artifacts.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-zinc-700 pt-2">
             <p className="text-xs font-medium text-zinc-400">Files</p>
-            {artifacts.map((a, i) => (
-              <div
-                key={`${a.path ?? 'artifact'}-${i}`}
-                className="flex items-center gap-1.5 text-xs text-zinc-400"
-              >
-                <FileText size={12} className="shrink-0 text-zinc-500" />
-                <span className="truncate font-mono">
-                  {a.path ?? a.tool_name ?? 'artifact'}
-                </span>
-                {typeof a.bytes_written === 'number' && (
-                  <span className="shrink-0 text-zinc-600">
-                    ({a.bytes_written} B)
+            {artifacts.map((a, i) => {
+              const path = a.path as string | undefined;
+              const openable = Boolean(path && onOpenArtifact);
+              return (
+                <button
+                  key={`${path ?? 'artifact'}-${i}`}
+                  type="button"
+                  disabled={!openable}
+                  onClick={() => path && onOpenArtifact?.(path)}
+                  className={`flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs text-zinc-400 ${
+                    openable ? 'hover:bg-zinc-700/60 hover:text-accent-500' : ''
+                  }`}
+                >
+                  <FileText size={12} className="shrink-0 text-zinc-500" />
+                  <span className="truncate font-mono">
+                    {path ?? a.tool_name ?? 'artifact'}
                   </span>
-                )}
-              </div>
-            ))}
+                  {typeof a.bytes_written === 'number' && (
+                    <span className="shrink-0 text-zinc-600">
+                      ({a.bytes_written} B)
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
 
