@@ -598,6 +598,7 @@ class TraceListResponse(BaseModel):
     id: str
     run_id: str | None
     conversation_id: str | None
+    conversation_title: str | None = None
     duration_seconds: float
     total_spans: int
     status: str

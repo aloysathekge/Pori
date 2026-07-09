@@ -259,7 +259,7 @@ export function ChatPage() {
     setInput('');
     setSending(true);
     setStreaming(true);
-    setStreamStatus('Starting...');
+    setStreamStatus('Thinking…');
     setStreamActivity('');
     setStreamPlan([]);
     setStreamTools([]);
@@ -284,18 +284,28 @@ export function ChatPage() {
     };
     setMessages((prev) => [...prev, userMsg]);
 
+    let firstText = true;
     const callbacks: SSECallbacks = {
-      onText: (text) => setStreamText((prev) => prev + text),
-      onToolStart: (payload) =>
+      onText: (text) => {
+        if (firstText) {
+          firstText = false;
+          setStreamStatus('Writing…');
+          setStreamActivity('');
+        }
+        setStreamText((prev) => prev + text);
+      },
+      onStep: (info) => {
+        setStreamStep(info);
+        setStreamStatus('Thinking…');
+      },
+      onToolStart: (payload) => {
+        const name = String(payload.name ?? 'tool');
+        setStreamActivity(`Running ${name}…`);
         setStreamTools((prev) => [
           ...prev,
-          {
-            step: 0,
-            tool: String(payload.name ?? 'tool'),
-            preview: '',
-            success: false,
-          },
-        ]),
+          { step: 0, tool: name, preview: '', success: false },
+        ]);
+      },
       onToolEnd: (payload) =>
         setStreamTools((prev) => {
           const next = [...prev];

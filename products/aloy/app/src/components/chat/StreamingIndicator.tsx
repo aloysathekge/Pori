@@ -1,4 +1,3 @@
-import { Spinner } from '@/components/ui/Spinner';
 import { Badge } from '@/components/ui/Badge';
 import type { PlanItem, PlanItemStatus, SSEToolEvent } from '@/types';
 
@@ -36,18 +35,18 @@ export function StreamingIndicator({
   const recentTools = tools.slice(-6);
 
   return (
-    <div className="flex gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-700">
-        <Spinner className="h-4 w-4" />
-      </div>
-      <div className="w-full max-w-2xl space-y-3 rounded-2xl bg-zinc-800 px-4 py-3 text-sm">
-        {/* Activity headline (model's next_goal) */}
-        <div className="flex items-center gap-2 text-zinc-200">
-          <Spinner className="h-3 w-3" />
-          <span>{headline}</span>
-          {step && (
+    <div className="flex justify-start">
+      <div className="w-full max-w-3xl space-y-3 rounded-2xl bg-zinc-800 px-4 py-3 text-sm">
+        {/* Live activity headline */}
+        <div className="flex items-center gap-2.5 text-zinc-300">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500 opacity-60" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent-600" />
+          </span>
+          <span className="animate-pulse font-medium">{headline}</span>
+          {step && step.max_steps > 0 && (
             <span className="ml-auto shrink-0 text-xs text-zinc-500">
-              step {step.step}/{step.max_steps}
+              step {step.step} of {step.max_steps}
             </span>
           )}
         </div>

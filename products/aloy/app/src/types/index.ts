@@ -310,6 +310,7 @@ export interface TraceListItem {
   id: string;
   run_id: string | null;
   conversation_id: string | null;
+  conversation_title?: string | null;
   duration_seconds: number;
   total_spans: number;
   status: string;
