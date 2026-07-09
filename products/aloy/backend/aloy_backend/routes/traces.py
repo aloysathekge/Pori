@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ..database import get_session
-from ..models import TraceRecord
+from ..models import Conversation, TraceRecord
 from ..schemas import TraceListResponse, TraceResponse
 from ..tenancy import OrganizationContext, Permission, require_permission
 
@@ -24,16 +24,46 @@ async def list_traces(
     session: AsyncSession = Depends(get_session),
     limit: int = 50,
     offset: int = 0,
+    conversation_id: str | None = None,
 ):
-    """List traces for the current user (without full trace data)."""
-    result = await session.execute(
+    """List traces (each labeled with its conversation, optionally filtered)."""
+    stmt = (
         select(TraceRecord)
         .where(TraceRecord.organization_id == context.organization_id)
         .order_by(TraceRecord.created_at.desc())
         .offset(offset)
         .limit(limit)
     )
-    return result.scalars().all()
+    if conversation_id:
+        stmt = stmt.where(TraceRecord.conversation_id == conversation_id)
+    traces = (await session.execute(stmt)).scalars().all()
+
+    # Resolve conversation titles in one query so the UI can group per chat.
+    conv_ids = {t.conversation_id for t in traces if t.conversation_id}
+    titles: dict[str, str | None] = {}
+    if conv_ids:
+        rows = (
+            await session.execute(
+                select(Conversation.id, Conversation.title).where(
+                    Conversation.id.in_(conv_ids)
+                )
+            )
+        ).all()
+        titles = {cid: title for cid, title in rows}
+
+    return [
+        TraceListResponse(
+            id=t.id,
+            run_id=t.run_id,
+            conversation_id=t.conversation_id,
+            conversation_title=titles.get(t.conversation_id or ""),
+            duration_seconds=t.duration_seconds,
+            total_spans=t.total_spans,
+            status=t.status,
+            created_at=t.created_at,
+        )
+        for t in traces
+    ]
 
 
 @router.get("/{trace_id}", response_model=TraceResponse)

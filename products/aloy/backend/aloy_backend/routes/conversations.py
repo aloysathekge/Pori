@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -944,49 +945,76 @@ async def send_message(
             finally:
                 result = result_holder.get("result")
                 if result is not None:
-                    try:
-                        outcome = build_run_outcome(
-                            result,
-                            memory,
-                            stream_context,
-                            req.content,
-                            fallback_org=context.organization_id,
-                            events=event_collector.finalize(),
-                        )
-                        # Persist on a session the GENERATOR owns, not the
-                        # request-scoped one: the request's dependency teardown
-                        # order (esp. under BaseHTTPMiddleware, and on client
-                        # disconnect-as-cancellation) is not something run
-                        # durability should be pinned to.
-                        async with async_session() as persist_session:
-                            fresh_conv = await persist_session.get(
-                                Conversation, conv.id
-                            )
-                            await persist_run_outcome(
-                                persist_session, fresh_conv or conv, context, outcome
-                            )
-                            await _maybe_generate_title(
-                                persist_session,
-                                fresh_conv or conv,
-                                orchestrator.llm,
-                                req.content,
-                            )
+                    await _persist_streamed_outcome(result)
+                else:
+                    run_future = result_holder.get("run_future")
+                    if run_future is not None and not run_future.cancelled():
+                        # The client went away (navigated to another page,
+                        # closed the tab) but the agent is still working.
+                        # Don't lose the turn: await the run in the background
+                        # and persist its outcome — ChatGPT behavior. The user
+                        # sees the answer when they come back.
                         logger.info(
-                            "Persisted streamed run %s (conv %s)",
+                            "Client disconnected mid-run %s — continuing in "
+                            "the background",
                             stream_context.run_id,
+                        )
+                        asyncio.get_running_loop().create_task(
+                            _finish_disconnected_run(run_future)
+                        )
+                    else:
+                        logger.warning(
+                            "Stream for conv %s ended with NO result and no "
+                            "in-flight run. Nothing persisted.",
                             conv.id,
                         )
-                    except Exception:
-                        logger.exception(
-                            "Failed to persist streamed run %s", stream_context.run_id
-                        )
-                else:
-                    logger.warning(
-                        "Stream for conv %s ended with NO result — run did not "
-                        "complete (interrupted, errored, or an unanswered "
-                        "clarification). Nothing persisted.",
-                        conv.id,
+
+        async def _persist_streamed_outcome(result: dict) -> None:
+            try:
+                outcome = build_run_outcome(
+                    result,
+                    memory,
+                    stream_context,
+                    req.content,
+                    fallback_org=context.organization_id,
+                    events=event_collector.finalize(),
+                )
+                # Persist on a session WE own, not the request-scoped one: the
+                # request's dependency teardown order (esp. under
+                # BaseHTTPMiddleware, and on disconnect-as-cancellation) is not
+                # something run durability should be pinned to.
+                async with async_session() as persist_session:
+                    fresh_conv = await persist_session.get(Conversation, conv.id)
+                    await persist_run_outcome(
+                        persist_session, fresh_conv or conv, context, outcome
                     )
+                    await _maybe_generate_title(
+                        persist_session,
+                        fresh_conv or conv,
+                        orchestrator.llm,
+                        req.content,
+                    )
+                logger.info(
+                    "Persisted streamed run %s (conv %s)",
+                    stream_context.run_id,
+                    conv.id,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist streamed run %s", stream_context.run_id
+                )
+
+        async def _finish_disconnected_run(run_future) -> None:
+            try:
+                result = await run_future
+            except Exception:
+                logger.exception(
+                    "Backgrounded run %s failed after disconnect",
+                    stream_context.run_id,
+                )
+                return
+            if result:
+                await _persist_streamed_outcome(result)
 
         return StreamingResponse(
             _stream(),

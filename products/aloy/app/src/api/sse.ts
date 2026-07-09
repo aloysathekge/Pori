@@ -24,6 +24,7 @@ export interface SSECallbacks {
     success?: boolean;
     [k: string]: unknown;
   }) => void;
+  onStep?: (info: { step: number; max_steps: number }) => void;
   onClarification?: (request: ClarificationRequestPayload) => void;
   onMessage?: (data: SSEMessageEvent) => void;
   onError?: (err: string) => void;
@@ -158,6 +159,12 @@ function dispatchFrame(frame: string, cb: SSECallbacks) {
       break;
     case TOOL_CALL_END:
       cb.onToolEnd?.(payload);
+      break;
+    case 'step_start':
+      cb.onStep?.({
+        step: Number(payload.step ?? 0),
+        max_steps: Number(payload.max_steps ?? 0),
+      });
       break;
     case CLARIFICATION_REQUEST:
       cb.onClarification?.(payload as unknown as ClarificationRequestPayload);

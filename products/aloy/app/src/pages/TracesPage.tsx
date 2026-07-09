@@ -48,6 +48,17 @@ function SpanTree({ span, depth = 0 }: { span: TraceSpan; depth?: number }) {
   );
 }
 
+function groupTraces(traces: TraceListItem[]): [string, TraceListItem[]][] {
+  const groups = new Map<string, TraceListItem[]>();
+  for (const t of traces) {
+    const key = t.conversation_id ?? 'none';
+    const list = groups.get(key) ?? [];
+    list.push(t);
+    groups.set(key, list);
+  }
+  return Array.from(groups.entries());
+}
+
 export function TracesPage() {
   const [traces, setTraces] = useState<TraceListItem[]>([]);
   const [detail, setDetail] = useState<TraceDetail | null>(null);
@@ -66,6 +77,7 @@ export function TracesPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial load on mount
     load();
   }, [load]);
 
@@ -189,38 +201,66 @@ export function TracesPage() {
           <p>No traces yet. They appear automatically when agents run.</p>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {traces.map((trace) => (
-            <Card
-              key={trace.id}
-              className="flex cursor-pointer items-center gap-4 transition-colors hover:border-zinc-700"
-            >
-              <button
-                className="flex flex-1 items-center gap-4"
-                onClick={() => openTrace(trace.id)}
-              >
-                <Badge
-                  color={trace.status === 'ok' ? 'green' : 'red'}
-                >
-                  {trace.status}
-                </Badge>
-                <div className="flex-1 text-left">
-                  <p className="text-sm text-zinc-300">
-                    {trace.id.slice(0, 12)}...
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {trace.total_spans} spans &middot;{' '}
-                    {trace.duration_seconds.toFixed(2)}s
-                  </p>
-                </div>
-                <span className="text-xs text-zinc-500">
-                  {new Date(trace.created_at).toLocaleDateString()}
+        <div className="space-y-6">
+          {groupTraces(traces).map(([convId, group]) => (
+            <div key={convId}>
+              <div className="mb-2 flex items-center gap-2">
+                <h2 className="truncate text-sm font-medium text-zinc-300">
+                  {group[0].conversation_title || 'Untitled conversation'}
+                </h2>
+                <span className="shrink-0 text-xs text-zinc-600">
+                  {group.length} run{group.length === 1 ? '' : 's'}
                 </span>
-              </button>
-              <button onClick={() => handleDelete(trace.id)}>
-                <Trash2 size={14} className="text-zinc-500 hover:text-red-600" />
-              </button>
-            </Card>
+                {group[0].conversation_id && (
+                  <a
+                    href={`/chat/${group[0].conversation_id}`}
+                    className="shrink-0 text-xs text-accent-600 hover:underline"
+                  >
+                    open chat →
+                  </a>
+                )}
+              </div>
+              <div className="space-y-2">
+                {group.map((trace) => (
+                  <Card
+                    key={trace.id}
+                    className="flex cursor-pointer items-center gap-4 transition-colors hover:border-zinc-700"
+                  >
+                    <button
+                      className="flex flex-1 items-center gap-4"
+                      onClick={() => openTrace(trace.id)}
+                    >
+                      <Badge color={trace.status === 'ok' ? 'green' : 'red'}>
+                        {trace.status}
+                      </Badge>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm text-zinc-300">
+                          {trace.total_spans} spans &middot;{' '}
+                          {trace.duration_seconds.toFixed(2)}s
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          {trace.id.slice(0, 12)}…
+                        </p>
+                      </div>
+                      <span className="text-xs text-zinc-500">
+                        {new Date(trace.created_at).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </button>
+                    <button onClick={() => handleDelete(trace.id)}>
+                      <Trash2
+                        size={14}
+                        className="text-zinc-500 hover:text-red-600"
+                      />
+                    </button>
+                  </Card>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

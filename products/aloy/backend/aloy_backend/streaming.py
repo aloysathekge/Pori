@@ -107,6 +107,11 @@ async def stream_agent_execution(
         )
 
     run = serving_loop.run_in_executor(None, run_agent)
+    # Expose the in-flight future too: if the client disconnects mid-run the
+    # generator dies, but the agent keeps working — the caller awaits this in
+    # the background and persists the outcome so the turn isn't lost.
+    if result_holder is not None:
+        result_holder["run_future"] = run
 
     # `status` kept for pre-migration consumers; canonical stream is the PoriEvents.
     yield _sse_event("status", {"status": "running", "task": task})

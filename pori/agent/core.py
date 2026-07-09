@@ -58,6 +58,7 @@ from ..metrics import (
 from ..observability import (
     RUN_END,
     RUN_START,
+    STEP_START,
     TOOL_CALL_END,
     TOOL_CALL_START,
     PoriEvent,
@@ -375,6 +376,11 @@ class Agent:
         logger.info(
             f"Starting step {step_number}",
             extra={"task_id": self.task_id, "step": step_number},
+        )
+        # Live progress for stream consumers ("step 2 of 15" in a UI).
+        self._emit(
+            STEP_START,
+            {"step": step_number, "max_steps": self.settings.max_steps},
         )
 
         tool_results = []
