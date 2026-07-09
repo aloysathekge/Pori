@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -17,7 +16,7 @@ from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import get_session
 from ..event_log import EventLogCollector
-from ..memory_records import record_to_row, request_scope, row_to_record
+from ..memory_records import request_scope, row_to_record
 from ..models import (
     AgentConfig,
     ContextArtifact,
@@ -26,13 +25,13 @@ from ..models import (
     KnowledgeEntry,
     Message,
     Run,
-    RunEventLog,
     TeamConfig,
     TraceRecord,
     UsageRecord,
 )
 from ..orchestrator import build_orchestrator
 from ..rate_limit import check_rate_limit
+from ..run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ..runtime import authenticated_run_context
 from ..schemas import (
     ContextSearchHit,
@@ -469,169 +468,6 @@ async def _prepare_message(
     return conv, memory
 
 
-async def _flush_memory_to_db(
-    session: AsyncSession, context: OrganizationContext, memory: AgentMemory
-) -> None:
-    """Persist any core memory changes the agent made back to the DB."""
-    now = datetime.now(timezone.utc)
-    for label in ("persona", "human", "notes"):
-        block = memory.core_memory.get_block(label)
-        result = await session.execute(
-            select(CoreMemoryBlock).where(
-                CoreMemoryBlock.organization_id == context.organization_id,
-                CoreMemoryBlock.user_id == context.user_id,
-                CoreMemoryBlock.label == label,
-            )
-        )
-        existing = result.scalars().first()
-        if existing:
-            if existing.value != block.value:
-                existing.value = block.value
-                existing.updated_at = now
-                session.add(existing)
-        elif block.value:
-            session.add(
-                CoreMemoryBlock(
-                    organization_id=context.organization_id,
-                    user_id=context.user_id,
-                    label=label,
-                    value=block.value,
-                )
-            )
-
-    # Persist typed long-term memory through the shared Pori contract.
-    for record in memory.memory_records:
-        if not request_scope(
-            context.user_id,
-            organization_id=context.organization_id,
-            agent_id=memory.agent_id,
-            session_id=memory.session_id,
-        ).can_access(record.scope):
-            continue
-        existing = await session.get(KnowledgeEntry, record.id)
-        row = record_to_row(record, existing)
-        session.add(row)
-
-
-async def _save_result(
-    session: AsyncSession,
-    conv: Conversation,
-    context: OrganizationContext,
-    task: str,
-    max_steps: int,
-    agent_result: dict,
-    memory: AgentMemory | None = None,
-) -> Message:
-    """Save assistant message, run record, and flush memory changes."""
-    agent = agent_result.get("agent")
-    final = agent.memory.get_final_answer() if agent else {}
-    answer = (
-        agent_result.get("final_answer")
-        or (final or {}).get("final_answer")
-        or "I could not generate a response."
-    )
-    reasoning = agent_result.get("reasoning") or (final or {}).get("reasoning")
-    metrics = agent_result.get("metrics") or agent_result.get("result", {}).get(
-        "metrics"
-    )
-    result_data = agent_result.get("result") or {}
-    context_data = result_data.get("run_context") or {}
-    trace_data = agent_result.get("trace") or result_data.get("trace")
-    selected_skills = (
-        agent_result.get("selected_skills") or result_data.get("selected_skills") or []
-    )
-    artifacts = agent_result.get("artifacts") or result_data.get("artifacts") or []
-    plan = agent_result.get("plan") or result_data.get("plan") or []
-
-    assistant_msg = Message(
-        conversation_id=conv.id,
-        role="assistant",
-        content=answer,
-        metadata_={
-            "reasoning": reasoning,
-            "steps_taken": int(agent_result.get("steps_taken") or 0),
-            "metrics": metrics,
-            "selected_skills": selected_skills,
-            "artifacts": artifacts,
-            "plan": plan,
-        },
-    )
-    session.add(assistant_msg)
-
-    run = Run(
-        id=context_data.get("run_id") or uuid.uuid4().hex,
-        user_id=context.user_id,
-        organization_id=context_data.get("organization_id") or context.organization_id,
-        agent_id=context_data.get("agent_id")
-        or conv.agent_config_id
-        or "default_agent",
-        session_id=context_data.get("session_id") or conv.id,
-        conversation_id=conv.id,
-        task=task,
-        max_steps=max_steps,
-        success=bool(agent_result.get("success")),
-        steps_taken=int(agent_result.get("steps_taken") or 0),
-        final_answer=answer,
-        reasoning=reasoning,
-        metrics=metrics,
-        prompt_fingerprint=(trace_data or {}).get("prompt_fingerprint"),
-        tool_surface_fingerprint=(trace_data or {}).get("tool_surface_fingerprint"),
-        execution_receipts=(trace_data or {}).get("execution_receipts") or [],
-        selected_skills=selected_skills,
-        artifacts=artifacts,
-        plan=plan,
-    )
-    session.add(run)
-
-    # Save usage record from metrics
-    if metrics and isinstance(metrics, dict):
-        tokens = metrics.get("tokens") or {}
-        usage = UsageRecord(
-            organization_id=context.organization_id,
-            user_id=context.user_id,
-            run_id=run.id,
-            conversation_id=conv.id,
-            provider=(metrics.get("model") or "").split("/")[0],
-            model=(metrics.get("model") or "").split("/")[-1],
-            input_tokens=int(tokens.get("input", 0)),
-            output_tokens=int(tokens.get("output", 0)),
-            total_tokens=int(tokens.get("total", 0)),
-            estimated_cost=float(
-                (metrics.get("cost_usd") or "$0").replace("$", "") or 0
-            ),
-        )
-        session.add(usage)
-
-    # Save trace record
-    if trace_data and isinstance(trace_data, dict):
-        trace_record = TraceRecord(
-            organization_id=run.organization_id,
-            user_id=context.user_id,
-            run_id=run.id,
-            conversation_id=conv.id,
-            trace_data=trace_data,
-            duration_seconds=float(
-                (trace_data.get("duration") or "0s").replace("s", "") or 0
-            ),
-            total_spans=int(trace_data.get("total_spans", 0)),
-            status=trace_data.get("status", "ok"),
-        )
-        session.add(trace_record)
-
-    # Flush core memory and archival changes to DB tables
-    agent_memory = (agent.memory if agent else None) or memory
-    if agent_memory:
-        await _flush_memory_to_db(session, context, agent_memory)
-
-    conv.updated_at = datetime.now(timezone.utc)
-    session.add(conv)
-
-    await session.commit()
-    await session.refresh(assistant_msg)
-
-    return assistant_msg
-
-
 # ---- endpoints ----
 
 
@@ -781,7 +617,7 @@ async def send_message(
         await session.refresh(assistant_msg)
 
         # Flush memory changes from team run
-        await _flush_memory_to_db(session, context, memory)
+        await flush_memory_to_db(session, context, memory)
         await session.commit()
 
         return MessageResponse(
@@ -854,146 +690,34 @@ async def send_message(
 
         async def _stream():
             result_holder: dict = {}
-
-            async for event in stream_agent_execution(
-                orchestrator=orchestrator,
-                task=req.content,
-                settings=agent_settings,
-                run_context=stream_context,
-                collector=event_collector,
-                tool_context_extra={"connections": run_connections},
-                mcp_servers=run_mcp_servers,
-            ):
-                # Capture the final message event so we can persist it
-                if event.startswith("event: message\n"):
-                    try:
-                        data_line = event.split("data: ", 1)[1].split("\n")[0]
-                        result_holder["message_data"] = json.loads(data_line)
-                    except (json.JSONDecodeError, IndexError):
-                        logger.warning("Failed to parse SSE message event")
-
-                yield event
-
-            # After stream completes, persist to DB
-            msg_data = result_holder.get("message_data")
-            if msg_data:
-                assistant_msg = Message(
-                    conversation_id=conv.id,
-                    role="assistant",
-                    content=msg_data.get("content", ""),
-                    metadata_={
-                        "reasoning": msg_data.get("reasoning"),
-                        "steps_taken": msg_data.get("steps_taken", 0),
-                        "metrics": msg_data.get("metrics"),
-                        "selected_skills": msg_data.get("selected_skills") or [],
-                        "artifacts": msg_data.get("artifacts") or [],
-                        "plan": msg_data.get("plan") or [],
-                        # Links the message to its replay log (GET /runs/{id}/events).
-                        "run_id": stream_context.run_id,
-                    },
-                )
-                session.add(assistant_msg)
-
-                run = Run(
-                    id=stream_context.run_id,
-                    user_id=user_id,
-                    organization_id=stream_context.organization_id,
-                    agent_id=stream_context.agent_id,
-                    session_id=stream_context.session_id,
-                    conversation_id=conv.id,
+            # The generator's only job: emit frames + capture the result. All
+            # persistence happens once, in the finally, through the shared
+            # finalizer — so a client disconnect still records the turn, and the
+            # streaming and non-streaming paths can never drift.
+            try:
+                async for event in stream_agent_execution(
+                    orchestrator=orchestrator,
                     task=req.content,
-                    max_steps=req.max_steps,
-                    success=msg_data.get("success", False),
-                    steps_taken=msg_data.get("steps_taken", 0),
-                    final_answer=msg_data.get("content", ""),
-                    reasoning=msg_data.get("reasoning"),
-                    metrics=msg_data.get("metrics"),
-                    prompt_fingerprint=(msg_data.get("trace") or {}).get(
-                        "prompt_fingerprint"
-                    ),
-                    tool_surface_fingerprint=(msg_data.get("trace") or {}).get(
-                        "tool_surface_fingerprint"
-                    ),
-                    execution_receipts=(msg_data.get("trace") or {}).get(
-                        "execution_receipts"
+                    settings=agent_settings,
+                    run_context=stream_context,
+                    collector=event_collector,
+                    tool_context_extra={"connections": run_connections},
+                    mcp_servers=run_mcp_servers,
+                    result_holder=result_holder,
+                ):
+                    yield event
+            finally:
+                result = result_holder.get("result")
+                if result is not None:
+                    outcome = build_run_outcome(
+                        result,
+                        memory,
+                        stream_context,
+                        req.content,
+                        fallback_org=context.organization_id,
+                        events=event_collector.finalize(),
                     )
-                    or [],
-                    selected_skills=msg_data.get("selected_skills") or [],
-                    artifacts=msg_data.get("artifacts") or [],
-                    plan=msg_data.get("plan") or [],
-                )
-                session.add(run)
-
-                # Save the trace record so the Traces view is populated for
-                # streamed runs too (the non-stream path already does this).
-                trace_data = msg_data.get("trace")
-                if trace_data and isinstance(trace_data, dict):
-                    session.add(
-                        TraceRecord(
-                            organization_id=stream_context.organization_id,
-                            user_id=user_id,
-                            run_id=stream_context.run_id,
-                            conversation_id=conv.id,
-                            trace_data=trace_data,
-                            duration_seconds=float(
-                                (trace_data.get("duration") or "0s").replace("s", "")
-                                or 0
-                            ),
-                            total_spans=int(trace_data.get("total_spans", 0)),
-                            status=trace_data.get("status", "ok"),
-                        )
-                    )
-
-                # Usage/billing: record token counts + cost for streamed runs
-                # too (the non-stream path already does this).
-                metrics = msg_data.get("metrics")
-                if metrics and isinstance(metrics, dict):
-                    tokens = metrics.get("tokens") or {}
-                    session.add(
-                        UsageRecord(
-                            organization_id=stream_context.organization_id,
-                            user_id=user_id,
-                            run_id=stream_context.run_id,
-                            conversation_id=conv.id,
-                            provider=(metrics.get("model") or "").split("/")[0],
-                            model=(metrics.get("model") or "").split("/")[-1],
-                            input_tokens=int(tokens.get("input", 0)),
-                            output_tokens=int(tokens.get("output", 0)),
-                            total_tokens=int(tokens.get("total", 0)),
-                            estimated_cost=float(
-                                (metrics.get("cost_usd") or "$0").replace("$", "") or 0
-                            ),
-                        )
-                    )
-
-                # Read-only replay log: the coalesced event stream for this run,
-                # persisted in the same transaction (best-effort — a log failure
-                # must never lose the message/run).
-                try:
-                    events = event_collector.finalize()
-                    if events:
-                        session.add(
-                            RunEventLog(
-                                run_id=stream_context.run_id,
-                                organization_id=stream_context.organization_id,
-                                user_id=user_id,
-                                conversation_id=conv.id,
-                                events=events,
-                                event_count=len(events),
-                            )
-                        )
-                except Exception:
-                    logger.warning("Failed to persist run event log", exc_info=True)
-
-                conv.updated_at = datetime.now(timezone.utc)
-                session.add(conv)
-                await session.commit()
-
-            # Flush core memory changes after stream completes. _flush only
-            # stages the rows (session.add); commit here or they're discarded
-            # when the session closes — which left core memory empty across turns.
-            await _flush_memory_to_db(session, context, memory)
-            await session.commit()
+                    await persist_run_outcome(session, conv, context, outcome)
 
         return StreamingResponse(
             _stream(),
@@ -1045,9 +769,14 @@ async def send_message(
             created_at=error_msg.created_at,
         )
 
-    assistant_msg = await _save_result(
-        session, conv, context, req.content, req.max_steps, agent_result, memory
+    outcome = build_run_outcome(
+        agent_result,
+        memory,
+        run_context,
+        req.content,
+        fallback_org=context.organization_id,
     )
+    assistant_msg = await persist_run_outcome(session, conv, context, outcome)
 
     logger.info(
         "Message in conversation %s, steps=%d",

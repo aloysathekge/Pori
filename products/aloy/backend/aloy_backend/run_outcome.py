@@ -1,0 +1,282 @@
+"""One canonical run outcome, one persist path.
+
+The streaming (SSE) and non-streaming request handlers both produce ONE
+``RunOutcome`` from the agent's result, and both persist it through the single
+``persist_run_outcome`` finalizer. Nothing persists inside a transport handler,
+so the two paths cannot drift (which is how memory/traces/usage each got
+"forgotten in the streaming path" before). See docs/aloy-send-message-refactor-spec.md.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from pori import AgentMemory
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
+from .memory_records import record_to_row, request_scope
+from .models import (
+    Conversation,
+    CoreMemoryBlock,
+    KnowledgeEntry,
+    Message,
+    Run,
+    RunEventLog,
+    TraceRecord,
+    UsageRecord,
+)
+from .tenancy import OrganizationContext
+
+
+async def flush_memory_to_db(
+    session: AsyncSession, context: OrganizationContext, memory: AgentMemory
+) -> None:
+    """Stage core-memory + typed long-term memory changes (does NOT commit).
+
+    Staged rows are committed by the finalizer's single commit — never commit
+    here, or callers can't batch it into one transaction.
+    """
+    now = datetime.now(timezone.utc)
+    for label in ("persona", "human", "notes"):
+        block = memory.core_memory.get_block(label)
+        existing = (
+            (
+                await session.execute(
+                    select(CoreMemoryBlock).where(
+                        CoreMemoryBlock.organization_id == context.organization_id,
+                        CoreMemoryBlock.user_id == context.user_id,
+                        CoreMemoryBlock.label == label,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing:
+            if existing.value != block.value:
+                existing.value = block.value
+                existing.updated_at = now
+                session.add(existing)
+        elif block.value:
+            session.add(
+                CoreMemoryBlock(
+                    organization_id=context.organization_id,
+                    user_id=context.user_id,
+                    label=label,
+                    value=block.value,
+                )
+            )
+
+    for record in memory.memory_records:
+        if not request_scope(
+            context.user_id,
+            organization_id=context.organization_id,
+            agent_id=memory.agent_id,
+            session_id=memory.session_id,
+        ).can_access(record.scope):
+            continue
+        existing_row = await session.get(KnowledgeEntry, record.id)
+        session.add(record_to_row(record, existing_row))
+
+
+@dataclass
+class RunOutcome:
+    """Everything needed to persist one finished agent turn, built once."""
+
+    task: str
+    final_answer: str
+    reasoning: Optional[str]
+    success: bool
+    steps_taken: int
+    metrics: Optional[dict]
+    trace: Optional[dict]
+    artifacts: list = field(default_factory=list)
+    plan: list = field(default_factory=list)
+    selected_skills: list = field(default_factory=list)
+    # Identity (authoritative, from the run's RunContext).
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    organization_id: str = ""
+    session_id: str = ""
+    agent_id: str = "default_agent"
+    # The run's memory, to flush; and the coalesced replay events (streaming).
+    memory: Optional[AgentMemory] = None
+    events: Optional[list] = None
+
+
+def build_run_outcome(
+    agent_result: dict,
+    memory: Optional[AgentMemory],
+    run_context: Any,
+    task: str,
+    *,
+    fallback_org: str,
+    events: Optional[list] = None,
+) -> RunOutcome:
+    """Map ``execute_task``'s return dict (same shape both paths get) into one
+    ``RunOutcome``. The single place that knows the agent-result shape."""
+    agent = agent_result.get("agent")
+    final = agent.memory.get_final_answer() if agent else {}
+    result_data = agent_result.get("result") or {}
+
+    answer = (
+        agent_result.get("final_answer")
+        or (final or {}).get("final_answer")
+        or "I could not generate a response."
+    )
+    return RunOutcome(
+        task=task,
+        final_answer=answer,
+        reasoning=agent_result.get("reasoning") or (final or {}).get("reasoning"),
+        success=bool(agent_result.get("success")),
+        steps_taken=int(agent_result.get("steps_taken") or 0),
+        metrics=agent_result.get("metrics") or result_data.get("metrics"),
+        trace=agent_result.get("trace") or result_data.get("trace"),
+        artifacts=agent_result.get("artifacts") or result_data.get("artifacts") or [],
+        plan=agent_result.get("plan") or result_data.get("plan") or [],
+        selected_skills=(
+            agent_result.get("selected_skills")
+            or result_data.get("selected_skills")
+            or []
+        ),
+        run_id=getattr(run_context, "run_id", None) or uuid.uuid4().hex,
+        organization_id=getattr(run_context, "organization_id", None) or fallback_org,
+        session_id=getattr(run_context, "session_id", None) or "",
+        agent_id=getattr(run_context, "agent_id", None) or "default_agent",
+        memory=(agent.memory if agent else None) or memory,
+        events=events,
+    )
+
+
+async def persist_run_outcome(
+    session: AsyncSession,
+    conv: Conversation,
+    context: OrganizationContext,
+    outcome: RunOutcome,
+) -> Message:
+    """THE single finalizer: persist message + run + usage + trace + event-log +
+    memory as one transaction. Both request paths call this; nothing else writes.
+    Idempotent by run_id (a disconnect-finally + a retry can't double-write)."""
+    existing_run = await session.get(Run, outcome.run_id)
+    if existing_run is not None:
+        # Already persisted (e.g. the disconnect-finally fired after a normal
+        # finish). Return the existing assistant message.
+        existing_msg = (
+            (
+                await session.execute(
+                    select(Message)
+                    .where(
+                        Message.conversation_id == conv.id, Message.role == "assistant"
+                    )
+                    .order_by(Message.created_at.desc())
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing_msg is not None:
+            return existing_msg
+
+    session_id = outcome.session_id or conv.id
+    agent_id = outcome.agent_id or conv.agent_config_id or "default_agent"
+    org_id = outcome.organization_id or context.organization_id
+    trace = outcome.trace if isinstance(outcome.trace, dict) else None
+
+    assistant_msg = Message(
+        conversation_id=conv.id,
+        role="assistant",
+        content=outcome.final_answer,
+        metadata_={
+            "reasoning": outcome.reasoning,
+            "steps_taken": outcome.steps_taken,
+            "metrics": outcome.metrics,
+            "selected_skills": outcome.selected_skills,
+            "artifacts": outcome.artifacts,
+            "plan": outcome.plan,
+            "run_id": outcome.run_id,  # links to the replay log
+        },
+    )
+    session.add(assistant_msg)
+
+    run = Run(
+        id=outcome.run_id,
+        user_id=context.user_id,
+        organization_id=org_id,
+        agent_id=agent_id,
+        session_id=session_id,
+        conversation_id=conv.id,
+        task=outcome.task,
+        max_steps=0,
+        success=outcome.success,
+        steps_taken=outcome.steps_taken,
+        final_answer=outcome.final_answer,
+        reasoning=outcome.reasoning,
+        metrics=outcome.metrics,
+        prompt_fingerprint=(trace or {}).get("prompt_fingerprint"),
+        tool_surface_fingerprint=(trace or {}).get("tool_surface_fingerprint"),
+        execution_receipts=(trace or {}).get("execution_receipts") or [],
+        selected_skills=outcome.selected_skills,
+        artifacts=outcome.artifacts,
+        plan=outcome.plan,
+    )
+    session.add(run)
+
+    if isinstance(outcome.metrics, dict):
+        tokens = outcome.metrics.get("tokens") or {}
+        session.add(
+            UsageRecord(
+                organization_id=org_id,
+                user_id=context.user_id,
+                run_id=outcome.run_id,
+                conversation_id=conv.id,
+                provider=(outcome.metrics.get("model") or "").split("/")[0],
+                model=(outcome.metrics.get("model") or "").split("/")[-1],
+                input_tokens=int(tokens.get("input", 0)),
+                output_tokens=int(tokens.get("output", 0)),
+                total_tokens=int(tokens.get("total", 0)),
+                estimated_cost=float(
+                    (outcome.metrics.get("cost_usd") or "$0").replace("$", "") or 0
+                ),
+            )
+        )
+
+    if trace:
+        session.add(
+            TraceRecord(
+                organization_id=org_id,
+                user_id=context.user_id,
+                run_id=outcome.run_id,
+                conversation_id=conv.id,
+                trace_data=trace,
+                duration_seconds=float(
+                    (trace.get("duration") or "0s").replace("s", "") or 0
+                ),
+                total_spans=int(trace.get("total_spans", 0)),
+                status=trace.get("status", "ok"),
+            )
+        )
+
+    if outcome.events:
+        session.add(
+            RunEventLog(
+                run_id=outcome.run_id,
+                organization_id=org_id,
+                user_id=context.user_id,
+                conversation_id=conv.id,
+                events=outcome.events,
+                event_count=len(outcome.events),
+            )
+        )
+
+    if outcome.memory is not None:
+        await flush_memory_to_db(session, context, outcome.memory)
+
+    conv.updated_at = datetime.now(timezone.utc)
+    session.add(conv)
+
+    await session.commit()
+    await session.refresh(assistant_msg)
+    return assistant_msg
