@@ -10,6 +10,7 @@ from ..observability.events import TEXT_DELTA, THINKING_DELTA, PoriEvent
 from .messages import (
     AssistantMessage,
     BaseMessage,
+    DocumentBlock,
     ImageBlock,
     MessageContent,
     TextBlock,
@@ -36,6 +37,16 @@ def _to_openai_content(content: MessageContent) -> Any:
                 else f"data:{block.media_type};base64,{block.data}"
             )
             parts.append({"type": "image_url", "image_url": {"url": url}})
+        elif isinstance(block, DocumentBlock):
+            parts.append(
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": block.name or "document.pdf",
+                        "file_data": f"data:{block.media_type};base64,{block.data}",
+                    },
+                }
+            )
     return parts or ""
 
 

@@ -62,7 +62,13 @@ from .hitl import (
     HITLHandler,
     InterruptConfig,
 )
-from .llm.messages import ImageBlock, SystemMessage, TextBlock, UserMessage
+from .llm.messages import (
+    DocumentBlock,
+    ImageBlock,
+    SystemMessage,
+    TextBlock,
+    UserMessage,
+)
 
 # The MCP client seam (a product supplies per-run server configs).
 from .mcp import McpServerConfig, McpSessionSet
@@ -287,6 +293,7 @@ __all__ = [
     "SystemMessage",
     "UserMessage",
     "ImageBlock",
+    "DocumentBlock",
     "TextBlock",
     "McpServerConfig",
     "McpSessionSet",

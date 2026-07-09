@@ -33,6 +33,12 @@ const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
 const MAX_FILES = 3;
 const MAX_FILE_CHARS = 200_000; // ~200KB of text (backend-enforced too)
+const DOC_MIMES: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+const MAX_DOC_BYTES = 10 * 1024 * 1024; // 10MB per document
 const TEXT_EXTENSIONS =
   /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|cs|php|html|css|scss|xml|yml|yaml|toml|ini|cfg|conf|env|sh|bash|ps1|sql|log|diff|patch)$/i;
 
@@ -46,7 +52,7 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const [pendingFiles, setPendingFiles] = useState<
-    (MessageFile & { content: string })[]
+    (MessageFile & { content?: string; data?: string; media_type?: string })[]
   >([]);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -161,6 +167,28 @@ export function ChatPage() {
             prev.length >= MAX_IMAGES
               ? prev
               : [...prev, { data: base64, media_type: file.type }],
+          );
+        };
+        reader.readAsDataURL(file);
+      } else if (DOC_MIMES[file.name.split('.').pop()?.toLowerCase() ?? '']) {
+        if (file.size > MAX_DOC_BYTES) continue;
+        const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = String(reader.result || '').split(',')[1] ?? '';
+          if (!base64) return;
+          setPendingFiles((prev) =>
+            prev.length >= MAX_FILES
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    name: file.name,
+                    size: file.size,
+                    data: base64,
+                    media_type: mediaType,
+                  },
+                ],
           );
         };
         reader.readAsDataURL(file);
@@ -333,11 +361,21 @@ export function ChatPage() {
     const controller = new AbortController();
     streamAbortRef.current = controller;
     try {
+      const textFiles = files.filter((f) => f.content != null);
+      const binaryDocs = files.filter((f) => f.data != null);
       await streamMessage(activeId, content, callbacks, {
         images: images.length > 0 ? images : undefined,
         files:
-          files.length > 0
-            ? files.map((f) => ({ name: f.name, content: f.content }))
+          textFiles.length > 0
+            ? textFiles.map((f) => ({ name: f.name, content: f.content! }))
+            : undefined,
+        documents:
+          binaryDocs.length > 0
+            ? binaryDocs.map((f) => ({
+                name: f.name,
+                data: f.data!,
+                media_type: f.media_type!,
+              }))
             : undefined,
         signal: controller.signal,
       });

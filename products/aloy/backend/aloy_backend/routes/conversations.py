@@ -6,21 +6,24 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pori import (
-    AgentMemory,
-    AgentSettings,
-    ImageBlock,
-    RetrievalEvidence,
-    fuse_retrieval,
-)
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from pori import (
+    AgentMemory,
+    AgentSettings,
+    DocumentBlock,
+    ImageBlock,
+    RetrievalEvidence,
+    fuse_retrieval,
+)
+
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
+from ..doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ..event_log import EventLogCollector
 from ..memory_records import request_scope, row_to_record
 from ..models import (
@@ -40,6 +43,7 @@ from ..rate_limit import check_rate_limit
 from ..run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ..runtime import authenticated_run_context
 from ..schemas import (
+    XLSX_MIME,
     ContextSearchHit,
     ConversationBranchRequest,
     ConversationCreate,
@@ -404,6 +408,7 @@ async def _prepare_message(
     content: str,
     images: list | None = None,
     files: list | None = None,
+    documents: list | None = None,
 ) -> tuple[Conversation, AgentMemory]:
     """Validate conversation, save user message, seed memory from DB tables."""
     conv = await session.get(Conversation, conversation_id)
@@ -420,6 +425,12 @@ async def _prepare_message(
             {"name": f.name, "size": len(f.content), "content": f.content}
             for f in files
         ]
+    if documents:
+        # Chips only (name/size) — PDF bytes aren't re-attached on later turns,
+        # and extracted docx/xlsx text already rides in the model task.
+        meta.setdefault("files", []).extend(
+            {"name": d.name, "size": len(d.data) * 3 // 4} for d in documents
+        )
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",
@@ -663,17 +674,47 @@ async def send_message(
         req.content,
         images=req.images,
         files=req.files,
+        documents=req.documents,
     )
     user_id = context.user_id
     # Kernel-side image blocks for this turn (multimodal task message).
-    task_images = [
+    task_attachments = [
         ImageBlock(source="base64", media_type=i.media_type, data=i.data)
         for i in req.images
     ]
+    # Binary documents: PDFs ride natively (kernel DocumentBlock — providers
+    # accept PDF blocks directly); DOCX/XLSX are text-extracted server-side
+    # (Hermes-harvested stdlib OOXML parsing) and join the text-file flow.
+    import base64 as _b64
+
+    extracted_files: list[tuple[str, str]] = []  # (name, extracted text)
+    for doc in req.documents:
+        if doc.media_type == "application/pdf":
+            task_attachments.append(
+                DocumentBlock(
+                    media_type="application/pdf", data=doc.data, name=doc.name
+                )
+            )
+            continue
+        try:
+            raw = _b64.b64decode(doc.data)
+            text = (
+                extract_docx_text(raw)
+                if doc.media_type != XLSX_MIME
+                else extract_xlsx_text(raw)
+            )
+        except (ExtractionError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Could not read {doc.name}: {exc}"
+            )
+        extracted_files.append((doc.name, text[:200_000]))
+
     # Attached text files are embedded into the task the model receives; the
     # stored user message keeps only the typed text (chips render from metadata).
-    task_content = req.content + "".join(
-        _render_file_block(f.name, f.content) for f in req.files
+    task_content = (
+        req.content
+        + "".join(_render_file_block(f.name, f.content) for f in req.files)
+        + "".join(_render_file_block(n, t) for n, t in extracted_files)
     )
 
     if not context.policy.allow_shared_process_execution:
@@ -896,7 +937,7 @@ async def send_message(
                     collector=event_collector,
                     tool_context_extra={"connections": run_connections},
                     mcp_servers=run_mcp_servers,
-                    task_images=task_images,
+                    task_attachments=task_attachments,
                     result_holder=result_holder,
                 ):
                     yield event
@@ -975,7 +1016,7 @@ async def send_message(
             run_context=run_context,
             tool_context_extra={"connections": run_connections},
             mcp_servers=run_mcp_servers,
-            task_images=task_images,
+            task_attachments=task_attachments,
         )
     except Exception as e:
         logger.exception("Agent failed for conversation %s", conversation_id)

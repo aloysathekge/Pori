@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .messages import (
     BaseMessage,
+    DocumentBlock,
     ImageBlock,
     MessageContent,
     TextBlock,
@@ -42,6 +43,13 @@ def _to_google_parts(content: MessageContent) -> "list[genai.types.Part]":
                 )
             else:
                 parts.append(genai.types.Part(text=f"[image at {block.url}]"))
+        elif isinstance(block, DocumentBlock):
+            parts.append(
+                genai.types.Part.from_bytes(
+                    data=_base64.b64decode(block.data),
+                    mime_type=block.media_type,
+                )
+            )
     return parts or [genai.types.Part(text="")]
 
 
