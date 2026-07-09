@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { PanelLeft, Paperclip, Send, X } from 'lucide-react';
+import { Paperclip, Plus, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { ConversationList } from '@/components/chat/ConversationList';
+import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
@@ -40,16 +40,6 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Conversations panel: collapsible on desktop (persisted), overlay on mobile.
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(
-    () => localStorage.getItem('aloy.conv-sidebar') !== 'closed',
-  );
-  const [mobileListOpen, setMobileListOpen] = useState(false);
-
-  function toggleSidebar(open: boolean) {
-    setSidebarOpen(open);
-    localStorage.setItem('aloy.conv-sidebar', open ? 'open' : 'closed');
-  }
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -331,72 +321,29 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Desktop sidebar — collapses to zero width with a smooth slide, giving
-          the chat the full width. Preference persists across sessions. */}
-      <div
-        className={`hidden overflow-hidden transition-[width] duration-300 ease-in-out lg:block ${
-          sidebarOpen ? 'w-72' : 'w-0'
-        }`}
-      >
-        <div className="h-full w-72">
-          <ConversationList
-            conversations={conversations}
-            activeId={activeId}
-            onSelect={openConversation}
-            onCreate={handleCreate}
-            onDelete={handleDelete}
-            onCollapse={() => toggleSidebar(false)}
-          />
-        </div>
+    <div className="flex h-full flex-col">
+      {/* Slim top bar: the conversation switcher lives HERE (a dropdown), so
+          navigation costs zero horizontal space — the canvas is the chat's. */}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 px-2">
+        <ConversationSwitcher
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={openConversation}
+          onCreate={handleCreate}
+          onDelete={handleDelete}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleCreate}
+          title="New conversation"
+        >
+          <Plus size={16} />
+        </Button>
       </div>
 
-      {/* Mobile: the list is an overlay drawer */}
-      {mobileListOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileListOpen(false)}
-          />
-          <div className="absolute left-0 top-0 h-full w-72 bg-zinc-900 shadow-xl">
-            <ConversationList
-              conversations={conversations}
-              activeId={activeId}
-              onSelect={(id) => {
-                setMobileListOpen(false);
-                openConversation(id);
-              }}
-              onCreate={() => {
-                setMobileListOpen(false);
-                handleCreate();
-              }}
-              onDelete={handleDelete}
-              onCollapse={() => setMobileListOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Chat area */}
-      <div className="relative flex flex-1 flex-col">
-        {/* Reopen control: floats subtly over the chat when the panel is away */}
-        <button
-          type="button"
-          onClick={() => {
-            if (window.matchMedia('(min-width: 1024px)').matches) {
-              toggleSidebar(true);
-            } else {
-              setMobileListOpen(true);
-            }
-          }}
-          title="Show conversations"
-          className={`absolute left-3 top-3 z-30 rounded-lg border border-zinc-700/60 bg-zinc-900/80 p-2 text-zinc-400 shadow-sm backdrop-blur transition-colors hover:text-accent-600 ${
-            sidebarOpen ? 'lg:hidden' : ''
-          }`}
-        >
-          <PanelLeft size={16} />
-        </button>
-
+      <div className="relative flex min-h-0 flex-1 flex-col">
         {!activeId ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-zinc-500">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
@@ -418,7 +365,7 @@ export function ChatPage() {
                   <p className="text-sm">Send a message to start chatting</p>
                 </div>
               ) : (
-                <div className="mx-auto max-w-3xl space-y-6">
+                <div className="mx-auto max-w-4xl space-y-6">
                   {messages.map((msg) => (
                     <MessageBubble
                       key={msg.id}
@@ -447,7 +394,7 @@ export function ChatPage() {
                     />
                   )}
                   {clarify && (
-                    <div className="mx-auto max-w-3xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
+                    <div className="mx-auto max-w-4xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
                       <p className="mb-3 text-sm text-zinc-200">
                         {clarify.question}
                       </p>
@@ -479,7 +426,7 @@ export function ChatPage() {
             {/* Input bar */}
             <div className="border-t border-zinc-800 p-4">
               {pendingImages.length > 0 && (
-                <div className="mx-auto mb-2 flex max-w-3xl gap-2">
+                <div className="mx-auto mb-2 flex max-w-4xl gap-2">
                   {pendingImages.map((img, i) => (
                     <div key={i} className="group relative">
                       <img
@@ -503,7 +450,7 @@ export function ChatPage() {
                   ))}
                 </div>
               )}
-              <div className="mx-auto flex max-w-3xl gap-3">
+              <div className="mx-auto flex max-w-4xl gap-3">
                 <input
                   ref={fileInputRef}
                   type="file"
