@@ -54,6 +54,41 @@ jobs:
           path: coverage.xml
           retention-days: 7
 
+  aloy-backend:
+    name: Aloy backend (format + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: products/aloy/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install (editable pori + backend + dev extras)
+        run: uv sync --extra dev
+
+      - name: Black (format check)
+        run: uv run black --check aloy_backend/ tests/
+
+      - name: isort (import sort check)
+        run: uv run isort --check-only aloy_backend/ tests/
+
+      - name: Pytest
+        run: uv run pytest tests/ -q --tb=short
+        env:
+          # Tests use mocks / monkeypatched keys; no real credentials needed.
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""
+          GOOGLE_API_KEY: ""
+
   boundaries:
     name: Import boundaries (products -> pori, never upward)
     runs-on: ubuntu-latest
