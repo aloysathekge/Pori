@@ -1,0 +1,18 @@
+# Aloy backend LLM/agent config. Copy to config.yaml (gitignored) and edit.
+#
+#   cp config.example.yaml config.yaml
+#
+# The matching API key goes in .env (ANTHROPIC_API_KEY / OPENAI_API_KEY / …).
+# config.yaml is per-deployment and must not be committed.
+
+llm:
+  # provider: anthropic | openai | google | openrouter | fireworks
+  provider: anthropic
+  # Anthropic: claude-sonnet-4-5-20250929, claude-opus-4-…, claude-haiku-4-5-…
+  # OpenAI:    gpt-4o, gpt-4-turbo, …
+  # Google:    gemini-2.5-flash, gemini-2.5-pro, …
+  model: claude-sonnet-4-5-20250929
+  temperature: 0.0
+
+agent:
+  max_steps: 15

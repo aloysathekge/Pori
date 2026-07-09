@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Bot, FileText, History, User } from 'lucide-react';
+import { FileText, History } from 'lucide-react';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
+import { Markdown } from './Markdown';
 
 export function MessageBubble({ message }: { message: MessageResponse }) {
   const isUser = message.role === 'user';
@@ -10,14 +11,7 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
   const [replaying, setReplaying] = useState(false);
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          isUser ? 'bg-accent-600' : 'bg-zinc-700'
-        }`}
-      >
-        {isUser ? <User size={16} /> : <Bot size={16} />}
-      </div>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
@@ -25,7 +19,13 @@ export function MessageBubble({ message }: { message: MessageResponse }) {
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <div className="text-sm">
+            <Markdown>{message.content}</Markdown>
+          </div>
+        )}
 
         {!isUser && artifacts.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-zinc-700 pt-2">

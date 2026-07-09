@@ -13,3 +13,6 @@ uv.lock
 # Local dev SQLite database (created by BOOT.md)
 aloy.db
 *.db
+
+# Per-deployment LLM/agent config (copy from config.example.yaml)
+config.yaml

@@ -89,6 +89,7 @@ from ..skills import (
 from ..tool_guardrails import ToolCallGuardrailController
 from ..tools.policy import AuthorizationDecision, ToolAuthorizationPolicy
 from ..tools.registry import ToolExecutor, ToolRegistry
+from ..utils.action_decode import decode_action_envelope
 from ..utils.logging_config import ensure_logger_configured
 from ..utils.prompt_loader import load_prompt
 
@@ -628,11 +629,17 @@ class Agent:
         action: List[Dict[str, Any]] = [
             {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
         ]
-        # A text-only reply (no tool call) is the model answering the user
-        # directly. Treat it as the final answer so the run completes instead
-        # of stalling on an empty step.
-        if not action and turn.text.strip():
-            action = [{"answer": {"final_answer": turn.text.strip(), "reasoning": ""}}]
+        text = turn.text.strip()
+        if not action and text:
+            # No native tool call. The model may have emitted its action as a
+            # JSON envelope of text (some providers/turns do this) — decode and
+            # run it. Only a genuine prose reply falls through to `answer`, so
+            # the run reaches a real answer instead of freezing raw JSON.
+            decoded = decode_action_envelope(text)
+            if decoded is not None:
+                action = decoded
+            else:
+                action = [{"answer": {"final_answer": text, "reasoning": ""}}]
         current_state: Dict[str, str] = {"next_goal": turn.text} if turn.text else {}
         return AgentOutput(current_state=current_state, action=action)
 

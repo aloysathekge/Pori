@@ -31,6 +31,16 @@ export function getAvailableModels() {
   return apiFetch<Record<string, string[]>>('/agent-configs/info/models');
 }
 
-export function getAvailableTools() {
-  return apiFetch<ToolInfo[]>('/agent-configs/info/tools');
+interface ToolsInfoResponse {
+  fingerprint: string;
+  tools: ToolInfo[];
+  groups: string[];
+  excluded: Record<string, string>;
+}
+
+export async function getAvailableTools(): Promise<ToolInfo[]> {
+  // The endpoint returns a capability snapshot { fingerprint, tools, … };
+  // callers want just the tools array.
+  const res = await apiFetch<ToolsInfoResponse>('/agent-configs/info/tools');
+  return res.tools ?? [];
 }

@@ -285,11 +285,15 @@ class ChatAnthropic:
         )
         if on_event is not None and turn.text:
             from ..observability.events import TEXT_DELTA, PoriEvent
+            from ..utils.action_decode import looks_like_action_envelope
 
-            try:
-                on_event(PoriEvent(TEXT_DELTA, {"text": turn.text}))
-            except Exception:
-                pass
+            # Don't stream a raw JSON action dump as if it were prose — the agent
+            # loop decodes it into actions instead.
+            if not looks_like_action_envelope(turn.text):
+                try:
+                    on_event(PoriEvent(TEXT_DELTA, {"text": turn.text}))
+                except Exception:
+                    pass
         return turn
 
     def with_structured_output(
