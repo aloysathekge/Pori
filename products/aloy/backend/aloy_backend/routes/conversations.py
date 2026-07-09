@@ -1119,6 +1119,25 @@ async def attach_live_run(
     )
 
 
+@router.post("/{conversation_id}/stop")
+async def stop_live_run(
+    conversation_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Stop this conversation's in-flight run. Cooperative: the agent halts at
+    the next step boundary, then the stream finishes with a final frame (so
+    every subscriber — including re-attached ones — sees a clean end)."""
+    conv = await session.get(Conversation, conversation_id)
+    if not conv or conv.organization_id != context.organization_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    live = live_runs.get(conversation_id)
+    if live is None or not live.request_cancel():
+        raise HTTPException(status_code=404, detail="No live run")
+    logger.info("Stop requested for conversation %s (run %s)", conv.id, live.run_id)
+    return {"status": "stopping"}
+
+
 class ClarifyBody(BaseModel):
     value: str
 

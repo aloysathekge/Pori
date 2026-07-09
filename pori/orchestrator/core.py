@@ -13,7 +13,7 @@ from ..agent import Agent, AgentSettings
 from ..evolution import EvolutionRepository
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
-from ..runtime import RunContext
+from ..runtime import CancellationToken, RunContext
 from ..skill_provenance import use_write_origin
 from ..skills import SkillCatalog
 from ..skills_learn import build_background_review_prompt
@@ -95,6 +95,7 @@ class Orchestrator:
         resume_task_id: Optional[str] = None,
         mcp_servers: Optional[List["McpServerConfig"]] = None,
         task_attachments: Optional[List[Any]] = None,
+        cancellation_token: Optional[CancellationToken] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent.
 
@@ -107,6 +108,10 @@ class Orchestrator:
         ``resume_task_id`` is forwarded to the Agent so an interrupted run can
         continue from its per-step checkpoint instead of restarting from step 0
         (see docs/long-running.md Phase 2).
+
+        ``cancellation_token`` is a thread-safe cooperative stop signal: the
+        agent loop checks it between steps, so a caller (e.g. a product's
+        stop-generation endpoint) can end the run early with a clean result.
         """
 
         async def _run() -> Dict[str, Any]:
@@ -130,6 +135,7 @@ class Orchestrator:
                     resume_task_id=resume_task_id,
                     mcp_servers=mcp_servers,
                     task_attachments=task_attachments,
+                    cancellation_token=cancellation_token,
                 )
 
         if session_key is None:
@@ -169,6 +175,7 @@ class Orchestrator:
         resume_task_id: Optional[str] = None,
         mcp_servers: Optional[List["McpServerConfig"]] = None,
         task_attachments: Optional[List[Any]] = None,
+        cancellation_token: Optional[CancellationToken] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -218,6 +225,7 @@ class Orchestrator:
             tool_context_extra=tool_context_extra,
             resume_task_id=resume_task_id,
             task_attachments=task_attachments,
+            cancellation_token=cancellation_token,
         )
         self.agents[task_id] = agent
 

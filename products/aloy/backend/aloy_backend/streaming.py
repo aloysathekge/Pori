@@ -23,6 +23,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from pori import (
     RUN_END,
     AgentSettings,
+    CancellationToken,
     ClarificationRequest,
     ClarifyBridge,
     Orchestrator,
@@ -103,6 +104,8 @@ async def stream_agent_execution(
     merged_tool_context = dict(tool_context_extra or {})
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
 
+    cancel_token = CancellationToken()
+
     def run_agent() -> dict:
         return asyncio.run(
             orchestrator.execute_task(
@@ -114,6 +117,7 @@ async def stream_agent_execution(
                 tool_context_extra=merged_tool_context,
                 mcp_servers=mcp_servers,
                 task_attachments=task_attachments,
+                cancellation_token=cancel_token,
             )
         )
 
@@ -124,8 +128,15 @@ async def stream_agent_execution(
     if result_holder is not None:
         result_holder["run_future"] = run
 
+    def request_stop() -> None:
+        # Cooperative stop: the agent loop halts at the next step boundary. A
+        # run blocked on a pending clarification never reaches that boundary,
+        # so unblock it too (empty answer → the loop resumes → sees the token).
+        cancel_token.cancel()
+        bridge.cancel_pending()
+
     run_id = getattr(run_context, "run_id", "") or ""
-    live = live_runs.register(conversation_id or run_id, run_id)
+    live = live_runs.register(conversation_id or run_id, run_id, cancel=request_stop)
 
     async def pump() -> None:
         try:
@@ -182,6 +193,12 @@ async def stream_agent_execution(
 
         agent = result.get("agent")
         final = agent.memory.get_final_answer() if agent else None
+        # A stopped run has no final answer — say so, and write it into the
+        # authoritative result so persistence shows the same text.
+        if cancel_token.cancelled and not (
+            result.get("final_answer") or (final or {}).get("final_answer")
+        ):
+            result["final_answer"] = "Generation stopped."
         result_data = result.get("result", {}) or {}
         plan = result.get("plan") or result_data.get("plan") or []
         live.publish(
@@ -190,9 +207,12 @@ async def stream_agent_execution(
                 {
                     "role": "assistant",
                     "run_id": getattr(run_context, "run_id", None),
-                    "content": (final or {}).get(
-                        "final_answer", "I could not generate a response."
+                    "content": (
+                        result.get("final_answer")
+                        or (final or {}).get("final_answer")
+                        or "I could not generate a response."
                     ),
+                    "stopped": cancel_token.cancelled or None,
                     "reasoning": (final or {}).get("reasoning"),
                     "steps_taken": int(result.get("steps_taken") or 0),
                     "success": bool(result.get("success")),

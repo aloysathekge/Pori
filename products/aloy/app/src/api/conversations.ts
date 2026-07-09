@@ -36,6 +36,13 @@ export function deleteConversation(id: string) {
   return apiFetch<void>(`/conversations/${id}`, { method: 'DELETE' });
 }
 
+/** Stop the conversation's in-flight run (agent halts at the next step). */
+export function stopGeneration(id: string) {
+  return apiFetch<{ status: string }>(`/conversations/${id}/stop`, {
+    method: 'POST',
+  });
+}
+
 export function sendMessage(
   conversationId: string,
   data: { content: string; max_steps?: number; stream?: boolean; team_id?: string | null },

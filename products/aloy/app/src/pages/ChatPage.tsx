@@ -13,6 +13,7 @@ import {
   getConversation,
   createConversation,
   deleteConversation,
+  stopGeneration,
 } from '@/api/conversations';
 import {
   attachLiveRun,
@@ -456,6 +457,18 @@ export function ChatPage() {
     }
   }
 
+  /** Stop the in-flight run: the agent halts at the next step boundary and
+   *  the stream finishes with a final frame (which resets the UI). */
+  async function handleStop() {
+    if (!activeId) return;
+    setStreamStatus('Stopping…');
+    try {
+      await stopGeneration(activeId);
+    } catch {
+      // 404 = the run already finished; the stream's done frame cleans up.
+    }
+  }
+
   async function answerClarify(value: string) {
     if (!clarify) return;
     const id = clarify.id;
@@ -599,6 +612,7 @@ export function ChatPage() {
                     pendingImages.length >= MAX_IMAGES &&
                     pendingFiles.length >= MAX_FILES
                   }
+                  onStop={sending && !clarify ? handleStop : undefined}
                 />
               </div>
             </div>

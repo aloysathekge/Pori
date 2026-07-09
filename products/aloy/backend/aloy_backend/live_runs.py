@@ -15,7 +15,7 @@ conversation instead.
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 _RETIRE_AFTER_SECONDS = 120
 
@@ -23,11 +23,20 @@ _RETIRE_AFTER_SECONDS = 120
 class LiveRun:
     """One in-flight run's frame buffer + live subscribers (serving-loop only)."""
 
-    def __init__(self, run_id: str):
+    def __init__(self, run_id: str, cancel: Optional[Callable[[], None]] = None):
         self.run_id = run_id
         self.history: List[str] = []
         self.queues: Set[asyncio.Queue] = set()
         self.done = False
+        self._cancel = cancel
+
+    def request_cancel(self) -> bool:
+        """Ask the run to stop (cooperative — it halts at the next step
+        boundary and the stream finishes normally). False if not stoppable."""
+        if self.done or self._cancel is None:
+            return False
+        self._cancel()
+        return True
 
     def publish(self, frame: str) -> None:
         self.history.append(frame)
@@ -56,8 +65,10 @@ class LiveRun:
 _LIVE: Dict[str, LiveRun] = {}  # conversation_id -> the conversation's live run
 
 
-def register(conversation_id: str, run_id: str) -> LiveRun:
-    live = LiveRun(run_id)
+def register(
+    conversation_id: str, run_id: str, cancel: Optional[Callable[[], None]] = None
+) -> LiveRun:
+    live = LiveRun(run_id, cancel=cancel)
     _LIVE[conversation_id] = live
     return live
 
