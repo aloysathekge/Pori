@@ -104,6 +104,8 @@ from .memory_contracts import (
 # The streaming event contract (products relay PoriEvents as SSE/websockets).
 from .observability import (
     RUN_END,
+    STEP_START,
+    TEXT_DELTA,
     ConsoleTelemetryExporter,
     InMemoryTraceStore,
     PoriEvent,
@@ -299,6 +301,8 @@ __all__ = [
     "McpSessionSet",
     "PoriEvent",
     "RUN_END",
+    "STEP_START",
+    "TEXT_DELTA",
     "create_sandbox_provider",
     "set_sandbox_provider",
     "STANDARD_KERNEL_TOOLS",

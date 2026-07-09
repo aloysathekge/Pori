@@ -22,6 +22,8 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 from pori import (
     RUN_END,
+    STEP_START,
+    TEXT_DELTA,
     AgentSettings,
     CancellationToken,
     ClarificationRequest,
@@ -157,6 +159,11 @@ async def stream_agent_execution(
             live_runs.retire_later(conversation_id or run_id, live)
 
     async def _pump_events() -> None:
+        # The current step's streamed prose. If the user stops the run
+        # mid-generation, this is what they watched being written — keep it as
+        # the interrupted answer instead of throwing it away (the aborted LLM
+        # call never returns, so the kernel can't hand it back).
+        partial_text: list = []
         while True:
             # Runs that end without a RUN_END event (crash, legacy path) would
             # otherwise idle a full keepalive interval before we notice.
@@ -167,6 +174,10 @@ async def stream_agent_execution(
             except asyncio.TimeoutError:
                 continue
             if isinstance(event, PoriEvent):
+                if event.type == STEP_START:
+                    partial_text.clear()
+                elif event.type == TEXT_DELTA:
+                    partial_text.append((event.payload or {}).get("text") or "")
                 # Record on the serving loop (single-threaded here) for the
                 # read-only replay log — no race with the worker push.
                 if collector is not None:
@@ -193,12 +204,16 @@ async def stream_agent_execution(
 
         agent = result.get("agent")
         final = agent.memory.get_final_answer() if agent else None
-        # A stopped run has no final answer — say so, and write it into the
-        # authoritative result so persistence shows the same text.
+        # A stopped run has no final answer — keep the partial text the user
+        # watched being generated (Claude-style interrupted response), writing
+        # it into the authoritative result so persistence shows the same thing.
         if cancel_token.cancelled and not (
             result.get("final_answer") or (final or {}).get("final_answer")
         ):
-            result["final_answer"] = "Generation stopped."
+            result["final_answer"] = (
+                "".join(partial_text).strip() or "*(stopped before any output)*"
+            )
+            result["stopped"] = True
         result_data = result.get("result", {}) or {}
         plan = result.get("plan") or result_data.get("plan") or []
         live.publish(
@@ -212,7 +227,7 @@ async def stream_agent_execution(
                         or (final or {}).get("final_answer")
                         or "I could not generate a response."
                     ),
-                    "stopped": cancel_token.cancelled or None,
+                    "stopped": bool(result.get("stopped")) or None,
                     "reasoning": (final or {}).get("reasoning"),
                     "steps_taken": int(result.get("steps_taken") or 0),
                     "success": bool(result.get("success")),

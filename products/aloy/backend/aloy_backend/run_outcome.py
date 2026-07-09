@@ -173,6 +173,9 @@ class RunOutcome:
     artifacts: list = field(default_factory=list)
     plan: list = field(default_factory=list)
     selected_skills: list = field(default_factory=list)
+    # True when the user stopped the run mid-generation (final_answer is then
+    # the partial streamed text, not a completed answer).
+    stopped: bool = False
     # Identity (authoritative, from the run's RunContext).
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     organization_id: str = ""
@@ -206,6 +209,7 @@ def build_run_outcome(
     return RunOutcome(
         task=task,
         final_answer=answer,
+        stopped=bool(agent_result.get("stopped")),
         reasoning=agent_result.get("reasoning") or (final or {}).get("reasoning"),
         success=bool(agent_result.get("success")),
         steps_taken=int(agent_result.get("steps_taken") or 0),
@@ -275,6 +279,7 @@ async def persist_run_outcome(
             "artifacts": outcome.artifacts,
             "plan": outcome.plan,
             "run_id": outcome.run_id,  # links to the replay log
+            **({"stopped": True} if outcome.stopped else {}),
         },
     )
     session.add(assistant_msg)

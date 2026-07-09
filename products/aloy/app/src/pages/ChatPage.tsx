@@ -293,6 +293,7 @@ export function ChatPage() {
             artifacts: data.artifacts || [],
             plan: data.plan || [],
             selected_skills: data.selected_skills || [],
+            ...(data.stopped ? { stopped: true } : {}),
           },
           created_at: new Date().toISOString(),
         };

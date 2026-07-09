@@ -51,3 +51,43 @@ def test_agent_run_includes_metrics(async_context, test_agent_with_tool_calls):
     assert "steps" in metrics
     assert "llm_calls" in metrics
     assert "tool_calls" in metrics
+
+
+def test_cancellation_aborts_in_flight_llm_call(
+    async_context, tool_registry, legacy_memory, agent_settings
+):
+    """A stop request must not wait out the current LLM call: the in-flight
+    call is aborted (RunCancelled) and the run winds down as stopped."""
+    from pori.agent import Agent
+    from pori.runtime import CancellationToken
+
+    class HangingLLM:
+        model = "mock-hanging"
+        last_usage = None
+
+        async def ainvoke_tools(self, messages, tools, on_event=None):
+            await asyncio.sleep(60)  # far longer than the test allows
+
+    loop = async_context
+    token = CancellationToken()
+    agent = Agent(
+        task="Test task",
+        llm=HangingLLM(),
+        tools_registry=tool_registry,
+        settings=agent_settings,
+        memory=legacy_memory,
+        cancellation_token=token,
+    )
+
+    async def _run_and_cancel():
+        asyncio.get_running_loop().call_later(0.3, token.cancel)
+        start = asyncio.get_running_loop().time()
+        result = await agent.run()
+        return result, asyncio.get_running_loop().time() - start
+
+    result, elapsed = loop.run_until_complete(_run_and_cancel())
+
+    assert elapsed < 10, f"stop waited out the LLM call ({elapsed:.1f}s)"
+    assert agent.state.stopped
+    assert agent.memory.get_final_answer() is None
+    assert isinstance(result, dict)

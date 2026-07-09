@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy, FileText, History, RotateCcw } from 'lucide-react';
+import { Check, CircleSlash, Copy, FileText, History, RotateCcw } from 'lucide-react';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -98,6 +98,13 @@ export function MessageBubble({
         ) : (
           <div className="text-sm">
             <Markdown>{message.content}</Markdown>
+          </div>
+        )}
+
+        {!isUser && message.metadata?.stopped && (
+          <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400">
+            <CircleSlash size={12} className="shrink-0" />
+            Response was interrupted.
           </div>
         )}
 

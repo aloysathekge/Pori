@@ -77,6 +77,7 @@ from ..runtime import (
     BudgetLedger,
     CancellationToken,
     ReceiptStatus,
+    RunCancelled,
     RunContext,
     ToolExecutionReceipt,
     stable_fingerprint,
@@ -499,6 +500,11 @@ class Agent:
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
+            # A stop that landed after the LLM call still means: don't act on
+            # the returned tool calls.
+            if self.cancellation_token.cancelled:
+                raise RunCancelled()
+
             # Execute actions
             if model_output.action:
                 tool_results = await self.execute_actions(
@@ -532,6 +538,12 @@ class Agent:
                     extra={"task_id": self.task_id, "step": step_number},
                 )
 
+        except RunCancelled:
+            # Not a failure: the user stopped the run. Close the span and let
+            # the run loop wind down.
+            if step_span:
+                step_span.finish(SpanStatus.OK)
+            raise
         except FatalAgentError as fatal:
             logger.error(
                 f"Fatal error during step {step_number}: {fatal}",
@@ -621,6 +633,26 @@ class Agent:
                 extra={"task_id": self.task_id},
             )
 
+    async def _await_cancellable(self, coro: Any) -> Any:
+        """Await ``coro``, aborting promptly when the cancellation token fires.
+
+        The token is a ``threading.Event`` set from another thread (a product's
+        stop endpoint, a CLI signal handler), so it can't wake this loop by
+        itself — poll it alongside the task. Without this, a stop request
+        waits out the whole in-flight LLM call before anything notices."""
+        task = asyncio.ensure_future(coro)
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=0.25)
+            if done:
+                return task.result()
+            if self.cancellation_token.cancelled:
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+                raise RunCancelled()
+
     async def _invoke_for_action(self) -> AgentOutput:
         """Build messages, call the model, and parse one action decision."""
         messages = self._build_messages()
@@ -633,11 +665,13 @@ class Agent:
         # streaming is on, so the default call signature is unchanged for
         # non-streaming callers/mocks — even if an event consumer is attached.
         if self._stream and self._on_event is not None:
-            turn = await self.llm.ainvoke_tools(
-                messages, tools, on_event=self._on_event
+            turn = await self._await_cancellable(
+                self.llm.ainvoke_tools(messages, tools, on_event=self._on_event)
             )
         else:
-            turn = await self.llm.ainvoke_tools(messages, tools)
+            turn = await self._await_cancellable(
+                self.llm.ainvoke_tools(messages, tools)
+            )
         action: List[Dict[str, Any]] = [
             {call.name: dict(call.arguments)} for call in turn.tool_calls if call.name
         ]
@@ -667,6 +701,8 @@ class Agent:
         """
         try:
             return await self._invoke_for_action()
+        except RunCancelled:
+            raise
         except Exception as e:
             classified = classify_error(e)
             if classified.should_compress:
@@ -1621,6 +1657,10 @@ class Agent:
             # Execute step
             try:
                 await self.step()
+            except RunCancelled:
+                logger.info("Agent cancelled mid-step", extra={"task_id": self.task_id})
+                self.state.stopped = True
+                break
             except BudgetExceeded as exc:
                 logger.warning(
                     "Stopping because budget was exhausted during step: %s",

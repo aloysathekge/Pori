@@ -123,6 +123,12 @@ class BudgetLedger:
             }
 
 
+class RunCancelled(Exception):
+    """The run's CancellationToken fired mid-step: the in-flight LLM call was
+    aborted / remaining actions skipped. The agent loop catches this to wind
+    down cleanly (state.stopped) instead of recording a step failure."""
+
+
 class CancellationToken:
     """Shared cooperative cancellation signal."""
 
