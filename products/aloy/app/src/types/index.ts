@@ -96,6 +96,7 @@ export interface SSEStepEvent {
 
 export interface SSEMessageEvent {
   role: string;
+  run_id?: string | null;
   content: string;
   reasoning?: string;
   steps_taken?: number;

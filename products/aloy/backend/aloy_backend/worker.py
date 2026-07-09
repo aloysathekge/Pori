@@ -83,7 +83,13 @@ async def serve(worker_id: str | None = None) -> None:
                 await tick_cron_jobs()
             except Exception:
                 logger.exception("Cron tick failed; will retry next tick")
-        worked = await run_once(resolved_worker_id)
+        # One bad run must never take down the loop (execute_claimed_run guards
+        # its own persistence, but claim/DB errors can still surface here).
+        try:
+            worked = await run_once(resolved_worker_id)
+        except Exception:
+            logger.exception("run_once failed; continuing")
+            worked = False
         if not worked:
             await asyncio.sleep(settings.worker_poll_seconds)
 

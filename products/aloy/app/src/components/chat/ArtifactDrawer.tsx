@@ -22,6 +22,13 @@ export function ArtifactDrawer({
 }) {
   const [files, setFiles] = useState<ArtifactInfo[]>([]);
   const [active, setActive] = useState(openPath);
+
+  // useState only reads openPath on first mount; the drawer stays mounted, so
+  // clicking a different artifact must explicitly switch the active file.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActive(openPath);
+  }, [openPath]);
   const [content, setContent] = useState<ArtifactContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

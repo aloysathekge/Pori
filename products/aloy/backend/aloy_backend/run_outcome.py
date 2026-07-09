@@ -41,7 +41,7 @@ def _json_default(o: Any) -> Any:
     return str(o)
 
 
-def _json_safe(value: Any) -> Any:
+def json_safe(value: Any) -> Any:
     """Normalize to plain JSON structures so JSON columns can store it.
 
     The agent's metrics/trace can carry rich objects (e.g. TokenUsage); the raw
@@ -50,6 +50,61 @@ def _json_safe(value: Any) -> Any:
     if value is None:
         return None
     return json.loads(json.dumps(value, default=_json_default))
+
+
+# Backwards-compat alias (internal callers)
+_json_safe = json_safe
+
+
+def make_usage_record(
+    *,
+    organization_id: str,
+    user_id: str,
+    run_id: str,
+    conversation_id: Optional[str],
+    metrics: Optional[dict],
+) -> Optional[UsageRecord]:
+    """Build the UsageRecord for a run's metrics — the ONE mapping both the
+    request paths and the durable worker use (field drift here is how billing
+    silently broke before)."""
+    if not metrics or not isinstance(metrics, dict):
+        return None
+    tokens = metrics.get("tokens") or {}
+    return UsageRecord(
+        organization_id=organization_id,
+        user_id=user_id,
+        run_id=run_id,
+        conversation_id=conversation_id,
+        provider=(metrics.get("model") or "").split("/")[0],
+        model=(metrics.get("model") or "").split("/")[-1],
+        input_tokens=int(tokens.get("input", 0)),
+        output_tokens=int(tokens.get("output", 0)),
+        total_tokens=int(tokens.get("total", 0)),
+        estimated_cost=float((metrics.get("cost_usd") or "$0").replace("$", "") or 0),
+    )
+
+
+def make_trace_record(
+    *,
+    organization_id: str,
+    user_id: str,
+    run_id: str,
+    conversation_id: Optional[str],
+    trace: Optional[dict],
+) -> Optional[TraceRecord]:
+    """Build the TraceRecord for a run's trace — shared by all persist paths."""
+    if not trace or not isinstance(trace, dict):
+        return None
+    return TraceRecord(
+        organization_id=organization_id,
+        user_id=user_id,
+        run_id=run_id,
+        conversation_id=conversation_id,
+        trace_data=trace,
+        duration_seconds=float((trace.get("duration") or "0s").replace("s", "") or 0),
+        total_spans=int(trace.get("total_spans", 0)),
+        status=trace.get("status", "ok"),
+    )
 
 
 async def flush_memory_to_db(
@@ -246,40 +301,25 @@ async def persist_run_outcome(
     )
     session.add(run)
 
-    if isinstance(outcome.metrics, dict):
-        tokens = outcome.metrics.get("tokens") or {}
-        session.add(
-            UsageRecord(
-                organization_id=org_id,
-                user_id=context.user_id,
-                run_id=outcome.run_id,
-                conversation_id=conv.id,
-                provider=(outcome.metrics.get("model") or "").split("/")[0],
-                model=(outcome.metrics.get("model") or "").split("/")[-1],
-                input_tokens=int(tokens.get("input", 0)),
-                output_tokens=int(tokens.get("output", 0)),
-                total_tokens=int(tokens.get("total", 0)),
-                estimated_cost=float(
-                    (outcome.metrics.get("cost_usd") or "$0").replace("$", "") or 0
-                ),
-            )
-        )
+    usage = make_usage_record(
+        organization_id=org_id,
+        user_id=context.user_id,
+        run_id=outcome.run_id,
+        conversation_id=conv.id,
+        metrics=outcome.metrics,
+    )
+    if usage is not None:
+        session.add(usage)
 
-    if trace:
-        session.add(
-            TraceRecord(
-                organization_id=org_id,
-                user_id=context.user_id,
-                run_id=outcome.run_id,
-                conversation_id=conv.id,
-                trace_data=trace,
-                duration_seconds=float(
-                    (trace.get("duration") or "0s").replace("s", "") or 0
-                ),
-                total_spans=int(trace.get("total_spans", 0)),
-                status=trace.get("status", "ok"),
-            )
-        )
+    trace_record = make_trace_record(
+        organization_id=org_id,
+        user_id=context.user_id,
+        run_id=outcome.run_id,
+        conversation_id=conv.id,
+        trace=trace,
+    )
+    if trace_record is not None:
+        session.add(trace_record)
 
     if outcome.events:
         session.add(
