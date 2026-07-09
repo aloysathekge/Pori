@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional, Set
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from pori import AgentSettings, Orchestrator, RunContext
 from pori.clarify import ClarificationRequest, ClarifyBridge
@@ -28,9 +28,12 @@ from .event_log import EventLogCollector
 
 logger = logging.getLogger("aloy_backend")
 
-# Active clarify bridges; the resolve endpoint routes an answer to whichever
-# stream is awaiting it (see routes/conversations.py).
-CLARIFY_BRIDGES: Set[ClarifyBridge] = set()
+# Active clarify bridges, keyed to the (organization_id, user_id) that owns the
+# run — the resolve endpoint only routes an answer to the caller's OWN bridges,
+# so one user can never answer another user's clarification.
+# NOTE: in-process registry — a resolve must land on the worker holding the
+# bridge (single-worker constraint; move to a shared store to scale out).
+CLARIFY_BRIDGES: Dict[ClarifyBridge, tuple] = {}
 
 _KEEPALIVE_SECONDS = 15
 
@@ -74,7 +77,10 @@ async def stream_agent_execution(
         push(PoriEvent("clarification_request", req.to_event(), step=0))
 
     bridge = ClarifyBridge(emit=emit_clarification)
-    CLARIFY_BRIDGES.add(bridge)
+    CLARIFY_BRIDGES[bridge] = (
+        getattr(run_context, "organization_id", None) or "",
+        getattr(run_context, "user_id", None) or "",
+    )
 
     merged_tool_context = dict(tool_context_extra or {})
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
@@ -143,6 +149,8 @@ async def stream_agent_execution(
             "message",
             {
                 "role": "assistant",
+                # Lets the UI show Replay on the fresh message without a reload.
+                "run_id": getattr(run_context, "run_id", None),
                 "content": (final or {}).get(
                     "final_answer", "I could not generate a response."
                 ),
@@ -172,13 +180,26 @@ async def stream_agent_execution(
         yield _sse_event("error", {"detail": str(exc)})
     finally:
         bridge.cancel_pending()  # unblock a waiting ask_user on disconnect
-        CLARIFY_BRIDGES.discard(bridge)
+        CLARIFY_BRIDGES.pop(bridge, None)
         yield _sse_event("done", {})
 
 
-def resolve_clarification(clarification_id: str, value: str) -> bool:
-    """Deliver a clarify answer to whichever active stream awaits it."""
-    for bridge in list(CLARIFY_BRIDGES):
+def resolve_clarification(
+    clarification_id: str,
+    value: str,
+    *,
+    organization_id: str,
+    user_id: str,
+) -> bool:
+    """Deliver a clarify answer to the CALLER'S awaiting stream.
+
+    Only bridges owned by (organization_id, user_id) are considered, so a valid
+    clarification id belonging to another user resolves to False (404 at the
+    endpoint) instead of injecting text into their live run."""
+    owner = (organization_id, user_id)
+    for bridge, bridge_owner in list(CLARIFY_BRIDGES.items()):
+        if bridge_owner != owner:
+            continue
         if bridge.submit_answer(clarification_id, value):
             return True
     return False

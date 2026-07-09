@@ -24,33 +24,14 @@ from .models import (
     OrganizationMembership,
     Run,
     TeamConfig,
-    TraceRecord,
-    UsageRecord,
 )
 from .orchestrator import build_orchestrator
+from .run_outcome import json_safe, make_trace_record, make_usage_record
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend")
-
-
-def _serialize_metrics(metrics: dict | None) -> dict | None:
-    """Convert metrics to a JSON-safe dict (handles pydantic/dataclass objects)."""
-    if metrics is None:
-        return None
-
-    # Round-trip through JSON with a custom serializer
-    def _default(obj):
-        if hasattr(obj, "model_dump"):
-            return obj.model_dump()
-        if hasattr(obj, "dict"):
-            return obj.dict()
-        if hasattr(obj, "__dict__"):
-            return obj.__dict__
-        return str(obj)
-
-    return json.loads(json.dumps(metrics, default=_default))
 
 
 def kernel_task_id_for_run(run_id: str) -> str:
@@ -298,47 +279,35 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.steps_taken = int(result.get("steps_taken") or 0)
             run.final_answer = (final or {}).get("final_answer")
             run.reasoning = (final or {}).get("reasoning")
-            run.metrics = _serialize_metrics(metrics)
-            run.selected_skills = result.get("selected_skills") or []
-            run.artifacts = result.get("artifacts") or []
-            run.plan = result.get("plan") or []
-            if run.metrics and isinstance(run.metrics, dict):
-                tokens = run.metrics.get("tokens") or {}
-                session.add(
-                    UsageRecord(
-                        organization_id=run.organization_id,
-                        user_id=run.user_id,
-                        run_id=run.id,
-                        conversation_id=run.conversation_id,
-                        provider=(run.metrics.get("model") or "").split("/")[0],
-                        model=(run.metrics.get("model") or "").split("/")[-1],
-                        input_tokens=int(tokens.get("input", 0)),
-                        output_tokens=int(tokens.get("output", 0)),
-                        total_tokens=int(tokens.get("total", 0)),
-                        estimated_cost=float(
-                            (run.metrics.get("cost_usd") or "$0").replace("$", "") or 0
-                        ),
-                    )
-                )
-            trace_data = result.get("trace") or {}
+            # json_safe everything destined for JSON columns — rich objects
+            # (TokenUsage etc.) otherwise throw at flush and lose the message
+            # (the drift class the run_outcome refactor exists to prevent).
+            run.metrics = json_safe(metrics)
+            run.selected_skills = json_safe(result.get("selected_skills")) or []
+            run.artifacts = json_safe(result.get("artifacts")) or []
+            run.plan = json_safe(result.get("plan")) or []
+            usage = make_usage_record(
+                organization_id=run.organization_id,
+                user_id=run.user_id,
+                run_id=run.id,
+                conversation_id=run.conversation_id,
+                metrics=run.metrics,
+            )
+            if usage is not None:
+                session.add(usage)
+            trace_data = json_safe(result.get("trace")) or {}
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
-            if trace_data:
-                session.add(
-                    TraceRecord(
-                        organization_id=run.organization_id,
-                        user_id=run.user_id,
-                        run_id=run.id,
-                        conversation_id=run.conversation_id,
-                        trace_data=trace_data,
-                        duration_seconds=float(
-                            (trace_data.get("duration") or "0s").replace("s", "") or 0
-                        ),
-                        total_spans=int(trace_data.get("total_spans", 0)),
-                        status=trace_data.get("status", "ok"),
-                    )
-                )
+            trace_record = make_trace_record(
+                organization_id=run.organization_id,
+                user_id=run.user_id,
+                run_id=run.id,
+                conversation_id=run.conversation_id,
+                trace=trace_data,
+            )
+            if trace_record is not None:
+                session.add(trace_record)
 
             if conversation is not None and run.status == "completed":
                 answer = (final or {}).get("final_answer") or ""
@@ -391,18 +360,40 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
 
-        current = await session.get(Run, run_id)
-        if current is None or current.lease_owner != worker_id:
-            logger.warning("Worker %s lost lease for run %s", worker_id, run_id)
+        try:
+            current = await session.get(Run, run_id)
+            if current is None or current.lease_owner != worker_id:
+                logger.warning("Worker %s lost lease for run %s", worker_id, run_id)
+                await session.rollback()
+                return
+            run.completed_at = (
+                datetime.now(timezone.utc)
+                if run.status in {"completed", "failed", "cancelled"}
+                else None
+            )
+            run.lease_owner = None
+            run.lease_expires_at = None
+            session.add(run)
+            await session.commit()
+            logger.info("Background run %s finished: %s", run_id, run.status)
+        except Exception:
+            # The commit itself failed (e.g. an unserializable payload). Never
+            # let this escape — an uncaught error here crashed the worker, the
+            # lease expired, the run was re-claimed, and the next worker crashed
+            # identically: a poison-pill loop. Mark the run failed with a
+            # minimal write instead of retrying the poisoned payload.
+            logger.exception("Final commit failed for run %s", run_id)
             await session.rollback()
-            return
-        run.completed_at = (
-            datetime.now(timezone.utc)
-            if run.status in {"completed", "failed", "cancelled"}
-            else None
-        )
-        run.lease_owner = None
-        run.lease_expires_at = None
-        session.add(run)
-        await session.commit()
-        logger.info("Background run %s finished: %s", run_id, run.status)
+            try:
+                poisoned = await session.get(Run, run_id)
+                if poisoned is not None and poisoned.lease_owner == worker_id:
+                    poisoned.status = "failed"
+                    poisoned.success = False
+                    poisoned.completed_at = datetime.now(timezone.utc)
+                    poisoned.lease_owner = None
+                    poisoned.lease_expires_at = None
+                    session.add(poisoned)
+                    await session.commit()
+            except Exception:
+                logger.exception("Could not mark poisoned run %s failed", run_id)
+                await session.rollback()

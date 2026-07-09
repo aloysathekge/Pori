@@ -51,6 +51,21 @@ export function ChatPage() {
   } | null>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // The in-flight stream's abort handle — aborted on conversation switch and
+  // on unmount so a stream can never bleed into another conversation's view.
+  const streamAbortRef = useRef<AbortController | null>(null);
+
+  const resetStreamUi = useCallback(() => {
+    setStreaming(false);
+    setSending(false);
+    setStreamStatus('');
+    setStreamActivity('');
+    setStreamPlan([]);
+    setStreamTools([]);
+    setStreamStep(undefined);
+    setStreamText('');
+    setClarify(null);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -65,13 +80,41 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
+    // Kill any in-flight stream from the previous conversation and reset the
+    // streaming UI + artifact drawer before rendering the new one.
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on route change
+    resetStreamUi();
+    setArtifactPath(null);
+
+    let cancelled = false;
     if (routeConversationId) {
-      selectConversation(routeConversationId);
+      setActiveId(routeConversationId);
+      setLoadingConversation(true);
+      getConversation(routeConversationId)
+        .then((detail) => {
+          if (!cancelled) setMessages(detail.messages);
+        })
+        .catch(() => {
+          if (!cancelled) setMessages([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingConversation(false);
+        });
     } else {
       setActiveId(null);
       setMessages([]);
     }
-  }, [routeConversationId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [routeConversationId, resetStreamUi]);
+
+  // Abort the stream when leaving the chat page entirely.
+  useEffect(() => {
+    return () => streamAbortRef.current?.abort();
+  }, []);
 
   async function loadConversations() {
     try {
@@ -79,19 +122,6 @@ export function ChatPage() {
       setConversations(convos);
     } catch {
       // handle silently
-    }
-  }
-
-  async function selectConversation(id: string) {
-    setActiveId(id);
-    setLoadingConversation(true);
-    try {
-      const detail = await getConversation(id);
-      setMessages(detail.messages);
-    } catch {
-      setMessages([]);
-    } finally {
-      setLoadingConversation(false);
     }
   }
 
@@ -185,6 +215,7 @@ export function ChatPage() {
           role: 'assistant',
           content: data.content,
           metadata: {
+            run_id: data.run_id || null,
             reasoning: data.reasoning || null,
             steps_taken: data.steps_taken,
             metrics: data.metrics || null,
@@ -214,27 +245,30 @@ export function ChatPage() {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errMsg]);
-        setStreamText('');
+        // Fully reset — an error frame may arrive with the stream held open,
+        // and relying on a later onDone left the UI locked in 'sending'.
+        resetStreamUi();
       },
       onDone: () => {
-        setStreaming(false);
-        setSending(false);
-        setStreamStatus('');
-        setStreamActivity('');
-        setStreamPlan([]);
-        setStreamTools([]);
-        setStreamStep(undefined);
-        setStreamText('');
-        setClarify(null);
+        resetStreamUi();
         loadConversations();
       },
     };
 
+    // Abortable stream: switching conversations or leaving the page aborts it
+    // so tokens can't bleed into another conversation's view.
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
-      await streamMessage(activeId, content, callbacks);
+      await streamMessage(activeId, content, callbacks, {
+        signal: controller.signal,
+      });
     } catch {
-      setStreaming(false);
-      setSending(false);
+      resetStreamUi();
+    } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+      }
     }
   }
 

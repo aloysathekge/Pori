@@ -976,9 +976,14 @@ async def submit_clarification(
     context: OrganizationContext = Depends(check_rate_limit),
 ):
     """Resolve a paused ``ask_user`` by delivering the user's answer (a tapped
-    option or free text) to the waiting stream, routed via the module-level
-    clarify-bridge registry."""
-    if resolve_clarification(clarification_id, body.value):
+    option or free text) to the waiting stream — but only if the awaiting run
+    belongs to the caller (ownership enforced in resolve_clarification)."""
+    if resolve_clarification(
+        clarification_id,
+        body.value,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    ):
         return {"ok": True}
     raise HTTPException(
         status_code=404, detail="Unknown or already-answered clarification"

@@ -30,34 +30,88 @@ export interface SSECallbacks {
   onDone?: () => void;
 }
 
+/** Abort if no bytes arrive for this long (server keepalives every ~15s, so a
+ *  healthy stream never goes quiet this long — this catches silent stalls). */
+const IDLE_TIMEOUT_MS = 90_000;
+
 export async function streamMessage(
   conversationId: string,
   content: string,
   callbacks: SSECallbacks,
-  options?: { max_steps?: number; team_id?: string | null },
+  options?: {
+    max_steps?: number;
+    team_id?: string | null;
+    signal?: AbortSignal;
+  },
 ) {
-  const res = await apiStreamFetch(`/conversations/${conversationId}/messages`, {
-    content,
-    stream: true,
-    ...options,
-  });
+  const { signal, ...body } = options ?? {};
+  // Idle watchdog: chain the caller's signal with our own timeout-based abort
+  // so a stalled-open connection can't leave the UI in 'sending' forever.
+  const watchdog = new AbortController();
+  const onCallerAbort = () => watchdog.abort();
+  signal?.addEventListener('abort', onCallerAbort);
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const resetIdle = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => watchdog.abort(), IDLE_TIMEOUT_MS);
+  };
 
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  // onDone must fire exactly once (the server also sends an explicit 'done'
+  // frame — without this guard both the frame and stream-end would fire it).
+  let doneFired = false;
+  const wrapped: SSECallbacks = {
+    ...callbacks,
+    onDone: () => {
+      if (doneFired) return;
+      doneFired = true;
+      callbacks.onDone?.();
+    },
+  };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let boundary: number;
-    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-      dispatchFrame(buffer.slice(0, boundary), callbacks);
-      buffer = buffer.slice(boundary + 2);
+  try {
+    const res = await apiStreamFetch(
+      `/conversations/${conversationId}/messages`,
+      { content, stream: true, ...body },
+      watchdog.signal,
+    );
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    resetIdle();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      resetIdle();
+      // Normalize CRLF so proxy-injected \r\n framing still parses.
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary: number;
+      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        dispatchFrame(buffer.slice(0, boundary), wrapped);
+        buffer = buffer.slice(boundary + 2);
+      }
     }
+
+    // Flush a trailing frame that arrived without its terminating blank line —
+    // otherwise the final 'message' frame (the assistant reply) is dropped.
+    if (buffer.trim()) {
+      dispatchFrame(buffer, wrapped);
+    }
+  } catch (err) {
+    // A deliberate abort (conversation switch / unmount / watchdog) is not an
+    // application error; surface everything else.
+    if (!watchdog.signal.aborted) throw err;
+    if (!signal?.aborted) {
+      // Watchdog fired on its own: the stream stalled silently.
+      wrapped.onError?.('The response stream stalled. Please try again.');
+    }
+  } finally {
+    clearTimeout(idleTimer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
 
-  callbacks.onDone?.();
+  wrapped.onDone?.();
 }
 
 /** Resolve a paused `ask_user` (the clarify button bridge). */
