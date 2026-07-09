@@ -122,9 +122,17 @@ export function ChatPage() {
   }
 
   async function handleSend() {
-    if (!input.trim() || !activeId || sending) return;
-
+    if (!input.trim() || !activeId) return;
     const content = input.trim();
+
+    // If the agent is waiting on a clarification, the message box answers it
+    // (resumes the paused run) instead of starting a new turn.
+    if (clarify) {
+      setInput('');
+      answerClarify(content);
+      return;
+    }
+    if (sending) return;
     setInput('');
     setSending(true);
     setStreaming(true);
@@ -308,22 +316,28 @@ export function ChatPage() {
                     />
                   )}
                   {clarify && (
-                    <div className="mx-auto max-w-3xl rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+                    <div className="mx-auto max-w-3xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
                       <p className="mb-3 text-sm text-zinc-200">
                         {clarify.question}
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {clarify.options.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => answerClarify(opt)}
-                            className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-accent-500 hover:text-accent-700"
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
+                      {clarify.options.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {clarify.options.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => answerClarify(opt)}
+                              className="rounded-full border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 hover:border-accent-500 hover:bg-accent-600/10 hover:text-accent-600"
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-500">
+                          Type your answer in the message box below.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div ref={messagesEndRef} />
@@ -336,7 +350,9 @@ export function ChatPage() {
               <div className="mx-auto flex max-w-3xl gap-3">
                 <input
                   className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  placeholder="Type a message..."
+                  placeholder={
+                    clarify ? 'Answer the question above…' : 'Type a message...'
+                  }
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -345,11 +361,11 @@ export function ChatPage() {
                       handleSend();
                     }
                   }}
-                  disabled={sending}
+                  disabled={sending && !clarify}
                 />
                 <Button
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!input.trim() || (sending && !clarify)}
                   size="icon"
                   className="h-12 w-12 rounded-xl"
                 >
