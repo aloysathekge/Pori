@@ -944,6 +944,28 @@ async def send_message(
                         )
                     )
 
+                # Usage/billing: record token counts + cost for streamed runs
+                # too (the non-stream path already does this).
+                metrics = msg_data.get("metrics")
+                if metrics and isinstance(metrics, dict):
+                    tokens = metrics.get("tokens") or {}
+                    session.add(
+                        UsageRecord(
+                            organization_id=stream_context.organization_id,
+                            user_id=user_id,
+                            run_id=stream_context.run_id,
+                            conversation_id=conv.id,
+                            provider=(metrics.get("model") or "").split("/")[0],
+                            model=(metrics.get("model") or "").split("/")[-1],
+                            input_tokens=int(tokens.get("input", 0)),
+                            output_tokens=int(tokens.get("output", 0)),
+                            total_tokens=int(tokens.get("total", 0)),
+                            estimated_cost=float(
+                                (metrics.get("cost_usd") or "$0").replace("$", "") or 0
+                            ),
+                        )
+                    )
+
                 # Read-only replay log: the coalesced event stream for this run,
                 # persisted in the same transaction (best-effort — a log failure
                 # must never lose the message/run).
