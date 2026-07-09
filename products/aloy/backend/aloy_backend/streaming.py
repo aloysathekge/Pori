@@ -62,6 +62,7 @@ async def stream_agent_execution(
     collector: Optional[EventLogCollector] = None,
     tool_context_extra: Optional[dict] = None,
     mcp_servers: Optional[list] = None,
+    result_holder: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
     serving_loop = asyncio.get_running_loop()
@@ -127,6 +128,11 @@ async def stream_agent_execution(
         if not result:
             yield _sse_event("error", {"detail": "run produced no result"})
             return
+
+        # Expose the real result object so the caller's finalizer can persist the
+        # authoritative outcome (not a re-parse of the SSE frame below).
+        if result_holder is not None:
+            result_holder["result"] = result
 
         agent = result.get("agent")
         final = agent.memory.get_final_answer() if agent else None

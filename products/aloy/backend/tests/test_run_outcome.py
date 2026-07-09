@@ -1,0 +1,215 @@
+"""The single run-outcome finalizer persists EVERYTHING, once.
+
+Both the streaming and non-streaming request paths build one RunOutcome and call
+persist_run_outcome — so proving this one finalizer writes the full row set (and
+is idempotent) is the structural guard against the "streaming path forgot to
+save X" drift that produced three separate bugs.
+"""
+
+from types import SimpleNamespace
+
+import pytest
+from pori import AgentMemory
+from sqlmodel import select
+
+from aloy_backend.models import (
+    Conversation,
+    CoreMemoryBlock,
+    Message,
+    Run,
+    RunEventLog,
+    TraceRecord,
+    UsageRecord,
+)
+from aloy_backend.run_outcome import build_run_outcome, persist_run_outcome
+from aloy_backend.tenancy import OrganizationContext, OrganizationPolicy
+
+pytestmark = pytest.mark.asyncio
+
+ORG = "user:test-user"
+USER = "test-user"
+
+
+def _context() -> OrganizationContext:
+    return OrganizationContext(
+        organization_id=ORG,
+        user_id=USER,
+        role="owner",
+        permissions=("run:create", "run:read"),
+        policy=OrganizationPolicy(),
+    )
+
+
+def _agent_result() -> dict:
+    return {
+        "final_answer": "Hello Aloy!",
+        "reasoning": "greeted the user",
+        "success": True,
+        "steps_taken": 2,
+        "metrics": {
+            "model": "anthropic/claude-sonnet-4-5",
+            "tokens": {"input": 100, "output": 20, "total": 120},
+            "cost_usd": "$0.0123",
+        },
+        "trace": {
+            "prompt_fingerprint": "pf-1",
+            "tool_surface_fingerprint": "ts-1",
+            "execution_receipts": [{"tool": "answer"}],
+            "duration": "2.5s",
+            "total_spans": 4,
+            "status": "ok",
+        },
+        "artifacts": [{"path": "notes.md"}],
+        "plan": [{"step": "answer"}],
+        "selected_skills": ["greet@1"],
+    }
+
+
+def _run_context():
+    return SimpleNamespace(
+        run_id="run-parity-1",
+        organization_id=ORG,
+        session_id="sess-1",
+        agent_id="agent-1",
+    )
+
+
+async def _make_conv(session) -> Conversation:
+    conv = Conversation(organization_id=ORG, user_id=USER, title="t")
+    session.add(conv)
+    await session.commit()
+    await session.refresh(conv)
+    return conv
+
+
+class TestFinalizer:
+    async def test_persists_the_full_row_set(self, db_session_maker):
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            memory = AgentMemory()
+            memory.core_memory.get_block("human").set_value("Name: Aloy")
+
+            outcome = build_run_outcome(
+                _agent_result(),
+                memory,
+                _run_context(),
+                task="hi",
+                fallback_org=ORG,
+                events=[{"type": "run_end", "step": 2}],
+            )
+            msg = await persist_run_outcome(session, conv, _context(), outcome)
+
+            # Message
+            assert msg.content == "Hello Aloy!"
+            assert msg.metadata_["run_id"] == "run-parity-1"
+            assert msg.metadata_["steps_taken"] == 2
+            # Run
+            run = await session.get(Run, "run-parity-1")
+            assert run is not None and run.success is True
+            assert run.prompt_fingerprint == "pf-1"
+            assert run.execution_receipts == [{"tool": "answer"}]
+            # Usage
+            usage = (
+                (
+                    await session.execute(
+                        select(UsageRecord).where(UsageRecord.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            assert usage is not None
+            assert usage.total_tokens == 120 and usage.input_tokens == 100
+            assert abs(usage.estimated_cost - 0.0123) < 1e-9
+            assert usage.model == "claude-sonnet-4-5" and usage.provider == "anthropic"
+            # Trace
+            trace = (
+                (
+                    await session.execute(
+                        select(TraceRecord).where(TraceRecord.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            assert trace is not None and trace.total_spans == 4
+            assert abs(trace.duration_seconds - 2.5) < 1e-9
+            # Replay event log
+            log = (
+                (
+                    await session.execute(
+                        select(RunEventLog).where(RunEventLog.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            assert log is not None and log.event_count == 1
+            # Core memory persisted
+            block = (
+                (
+                    await session.execute(
+                        select(CoreMemoryBlock).where(
+                            CoreMemoryBlock.organization_id == ORG,
+                            CoreMemoryBlock.user_id == USER,
+                            CoreMemoryBlock.label == "human",
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            assert block is not None and block.value == "Name: Aloy"
+
+    async def test_idempotent_by_run_id(self, db_session_maker):
+        """A disconnect-finally firing after a normal finish (same run_id) must
+        not double-write."""
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            outcome = build_run_outcome(
+                _agent_result(),
+                AgentMemory(),
+                _run_context(),
+                task="hi",
+                fallback_org=ORG,
+            )
+            await persist_run_outcome(session, conv, _context(), outcome)
+            await persist_run_outcome(session, conv, _context(), outcome)
+
+            runs = (
+                (await session.execute(select(Run).where(Run.id == "run-parity-1")))
+                .scalars()
+                .all()
+            )
+            assert len(runs) == 1
+            usages = (
+                (
+                    await session.execute(
+                        select(UsageRecord).where(UsageRecord.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(usages) == 1
+
+    async def test_no_trace_no_usage_when_absent(self, db_session_maker):
+        """A run with no metrics/trace still persists the message + run cleanly."""
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            result = {"final_answer": "hi", "success": True, "steps_taken": 1}
+            outcome = build_run_outcome(
+                result, AgentMemory(), _run_context(), task="hi", fallback_org=ORG
+            )
+            msg = await persist_run_outcome(session, conv, _context(), outcome)
+            assert msg.content == "hi"
+            usages = (
+                (
+                    await session.execute(
+                        select(UsageRecord).where(UsageRecord.run_id == "run-parity-1")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert usages == []
