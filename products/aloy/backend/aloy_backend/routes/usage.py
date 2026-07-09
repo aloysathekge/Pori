@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Date, cast, func
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -68,17 +68,22 @@ async def get_usage_history(
     """Get daily usage breakdown."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # func.date() works on BOTH SQLite and Postgres; CAST(... AS DATE) on
+    # SQLite returns a number and SQLAlchemy's Date coercion blows up with
+    # "fromisoformat: argument must be str" (this 500 silently blanked the
+    # whole Usage page via the frontend's Promise.all).
+    day = func.date(UsageRecord.created_at).label("date")
     result = await session.execute(
         select(
-            cast(UsageRecord.created_at, Date).label("date"),
+            day,
             func.sum(UsageRecord.total_tokens).label("tokens"),
             func.sum(UsageRecord.estimated_cost).label("cost"),
             func.count().label("requests"),
         )
         .where(UsageRecord.organization_id == context.organization_id)
         .where(UsageRecord.created_at >= since)
-        .group_by(cast(UsageRecord.created_at, Date))
-        .order_by(cast(UsageRecord.created_at, Date))
+        .group_by(day)
+        .order_by(func.date(UsageRecord.created_at))
     )
 
     return [

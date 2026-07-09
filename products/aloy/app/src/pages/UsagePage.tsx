@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BarChart3 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
@@ -24,27 +24,25 @@ export function UsagePage() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    load();
+  const load = useCallback(async () => {
+    setLoading(true);
+    // allSettled: one failing endpoint must not blank the whole page (a 500
+    // on /history once hid perfectly good summary + records data).
+    const [s, h, r] = await Promise.allSettled([
+      getUsageSummary(days),
+      getUsageHistory(days),
+      getUsageRecords(),
+    ]);
+    if (s.status === 'fulfilled') setSummary(s.value);
+    if (h.status === 'fulfilled') setHistory(h.value);
+    if (r.status === 'fulfilled') setRecords(r.value);
+    setLoading(false);
   }, [days]);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const [s, h, r] = await Promise.all([
-        getUsageSummary(days),
-        getUsageHistory(days),
-        getUsageRecords(),
-      ]);
-      setSummary(s);
-      setHistory(h);
-      setRecords(r);
-    } catch {
-      // handle silently
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load on mount/days change
+    load();
+  }, [load]);
 
   if (loading) {
     return (
