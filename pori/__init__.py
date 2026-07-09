@@ -13,8 +13,14 @@ from .capabilities import (
     SkillEligibility,
 )
 
+# The clarify transport seam (products render ClarificationRequests as UI and
+# resume the paused run through a ClarifyBridge).
+from .clarify import ClarificationRequest, ClarifyBridge
+
+# The LLM factory — how an embedding product constructs kernel LLMs.
 # Rebuild Config now that TeamConfig is available (deferred forward ref)
 from .config import Config as _Config
+from .config import LLMConfig, create_llm, get_configured_llm
 from .context import (
     ContextDiagnostics,
     ContextEngine,
@@ -56,6 +62,10 @@ from .hitl import (
     HITLHandler,
     InterruptConfig,
 )
+from .llm.messages import SystemMessage, UserMessage
+
+# The MCP client seam (a product supplies per-run server configs).
+from .mcp import McpServerConfig, McpSessionSet
 from .memory import (
     AgentMemory,
     AgentMessage,
@@ -84,9 +94,13 @@ from .memory_contracts import (
     RetrievalEvaluation,
     evaluate_retrieval,
 )
+
+# The streaming event contract (products relay PoriEvents as SSE/websockets).
 from .observability import (
+    RUN_END,
     ConsoleTelemetryExporter,
     InMemoryTraceStore,
+    PoriEvent,
     Span,
     SpanStatus,
     SpanType,
@@ -116,6 +130,9 @@ from .runtime import (
     ToolExecutionReceipt,
     stable_fingerprint,
 )
+
+# Sandbox provider hooks (a product selects/points the execution backend).
+from .sandbox import create_sandbox_provider, set_sandbox_provider
 from .sessions import (
     SessionExport,
     SessionMessage,
@@ -158,8 +175,12 @@ from .tools.registry import (
     tool_registry,
 )
 
-# Tool registrations
-from .tools.standard import register_all_tools
+# Tool registrations + the protected kernel tool set (policy code needs it).
+from .tools.standard import STANDARD_KERNEL_TOOLS, register_all_tools
+
+# Prompt-directory override (an embedding application points the loader at its
+# own prompts after loading config).
+from .utils.prompt_loader import set_prompts_dir
 
 _Config.model_rebuild()
 
@@ -256,6 +277,23 @@ __all__ = [
     "ToolExecutor",
     "ToolInfo",
     "tool_registry",
+    # Product integration seams (the kernel front door for embedding products —
+    # see docs/codebase-review-2026-07-09.md: these were forced deep imports)
+    "ClarificationRequest",
+    "ClarifyBridge",
+    "LLMConfig",
+    "create_llm",
+    "get_configured_llm",
+    "SystemMessage",
+    "UserMessage",
+    "McpServerConfig",
+    "McpSessionSet",
+    "PoriEvent",
+    "RUN_END",
+    "create_sandbox_provider",
+    "set_sandbox_provider",
+    "STANDARD_KERNEL_TOOLS",
+    "set_prompts_dir",
     "register_all_tools",
     # Evaluation
     "ActionResult",

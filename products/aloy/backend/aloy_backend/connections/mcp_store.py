@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from pori.mcp import McpServerConfig
+from pori import McpServerConfig
 from sqlmodel import select
 
 from ..models import ORG_CONNECTION_USER, McpServer

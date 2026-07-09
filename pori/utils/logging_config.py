@@ -127,7 +127,6 @@ def setup_logging(
         "pori.tools": logging.getLogger("pori.tools"),
         "pori.memory": logging.getLogger("pori.memory"),
         "pori.llm": logging.getLogger("pori.llm"),
-        "pori.api": logging.getLogger("pori.api"),
     }
 
     for logger in loggers.values():

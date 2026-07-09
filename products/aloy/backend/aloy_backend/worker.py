@@ -101,7 +101,7 @@ def _configure_sandbox() -> None:
     if not settings.sandbox_enabled:
         return
     try:
-        from pori.sandbox import create_sandbox_provider, set_sandbox_provider
+        from pori import create_sandbox_provider, set_sandbox_provider
 
         set_sandbox_provider(create_sandbox_provider(settings.sandbox_backend))
         logger.info("Sandbox backend active: %s", settings.sandbox_backend)

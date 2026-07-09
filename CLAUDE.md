@@ -95,9 +95,6 @@ Same `BaseEval` interface used for both offline evaluation and runtime guardrail
 ### LLM providers (`pori/llm/`)
 `BaseChatModel` in `llm/base.py` defines the interface; `anthropic.py`, `openai.py`, `google.py` are direct SDK wrappers. `messages.py` holds the shared `UserMessage` / `AssistantMessage` / `SystemMessage` / tool-call types. Build provider instances via `pori.config.create_llm(LLMConfig(...))`.
 
-### API (`pori/api/`)
-FastAPI surface for the hosted Pori Cloud product — not used by the CLI. Touch only when the user is working on the API.
-
 ### Prompts (`pori/prompts/system/`)
 System prompts live as Markdown files loaded by `utils/prompt_loader.py`. Package data in `pyproject.toml` includes `prompts/**/*.md` so they ship with the wheel. `agent_core.md` is the main agent system prompt.
 
