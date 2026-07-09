@@ -403,22 +403,28 @@ async def _prepare_message(
     conversation_id: str,
     content: str,
     images: list | None = None,
+    files: list | None = None,
 ) -> tuple[Conversation, AgentMemory]:
     """Validate conversation, save user message, seed memory from DB tables."""
     conv = await session.get(Conversation, conversation_id)
     if not conv or conv.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Save user message (attached images ride in metadata so history renders them)
+    # Save user message. Attached images/files ride in metadata so history
+    # renders them AND follow-up turns can rebuild the file context.
+    meta: dict = {}
+    if images:
+        meta["images"] = [{"data": i.data, "media_type": i.media_type} for i in images]
+    if files:
+        meta["files"] = [
+            {"name": f.name, "size": len(f.content), "content": f.content}
+            for f in files
+        ]
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",
         content=content,
-        metadata_=(
-            {"images": [{"data": i.data, "media_type": i.media_type} for i in images]}
-            if images
-            else None
-        ),
+        metadata_=meta or None,
     )
     session.add(user_msg)
     await session.commit()
@@ -471,9 +477,18 @@ async def _prepare_message(
     )
     history = result.scalars().all()
     for msg in history[:-1]:  # Exclude the user message we just saved
-        memory.add_message(msg.role, msg.content)
+        body = msg.content
+        for f in (msg.metadata_ or {}).get("files", []) or []:
+            if f.get("content"):
+                body += _render_file_block(f["name"], f["content"])
+        memory.add_message(msg.role, body)
 
     return conv, memory
+
+
+def _render_file_block(name: str, content: str) -> str:
+    """How an attached text file is shown to the model, appended to the task."""
+    return f'\n\n<attached-file name="{name}">\n{content}\n</attached-file>'
 
 
 async def _maybe_generate_title(session, conv, llm, first_user_content: str) -> None:
@@ -642,7 +657,12 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
 ):
     conv, memory = await _prepare_message(
-        session, context, conversation_id, req.content, images=req.images
+        session,
+        context,
+        conversation_id,
+        req.content,
+        images=req.images,
+        files=req.files,
     )
     user_id = context.user_id
     # Kernel-side image blocks for this turn (multimodal task message).
@@ -650,6 +670,11 @@ async def send_message(
         ImageBlock(source="base64", media_type=i.media_type, data=i.data)
         for i in req.images
     ]
+    # Attached text files are embedded into the task the model receives; the
+    # stored user message keeps only the typed text (chips render from metadata).
+    task_content = req.content + "".join(
+        _render_file_block(f.name, f.content) for f in req.files
+    )
 
     if not context.policy.allow_shared_process_execution:
         active_count = (
@@ -865,7 +890,7 @@ async def send_message(
             try:
                 async for event in stream_agent_execution(
                     orchestrator=orchestrator,
-                    task=req.content,
+                    task=task_content,
                     settings=agent_settings,
                     run_context=stream_context,
                     collector=event_collector,
@@ -945,7 +970,7 @@ async def send_message(
             isolation_profile="shared-process",
         )
         agent_result = await orchestrator.execute_task(
-            task=req.content,
+            task=task_content,
             agent_settings=agent_settings,
             run_context=run_context,
             tool_context_extra={"connections": run_connections},

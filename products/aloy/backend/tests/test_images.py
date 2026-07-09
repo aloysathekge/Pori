@@ -59,3 +59,44 @@ class TestPersistence:
         assert len(images) == 1
         assert images[0]["media_type"] == "image/png"
         assert images[0]["data"] == PNG_1PX
+
+
+class TestFileAttachments:
+    async def test_user_message_carries_files_in_metadata(self, client):
+        created = await client.post("/v1/conversations", json={"title": "files"})
+        conv_id = created.json()["id"]
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/messages",
+            json={
+                "content": "summarize this file",
+                "max_steps": 1,
+                "files": [{"name": "notes.md", "content": "# Title\nhello world"}],
+            },
+        )
+        assert resp.status_code == 202
+
+        detail = await client.get(f"/v1/conversations/{conv_id}")
+        user_msgs = [m for m in detail.json()["messages"] if m["role"] == "user"]
+        files = (user_msgs[0].get("metadata") or {}).get("files") or []
+        assert len(files) == 1
+        assert files[0]["name"] == "notes.md"
+        assert files[0]["size"] == len("# Title\nhello world")
+        # content stored so follow-up turns can rebuild the context
+        assert files[0]["content"].startswith("# Title")
+
+    def test_rejects_oversized_file(self):
+        from pydantic import ValidationError
+
+        from aloy_backend.schemas import FileAttachment
+
+        with pytest.raises(ValidationError):
+            FileAttachment(name="big.txt", content="x" * 200_001)
+
+    def test_rejects_four_files(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            SendMessageRequest(
+                content="x",
+                files=[{"name": f"f{i}.txt", "content": "hi"} for i in range(4)],
+            )

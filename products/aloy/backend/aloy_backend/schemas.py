@@ -177,6 +177,13 @@ class ImageAttachment(BaseModel):
     media_type: str = Field(..., pattern="^image/(png|jpeg|gif|webp)$")
 
 
+class FileAttachment(BaseModel):
+    """One user-attached text file (code, markdown, csv, …), inline."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    content: str = Field(..., max_length=200_000)  # ~200KB of text
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     max_steps: int = Field(15, ge=1, le=10_000)
@@ -184,6 +191,8 @@ class SendMessageRequest(BaseModel):
     team_id: str | None = None  # If set, route through a multi-agent team
     # Multimodal turn: up to 3 inline images ride with the message.
     images: list[ImageAttachment] = Field(default_factory=list, max_length=3)
+    # Text-file attachments: content is embedded into the task for the model.
+    files: list[FileAttachment] = Field(default_factory=list, max_length=3)
 
 
 # --- Agent Configs ---

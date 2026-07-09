@@ -59,6 +59,24 @@ export function MessageBubble({
             ))}
           </div>
         )}
+        {(message.metadata?.files?.length ?? 0) > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {message.metadata!.files!.map((f, i) => (
+              <span
+                key={i}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                  isUser
+                    ? 'border-white/25 bg-white/10 text-white'
+                    : 'border-zinc-600/60 bg-zinc-900/60 text-zinc-200'
+                }`}
+              >
+                <FileText size={13} className="shrink-0" />
+                <span className="max-w-44 truncate font-medium">{f.name}</span>
+                <span className="opacity-60">{(f.size / 1024).toFixed(1)} KB</span>
+              </span>
+            ))}
+          </div>
+        )}
         {isUser ? (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : (

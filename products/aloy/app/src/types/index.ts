@@ -13,8 +13,15 @@ export interface MessageImage {
   media_type: string;
 }
 
+export interface MessageFile {
+  name: string;
+  size: number;
+  content?: string; // present on persisted messages (context rebuild)
+}
+
 export interface MessageMetadata {
   images?: MessageImage[];
+  files?: MessageFile[];
   reasoning?: string | null;
   steps_taken?: number;
   metrics?: Record<string, unknown> | null;

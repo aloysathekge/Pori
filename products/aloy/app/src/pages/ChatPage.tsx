@@ -21,6 +21,7 @@ import {
 } from '@/api/sse';
 import type {
   ConversationResponse,
+  MessageFile,
   MessageImage,
   MessageResponse,
   SSEMessageEvent,
@@ -30,6 +31,10 @@ import type {
 
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
+const MAX_FILES = 3;
+const MAX_FILE_CHARS = 200_000; // ~200KB of text (backend-enforced too)
+const TEXT_EXTENSIONS =
+  /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|cs|php|html|css|scss|xml|yml|yaml|toml|ini|cfg|conf|env|sh|bash|ps1|sql|log|diff|patch)$/i;
 
 export function ChatPage() {
   const { conversationId: routeConversationId } = useParams();
@@ -40,6 +45,9 @@ export function ChatPage() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<
+    (MessageFile & { content: string })[]
+  >([]);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -139,23 +147,37 @@ export function ChatPage() {
     }
   }
 
-  /** Read image files into base64 attachments (attach button, paste, drop). */
-  function addImageFiles(files: Iterable<File>) {
+  /** Route attachments: images render for the model's eyes; text-like files
+   *  embed their content into the task. (Attach button, paste, drag-drop.) */
+  function addAttachments(files: Iterable<File>) {
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-      if (file.size > MAX_IMAGE_BYTES) continue; // silently skip oversized
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result || '');
-        const base64 = url.split(',')[1] ?? '';
-        if (!base64) return;
-        setPendingImages((prev) =>
-          prev.length >= MAX_IMAGES
-            ? prev
-            : [...prev, { data: base64, media_type: file.type }],
-        );
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('image/')) {
+        if (file.size > MAX_IMAGE_BYTES) continue;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = String(reader.result || '').split(',')[1] ?? '';
+          if (!base64) return;
+          setPendingImages((prev) =>
+            prev.length >= MAX_IMAGES
+              ? prev
+              : [...prev, { data: base64, media_type: file.type }],
+          );
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result || '').slice(0, MAX_FILE_CHARS);
+          if (!text) return;
+          setPendingFiles((prev) =>
+            prev.length >= MAX_FILES
+              ? prev
+              : [...prev, { name: file.name, size: text.length, content: text }],
+          );
+        };
+        reader.readAsText(file);
+      }
+      // other types (pdf, binaries): not supported yet — skipped
     }
   }
 
@@ -187,8 +209,12 @@ export function ChatPage() {
   }
 
   async function handleSend() {
-    if ((!input.trim() && pendingImages.length === 0) || !activeId) return;
-    const content = input.trim() || 'See the attached image.';
+    if (
+      (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) ||
+      !activeId
+    )
+      return;
+    const content = input.trim() || 'See the attached content.';
 
     // If the agent is waiting on a clarification, the message box answers it
     // (resumes the paused run) instead of starting a new turn.
@@ -199,7 +225,9 @@ export function ChatPage() {
     }
     if (sending) return;
     const images = pendingImages;
+    const files = pendingFiles;
     setPendingImages([]);
+    setPendingFiles([]);
     setInput('');
     setSending(true);
     setStreaming(true);
@@ -215,7 +243,15 @@ export function ChatPage() {
       id: `temp-${Date.now()}`,
       role: 'user',
       content,
-      metadata: images.length > 0 ? { images } : null,
+      metadata:
+        images.length > 0 || files.length > 0
+          ? {
+              ...(images.length > 0 ? { images } : {}),
+              ...(files.length > 0
+                ? { files: files.map((f) => ({ name: f.name, size: f.size })) }
+                : {}),
+            }
+          : null,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -299,6 +335,10 @@ export function ChatPage() {
     try {
       await streamMessage(activeId, content, callbacks, {
         images: images.length > 0 ? images : undefined,
+        files:
+          files.length > 0
+            ? files.map((f) => ({ name: f.name, content: f.content }))
+            : undefined,
         signal: controller.signal,
       });
     } catch {
@@ -431,10 +471,16 @@ export function ChatPage() {
                   value={input}
                   onChange={setInput}
                   onSend={handleSend}
-                  onAddImages={addImageFiles}
+                  onAddFiles={addAttachments}
                   pendingImages={pendingImages}
                   onRemoveImage={(i) =>
                     setPendingImages((prev) =>
+                      prev.filter((_, idx) => idx !== i),
+                    )
+                  }
+                  pendingFiles={pendingFiles}
+                  onRemoveFile={(i) =>
+                    setPendingFiles((prev) =>
                       prev.filter((_, idx) => idx !== i),
                     )
                   }
@@ -442,7 +488,10 @@ export function ChatPage() {
                   placeholder={
                     clarify ? 'Answer the question above…' : 'Message Aloy…'
                   }
-                  maxImages={MAX_IMAGES}
+                  attachFull={
+                    pendingImages.length >= MAX_IMAGES &&
+                    pendingFiles.length >= MAX_FILES
+                  }
                 />
               </div>
             </div>

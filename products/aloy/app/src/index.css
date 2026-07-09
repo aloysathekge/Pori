@@ -88,8 +88,11 @@ th {
   background: color-mix(in srgb, var(--color-accent-600) 35%, transparent);
 }
 
-/* One focus language everywhere: a calm teal ring, only for keyboards. */
-:focus-visible {
+/* One focus language everywhere: a calm teal ring, only for keyboards.
+   Text fields are excluded — browsers mark them :focus-visible even on mouse
+   click, which double-boxed inputs inside composed surfaces (their container
+   carries the focus treatment instead, via focus-within). */
+:focus-visible:not(input):not(textarea) {
   outline: 2px solid var(--color-accent-500);
   outline-offset: 2px;
   border-radius: 4px;
