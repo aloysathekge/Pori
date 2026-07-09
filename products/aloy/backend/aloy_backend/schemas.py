@@ -170,11 +170,20 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
 
+class ImageAttachment(BaseModel):
+    """One user-attached image, inline base64 (v1: no media store)."""
+
+    data: str = Field(..., min_length=1, max_length=7_000_000)  # ~5MB decoded
+    media_type: str = Field(..., pattern="^image/(png|jpeg|gif|webp)$")
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     max_steps: int = Field(15, ge=1, le=10_000)
     stream: bool = False
     team_id: str | None = None  # If set, route through a multi-agent team
+    # Multimodal turn: up to 3 inline images ride with the message.
+    images: list[ImageAttachment] = Field(default_factory=list, max_length=3)
 
 
 # --- Agent Configs ---

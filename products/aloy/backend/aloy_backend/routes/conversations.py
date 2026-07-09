@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pori import AgentMemory, AgentSettings, RetrievalEvidence, fuse_retrieval
+from pori import (
+    AgentMemory,
+    AgentSettings,
+    ImageBlock,
+    RetrievalEvidence,
+    fuse_retrieval,
+)
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -396,17 +402,23 @@ async def _prepare_message(
     context: OrganizationContext,
     conversation_id: str,
     content: str,
+    images: list | None = None,
 ) -> tuple[Conversation, AgentMemory]:
     """Validate conversation, save user message, seed memory from DB tables."""
     conv = await session.get(Conversation, conversation_id)
     if not conv or conv.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Save user message
+    # Save user message (attached images ride in metadata so history renders them)
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",
         content=content,
+        metadata_=(
+            {"images": [{"data": i.data, "media_type": i.media_type} for i in images]}
+            if images
+            else None
+        ),
     )
     session.add(user_msg)
     await session.commit()
@@ -630,9 +642,14 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
 ):
     conv, memory = await _prepare_message(
-        session, context, conversation_id, req.content
+        session, context, conversation_id, req.content, images=req.images
     )
     user_id = context.user_id
+    # Kernel-side image blocks for this turn (multimodal task message).
+    task_images = [
+        ImageBlock(source="base64", media_type=i.media_type, data=i.data)
+        for i in req.images
+    ]
 
     if not context.policy.allow_shared_process_execution:
         active_count = (
@@ -854,6 +871,7 @@ async def send_message(
                     collector=event_collector,
                     tool_context_extra={"connections": run_connections},
                     mcp_servers=run_mcp_servers,
+                    task_images=task_images,
                     result_holder=result_holder,
                 ):
                     yield event
@@ -932,6 +950,7 @@ async def send_message(
             run_context=run_context,
             tool_context_extra={"connections": run_connections},
             mcp_servers=run_mcp_servers,
+            task_images=task_images,
         )
     except Exception as e:
         logger.exception("Agent failed for conversation %s", conversation_id)

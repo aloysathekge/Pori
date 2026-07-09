@@ -66,6 +66,12 @@ target-version = ["py310"]
 [tool.isort]
 profile = "black"
 line_length = 88
+# Pin first/third-party explicitly so isort produces the SAME ordering no
+# matter the working directory (pre-commit runs from the repo root; the CI
+# job runs from this directory — without this, detection flips and they
+# fight each other).
+known_first_party = ["aloy_backend"]
+known_third_party = ["pori"]
 
 [tool.setuptools.packages.find]
 include = ["aloy_backend*"]
