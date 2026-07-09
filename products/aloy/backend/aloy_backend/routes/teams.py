@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from pori import (
     AgentSettings,
     LLMConfig,
@@ -15,9 +19,6 @@ from pori import (
     register_all_tools,
     tool_registry,
 )
-from sqlalchemy import func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from ..database import get_session
 from ..models import Run, TeamConfig

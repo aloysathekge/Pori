@@ -3,10 +3,10 @@
 from datetime import datetime, timezone
 
 import pytest
-from pori.observability import PoriEvent
 
 from aloy_backend.event_log import MAX_EVENTS, EventLogCollector
 from aloy_backend.models import RunEventLog
+from pori.observability import PoriEvent
 
 pytestmark = pytest.mark.asyncio
 

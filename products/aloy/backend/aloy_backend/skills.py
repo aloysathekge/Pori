@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from pori import SkillCatalog, SkillManifest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
+from pori import SkillCatalog, SkillManifest
 
 from .models import SkillDefinition, SkillGrant
 

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pori import AgentMemory
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
+from pori import AgentMemory
 
 from .memory_records import record_to_row, request_scope, row_to_record
 from .models import (

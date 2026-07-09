@@ -5,6 +5,7 @@ import io
 import zipfile
 
 import pytest
+
 from aloy_backend.doc_extract import (
     ExtractionError,
     extract_docx_text,

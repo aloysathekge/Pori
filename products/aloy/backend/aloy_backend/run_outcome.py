@@ -15,9 +15,10 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pori import AgentMemory
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
+from pori import AgentMemory
 
 from .memory_records import record_to_row, request_scope
 from .models import (

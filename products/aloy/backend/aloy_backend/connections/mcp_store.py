@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from pori import McpServerConfig
 from sqlmodel import select
+
+from pori import McpServerConfig
 
 from ..models import ORG_CONNECTION_USER, McpServer
 from .crypto import decrypt
