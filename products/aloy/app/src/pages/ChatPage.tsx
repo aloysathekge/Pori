@@ -65,6 +65,7 @@ export function ChatPage() {
       file_id?: string;
       uploading?: boolean;
       progress?: number;
+      error?: boolean;
     })[]
   >([]);
   const [sending, setSending] = useState(false);
@@ -193,11 +194,14 @@ export function ChatPage() {
           ),
         ),
       )
-      .catch(() =>
+      .catch((err) => {
+        console.error('[aloy] durable upload failed:', err);
         setPendingFiles((prev) =>
-          prev.map((f) => (f.key === key ? { ...f, uploading: false } : f)),
-        ),
-      );
+          prev.map((f) =>
+            f.key === key ? { ...f, uploading: false, error: true } : f,
+          ),
+        );
+      });
   }
 
   function uploadAttachment(file: File) {

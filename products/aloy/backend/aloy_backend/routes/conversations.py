@@ -1252,6 +1252,12 @@ async def upload_conversation_file(
     body.seek(0, 2)
     size = body.tell()
     body.seek(0)
+    logger.info(
+        "Upload received: %r (%d bytes) for conversation %s",
+        file.filename,
+        size,
+        conv.id,
+    )
     if size == 0:
         raise HTTPException(status_code=422, detail="Empty file")
     if size > settings.storage_max_file_mb * 1024 * 1024:
