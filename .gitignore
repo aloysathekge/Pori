@@ -44,3 +44,4 @@ memory.db
 Thumbs.db
 .claude/
 uvicorn.*.log
+stdin.empty

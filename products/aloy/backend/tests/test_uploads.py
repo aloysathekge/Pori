@@ -215,3 +215,75 @@ class TestProvisioning:
             conversation_id="conv-1",
         )
         assert out == [mine]
+
+
+class TestExtractedCompanion:
+    def _docx_bytes(self) -> bytes:
+        import io
+        import zipfile
+
+        # Minimal OOXML: one paragraph "Hello Aloy CV".
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr(
+                "word/document.xml",
+                '<?xml version="1.0"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:body><w:p><w:r>'
+                "<w:t>Hello Aloy CV</w:t></w:r></w:p></w:body></w:document>",
+            )
+        return buf.getvalue()
+
+    def test_docx_gets_plain_text_companion(self, tmp_path):
+        import hashlib
+        import io
+        import uuid
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        from aloy_backend.provisioning import provision_conversation_uploads
+        from aloy_backend.storage import upload_key
+
+        data = self._docx_bytes()
+        rec = SimpleNamespace(
+            id=uuid.uuid4().hex,
+            name="cv.docx",
+            size_bytes=len(data),
+            content_type="application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.document",
+            sha256=hashlib.sha256(data).hexdigest(),
+            storage_key="",
+            created_at=datetime.now(timezone.utc),
+        )
+        rec.storage_key = upload_key("org-1", "conv-x", rec.id, rec.name)
+        storage_mod.get_object_store().put(
+            rec.storage_key, io.BytesIO(data), content_type=rec.content_type
+        )
+
+        entries = provision_conversation_uploads("conv-x", [rec])
+        assert entries[0]["extracted_text"] == "cv.docx.extracted.txt"
+        companion = (
+            tmp_path
+            / "sandbox"
+            / "threads"
+            / "conv-x"
+            / "user-data"
+            / "uploads"
+            / "cv.docx.extracted.txt"
+        )
+        assert "Hello Aloy CV" in companion.read_text(encoding="utf-8")
+
+    def test_task_block_mentions_the_companion(self):
+        from aloy_backend.provisioning import uploads_task_block
+
+        block = uploads_task_block(
+            [
+                {
+                    "name": "cv.docx",
+                    "size_bytes": 12345,
+                    "content_type": "application/vnd.openxmlformats",
+                    "extracted_text": "cv.docx.extracted.txt",
+                }
+            ]
+        )
+        assert "plain-text copy: /mnt/user-data/uploads/cv.docx.extracted.txt" in block

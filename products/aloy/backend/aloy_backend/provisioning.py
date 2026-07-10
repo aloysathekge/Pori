@@ -77,13 +77,18 @@ def provision_conversation_uploads(
                 continue
             manifest[name] = rec.sha256
             changed = True
-        entries.append(
-            {
-                "name": name,
-                "size_bytes": rec.size_bytes,
-                "content_type": rec.content_type,
-            }
-        )
+        entry = {
+            "name": name,
+            "size_bytes": rec.size_bytes,
+            "content_type": rec.content_type,
+        }
+        # OOXML binaries (docx/xlsx) are unreadable to the text file tools —
+        # materialize a plain-text companion so "read my CV" just works.
+        companion, wrote = _ensure_extracted_companion(target, manifest, rec.sha256)
+        if companion:
+            entry["extracted_text"] = companion
+        changed = changed or wrote
+        entries.append(entry)
 
     if changed:
         tmp = manifest_path.with_suffix(".tmp")
@@ -105,6 +110,35 @@ def _claim_name(rec: StoredFile, manifest: dict, used_names: set) -> str:
     prefixed = f"{rec.id[:8]}_{name}"
     used_names.add(prefixed)
     return prefixed
+
+
+_EXTRACTABLE = {".docx", ".xlsx"}
+
+
+def _ensure_extracted_companion(
+    target: Path, manifest: dict, sha256: str
+) -> tuple[Optional[str], bool]:
+    """For a materialized OOXML file, write `{name}.extracted.txt` beside it
+    (hash-skipped via the manifest). Returns (companion name | None, wrote).
+    Extraction failure is logged and skipped — the binary is still there."""
+    suffix = target.suffix.lower()
+    if suffix not in _EXTRACTABLE or not target.is_file():
+        return None, False
+    companion_name = f"{target.name}.extracted.txt"
+    companion = target.parent / companion_name
+    if manifest.get(companion_name) == sha256 and companion.is_file():
+        return companion_name, False
+    try:
+        from .doc_extract import extract_docx_text, extract_xlsx_text
+
+        raw = target.read_bytes()
+        text = extract_docx_text(raw) if suffix == ".docx" else extract_xlsx_text(raw)
+        companion.write_text(text[:2_000_000], encoding="utf-8")
+        manifest[companion_name] = sha256
+        return companion_name, True
+    except Exception:
+        logger.warning("Could not extract text from %s", target.name, exc_info=True)
+        return None, False
 
 
 def _copy_from_store(store, key: str, target: Path) -> None:
@@ -132,11 +166,17 @@ def uploads_task_block(entries: List[dict]) -> str:
     in, samples out)."""
     if not entries:
         return ""
-    lines = "\n".join(
-        f"- /mnt/user-data/uploads/{e['name']} "
-        f"({_human_size(e['size_bytes'])}, {e['content_type']})"
-        for e in entries
-    )
+
+    def _line(e: dict) -> str:
+        line = (
+            f"- /mnt/user-data/uploads/{e['name']} "
+            f"({_human_size(e['size_bytes'])}, {e['content_type']})"
+        )
+        if e.get("extracted_text"):
+            line += f" — plain-text copy: /mnt/user-data/uploads/{e['extracted_text']}"
+        return line
+
+    lines = "\n".join(_line(e) for e in entries)
     return (
         "\n\n<uploaded-files>\n"
         "The user has uploaded these files. They are on disk, NOT in this "
@@ -149,11 +189,12 @@ def uploads_task_block(entries: List[dict]) -> str:
     )
 
 
-def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[str]:
+def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
     """Materialize ONE manifest-shaped file (see library.library_manifest)
-    into a thread's uploads dir; returns its on-disk name, or None when the
-    blob is gone. Used by the fetch_my_file tool, which runs without a DB
-    session — the manifest carries everything it needs."""
+    into a thread's uploads dir; returns the provisioned entry
+    ({name, extracted_text?, …}), or None when the blob is gone. Used by the
+    fetch_my_file tool, which runs without a DB session — the manifest
+    carries everything it needs."""
     from datetime import datetime
     from types import SimpleNamespace
 
@@ -167,7 +208,7 @@ def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[str]:
         created_at=datetime.fromisoformat(entry["created_at"]),
     )
     provisioned = provision_conversation_uploads(thread_id, [shim])
-    return provisioned[0]["name"] if provisioned else None
+    return provisioned[0] if provisioned else None
 
 
 def resolve_upload_refs(

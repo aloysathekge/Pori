@@ -53,16 +53,25 @@ def fetch_my_file_tool(
 
     from ..provisioning import provision_manifest_entry
 
-    on_disk = provision_manifest_entry(str(thread_id), match)
-    if on_disk is None:
+    provisioned = provision_manifest_entry(str(thread_id), match)
+    if provisioned is None:
         return {
             "error": f"{match['name']!r} is in the library but its content "
             "is no longer available."
         }
-    return {
-        "path": f"/mnt/user-data/uploads/{on_disk}",
+    result = {
+        "path": f"/mnt/user-data/uploads/{provisioned['name']}",
         "name": match["name"],
         "size_bytes": match["size_bytes"],
         "content_type": match["content_type"],
         "note": "The file is now in the workspace at the path above.",
     }
+    if provisioned.get("extracted_text"):
+        result["extracted_text_path"] = (
+            f"/mnt/user-data/uploads/{provisioned['extracted_text']}"
+        )
+        result["note"] = (
+            "The file is in the workspace. It is a binary document — read the "
+            "plain-text copy at extracted_text_path instead."
+        )
+    return result
