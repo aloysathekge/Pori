@@ -79,6 +79,7 @@ async def stream_agent_execution(
     result_holder: Optional[dict] = None,
     conversation_id: Optional[str] = None,
     resume_task_id: Optional[str] = None,
+    sandbox_base_dir: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Run the agent and stream its frames.
 
@@ -122,6 +123,7 @@ async def stream_agent_execution(
                 task_attachments=task_attachments,
                 cancellation_token=cancel_token,
                 resume_task_id=resume_task_id,
+                sandbox_base_dir=sandbox_base_dir,
             )
         )
 

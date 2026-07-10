@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -8,13 +9,42 @@ from pori import (
     Orchestrator,
     SkillCatalog,
     create_llm,
+    create_sandbox_provider,
     get_configured_llm,
     register_all_tools,
     set_prompts_dir,
+    set_sandbox_provider,
     tool_registry,
 )
 
+from .config import settings
 from .models import AgentConfig
+
+logger = logging.getLogger("aloy_backend")
+
+
+def sandbox_base_dir() -> str:
+    """The resolved filesystem jail root. Always available — even with the
+    shell sandbox disabled, file tools confine writes to per-conversation
+    dirs under this root instead of the (tenant-shared) host process cwd."""
+    base = Path(settings.sandbox_base_dir).resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return str(base)
+
+
+def configure_sandbox() -> None:
+    """Point the kernel's sandbox provider at the configured backend, once at
+    process startup (API server and worker both run agent code)."""
+    if not settings.sandbox_enabled:
+        return
+    try:
+        set_sandbox_provider(create_sandbox_provider(settings.sandbox_backend))
+        logger.info("Sandbox backend active: %s", settings.sandbox_backend)
+    except Exception:
+        logger.exception(
+            "Could not enable sandbox backend %r; agent code will run locally",
+            settings.sandbox_backend,
+        )
 
 
 def build_orchestrator(

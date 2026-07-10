@@ -139,8 +139,16 @@ from .runtime import (
     stable_fingerprint,
 )
 
-# Sandbox provider hooks (a product selects/points the execution backend).
-from .sandbox import create_sandbox_provider, set_sandbox_provider
+# Sandbox provider hooks (a product selects/points the execution backend) +
+# thread-dir resolution (a product maps artifact paths back to real files).
+from .sandbox import (
+    VIRTUAL_PREFIX,
+    ThreadData,
+    create_sandbox_provider,
+    get_thread_data,
+    replace_virtual_path,
+    set_sandbox_provider,
+)
 from .sessions import (
     SessionExport,
     SessionMessage,
@@ -305,6 +313,10 @@ __all__ = [
     "TEXT_DELTA",
     "create_sandbox_provider",
     "set_sandbox_provider",
+    "ThreadData",
+    "VIRTUAL_PREFIX",
+    "get_thread_data",
+    "replace_virtual_path",
     "STANDARD_KERNEL_TOOLS",
     "set_prompts_dir",
     "register_all_tools",

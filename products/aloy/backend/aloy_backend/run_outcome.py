@@ -9,17 +9,28 @@ so the two paths cannot drift (which is how memory/traces/usage each got
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import mimetypes
 import uuid
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from pori import AgentMemory
+from pori import (
+    VIRTUAL_PREFIX,
+    AgentMemory,
+    ThreadData,
+    get_thread_data,
+    replace_virtual_path,
+)
 
+from .config import settings
 from .memory_records import record_to_row, request_scope
 from .models import (
     Conversation,
@@ -28,10 +39,14 @@ from .models import (
     Message,
     Run,
     RunEventLog,
+    StoredFile,
     TraceRecord,
     UsageRecord,
 )
+from .storage import artifact_key, get_object_store, safe_name
 from .tenancy import OrganizationContext
+
+logger = logging.getLogger("aloy_backend")
 
 
 def _json_default(o: Any) -> Any:
@@ -233,6 +248,106 @@ def build_run_outcome(
     )
 
 
+def _resolve_artifact_file(path_str: str, thread: ThreadData) -> Optional[Path]:
+    """Map an artifact's recorded path (virtual, relative, or absolute) to a
+    real file inside the conversation's thread dirs. None = outside the jail
+    (or a traversal attempt) — such entries are never uploaded."""
+    raw = (path_str or "").strip()
+    if not raw or raw == "(path unavailable)":
+        return None
+    try:
+        if raw.startswith(VIRTUAL_PREFIX):
+            return Path(replace_virtual_path(raw, thread))
+        root = Path(thread.workspace_path).parent.resolve()  # .../user-data
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = Path(thread.workspace_path) / raw
+        resolved = candidate.resolve()
+        resolved.relative_to(root)  # containment or ValueError
+        return resolved
+    except ValueError:
+        return None
+
+
+def store_run_artifacts(
+    session: AsyncSession,
+    conv: Conversation,
+    context: OrganizationContext,
+    outcome: RunOutcome,
+) -> None:
+    """Extraction OUT: copy the run's written files from the (ephemeral)
+    thread dirs into the object store, adding StoredFile pointer rows to the
+    SAME session/transaction as the rest of the outcome — a disconnect can't
+    orphan a blob. Entries gain file_id; oversize/missing files keep their
+    pointer with a reason instead of silently vanishing."""
+    artifacts = outcome.artifacts or []
+    if not artifacts:
+        return
+    thread = get_thread_data(outcome.session_id or conv.id, settings.sandbox_base_dir)
+    store = get_object_store()
+    per_file_cap = settings.storage_max_artifact_mb * 1024 * 1024
+    run_budget = settings.storage_max_run_artifact_mb * 1024 * 1024
+    stored_by_path: dict[str, str] = {}  # resolved path -> file_id
+
+    for entry in artifacts:
+        if not isinstance(entry, dict) or entry.get("kind") != "file":
+            continue
+        real = _resolve_artifact_file(str(entry.get("path") or ""), thread)
+        if real is None or not real.is_file():
+            continue
+        key_path = str(real)
+        if key_path in stored_by_path:
+            entry["file_id"] = stored_by_path[key_path]
+            continue
+        try:
+            size = real.stat().st_size
+            if size > per_file_cap:
+                entry["too_large"] = True
+                continue
+            if size > run_budget:
+                entry["over_run_budget"] = True
+                continue
+            digest = hashlib.sha256()
+            with real.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            file_id = uuid.uuid4().hex
+            key = artifact_key(context.organization_id, conv.id, file_id, real.name)
+            with real.open("rb") as fh:
+                store.put(
+                    key,
+                    fh,
+                    content_type=mimetypes.guess_type(real.name)[0]
+                    or "application/octet-stream",
+                )
+            session.add(
+                StoredFile(
+                    id=file_id,
+                    organization_id=context.organization_id,
+                    user_id=context.user_id,
+                    conversation_id=conv.id,
+                    run_id=outcome.run_id,
+                    kind="artifact",
+                    name=safe_name(real.name),
+                    content_type=mimetypes.guess_type(real.name)[0]
+                    or "application/octet-stream",
+                    size_bytes=size,
+                    sha256=digest.hexdigest(),
+                    storage_key=key,
+                )
+            )
+            run_budget -= size
+            stored_by_path[key_path] = file_id
+            entry["file_id"] = file_id
+        except Exception as exc:
+            logger.exception(
+                "Could not store artifact %r for run %s", key_path, outcome.run_id
+            )
+            # Persist the reason, not just a flag — a hidden/rotated server
+            # log must never be the only witness to a storage failure.
+            entry["storage_error"] = f"{type(exc).__name__}: {exc}"[:300]
+
+
 async def persist_run_outcome(
     session: AsyncSession,
     conv: Conversation,
@@ -266,6 +381,10 @@ async def persist_run_outcome(
     agent_id = outcome.agent_id or conv.agent_config_id or "default_agent"
     org_id = outcome.organization_id or context.organization_id
     trace = outcome.trace if isinstance(outcome.trace, dict) else None
+
+    # Extraction OUT before the message row is built, so the artifact entries
+    # persisted into metadata already carry their file_id pointers.
+    store_run_artifacts(session, conv, context, outcome)
 
     assistant_msg = Message(
         conversation_id=conv.id,

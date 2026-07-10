@@ -84,6 +84,31 @@ class Message(SQLModel, table=True):
     )
 
 
+class StoredFile(SQLModel, table=True):
+    """A durable blob in the object store — pointer row only, never bytes.
+
+    kind='artifact': a file an agent run wrote (extracted in the run
+    finalizer). kind='upload': a user attachment (Phase 2)."""
+
+    __tablename__ = "stored_files"
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    conversation_id: str = Field(index=True)
+    run_id: str | None = Field(default=None, index=True)
+    kind: str = "artifact"  # artifact | upload
+    name: str
+    content_type: str = "application/octet-stream"
+    size_bytes: int = 0
+    sha256: str = ""
+    storage_key: str
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class ContextArtifact(SQLModel, table=True):
     __tablename__ = "context_artifacts"
 
