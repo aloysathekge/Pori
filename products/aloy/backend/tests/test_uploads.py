@@ -84,6 +84,32 @@ class TestUploadEndpoint:
         )
         assert resp.status_code == 422
 
+    async def test_ref_merges_onto_inline_chip_of_same_file(self, client):
+        """A small text file rides inline AND durable: one chip, with both
+        content and file_id — not two chips."""
+        conv_id = await _conv(client)
+        up = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+        file_id = up.json()["file_id"]
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/messages",
+            json={
+                "content": "read my notes",
+                "max_steps": 1,
+                "files": [{"name": "notes.txt", "content": "hello"}],
+                "file_refs": [file_id],
+            },
+        )
+        assert resp.status_code == 202
+        detail = await client.get(f"/v1/conversations/{conv_id}")
+        user_msgs = [m for m in detail.json()["messages"] if m["role"] == "user"]
+        chips = (user_msgs[0].get("metadata") or {}).get("files") or []
+        assert len(chips) == 1
+        assert chips[0]["file_id"] == file_id
+        assert chips[0]["content"] == "hello"
+
     async def test_message_with_ref_gets_chip_metadata(self, client):
         conv_id = await _conv(client)
         up = await client.post(

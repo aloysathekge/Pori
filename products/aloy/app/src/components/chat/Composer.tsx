@@ -29,7 +29,11 @@ export function Composer({
   onAddFiles: (files: Iterable<File>) => void;
   pendingImages: MessageImage[];
   onRemoveImage: (index: number) => void;
-  pendingFiles: (MessageFile & { uploading?: boolean; progress?: number })[];
+  pendingFiles: (MessageFile & {
+    uploading?: boolean;
+    progress?: number;
+    error?: boolean;
+  })[];
   onRemoveFile: (index: number) => void;
   disabled: boolean;
   placeholder: string;
@@ -97,12 +101,16 @@ export function Composer({
                 <p className="max-w-40 truncate text-xs font-medium text-zinc-200">
                   {f.name}
                 </p>
-                <p className="text-[10px] text-zinc-500">
+                <p
+                  className={`text-[10px] ${f.error ? 'text-red-400' : 'text-zinc-500'}`}
+                >
                   {f.uploading
                     ? `Uploading… ${f.progress ?? 0}%`
-                    : f.size > 1024 * 1024
-                      ? `${(f.size / (1024 * 1024)).toFixed(1)} MB`
-                      : `${(f.size / 1024).toFixed(1)} KB`}
+                    : f.error
+                      ? 'Upload failed — not saved'
+                      : f.size > 1024 * 1024
+                        ? `${(f.size / (1024 * 1024)).toFixed(1)} MB`
+                        : `${(f.size / 1024).toFixed(1)} KB`}
                 </p>
               </div>
               <button

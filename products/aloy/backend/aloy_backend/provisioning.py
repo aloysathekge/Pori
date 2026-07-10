@@ -149,6 +149,27 @@ def uploads_task_block(entries: List[dict]) -> str:
     )
 
 
+def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[str]:
+    """Materialize ONE manifest-shaped file (see library.library_manifest)
+    into a thread's uploads dir; returns its on-disk name, or None when the
+    blob is gone. Used by the fetch_my_file tool, which runs without a DB
+    session — the manifest carries everything it needs."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    shim = SimpleNamespace(
+        id=entry["file_id"],
+        name=entry["name"],
+        size_bytes=entry["size_bytes"],
+        content_type=entry["content_type"],
+        sha256=entry["sha256"],
+        storage_key=entry["storage_key"],
+        created_at=datetime.fromisoformat(entry["created_at"]),
+    )
+    provisioned = provision_conversation_uploads(thread_id, [shim])
+    return provisioned[0]["name"] if provisioned else None
+
+
 def resolve_upload_refs(
     records: Iterable[Optional[StoredFile]],
     *,

@@ -28,6 +28,7 @@ from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
 from ..doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ..event_log import EventLogCollector
+from ..library import library_manifest
 from ..memory_records import request_scope, row_to_record
 from ..models import (
     AgentConfig,
@@ -69,7 +70,7 @@ from ..skills import load_skill_catalog
 from ..storage import get_object_store, safe_name, upload_key
 from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
-from ..tools import GOOGLE_TOOL_NAMES
+from ..tools import GOOGLE_TOOL_NAMES, LIBRARY_TOOL_NAMES
 from .teams import _build_team_from_config
 
 logger = logging.getLogger("aloy_backend")
@@ -443,11 +444,17 @@ async def _prepare_message(
             {"name": d.name, "size": len(d.data) * 3 // 4} for d in documents
         )
     if uploaded:
-        # Durable uploads: chips with the file_id pointer (bytes live in the
-        # object store; the model reaches them in the sandbox, never inline).
-        meta.setdefault("files", []).extend(
-            {"name": u.name, "size": u.size_bytes, "file_id": u.id} for u in uploaded
-        )
+        # Durable uploads: a file that ALSO rode inline/native this turn gets
+        # its file_id merged onto the existing chip (no duplicate); pure
+        # durable uploads get their own chip.
+        chips = meta.setdefault("files", [])
+        by_name = {safe_name(c["name"]): c for c in chips if c.get("name")}
+        for u in uploaded:
+            chip = by_name.get(u.name)  # StoredFile names are safe_name'd
+            if chip is not None:
+                chip["file_id"] = u.id
+            else:
+                chips.append({"name": u.name, "size": u.size_bytes, "file_id": u.id})
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",
@@ -941,6 +948,24 @@ async def send_message(
     run_mcp_servers = await resolve_run_mcp_servers(
         session, context.organization_id, context.user_id
     )
+    # The user's file library: memory pointers already ride in KnowledgeEntry
+    # recall; the manifest here powers fetch_my_file. Empty library → the
+    # tool is excluded from the surface (zero context cost).
+    library_rows = (
+        (
+            await session.execute(
+                select(StoredFile).where(
+                    StoredFile.organization_id == context.organization_id,
+                    StoredFile.user_id == context.user_id,
+                    StoredFile.in_library == True,  # noqa: E712
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    run_library = library_manifest(list(library_rows))
+    library_denied = () if run_library else tuple(LIBRARY_TOOL_NAMES)
 
     # Continue a stopped run: claim its warm state (live AgentMemory + kernel
     # task checkpoint) for a TRUE resume — the run picks up at the step it was
@@ -969,7 +994,9 @@ async def send_message(
         shared_memory=memory,
         agent_config=agent_config,
         allowed_tools=context.policy.allowed_tools or None,
-        denied_tools=tuple(context.policy.denied_tools) + connection_denied,
+        denied_tools=tuple(context.policy.denied_tools)
+        + connection_denied
+        + library_denied,
         allowed_capability_groups=(context.policy.allowed_capability_groups or None),
         allowed_provider_profiles=(context.policy.allowed_provider_profiles or None),
         allowed_models=context.policy.allowed_models or None,
@@ -1015,7 +1042,10 @@ async def send_message(
                     settings=agent_settings,
                     run_context=stream_context,
                     collector=event_collector,
-                    tool_context_extra={"connections": run_connections},
+                    tool_context_extra={
+                        "connections": run_connections,
+                        "library_files": run_library,
+                    },
                     mcp_servers=run_mcp_servers,
                     task_attachments=task_attachments,
                     result_holder=result_holder,
@@ -1124,7 +1154,10 @@ async def send_message(
             task=task_content,
             agent_settings=agent_settings,
             run_context=run_context,
-            tool_context_extra={"connections": run_connections},
+            tool_context_extra={
+                "connections": run_connections,
+                "library_files": run_library,
+            },
             mcp_servers=run_mcp_servers,
             task_attachments=task_attachments,
             sandbox_base_dir=sandbox_base_dir(),
@@ -1219,6 +1252,12 @@ async def upload_conversation_file(
     body.seek(0, 2)
     size = body.tell()
     body.seek(0)
+    logger.info(
+        "Upload received: %r (%d bytes) for conversation %s",
+        file.filename,
+        size,
+        conv.id,
+    )
     if size == 0:
         raise HTTPException(status_code=422, detail="Empty file")
     if size > settings.storage_max_file_mb * 1024 * 1024:

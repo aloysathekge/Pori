@@ -98,6 +98,9 @@ class StoredFile(SQLModel, table=True):
     conversation_id: str = Field(index=True)
     run_id: str | None = Field(default=None, index=True)
     kind: str = "artifact"  # artifact | upload
+    # In the user's file library: durable beyond its conversation — a
+    # KnowledgeEntry pointer makes every future run aware it exists.
+    in_library: bool = Field(default=False, index=True)
     name: str
     content_type: str = "application/octet-stream"
     size_bytes: int = 0
