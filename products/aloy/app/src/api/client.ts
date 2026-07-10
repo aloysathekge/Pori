@@ -37,14 +37,15 @@ export async function apiFetch<T>(
 
 export async function apiStreamFetch(
   path: string,
-  body: unknown,
+  body?: unknown,
   signal?: AbortSignal,
+  method: 'POST' | 'GET' = 'POST',
 ): Promise<Response> {
   const headers = await authHeaders();
   const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
+    method,
     headers,
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
 

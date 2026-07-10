@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ArrowUp, FileText, Paperclip, X } from 'lucide-react';
+import { ArrowUp, FileText, Paperclip, Square, X } from 'lucide-react';
 import type { MessageFile, MessageImage } from '@/types';
 
 /**
@@ -21,6 +21,7 @@ export function Composer({
   disabled,
   placeholder,
   attachFull,
+  onStop,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -33,6 +34,8 @@ export function Composer({
   disabled: boolean;
   placeholder: string;
   attachFull: boolean;
+  /** While a run is generating: the send button becomes a stop button. */
+  onStop?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -162,19 +165,30 @@ export function Composer({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!canSend}
-          title="Send"
-          className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
-            canSend
-              ? 'bg-accent-600 text-white shadow-sm hover:bg-accent-500'
-              : 'bg-zinc-700 text-zinc-500'
-          }`}
-        >
-          <ArrowUp size={16} strokeWidth={2.5} />
-        </button>
+        {onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            title="Stop generating"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-600 text-white shadow-sm transition-all hover:bg-accent-500"
+          >
+            <Square size={13} strokeWidth={2.5} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!canSend}
+            title="Send"
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+              canSend
+                ? 'bg-accent-600 text-white shadow-sm hover:bg-accent-500'
+                : 'bg-zinc-700 text-zinc-500'
+            }`}
+          >
+            <ArrowUp size={16} strokeWidth={2.5} />
+          </button>
+        )}
       </div>
     </div>
   );

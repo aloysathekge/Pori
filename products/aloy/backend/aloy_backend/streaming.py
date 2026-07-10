@@ -22,7 +22,10 @@ from typing import Any, AsyncGenerator, Dict, Optional
 
 from pori import (
     RUN_END,
+    STEP_START,
+    TEXT_DELTA,
     AgentSettings,
+    CancellationToken,
     ClarificationRequest,
     ClarifyBridge,
     Orchestrator,
@@ -30,6 +33,7 @@ from pori import (
     RunContext,
 )
 
+from . import live_runs, resumable_runs
 from .event_log import EventLogCollector
 
 logger = logging.getLogger("aloy_backend")
@@ -73,7 +77,18 @@ async def stream_agent_execution(
     mcp_servers: Optional[list] = None,
     task_attachments: Optional[list] = None,
     result_holder: Optional[dict] = None,
+    conversation_id: Optional[str] = None,
+    resume_task_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
+    """Run the agent and stream its frames.
+
+    Pump architecture: a background PUMP task owns the run's whole event
+    lifecycle (drain events, record for replay, publish frames to the live-run
+    hub, build the final message frame, clean up the clarify bridge). The HTTP
+    response below is just the FIRST SUBSCRIBER — if the client disconnects,
+    the pump keeps going, and a returning client re-attaches through the live
+    endpoint with full replay.
+    """
     queue: "asyncio.Queue[PoriEvent]" = asyncio.Queue()
     serving_loop = asyncio.get_running_loop()
 
@@ -92,6 +107,8 @@ async def stream_agent_execution(
     merged_tool_context = dict(tool_context_extra or {})
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
 
+    cancel_token = CancellationToken()
+
     def run_agent() -> dict:
         return asyncio.run(
             orchestrator.execute_task(
@@ -103,98 +120,177 @@ async def stream_agent_execution(
                 tool_context_extra=merged_tool_context,
                 mcp_servers=mcp_servers,
                 task_attachments=task_attachments,
+                cancellation_token=cancel_token,
+                resume_task_id=resume_task_id,
             )
         )
 
     run = serving_loop.run_in_executor(None, run_agent)
-    # Expose the in-flight future too: if the client disconnects mid-run the
-    # generator dies, but the agent keeps working — the caller awaits this in
-    # the background and persists the outcome so the turn isn't lost.
+    # Expose the in-flight future: if the client disconnects mid-run the
+    # response generator dies, but the pump + agent keep working — the caller
+    # awaits this in the background and persists the outcome.
     if result_holder is not None:
         result_holder["run_future"] = run
 
-    # `status` kept for pre-migration consumers; canonical stream is the PoriEvents.
-    yield _sse_event("status", {"status": "running", "task": task})
+    def request_stop() -> None:
+        # Cooperative stop: the agent loop halts at the next step boundary. A
+        # run blocked on a pending clarification never reaches that boundary,
+        # so unblock it too (empty answer → the loop resumes → sees the token).
+        cancel_token.cancel()
+        bridge.cancel_pending()
 
-    try:
+    run_id = getattr(run_context, "run_id", "") or ""
+    live = live_runs.register(conversation_id or run_id, run_id, cancel=request_stop)
+
+    async def pump() -> None:
+        try:
+            live.publish(_sse_event("status", {"status": "running", "task": task}))
+            await _pump_events()
+        except Exception as exc:
+            # The pump must never die silently — every consumer would just see
+            # the stream end with no message.
+            logger.exception("Stream pump failed")
+            live.publish(_sse_event("error", {"detail": str(exc)}))
+        finally:
+            # The RUN owns the clarify bridge lifecycle (not the HTTP response):
+            # a re-attached client can still answer a pending clarification.
+            bridge.cancel_pending()
+            CLARIFY_BRIDGES.pop(bridge, None)
+            live.publish(_sse_event("done", {}))
+            live.finish()
+            live_runs.retire_later(conversation_id or run_id, live)
+
+    async def _pump_events() -> None:
+        # The current step's streamed prose. If the user stops the run
+        # mid-generation, this is what they watched being written — keep it as
+        # the interrupted answer instead of throwing it away (the aborted LLM
+        # call never returns, so the kernel can't hand it back).
+        partial_text: list = []
         while True:
+            # Runs that end without a RUN_END event (crash, legacy path) would
+            # otherwise idle a full keepalive interval before we notice.
+            if run.done() and queue.empty():
+                break
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
             except asyncio.TimeoutError:
-                if run.done() and queue.empty():
-                    break
-                yield ": keepalive\n\n"  # keep the socket open
                 continue
             if isinstance(event, PoriEvent):
+                if event.type == STEP_START:
+                    partial_text.clear()
+                elif event.type == TEXT_DELTA:
+                    partial_text.append((event.payload or {}).get("text") or "")
                 # Record on the serving loop (single-threaded here) for the
-                # read-only replay log — no race with the worker-thread push.
+                # read-only replay log — no race with the worker push.
                 if collector is not None:
                     try:
                         collector.record(event)
-                    except Exception:  # logging must never break a run
+                    except Exception:
                         logger.debug("Event log capture failed", exc_info=True)
-                yield _porievent_frame(event)
+                live.publish(_porievent_frame(event))
                 if event.type == RUN_END:
                     break
 
         try:
             result = await run
-        except Exception as exc:  # run raised
+        except Exception as exc:
             logger.exception("Streaming agent run failed")
-            yield _sse_event("error", {"detail": str(exc)})
+            live.publish(_sse_event("error", {"detail": str(exc)}))
             return
-
         if not result:
-            yield _sse_event("error", {"detail": "run produced no result"})
+            live.publish(_sse_event("error", {"detail": "run produced no result"}))
             return
-
-        # Expose the real result object so the caller's finalizer can persist the
-        # authoritative outcome (not a re-parse of the SSE frame below).
+        # The authoritative result object, for the caller's finalizer.
         if result_holder is not None:
             result_holder["result"] = result
 
         agent = result.get("agent")
         final = agent.memory.get_final_answer() if agent else None
+        # A stopped run has no final answer — keep the partial text the user
+        # watched being generated (Claude-style interrupted response), writing
+        # it into the authoritative result so persistence shows the same thing.
+        if cancel_token.cancelled and not (
+            result.get("final_answer") or (final or {}).get("final_answer")
+        ):
+            result["final_answer"] = (
+                "".join(partial_text).strip() or "*(stopped before any output)*"
+            )
+            result["stopped"] = True
+            # Park the run's warm state so a "continue" can truly resume the
+            # kernel task from its checkpoint instead of starting over.
+            if agent is not None and conversation_id:
+                resumable_runs.register(
+                    conversation_id,
+                    resumable_runs.ResumableRun(
+                        run_id=getattr(run_context, "run_id", "") or "",
+                        task=task,
+                        task_id=agent.task_id,
+                        memory=agent.memory,
+                    ),
+                )
         result_data = result.get("result", {}) or {}
         plan = result.get("plan") or result_data.get("plan") or []
-
-        yield _sse_event(
-            "message",
-            {
-                "role": "assistant",
-                # Lets the UI show Replay on the fresh message without a reload.
-                "run_id": getattr(run_context, "run_id", None),
-                "content": (final or {}).get(
-                    "final_answer", "I could not generate a response."
-                ),
-                "reasoning": (final or {}).get("reasoning"),
-                "steps_taken": int(result.get("steps_taken") or 0),
-                "success": bool(result.get("success")),
-                "metrics": result_data.get("metrics"),
-                "run_context": result_data.get("run_context"),
-                "trace": result.get("trace"),
-                "selected_skills": (
-                    result.get("selected_skills")
-                    or result_data.get("selected_skills")
-                    or []
-                ),
-                "artifacts": (
-                    result.get("artifacts") or result_data.get("artifacts") or []
-                ),
-                "plan": plan,
-            },
+        live.publish(
+            _sse_event(
+                "message",
+                {
+                    "role": "assistant",
+                    "run_id": getattr(run_context, "run_id", None),
+                    "content": (
+                        result.get("final_answer")
+                        or (final or {}).get("final_answer")
+                        or "I could not generate a response."
+                    ),
+                    "stopped": bool(result.get("stopped")) or None,
+                    "reasoning": (final or {}).get("reasoning"),
+                    "steps_taken": int(result.get("steps_taken") or 0),
+                    "success": bool(result.get("success")),
+                    "metrics": result_data.get("metrics"),
+                    "run_context": result_data.get("run_context"),
+                    "trace": result.get("trace"),
+                    "selected_skills": (
+                        result.get("selected_skills")
+                        or result_data.get("selected_skills")
+                        or []
+                    ),
+                    "artifacts": (
+                        result.get("artifacts") or result_data.get("artifacts") or []
+                    ),
+                    "plan": plan,
+                },
+            )
         )
 
-    except asyncio.CancelledError:
-        yield _sse_event("error", {"detail": "Stream cancelled"})
-        raise
-    except Exception as exc:
-        logger.exception("Streaming error")
-        yield _sse_event("error", {"detail": str(exc)})
+    pump_task = serving_loop.create_task(pump())
+    if result_holder is not None:
+        result_holder["pump_task"] = pump_task
+
+    # ---- first subscriber: this HTTP response ----
+    async for frame in subscribe_frames(live):
+        yield frame
+
+
+async def subscribe_frames(live: "live_runs.LiveRun") -> AsyncGenerator[str, None]:
+    """Replay a live run's buffered frames, then follow it until done."""
+    replay, q = live.subscribe()
+    try:
+        for frame in replay:
+            yield frame
+        while True:
+            try:
+                frame = await asyncio.wait_for(q.get(), timeout=_KEEPALIVE_SECONDS)
+            except asyncio.TimeoutError:
+                # If the run just finished, our queue already holds the
+                # remaining frames + the None sentinel (finish() guarantees
+                # it) — loop back and drain instead of breaking early.
+                if not live.done:
+                    yield ": keepalive\n\n"
+                continue
+            if frame is None:  # end-of-stream sentinel
+                break
+            yield frame
     finally:
-        bridge.cancel_pending()  # unblock a waiting ask_user on disconnect
-        CLARIFY_BRIDGES.pop(bridge, None)
-        yield _sse_event("done", {})
+        live.unsubscribe(q)
 
 
 def resolve_clarification(

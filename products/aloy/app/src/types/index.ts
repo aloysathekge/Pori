@@ -29,6 +29,8 @@ export interface MessageMetadata {
   plan?: PlanItem[];
   selected_skills?: string[];
   run_id?: string | null;
+  /** The user stopped the run; content is the partial streamed text. */
+  stopped?: boolean;
 }
 
 export interface MessageResponse {
@@ -118,6 +120,7 @@ export interface SSEMessageEvent {
   selected_skills?: string[];
   artifacts?: Artifact[];
   plan?: PlanItem[];
+  stopped?: boolean;
 }
 
 // ---- Runs ----
