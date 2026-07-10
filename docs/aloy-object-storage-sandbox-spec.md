@@ -186,6 +186,46 @@ At run end (in the pump's finalizer path, where artifacts already flow):
   scope sandbox egress to the store endpoint (Hermes egress-isolation note,
   `infrastructure-security.md:363-371`).
 
+## The user file library — memory as an index over durable things
+
+The conversation-scoped design above answers "the report you made yesterday
+in this chat." The library answers the Aloy question: **"improve my CV" in a
+brand-new chat, a week after the CV was uploaded somewhere else.** This is
+the personal-OS knowledge model in miniature: memory holds *pointers to
+durable things*, not transcripts of them.
+
+Three pieces, all extensions of what this spec already builds:
+
+1. **User-scoped files.** `StoredFile` already carries `user_id` and `kind`;
+   a library file is `kind="upload"` queried by user instead of conversation
+   (keep the originating `conversation_id` for provenance). The composer gets
+   a "save to my files" affordance (or a heuristic prompt for obviously
+   durable documents: CV, ID, contract); a small "My files" surface lists
+   them. Org-shared library files follow the same `scope` pattern as
+   connections/MCP (`user` | `org`) — later, not v1.
+2. **The memory hook.** On library save, write a knowledge entry (the
+   existing typed long-term memory, `KnowledgeEntry`) pointing at the file:
+   `"CV: stored_file <id> — cv_2026.pdf, updated 2026-07-10"`. ~20 tokens of
+   permanent context; recall works through the memory system that already
+   rides in every prompt. The bytes never enter memory — memory is an index,
+   the store is the shelf.
+3. **On-demand provisioning.** When a run's context references a library
+   file (the model asks, or the manifest matches the task), provision it into
+   that conversation's sandbox `/mnt/user-data/uploads/` exactly like a
+   turn-attachment — same SHA-256 skip, same jail. The cheapest v1: a gated
+   `fetch_my_file` tool (rung 3 of the footprint ladder — only present when
+   the user has library files) that materializes by name/id and returns the
+   sandbox path.
+
+Acceptance test: upload CV in chat A → "tailor my CV to this posting" in a
+NEW chat B a week later → the agent knows it exists (memory), fetches it
+(provisioning), edits it in the jail, and the result is a durable artifact.
+
+Sequencing: needs Phase 2's upload path; ships as **Phase 2.5** — worth its
+own small spec pass at build time for the memory-entry lifecycle (what
+happens on file replace/delete: update or tombstone the knowledge entry, so
+memory never points at nothing).
+
 ## Latency & context budget
 
 The two failure modes of this design are a slow first token (files moving on
@@ -251,6 +291,8 @@ these) rather than stalling silently.
    upload flow; provisioning into the sandbox (eager at upload time,
    verified-by-hash at run setup); the task-reference block + sampled-access
    guidance. _Rung 4 unlocked: "analyze this 200MB CSV" works._
+2.5. **User file library** — user-scoped files + the memory hook + on-demand
+   provisioning (section above). _"Improve my CV" works from any chat._
 3. **Prod hardening** — `S3ObjectStore` (Supabase Storage first target);
    presigned downloads; retention policy (e.g. orphan cleanup for
    conversations deleted); E2B end-to-end smoke test with provisioning.
