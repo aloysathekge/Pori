@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     storage_max_run_artifact_mb: int = 100  # total per run
     storage_max_file_mb: int = 100  # per user upload
     storage_org_quota_mb: int = 2048  # total stored bytes per organization
+    # S3-compatible backend (STORAGE_BACKEND=s3): AWS S3, Cloudflare R2,
+    # MinIO, or Supabase Storage via its S3 protocol (Project Settings →
+    # Storage → S3 access keys). Needs boto3 (optional dependency).
+    storage_s3_endpoint: str = ""  # e.g. https://xxxx.supabase.co/storage/v1/s3
+    storage_s3_bucket: str = "aloy-files"
+    storage_s3_access_key: str = ""
+    storage_s3_secret_key: str = ""
+    storage_s3_region: str = "us-east-1"
+    storage_presign_expiry_seconds: int = 300
 
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.

@@ -404,8 +404,45 @@ async def delete_conversation(
         for record in related.scalars().all():
             await session.delete(record)
 
+    # Retention: the conversation's durable blobs go with it — EXCEPT files
+    # the user saved to their library, which belong to the user, not the
+    # conversation (their memory pointers must never dangle).
+    stored = (
+        (
+            await session.execute(
+                select(StoredFile).where(StoredFile.conversation_id == conversation_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    store = get_object_store()
+    for record in stored:
+        if record.in_library:
+            continue
+        try:
+            store.delete(record.storage_key)
+        except Exception:
+            logger.warning(
+                "Could not delete blob %s for conversation %s",
+                record.storage_key,
+                conversation_id,
+                exc_info=True,
+            )
+        await session.delete(record)
+
     await session.delete(conv)
     await session.commit()
+
+    # The conversation's sandbox scratch dir (best effort — it's ephemeral
+    # by contract, but no reason to leave tenant data on disk).
+    import shutil
+    from pathlib import Path as _Path
+
+    shutil.rmtree(
+        _Path(settings.sandbox_base_dir) / "threads" / conversation_id,
+        ignore_errors=True,
+    )
     logger.info("Conversation %s deleted", conversation_id)
 
 

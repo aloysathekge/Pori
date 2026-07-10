@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from ..config import settings
 from ..database import get_session
 from ..library import add_to_library, remove_from_library
 from ..models import StoredFile
@@ -111,7 +112,9 @@ async def download_file(
     if record is None or record.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="File not found")
     store = get_object_store()
-    presigned = store.url(record.storage_key)
+    presigned = store.url(
+        record.storage_key, expires_s=settings.storage_presign_expiry_seconds
+    )
     if presigned:
         return RedirectResponse(presigned, status_code=307)
     try:

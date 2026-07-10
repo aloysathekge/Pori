@@ -120,16 +120,119 @@ class LocalDiskObjectStore:
         return None
 
 
+class _ClosingBody:
+    """Uniform context-manager wrapper over botocore's StreamingBody (its
+    context-manager support varies by version; callers always use `with`)."""
+
+    def __init__(self, body):
+        self._body = body
+
+    def read(self, n: int = -1) -> bytes:
+        return self._body.read() if n is None or n < 0 else self._body.read(n)
+
+    def close(self) -> None:
+        self._body.close()
+
+    def __enter__(self) -> "_ClosingBody":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class S3ObjectStore:
+    """Any S3-compatible endpoint: AWS S3, Cloudflare R2, MinIO, Supabase
+    Storage (S3 protocol). Presigned GETs let downloads bypass our backend
+    entirely. `client` is injectable for tests; otherwise boto3 (optional
+    dependency) builds one from settings."""
+
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        endpoint: str = "",
+        access_key: str = "",
+        secret_key: str = "",
+        region: str = "us-east-1",
+        client=None,
+    ):
+        if client is None:
+            try:
+                import boto3
+            except ImportError as exc:
+                raise RuntimeError(
+                    "STORAGE_BACKEND=s3 requires boto3 (pip install boto3)"
+                ) from exc
+            client = boto3.client(
+                "s3",
+                endpoint_url=endpoint or None,
+                aws_access_key_id=access_key or None,
+                aws_secret_access_key=secret_key or None,
+                region_name=region or None,
+            )
+        self.client = client
+        self.bucket = bucket
+
+    def put(self, key: str, data: BinaryIO, *, content_type: str) -> int:
+        self.client.upload_fileobj(
+            data, self.bucket, key, ExtraArgs={"ContentType": content_type}
+        )
+        try:
+            return data.tell()
+        except (OSError, ValueError):
+            return 0
+
+    def open(self, key: str) -> BinaryIO:
+        try:
+            body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
+        except Exception as exc:
+            if _is_missing_key_error(exc):
+                raise FileNotFoundError(key) from exc
+            raise
+        return _ClosingBody(body)  # type: ignore[return-value]
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def url(self, key: str, *, expires_s: int = 300) -> Optional[str]:
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires_s,
+        )
+
+
+def _is_missing_key_error(exc: Exception) -> bool:
+    """True for botocore's NoSuchKey/404 ClientError shapes (duck-typed so an
+    injected fake client can raise a plain exception named NoSuchKey)."""
+    if type(exc).__name__ == "NoSuchKey":
+        return True
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = str((response.get("Error") or {}).get("Code", ""))
+        return code in {"NoSuchKey", "404", "NotFound"}
+    return False
+
+
 _STORE: Optional[ObjectStore] = None
 
 
 def get_object_store() -> ObjectStore:
     global _STORE
     if _STORE is None:
-        if settings.storage_backend != "local":
+        if settings.storage_backend == "local":
+            _STORE = LocalDiskObjectStore(settings.storage_dir)
+        elif settings.storage_backend == "s3":
+            _STORE = S3ObjectStore(
+                bucket=settings.storage_s3_bucket,
+                endpoint=settings.storage_s3_endpoint,
+                access_key=settings.storage_s3_access_key,
+                secret_key=settings.storage_s3_secret_key,
+                region=settings.storage_s3_region,
+            )
+        else:
             raise RuntimeError(
                 f"Unknown storage backend {settings.storage_backend!r} "
-                "(only 'local' is implemented; 's3' is Phase 3)"
+                "(expected 'local' or 's3')"
             )
-        _STORE = LocalDiskObjectStore(settings.storage_dir)
     return _STORE
