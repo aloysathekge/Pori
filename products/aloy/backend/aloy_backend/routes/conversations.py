@@ -444,11 +444,17 @@ async def _prepare_message(
             {"name": d.name, "size": len(d.data) * 3 // 4} for d in documents
         )
     if uploaded:
-        # Durable uploads: chips with the file_id pointer (bytes live in the
-        # object store; the model reaches them in the sandbox, never inline).
-        meta.setdefault("files", []).extend(
-            {"name": u.name, "size": u.size_bytes, "file_id": u.id} for u in uploaded
-        )
+        # Durable uploads: a file that ALSO rode inline/native this turn gets
+        # its file_id merged onto the existing chip (no duplicate); pure
+        # durable uploads get their own chip.
+        chips = meta.setdefault("files", [])
+        by_name = {safe_name(c["name"]): c for c in chips if c.get("name")}
+        for u in uploaded:
+            chip = by_name.get(u.name)  # StoredFile names are safe_name'd
+            if chip is not None:
+                chip["file_id"] = u.id
+            else:
+                chips.append({"name": u.name, "size": u.size_bytes, "file_id": u.id})
     user_msg = Message(
         conversation_id=conversation_id,
         role="user",

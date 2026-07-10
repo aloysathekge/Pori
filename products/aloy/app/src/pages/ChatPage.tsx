@@ -172,19 +172,13 @@ export function ChatPage() {
   /** Durable-upload rung: too big (or too binary) for inline/native — the
    *  file streams to object storage NOW (eager, while the user types) and
    *  the message will carry only its reference. */
-  function uploadAttachment(file: File) {
+  /** Durable copy for an existing chip: streams the bytes to object storage
+   *  and attaches file_id to the chip (which is what makes it bookmarkable
+   *  into My Files). Failure just clears the uploading flag — the chip still
+   *  works through its inline/native ride. */
+  function uploadDurable(file: File, key: string) {
     const convId = activeId;
-    if (!convId || file.size > MAX_UPLOAD_BYTES) return;
-    if (pendingFiles.length >= MAX_FILES) return;
-    const key = `${file.name}-${Date.now()}-${Math.random()}`;
-    setPendingFiles((prev) =>
-      prev.length >= MAX_FILES
-        ? prev
-        : [
-            ...prev,
-            { key, name: file.name, size: file.size, uploading: true, progress: 0 },
-          ],
-    );
+    if (!convId) return;
     uploadConversationFile(convId, file, (pct) =>
       setPendingFiles((prev) =>
         prev.map((f) => (f.key === key ? { ...f, progress: pct } : f)),
@@ -200,14 +194,32 @@ export function ChatPage() {
         ),
       )
       .catch(() =>
-        // Failed upload: drop the chip so a dead reference can't be sent.
-        setPendingFiles((prev) => prev.filter((f) => f.key !== key)),
+        setPendingFiles((prev) =>
+          prev.map((f) => (f.key === key ? { ...f, uploading: false } : f)),
+        ),
       );
+  }
+
+  function uploadAttachment(file: File) {
+    if (!activeId || file.size > MAX_UPLOAD_BYTES) return;
+    if (pendingFiles.length >= MAX_FILES) return;
+    const key = `${file.name}-${Date.now()}-${Math.random()}`;
+    setPendingFiles((prev) =>
+      prev.length >= MAX_FILES
+        ? prev
+        : [
+            ...prev,
+            { key, name: file.name, size: file.size, uploading: true, progress: 0 },
+          ],
+    );
+    uploadDurable(file, key);
   }
 
   /** Route attachments: images render for the model's eyes; text-like files
    *  embed their content into the task; everything bigger or binary takes
-   *  the durable-upload rung. (Attach button, paste, drag-drop.) */
+   *  the durable-upload rung. Docs and text files ALSO get a durable copy
+   *  (same chip), so any attachment can be saved to My Files — and later
+   *  turns can still reach the bytes in the sandbox. */
   function addAttachments(files: Iterable<File>) {
     for (const file of files) {
       if (file.type.startsWith('image/')) {
@@ -231,43 +243,68 @@ export function ChatPage() {
           uploadAttachment(file);
           continue;
         }
+        if (pendingFiles.length >= MAX_FILES) continue;
+        const key = `${file.name}-${Date.now()}-${Math.random()}`;
         const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
+        setPendingFiles((prev) =>
+          prev.length >= MAX_FILES
+            ? prev
+            : [
+                ...prev,
+                {
+                  key,
+                  name: file.name,
+                  size: file.size,
+                  media_type: mediaType,
+                  uploading: true,
+                  progress: 0,
+                },
+              ],
+        );
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = String(reader.result || '').split(',')[1] ?? '';
           if (!base64) return;
           setPendingFiles((prev) =>
-            prev.length >= MAX_FILES
-              ? prev
-              : [
-                  ...prev,
-                  {
-                    name: file.name,
-                    size: file.size,
-                    data: base64,
-                    media_type: mediaType,
-                  },
-                ],
+            prev.map((f) => (f.key === key ? { ...f, data: base64 } : f)),
           );
         };
         reader.readAsDataURL(file);
+        uploadDurable(file, key);
       } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
         if (file.size > MAX_FILE_CHARS) {
           // Too big to inline without truncating — store it whole instead.
           uploadAttachment(file);
           continue;
         }
+        if (pendingFiles.length >= MAX_FILES) continue;
+        const key = `${file.name}-${Date.now()}-${Math.random()}`;
+        setPendingFiles((prev) =>
+          prev.length >= MAX_FILES
+            ? prev
+            : [
+                ...prev,
+                {
+                  key,
+                  name: file.name,
+                  size: file.size,
+                  uploading: true,
+                  progress: 0,
+                },
+              ],
+        );
         const reader = new FileReader();
         reader.onload = () => {
           const text = String(reader.result || '').slice(0, MAX_FILE_CHARS);
           if (!text) return;
           setPendingFiles((prev) =>
-            prev.length >= MAX_FILES
-              ? prev
-              : [...prev, { name: file.name, size: text.length, content: text }],
+            prev.map((f) =>
+              f.key === key ? { ...f, content: text, size: text.length } : f,
+            ),
           );
         };
         reader.readAsText(file);
+        uploadDurable(file, key);
       } else {
         // Any other type (zip, sqlite, parquet, unknown binaries…): the
         // durable-upload rung — the agent works on it in the sandbox.
