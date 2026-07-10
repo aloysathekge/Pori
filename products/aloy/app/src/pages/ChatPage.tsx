@@ -531,7 +531,16 @@ export function ChatPage() {
           ? {
               ...(images.length > 0 ? { images } : {}),
               ...(files.length > 0
-                ? { files: files.map((f) => ({ name: f.name, size: f.size })) }
+                ? {
+                    files: files.map((f) => ({
+                      name: f.name,
+                      size: f.size,
+                      // Keep the durable ref so the chip's download/bookmark
+                      // icons work on the OPTIMISTIC message too, not only
+                      // after a reload.
+                      ...(f.file_id ? { file_id: f.file_id } : {}),
+                    })),
+                  }
                 : {}),
             }
           : null,
