@@ -339,11 +339,13 @@ def store_run_artifacts(
             run_budget -= size
             stored_by_path[key_path] = file_id
             entry["file_id"] = file_id
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Could not store artifact %r for run %s", key_path, outcome.run_id
             )
-            entry["storage_error"] = True
+            # Persist the reason, not just a flag — a hidden/rotated server
+            # log must never be the only witness to a storage failure.
+            entry["storage_error"] = f"{type(exc).__name__}: {exc}"[:300]
 
 
 async def persist_run_outcome(
