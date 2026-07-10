@@ -49,6 +49,19 @@ def test_key_escape_is_rejected(tmp_path):
         )
 
 
+def test_personal_org_ids_make_valid_keys(tmp_path):
+    """Personal orgs are 'user:<uuid>' — ':' is illegal in Windows paths
+    (WinError 123, the exact live failure). Keys must sanitize segments."""
+    store = LocalDiskObjectStore(str(tmp_path))
+    key = artifact_key(
+        "user:bb22cd19-63a0-4b96-81f8-b8a35febd3d7", "conv1", "f9", "hello.py"
+    )
+    assert ":" not in key
+    store.put(key, io.BytesIO(b"print()"), content_type="text/x-python")
+    with store.open(key) as fh:
+        assert fh.read() == b"print()"
+
+
 def test_safe_name_strips_separators_and_traversal():
     assert safe_name("../../etc/passwd") == "passwd"
     assert safe_name("dir\\evil.exe") == "evil.exe"

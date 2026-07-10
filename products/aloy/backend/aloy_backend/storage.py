@@ -32,10 +32,21 @@ def safe_name(name: str) -> str:
     return cleaned[:120]
 
 
+def _segment(value: str) -> str:
+    """One key segment, safe on every backend (personal org ids contain ':',
+    which Windows paths reject — WinError 123). Uniqueness is not this
+    function's job: every key embeds a fresh file_id uuid, and access control
+    is the StoredFile row's org check, never the key string."""
+    return _SAFE_SEGMENT.sub("_", value or "") or "unknown"
+
+
 def artifact_key(
     organization_id: str, conversation_id: str, file_id: str, name: str
 ) -> str:
-    return f"org/{organization_id}/conv/{conversation_id}/outputs/{file_id}/{safe_name(name)}"
+    return (
+        f"org/{_segment(organization_id)}/conv/{_segment(conversation_id)}"
+        f"/outputs/{_segment(file_id)}/{safe_name(name)}"
+    )
 
 
 class ObjectStore(Protocol):
