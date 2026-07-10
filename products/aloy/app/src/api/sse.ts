@@ -47,6 +47,8 @@ export async function streamMessage(
     documents?: { name: string; data: string; media_type: string }[];
     /** Continue a stopped run (its run_id): true resume when still warm. */
     resume_run_id?: string;
+    /** Durable upload ids for this turn (from uploadConversationFile). */
+    file_refs?: string[];
     signal?: AbortSignal;
   },
 ) {

@@ -1,0 +1,191 @@
+"""Durable uploads: endpoint (caps/quota/tenancy) + provisioning IN."""
+
+from types import SimpleNamespace
+
+import pytest
+
+import aloy_backend.config as config_mod
+import aloy_backend.storage as storage_mod
+from aloy_backend.models import StoredFile
+from aloy_backend.provisioning import (
+    provision_conversation_uploads,
+    resolve_upload_refs,
+    uploads_task_block,
+)
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def isolated_dirs(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config_mod.settings, "sandbox_base_dir", str(tmp_path / "sandbox")
+    )
+    monkeypatch.setattr(config_mod.settings, "storage_dir", str(tmp_path / "storage"))
+    monkeypatch.setattr(storage_mod, "_STORE", None)
+    yield
+    monkeypatch.setattr(storage_mod, "_STORE", None)
+
+
+async def _conv(client) -> str:
+    created = await client.post("/v1/conversations", json={"title": "up"})
+    return created.json()["id"]
+
+
+class TestUploadEndpoint:
+    async def test_upload_roundtrip_and_eager_provisioning(self, client, tmp_path):
+        conv_id = await _conv(client)
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["name"] == "data.csv"
+        assert body["size_bytes"] == 8
+
+        # Bytes are durable in the store...
+        store = storage_mod.get_object_store()
+        blobs = list(store.root.rglob("data.csv"))
+        assert len(blobs) == 1
+        # ...and already provisioned into the conversation's sandbox uploads.
+        provisioned = tmp_path / "sandbox" / "threads" / conv_id
+        assert (provisioned / "user-data" / "uploads" / "data.csv").is_file()
+
+        # Downloadable through /files/{id}.
+        dl = await client.get(f"/v1/files/{body['file_id']}")
+        assert dl.status_code == 200
+        assert dl.content == b"a,b\n1,2\n"
+
+    async def test_oversize_upload_rejected(self, client, monkeypatch):
+        monkeypatch.setattr(config_mod.settings, "storage_max_file_mb", 0)
+        conv_id = await _conv(client)
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("big.bin", b"x" * 10, "application/octet-stream")},
+        )
+        assert resp.status_code == 413
+
+    async def test_org_quota_enforced(self, client, monkeypatch):
+        monkeypatch.setattr(config_mod.settings, "storage_org_quota_mb", 0)
+        conv_id = await _conv(client)
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("x.txt", b"hello", "text/plain")},
+        )
+        assert resp.status_code == 413
+        assert "quota" in resp.json()["detail"].lower()
+
+    async def test_empty_upload_rejected(self, client):
+        conv_id = await _conv(client)
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("empty.txt", b"", "text/plain")},
+        )
+        assert resp.status_code == 422
+
+    async def test_message_with_ref_gets_chip_metadata(self, client):
+        conv_id = await _conv(client)
+        up = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("cv.pdf", b"%PDF-fake", "application/pdf")},
+        )
+        file_id = up.json()["file_id"]
+        resp = await client.post(
+            f"/v1/conversations/{conv_id}/messages",
+            json={"content": "summarize my cv", "max_steps": 1, "file_refs": [file_id]},
+        )
+        assert resp.status_code == 202
+        detail = await client.get(f"/v1/conversations/{conv_id}")
+        user_msgs = [m for m in detail.json()["messages"] if m["role"] == "user"]
+        chips = (user_msgs[0].get("metadata") or {}).get("files") or []
+        assert chips and chips[0]["file_id"] == file_id
+        assert chips[0]["name"] == "cv.pdf"
+
+
+def _record(rec_id: str, name: str, sha: str, **kw) -> StoredFile:
+    return StoredFile(
+        id=rec_id,
+        organization_id=kw.get("org", "org-1"),
+        user_id="u1",
+        conversation_id=kw.get("conv", "conv-1"),
+        kind=kw.get("kind", "upload"),
+        name=name,
+        content_type="text/plain",
+        size_bytes=kw.get("size", 5),
+        sha256=sha,
+        storage_key=kw.get("key", ""),
+    )
+
+
+class TestProvisioning:
+    def _put(self, name: str, data: bytes, conv="conv-1") -> StoredFile:
+        import hashlib
+        import io
+        import uuid
+
+        from aloy_backend.storage import upload_key
+
+        store = storage_mod.get_object_store()
+        rec = _record(
+            uuid.uuid4().hex, name, hashlib.sha256(data).hexdigest(), size=len(data)
+        )
+        rec.storage_key = upload_key("org-1", conv, rec.id, name)
+        store.put(rec.storage_key, io.BytesIO(data), content_type="text/plain")
+        return rec
+
+    def test_provisions_and_skips_when_hash_matches(self, tmp_path):
+        rec = self._put("notes.txt", b"hello")
+        entries = provision_conversation_uploads("conv-1", [rec])
+        assert entries[0]["name"] == "notes.txt"
+        target = (
+            tmp_path
+            / "sandbox"
+            / "threads"
+            / "conv-1"
+            / "user-data"
+            / "uploads"
+            / "notes.txt"
+        )
+        assert target.read_bytes() == b"hello"
+        # Second call: skip (delete the blob to PROVE no re-copy happens).
+        storage_mod.get_object_store().delete(rec.storage_key)
+        entries2 = provision_conversation_uploads("conv-1", [rec])
+        assert entries2[0]["name"] == "notes.txt"
+        assert target.read_bytes() == b"hello"
+
+    def test_same_name_different_content_does_not_overwrite(self, tmp_path):
+        a = self._put("data.csv", b"version-a")
+        b = self._put("data.csv", b"version-b")
+        entries = provision_conversation_uploads("conv-1", [a, b])
+        names = {e["name"] for e in entries}
+        assert "data.csv" in names and len(names) == 2
+        uploads = tmp_path / "sandbox" / "threads" / "conv-1" / "user-data" / "uploads"
+        contents = {p.read_bytes() for p in uploads.iterdir() if p.suffix == ".csv"}
+        assert contents == {b"version-a", b"version-b"}
+
+    def test_task_block_lists_files_with_guidance(self):
+        block = uploads_task_block(
+            [
+                {
+                    "name": "data.csv",
+                    "size_bytes": 198_000_000,
+                    "content_type": "text/csv",
+                }
+            ]
+        )
+        assert "/mnt/user-data/uploads/data.csv" in block
+        assert "188.8MB" in block
+        assert "head" in block  # sampled-access guidance
+
+    def test_resolve_refs_drops_foreign_rows(self):
+        mine = _record("f1", "a.txt", "s1")
+        other_org = _record("f2", "b.txt", "s2", org="org-2")
+        other_conv = _record("f3", "c.txt", "s3", conv="conv-9")
+        artifact = _record("f4", "d.txt", "s4", kind="artifact")
+        out = resolve_upload_refs(
+            [mine, other_org, other_conv, artifact, None],
+            organization_id="org-1",
+            conversation_id="conv-1",
+        )
+        assert out == [mine]

@@ -221,6 +221,10 @@ class SendMessageRequest(BaseModel):
     # resumes from its checkpoint; otherwise this is a normal turn and the
     # content should ask the model to continue.
     resume_run_id: str | None = None
+    # Durable uploads for this turn: StoredFile ids returned by
+    # POST /conversations/{id}/files. The model gets a reference block +
+    # the file provisioned in its sandbox — bytes never ride in the request.
+    file_refs: list[str] = Field(default_factory=list, max_length=10)
 
 
 # --- Agent Configs ---

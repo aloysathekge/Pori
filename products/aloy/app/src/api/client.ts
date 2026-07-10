@@ -57,6 +57,42 @@ export async function apiStreamFetch(
   return res;
 }
 
+/** Multipart upload with progress (XHR — fetch can't observe upload bytes). */
+export async function apiUploadFile<T>(
+  path: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<T> {
+  const token = getToken ? await getToken() : null;
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE_URL}${path}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText) as T);
+      } else {
+        let detail = 'Upload failed';
+        try {
+          detail = JSON.parse(xhr.responseText).detail || detail;
+        } catch {
+          // keep the fallback message
+        }
+        reject(new ApiError(xhr.status, detail));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Network error during upload'));
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {

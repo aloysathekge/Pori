@@ -49,6 +49,15 @@ def artifact_key(
     )
 
 
+def upload_key(
+    organization_id: str, conversation_id: str, file_id: str, name: str
+) -> str:
+    return (
+        f"org/{_segment(organization_id)}/conv/{_segment(conversation_id)}"
+        f"/uploads/{_segment(file_id)}/{safe_name(name)}"
+    )
+
+
 class ObjectStore(Protocol):
     def put(self, key: str, data: BinaryIO, *, content_type: str) -> int:
         """Store the stream under key; returns bytes written."""
