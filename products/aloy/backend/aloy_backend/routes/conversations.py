@@ -21,7 +21,7 @@ from pori import (
     fuse_retrieval,
 )
 
-from .. import live_runs
+from .. import live_runs, resumable_runs
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
@@ -887,6 +887,29 @@ async def send_message(
         session, context.organization_id, context.user_id
     )
 
+    # Continue a stopped run: claim its warm state (live AgentMemory + kernel
+    # task checkpoint) for a TRUE resume — the run picks up at the step it was
+    # stopped on, tool work intact. A cold cache needs no special handling:
+    # the continuation content runs as a normal turn over persisted history
+    # (which includes the stopped run's partial text). A normal turn instead
+    # invalidates any warm state — resuming after the conversation moved on
+    # would fork history.
+    resume_task_id: str | None = None
+    if req.resume_run_id:
+        warm = resumable_runs.claim(conversation_id, req.resume_run_id)
+        if warm is not None:
+            memory = warm.memory
+            task_content = warm.task
+            resume_task_id = warm.task_id
+            logger.info(
+                "Resuming stopped run %s (kernel task %s) for conversation %s",
+                req.resume_run_id,
+                warm.task_id,
+                conversation_id,
+            )
+    else:
+        resumable_runs.discard(conversation_id)
+
     orchestrator = build_orchestrator(
         shared_memory=memory,
         agent_config=agent_config,
@@ -942,6 +965,7 @@ async def send_message(
                     task_attachments=task_attachments,
                     result_holder=result_holder,
                     conversation_id=conv.id,
+                    resume_task_id=resume_task_id,
                 ):
                     yield event
             finally:

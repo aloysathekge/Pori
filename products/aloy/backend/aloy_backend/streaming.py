@@ -33,7 +33,7 @@ from pori import (
     RunContext,
 )
 
-from . import live_runs
+from . import live_runs, resumable_runs
 from .event_log import EventLogCollector
 
 logger = logging.getLogger("aloy_backend")
@@ -78,6 +78,7 @@ async def stream_agent_execution(
     task_attachments: Optional[list] = None,
     result_holder: Optional[dict] = None,
     conversation_id: Optional[str] = None,
+    resume_task_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Run the agent and stream its frames.
 
@@ -120,6 +121,7 @@ async def stream_agent_execution(
                 mcp_servers=mcp_servers,
                 task_attachments=task_attachments,
                 cancellation_token=cancel_token,
+                resume_task_id=resume_task_id,
             )
         )
 
@@ -214,6 +216,18 @@ async def stream_agent_execution(
                 "".join(partial_text).strip() or "*(stopped before any output)*"
             )
             result["stopped"] = True
+            # Park the run's warm state so a "continue" can truly resume the
+            # kernel task from its checkpoint instead of starting over.
+            if agent is not None and conversation_id:
+                resumable_runs.register(
+                    conversation_id,
+                    resumable_runs.ResumableRun(
+                        run_id=getattr(run_context, "run_id", "") or "",
+                        task=task,
+                        task_id=agent.task_id,
+                        memory=agent.memory,
+                    ),
+                )
         result_data = result.get("result", {}) or {}
         plan = result.get("plan") or result_data.get("plan") or []
         live.publish(

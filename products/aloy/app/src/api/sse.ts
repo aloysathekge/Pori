@@ -45,6 +45,8 @@ export async function streamMessage(
     images?: { data: string; media_type: string }[];
     files?: { name: string; content: string }[];
     documents?: { name: string; data: string; media_type: string }[];
+    /** Continue a stopped run (its run_id): true resume when still warm. */
+    resume_run_id?: string;
     signal?: AbortSignal;
   },
 ) {

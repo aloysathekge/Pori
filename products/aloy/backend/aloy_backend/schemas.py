@@ -216,6 +216,11 @@ class SendMessageRequest(BaseModel):
     files: list[FileAttachment] = Field(default_factory=list, max_length=3)
     # Binary documents (pdf/docx/xlsx), up to 3.
     documents: list[DocumentAttachment] = Field(default_factory=list, max_length=3)
+    # Continue a stopped run: its run_id (from the interrupted message's
+    # metadata). If the run's warm state is still cached, the kernel task
+    # resumes from its checkpoint; otherwise this is a normal turn and the
+    # content should ask the model to continue.
+    resume_run_id: str | None = None
 
 
 # --- Agent Configs ---

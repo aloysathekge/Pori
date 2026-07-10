@@ -391,10 +391,25 @@ export function ChatPage() {
     await dispatchSend(content.trim(), [], []);
   }
 
+  /** Continue an interrupted response. If the stopped run's state is still
+   *  warm on the server this truly resumes it (tool work intact); otherwise
+   *  the continuation instruction runs as a normal turn over history. */
+  async function handleContinueRun(message: MessageResponse) {
+    if (!activeId || sending || clarify) return;
+    const runId = message.metadata?.run_id ?? undefined;
+    await dispatchSend(
+      'Continue your interrupted response from exactly where it stopped. Do not repeat what you already wrote.',
+      [],
+      [],
+      runId ? { resumeRunId: runId } : undefined,
+    );
+  }
+
   async function dispatchSend(
     content: string,
     images: MessageImage[],
     files: (MessageFile & { content?: string; data?: string; media_type?: string })[],
+    opts?: { resumeRunId?: string },
   ) {
     if (!activeId) return;
     setSending(true);
@@ -434,6 +449,7 @@ export function ChatPage() {
       const textFiles = files.filter((f) => f.content != null);
       const binaryDocs = files.filter((f) => f.data != null);
       await streamMessage(activeId, content, callbacks, {
+        resume_run_id: opts?.resumeRunId,
         images: images.length > 0 ? images : undefined,
         files:
           textFiles.length > 0
@@ -533,6 +549,7 @@ export function ChatPage() {
                       message={msg}
                       onOpenArtifact={setArtifactPath}
                       onResend={sending ? undefined : handleResend}
+                      onContinue={sending ? undefined : handleContinueRun}
                     />
                   ))}
                   {streaming && streamText && (

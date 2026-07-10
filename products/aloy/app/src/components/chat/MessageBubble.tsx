@@ -8,10 +8,13 @@ export function MessageBubble({
   message,
   onOpenArtifact,
   onResend,
+  onContinue,
 }: {
   message: MessageResponse;
   onOpenArtifact?: (path: string) => void;
   onResend?: (content: string) => void;
+  /** Continue an interrupted (stopped) response from where it left off. */
+  onContinue?: (message: MessageResponse) => void;
 }) {
   const isUser = message.role === 'user';
   const artifacts = message.metadata?.artifacts ?? [];
@@ -104,7 +107,16 @@ export function MessageBubble({
         {!isUser && message.metadata?.stopped && (
           <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-400">
             <CircleSlash size={12} className="shrink-0" />
-            Response was interrupted.
+            <span className="flex-1">Response was interrupted.</span>
+            {onContinue && (
+              <button
+                type="button"
+                onClick={() => onContinue(message)}
+                className="rounded-md bg-zinc-700 px-2 py-0.5 font-medium text-zinc-200 transition-colors hover:bg-accent-600 hover:text-white"
+              >
+                Continue
+              </button>
+            )}
           </div>
         )}
 
