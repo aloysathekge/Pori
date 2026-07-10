@@ -26,7 +26,7 @@ from .models import (
     Run,
     TeamConfig,
 )
-from .orchestrator import build_orchestrator
+from .orchestrator import build_orchestrator, sandbox_base_dir
 from .run_outcome import json_safe, make_trace_record, make_usage_record
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
@@ -253,6 +253,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         memory=memory,
                         resume_task_id=kernel_task_id,
                         on_step_end=checkpoint,
+                        sandbox_base_dir=sandbox_base_dir(),
                     ),
                     timeout=run.timeout_seconds,
                 )

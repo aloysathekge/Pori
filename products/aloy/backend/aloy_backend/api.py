@@ -21,6 +21,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Pori Cloud")
     await init_db()
     logger.info("Database initialized")
+    # Streamed runs execute in THIS process (not just the worker), so the
+    # sandbox backend must be configured here too.
+    from .orchestrator import configure_sandbox
+
+    configure_sandbox()
     yield
     logger.info("Shutting down Pori Cloud")
 

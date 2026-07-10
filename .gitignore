@@ -34,6 +34,8 @@ htmlcov/
 
 # Pori runtime
 .pori_sandbox/
+.aloy_sandbox/
+.aloy_storage/
 memory.db
 .pori/
 

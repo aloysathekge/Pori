@@ -186,11 +186,21 @@ def _resolve_sandbox_path_if_needed(
     path: str, context: Optional[Dict[str, Any]]
 ) -> tuple[str, Optional[Path]]:
     """
-    If path is a sandbox virtual path and context has thread_id + sandbox_base_dir,
-    return (resolved_real_path, Path(sandbox_base_dir)) for safety check.
-    Otherwise return (path, None).
+    When context has thread_id + sandbox_base_dir, resolve sandbox paths to
+    real ones and return (resolved_real_path, Path(sandbox_base_dir)) for the
+    safety check. Two forms resolve:
+    - virtual paths (/mnt/user-data/...) map through the thread dirs
+    - RELATIVE paths join the thread workspace — with a sandbox configured,
+      a bare "report.md" belongs in the run's workspace, not the host cwd
+      (hosted products: the host cwd is shared across every tenant's runs).
+    Absolute paths and sandbox-less contexts pass through unchanged.
     """
-    if not context or not path.strip().startswith(SANDBOX_VIRTUAL_PREFIX):
+    if not context:
+        return path, None
+    stripped = path.strip()
+    is_virtual = stripped.startswith(SANDBOX_VIRTUAL_PREFIX)
+    is_relative = not is_virtual and stripped != "" and not Path(stripped).is_absolute()
+    if not (is_virtual or is_relative):
         return path, None
     thread_id = context.get("thread_id") or context.get("task_id")
     base_dir = context.get("sandbox_base_dir")
@@ -206,7 +216,10 @@ def _resolve_sandbox_path_if_needed(
         thread_data = get_thread_data(thread_id, base_dir)
         thread_data.ensure_dirs()
         context["thread_data"] = thread_data
-    resolved = replace_virtual_path(path, thread_data)
+    if is_virtual:
+        resolved = replace_virtual_path(path, thread_data)
+    else:
+        resolved = str(Path(thread_data.workspace_path) / stripped)
     return resolved, Path(base_dir).resolve()
 
 

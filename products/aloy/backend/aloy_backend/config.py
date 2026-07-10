@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     # this; it's an operator setting reflected read-only in the app.
     sandbox_backend: str = "local"
     sandbox_enabled: bool = False
+    # Filesystem jail for agent file tools + the local sandbox: every
+    # conversation gets {sandbox_base_dir}/threads/{conversation_id}/user-data/
+    # {workspace,uploads,outputs}. Always plumbed (even with the shell sandbox
+    # disabled) so file tools never write to the host process cwd.
+    sandbox_base_dir: str = ".aloy_sandbox"
+
+    # Object storage — durable blobs (agent artifacts now; uploads in Phase 2).
+    # 'local' = disk under storage_dir (dev default); 's3' arrives in Phase 3.
+    storage_backend: str = "local"
+    storage_dir: str = ".aloy_storage"
+    storage_max_artifact_mb: int = 25  # per artifact file
+    storage_max_run_artifact_mb: int = 100  # total per run
 
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.

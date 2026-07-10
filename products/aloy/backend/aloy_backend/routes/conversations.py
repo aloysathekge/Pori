@@ -36,11 +36,12 @@ from ..models import (
     KnowledgeEntry,
     Message,
     Run,
+    StoredFile,
     TeamConfig,
     TraceRecord,
     UsageRecord,
 )
-from ..orchestrator import build_orchestrator
+from ..orchestrator import build_orchestrator, sandbox_base_dir
 from ..rate_limit import check_rate_limit
 from ..run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ..runtime import authenticated_run_context
@@ -59,6 +60,7 @@ from ..schemas import (
 )
 from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
+from ..storage import get_object_store
 from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
 from ..tools import GOOGLE_TOOL_NAMES
@@ -578,6 +580,7 @@ def _conversation_artifacts(messages) -> dict:
                     "tool_name": a.get("tool_name"),
                     "bytes_written": a.get("bytes_written"),
                     "message_id": m.id,
+                    "file_id": a.get("file_id"),
                 }
     return out
 
@@ -619,8 +622,8 @@ async def get_artifact_content(
     session: AsyncSession = Depends(get_session),
 ):
     """Read one artifact's text, allowlisted to paths this conversation wrote
-    (so no arbitrary-file read) and confined to the server working dir."""
-    from pathlib import Path
+    and served from the object store (durable across replicas/redeploys)."""
+    from pathlib import PurePosixPath
 
     await _load_conv(session, context, conversation_id)
     msgs = (
@@ -632,29 +635,32 @@ async def get_artifact_content(
         .scalars()
         .all()
     )
-    if path not in _conversation_artifacts(msgs):
+    entry = _conversation_artifacts(msgs).get(path)
+    if entry is None:
         raise HTTPException(
             status_code=404, detail="Not an artifact of this conversation"
         )
-
-    base = Path.cwd().resolve()
-    target = (base / path).resolve()
-    if base not in target.parents and target != base:
-        raise HTTPException(
-            status_code=400, detail="Path outside the working directory"
-        )
-    if not target.is_file():
+    file_id = entry.get("file_id")
+    record = await session.get(StoredFile, file_id) if file_id else None
+    if (
+        record is None
+        or record.organization_id != context.organization_id
+        or record.conversation_id != conversation_id
+    ):
         raise HTTPException(status_code=404, detail="Artifact file no longer available")
     try:
-        raw = target.read_bytes()
-    except OSError:
-        raise HTTPException(status_code=400, detail="Could not read artifact")
+        with get_object_store().open(record.storage_key) as fh:
+            raw = fh.read(_ARTIFACT_MAX_BYTES + 1)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Artifact file no longer available")
     truncated = len(raw) > _ARTIFACT_MAX_BYTES
     content = raw[:_ARTIFACT_MAX_BYTES].decode("utf-8", errors="replace")
+    suffix = PurePosixPath(record.name).suffix.lower()
     return {
         "path": path,
+        "file_id": record.id,
         "content": content,
-        "language": _LANG_BY_EXT.get(target.suffix.lower(), "text"),
+        "language": _LANG_BY_EXT.get(suffix, "text"),
         "truncated": truncated,
     }
 
@@ -966,6 +972,7 @@ async def send_message(
                     result_holder=result_holder,
                     conversation_id=conv.id,
                     resume_task_id=resume_task_id,
+                    sandbox_base_dir=sandbox_base_dir(),
                 ):
                     yield event
             finally:
@@ -1071,6 +1078,7 @@ async def send_message(
             tool_context_extra={"connections": run_connections},
             mcp_servers=run_mcp_servers,
             task_attachments=task_attachments,
+            sandbox_base_dir=sandbox_base_dir(),
         )
     except Exception as e:
         logger.exception("Agent failed for conversation %s", conversation_id)
