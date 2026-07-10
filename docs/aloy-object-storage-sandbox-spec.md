@@ -186,6 +186,51 @@ At run end (in the pump's finalizer path, where artifacts already flow):
   scope sandbox egress to the store endpoint (Hermes egress-isolation note,
   `infrastructure-security.md:363-371`).
 
+## Latency & context budget
+
+The two failure modes of this design are a slow first token (files moving on
+the user's critical path) and a flooded context (file bytes leaking into
+prompts). Every mechanism above is placed against those two axes explicitly.
+
+### Latency: keep bytes off the send→first-token path
+
+| Path | When it runs | User waits? | Mitigation |
+|---|---|---|---|
+| Upload (client → store) | Before send (composer) | Yes, visibly | Progress chip; upload starts on attach, not on send — by the time the user finishes typing, it's usually done. Phase 3: presigned direct-to-store PUT so bytes skip our backend entirely. |
+| Sandbox cold start (E2B) | First tool call of a conversation | First turn only | Conversation sandbox is reused across turns (resume ledger). Pre-warm: when a message arrives carrying `file_refs`, create/wake the sandbox at run *setup*, concurrent with the first LLM call — Firecracker start is sub-second to ~2s and the model's first thinking step usually covers it. |
+| Provisioning IN | Run setup | Only the first run per file | **Eager provisioning**: push to the sandbox in the background at *upload time* (the sandbox is known: it's the conversation's). By send time the file is already there; run setup just verifies the SHA-256 manifest. First-run worst case (upload and send instantly, 200MB to E2B) degrades to a visible "Preparing files…" status frame — never a silent stall. |
+| Extraction OUT | Run finalizer | **No** | Runs after the final `message` frame is published — it adds to persistence time, never to perceived answer time. The artifacts drawer fills in eventually (rows land in the finalizer transaction). Caps bound the worst case. |
+
+Rules that fall out: (1) no file bytes ever move inside the LLM-call loop —
+only before the run (provision) or after the final frame (extract); (2) every
+byte-moving step is hash-skippable so nothing is paid twice; (3) anything
+that must block emits a status frame (the streaming UI already renders
+these) rather than stalling silently.
+
+### Context: references in, samples out, nothing resident
+
+- **In: a manifest line, not the file.** An upload costs the prompt ~20
+  tokens (`data.csv — 198MB, text/csv — /mnt/user-data/uploads/data.csv`)
+  regardless of size, once per turn, current conversation only. The bytes
+  never enter a prompt at any point in their lifecycle.
+- **Out: the kernel's output ceiling already holds.** Tool results are capped
+  at 100k chars globally (`pori/tools/registry.py:396`,
+  `DEFAULT_MAX_OUTPUT_CHARS`, the Hermes `max_result_size_chars` harvest), so
+  `cat data.csv` truncates instead of flooding. But a truncated cat is a
+  *wasted step* — the provisioning task block therefore teaches sampled
+  access up front: "inspect with `head`/`wc -l`/pandas, don't read whole
+  files." Cheaper to prevent the step than to survive it.
+- **History: pointers persist, bytes don't.** `StoredFile` pointers ride in
+  `Message.metadata_`; a conversation with ten 100MB files re-loads in
+  milliseconds and costs ~200 tokens of manifest. Contrast the *existing*
+  inline path, which re-inlines small text files into history **on every
+  subsequent turn** (`routes/conversations.py:492-497`) — a ≤200KB file taxes
+  every future turn of its conversation. Phase 2 note: once refs exist,
+  consider demoting re-inlining to first-turn-only (later turns get the
+  manifest line + the file provisioned in the sandbox), which *reduces*
+  today's context cost rather than adding to it.
+- **Artifacts:** already pointer-shaped in metadata; unchanged cost.
+
 ## Frontend
 
 - Composer: files over the inline/native limits upload via
@@ -203,8 +248,9 @@ At run end (in the pump's finalizer path, where artifacts already flow):
    the store. _No user-visible upload changes yet; agent outputs become
    durable and downloadable._
 2. **Big uploads + provisioning IN** — upload endpoint + quotas; composer
-   upload flow; provisioning into the sandbox; the task-reference block.
-   _Rung 4 unlocked: "analyze this 200MB CSV" works._
+   upload flow; provisioning into the sandbox (eager at upload time,
+   verified-by-hash at run setup); the task-reference block + sampled-access
+   guidance. _Rung 4 unlocked: "analyze this 200MB CSV" works._
 3. **Prod hardening** — `S3ObjectStore` (Supabase Storage first target);
    presigned downloads; retention policy (e.g. orphan cleanup for
    conversations deleted); E2B end-to-end smoke test with provisioning.
