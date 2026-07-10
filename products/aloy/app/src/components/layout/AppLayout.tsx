@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from 'lucide-react';
+import { FolderOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,7 @@ import {
 
 const navItems = [
   { to: '/chat', icon: ChatIcon, label: 'Chat' },
+  { to: '/files', icon: FolderOpen, label: 'My Files' },
   { to: '/agents', icon: AgentsIcon, label: 'Agents' },
   { to: '/skills', icon: SkillsIcon, label: 'Skills' },
   { to: '/schedules', icon: SchedulesIcon, label: 'Schedules' },

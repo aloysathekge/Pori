@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import {
+  Bookmark,
+  BookmarkCheck,
   Check,
   CircleSlash,
   Copy,
@@ -9,6 +11,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { apiStreamFetch } from '@/api/client';
+import { saveToLibrary } from '@/api/files';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -46,6 +49,16 @@ export function MessageBubble({
   const runId = message.metadata?.run_id ?? null;
   const [replaying, setReplaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+  async function handleSaveToLibrary(fileId: string) {
+    try {
+      await saveToLibrary(fileId);
+      setSavedIds((prev) => new Set(prev).add(fileId));
+    } catch {
+      // leave the bookmark unfilled so the user can retry
+    }
+  }
 
   function copyMessage() {
     navigator.clipboard.writeText(message.content).then(() => {
@@ -122,14 +135,32 @@ export function MessageBubble({
                     : `${(f.size / 1024).toFixed(1)} KB`}
                 </span>
                 {f.file_id && (
-                  <button
-                    type="button"
-                    title="Download"
-                    onClick={() => downloadStoredFile(f.file_id!, f.name)}
-                    className="opacity-70 transition-opacity hover:opacity-100"
-                  >
-                    <Download size={12} />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      title="Download"
+                      onClick={() => downloadStoredFile(f.file_id!, f.name)}
+                      className="opacity-70 transition-opacity hover:opacity-100"
+                    >
+                      <Download size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      title={
+                        savedIds.has(f.file_id)
+                          ? 'Saved to My Files'
+                          : 'Save to My Files (remembered across all chats)'
+                      }
+                      onClick={() => handleSaveToLibrary(f.file_id!)}
+                      className="opacity-70 transition-opacity hover:opacity-100"
+                    >
+                      {savedIds.has(f.file_id) ? (
+                        <BookmarkCheck size={12} />
+                      ) : (
+                        <Bookmark size={12} />
+                      )}
+                    </button>
+                  </>
                 )}
               </span>
             ))}

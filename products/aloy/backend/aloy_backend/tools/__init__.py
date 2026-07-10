@@ -26,6 +26,7 @@ from .gmail import (
     gmail_search_tool,
     gmail_send_tool,
 )
+from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
 
 # Every tool the 'google' connection unlocks, and the write subset a deployment
 # may want to HITL-gate (hitl.interrupt_on: {gmail_send: true, ...}).
@@ -66,6 +67,24 @@ _TOOLS = [
 ]
 
 
+def register_library_tools(registry) -> None:
+    """Register the file-library tool (idempotent). Excluded per-run via
+    denied_tools when the user's library is empty — zero context cost until
+    it's actually usable (footprint-ladder rung 3)."""
+    if "fetch_my_file" in registry.tools:
+        return
+    registry.register_tool(
+        name="fetch_my_file",
+        param_model=FetchMyFileParams,
+        function=fetch_my_file_tool,
+        description=(
+            "Retrieve a file from the user's saved file library (their "
+            "durable personal files, e.g. a CV) into the workspace so you "
+            "can read or edit it."
+        ),
+    )
+
+
 def register_google_tools(registry) -> None:
     """Register all Google tools + the 'google' capability group (idempotent)."""
     if "gmail_search" in registry.tools:
@@ -90,5 +109,7 @@ def register_google_tools(registry) -> None:
 __all__ = [
     "GOOGLE_TOOL_NAMES",
     "GOOGLE_WRITE_TOOLS",
+    "LIBRARY_TOOL_NAMES",
     "register_google_tools",
+    "register_library_tools",
 ]

@@ -28,6 +28,7 @@ from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
 from ..doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ..event_log import EventLogCollector
+from ..library import library_manifest
 from ..memory_records import request_scope, row_to_record
 from ..models import (
     AgentConfig,
@@ -69,7 +70,7 @@ from ..skills import load_skill_catalog
 from ..storage import get_object_store, safe_name, upload_key
 from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
-from ..tools import GOOGLE_TOOL_NAMES
+from ..tools import GOOGLE_TOOL_NAMES, LIBRARY_TOOL_NAMES
 from .teams import _build_team_from_config
 
 logger = logging.getLogger("aloy_backend")
@@ -941,6 +942,24 @@ async def send_message(
     run_mcp_servers = await resolve_run_mcp_servers(
         session, context.organization_id, context.user_id
     )
+    # The user's file library: memory pointers already ride in KnowledgeEntry
+    # recall; the manifest here powers fetch_my_file. Empty library → the
+    # tool is excluded from the surface (zero context cost).
+    library_rows = (
+        (
+            await session.execute(
+                select(StoredFile).where(
+                    StoredFile.organization_id == context.organization_id,
+                    StoredFile.user_id == context.user_id,
+                    StoredFile.in_library == True,  # noqa: E712
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    run_library = library_manifest(list(library_rows))
+    library_denied = () if run_library else tuple(LIBRARY_TOOL_NAMES)
 
     # Continue a stopped run: claim its warm state (live AgentMemory + kernel
     # task checkpoint) for a TRUE resume — the run picks up at the step it was
@@ -969,7 +988,9 @@ async def send_message(
         shared_memory=memory,
         agent_config=agent_config,
         allowed_tools=context.policy.allowed_tools or None,
-        denied_tools=tuple(context.policy.denied_tools) + connection_denied,
+        denied_tools=tuple(context.policy.denied_tools)
+        + connection_denied
+        + library_denied,
         allowed_capability_groups=(context.policy.allowed_capability_groups or None),
         allowed_provider_profiles=(context.policy.allowed_provider_profiles or None),
         allowed_models=context.policy.allowed_models or None,
@@ -1015,7 +1036,10 @@ async def send_message(
                     settings=agent_settings,
                     run_context=stream_context,
                     collector=event_collector,
-                    tool_context_extra={"connections": run_connections},
+                    tool_context_extra={
+                        "connections": run_connections,
+                        "library_files": run_library,
+                    },
                     mcp_servers=run_mcp_servers,
                     task_attachments=task_attachments,
                     result_holder=result_holder,
@@ -1124,7 +1148,10 @@ async def send_message(
             task=task_content,
             agent_settings=agent_settings,
             run_context=run_context,
-            tool_context_extra={"connections": run_connections},
+            tool_context_extra={
+                "connections": run_connections,
+                "library_files": run_library,
+            },
             mcp_servers=run_mcp_servers,
             task_attachments=task_attachments,
             sandbox_base_dir=sandbox_base_dir(),
