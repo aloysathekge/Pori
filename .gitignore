@@ -42,4 +42,5 @@ memory.db
 # OS
 .DS_Store
 Thumbs.db
-.claude/uvicorn.*.log
+.claude/
+uvicorn.*.log
