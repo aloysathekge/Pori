@@ -1,14 +1,14 @@
-# Invoke from /opt/aloy-backend/aloy_backend/ on the EC2 instance:
+# Invoke from products/aloy/backend/ inside the monorepo clone:
 #   docker compose up -d --build
 #
-# The build context is the parent dir so the image can see both
-# `Pori/` (the framework, editable path dep) and `aloy_backend/` (the API).
+# The build context is the MONOREPO ROOT so the image sees the kernel
+# (`pori/`, editable path dep) and the backend together.
 
 services:
   api:
     build:
-      context: ..
-      dockerfile: aloy_backend/Dockerfile
+      context: ../../..
+      dockerfile: products/aloy/backend/Dockerfile
     image: aloy-backend:latest
     container_name: aloy-backend-api
     restart: unless-stopped
@@ -16,7 +16,11 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     env_file:
-      - /opt/aloy-backend/.env
+      - /opt/aloy/.env
+    volumes:
+      # Durable data: blobs (STORAGE_BACKEND=local) + sandbox jails. Shared
+      # with the worker so both write the same storage/workspaces.
+      - aloy-data:/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/v1/health"]
       interval: 30s
@@ -39,7 +43,9 @@ services:
     depends_on:
       - api
     env_file:
-      - /opt/aloy-backend/.env
+      - /opt/aloy/.env
+    volumes:
+      - aloy-data:/data
     command: ["aloy-backend-worker"]
     logging:
       driver: json-file
@@ -58,10 +64,13 @@ services:
     depends_on:
       - api
     env_file:
-      - /opt/aloy-backend/.env
+      - /opt/aloy/.env
     command: ["aloy-backend-gateway"]
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  aloy-data:

@@ -6,9 +6,9 @@ After=docker.service network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/aloy-backend/aloy_backend
+WorkingDirectory=/opt/aloy/Pori/products/aloy/backend
 # Refresh .env from SSM on every start, then bring the stack up detached.
-ExecStartPre=/opt/aloy-backend/aloy_backend/deploy/load-env-from-ssm.sh
+ExecStartPre=/opt/aloy/Pori/products/aloy/backend/deploy/load-env-from-ssm.sh
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=300
