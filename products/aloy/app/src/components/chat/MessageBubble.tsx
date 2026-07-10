@@ -1,8 +1,33 @@
 import { useState } from 'react';
-import { Check, CircleSlash, Copy, FileText, History, RotateCcw } from 'lucide-react';
+import {
+  Check,
+  CircleSlash,
+  Copy,
+  Download,
+  FileText,
+  History,
+  RotateCcw,
+} from 'lucide-react';
+import { apiStreamFetch } from '@/api/client';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
+
+/** Auth'd download: the endpoint needs the Bearer header, so a plain <a href>
+ *  can't do it — fetch the blob and click a transient object URL. */
+async function downloadStoredFile(fileId: string, name: string) {
+  try {
+    const res = await apiStreamFetch(`/files/${fileId}`, undefined, undefined, 'GET');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    // transient; the chip stays usable for a retry
+  }
+}
 
 export function MessageBubble({
   message,
@@ -91,7 +116,21 @@ export function MessageBubble({
               >
                 <FileText size={13} className="shrink-0" />
                 <span className="max-w-44 truncate font-medium">{f.name}</span>
-                <span className="opacity-60">{(f.size / 1024).toFixed(1)} KB</span>
+                <span className="opacity-60">
+                  {f.size > 1024 * 1024
+                    ? `${(f.size / (1024 * 1024)).toFixed(1)} MB`
+                    : `${(f.size / 1024).toFixed(1)} KB`}
+                </span>
+                {f.file_id && (
+                  <button
+                    type="button"
+                    title="Download"
+                    onClick={() => downloadStoredFile(f.file_id!, f.name)}
+                    className="opacity-70 transition-opacity hover:opacity-100"
+                  >
+                    <Download size={12} />
+                  </button>
+                )}
               </span>
             ))}
           </div>

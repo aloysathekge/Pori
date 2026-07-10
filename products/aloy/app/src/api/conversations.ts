@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch, apiUploadFile } from './client';
 import type {
   ConversationResponse,
   ConversationDetail,
@@ -34,6 +34,27 @@ export function updateConversation(id: string, title: string) {
 
 export function deleteConversation(id: string) {
   return apiFetch<void>(`/conversations/${id}`, { method: 'DELETE' });
+}
+
+export interface UploadedFileRef {
+  file_id: string;
+  name: string;
+  size_bytes: number;
+  content_type: string;
+}
+
+/** Durable upload (rung 4): the file goes to object storage + the sandbox;
+ *  the message later carries only its file_id reference. */
+export function uploadConversationFile(
+  conversationId: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+) {
+  return apiUploadFile<UploadedFileRef>(
+    `/conversations/${conversationId}/files`,
+    file,
+    onProgress,
+  );
 }
 
 /** Stop the conversation's in-flight run (agent halts at the next step). */

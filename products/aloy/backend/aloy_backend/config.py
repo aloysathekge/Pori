@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     storage_dir: str = ".aloy_storage"
     storage_max_artifact_mb: int = 25  # per artifact file
     storage_max_run_artifact_mb: int = 100  # total per run
+    storage_max_file_mb: int = 100  # per user upload
+    storage_org_quota_mb: int = 2048  # total stored bytes per organization
 
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.

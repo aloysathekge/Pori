@@ -17,6 +17,7 @@ export interface MessageFile {
   name: string;
   size: number;
   content?: string; // present on persisted messages (context rebuild)
+  file_id?: string; // durable upload — downloadable via GET /files/{id}
 }
 
 export interface MessageMetadata {

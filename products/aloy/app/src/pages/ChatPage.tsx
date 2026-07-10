@@ -14,6 +14,7 @@ import {
   createConversation,
   deleteConversation,
   stopGeneration,
+  uploadConversationFile,
 } from '@/api/conversations';
 import {
   attachLiveRun,
@@ -41,6 +42,7 @@ const DOC_MIMES: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 const MAX_DOC_BYTES = 10 * 1024 * 1024; // 10MB per document
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // durable-upload rung cap (backend too)
 const TEXT_EXTENSIONS =
   /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|cs|php|html|css|scss|xml|yml|yaml|toml|ini|cfg|conf|env|sh|bash|ps1|sql|log|diff|patch)$/i;
 
@@ -54,7 +56,16 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const [pendingFiles, setPendingFiles] = useState<
-    (MessageFile & { content?: string; data?: string; media_type?: string })[]
+    (MessageFile & {
+      content?: string;
+      data?: string;
+      media_type?: string;
+      // Durable-upload rung: set while/after uploading to object storage.
+      key?: string;
+      file_id?: string;
+      uploading?: boolean;
+      progress?: number;
+    })[]
   >([]);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -158,12 +169,52 @@ export function ChatPage() {
     }
   }
 
+  /** Durable-upload rung: too big (or too binary) for inline/native — the
+   *  file streams to object storage NOW (eager, while the user types) and
+   *  the message will carry only its reference. */
+  function uploadAttachment(file: File) {
+    const convId = activeId;
+    if (!convId || file.size > MAX_UPLOAD_BYTES) return;
+    if (pendingFiles.length >= MAX_FILES) return;
+    const key = `${file.name}-${Date.now()}-${Math.random()}`;
+    setPendingFiles((prev) =>
+      prev.length >= MAX_FILES
+        ? prev
+        : [
+            ...prev,
+            { key, name: file.name, size: file.size, uploading: true, progress: 0 },
+          ],
+    );
+    uploadConversationFile(convId, file, (pct) =>
+      setPendingFiles((prev) =>
+        prev.map((f) => (f.key === key ? { ...f, progress: pct } : f)),
+      ),
+    )
+      .then((res) =>
+        setPendingFiles((prev) =>
+          prev.map((f) =>
+            f.key === key
+              ? { ...f, uploading: false, progress: 100, file_id: res.file_id }
+              : f,
+          ),
+        ),
+      )
+      .catch(() =>
+        // Failed upload: drop the chip so a dead reference can't be sent.
+        setPendingFiles((prev) => prev.filter((f) => f.key !== key)),
+      );
+  }
+
   /** Route attachments: images render for the model's eyes; text-like files
-   *  embed their content into the task. (Attach button, paste, drag-drop.) */
+   *  embed their content into the task; everything bigger or binary takes
+   *  the durable-upload rung. (Attach button, paste, drag-drop.) */
   function addAttachments(files: Iterable<File>) {
     for (const file of files) {
       if (file.type.startsWith('image/')) {
-        if (file.size > MAX_IMAGE_BYTES) continue;
+        if (file.size > MAX_IMAGE_BYTES) {
+          uploadAttachment(file);
+          continue;
+        }
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = String(reader.result || '').split(',')[1] ?? '';
@@ -176,7 +227,10 @@ export function ChatPage() {
         };
         reader.readAsDataURL(file);
       } else if (DOC_MIMES[file.name.split('.').pop()?.toLowerCase() ?? '']) {
-        if (file.size > MAX_DOC_BYTES) continue;
+        if (file.size > MAX_DOC_BYTES) {
+          uploadAttachment(file);
+          continue;
+        }
         const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
         const reader = new FileReader();
         reader.onload = () => {
@@ -198,6 +252,11 @@ export function ChatPage() {
         };
         reader.readAsDataURL(file);
       } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
+        if (file.size > MAX_FILE_CHARS) {
+          // Too big to inline without truncating — store it whole instead.
+          uploadAttachment(file);
+          continue;
+        }
         const reader = new FileReader();
         reader.onload = () => {
           const text = String(reader.result || '').slice(0, MAX_FILE_CHARS);
@@ -209,8 +268,11 @@ export function ChatPage() {
           );
         };
         reader.readAsText(file);
+      } else {
+        // Any other type (zip, sqlite, parquet, unknown binaries…): the
+        // durable-upload rung — the agent works on it in the sandbox.
+        uploadAttachment(file);
       }
-      // other types (pdf, binaries): not supported yet — skipped
     }
   }
 
@@ -367,6 +429,7 @@ export function ChatPage() {
       !activeId
     )
       return;
+    if (pendingFiles.some((f) => f.uploading)) return; // wait for uploads
     const content = input.trim() || 'See the attached content.';
 
     // If the agent is waiting on a clarification, the message box answers it
@@ -448,8 +511,10 @@ export function ChatPage() {
     try {
       const textFiles = files.filter((f) => f.content != null);
       const binaryDocs = files.filter((f) => f.data != null);
+      const uploadRefs = files.filter((f) => f.file_id).map((f) => f.file_id!);
       await streamMessage(activeId, content, callbacks, {
         resume_run_id: opts?.resumeRunId,
+        file_refs: uploadRefs.length > 0 ? uploadRefs : undefined,
         images: images.length > 0 ? images : undefined,
         files:
           textFiles.length > 0

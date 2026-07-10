@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -22,6 +22,7 @@ from pori import (
 )
 
 from .. import live_runs, resumable_runs
+from ..config import settings
 from ..connections.mcp_store import resolve_run_mcp_servers
 from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
@@ -42,6 +43,11 @@ from ..models import (
     UsageRecord,
 )
 from ..orchestrator import build_orchestrator, sandbox_base_dir
+from ..provisioning import (
+    provision_conversation_uploads,
+    resolve_upload_refs,
+    uploads_task_block,
+)
 from ..rate_limit import check_rate_limit
 from ..run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ..runtime import authenticated_run_context
@@ -60,7 +66,7 @@ from ..schemas import (
 )
 from ..session_repository import CloudSessionRepository
 from ..skills import load_skill_catalog
-from ..storage import get_object_store
+from ..storage import get_object_store, safe_name, upload_key
 from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
 from ..tools import GOOGLE_TOOL_NAMES
@@ -413,6 +419,7 @@ async def _prepare_message(
     images: list | None = None,
     files: list | None = None,
     documents: list | None = None,
+    uploaded: list[StoredFile] | None = None,
 ) -> tuple[Conversation, AgentMemory]:
     """Validate conversation, save user message, seed memory from DB tables."""
     conv = await session.get(Conversation, conversation_id)
@@ -434,6 +441,12 @@ async def _prepare_message(
         # and extracted docx/xlsx text already rides in the model task.
         meta.setdefault("files", []).extend(
             {"name": d.name, "size": len(d.data) * 3 // 4} for d in documents
+        )
+    if uploaded:
+        # Durable uploads: chips with the file_id pointer (bytes live in the
+        # object store; the model reaches them in the sandbox, never inline).
+        meta.setdefault("files", []).extend(
+            {"name": u.name, "size": u.size_bytes, "file_id": u.id} for u in uploaded
         )
     user_msg = Message(
         conversation_id=conversation_id,
@@ -675,6 +688,16 @@ async def send_message(
     context: OrganizationContext = Depends(check_rate_limit),
     session: AsyncSession = Depends(get_session),
 ):
+    # Durable upload refs for this turn (already in the store; validate they
+    # are THIS org+conversation's uploads — a foreign id is dropped, not an
+    # oracle).
+    ref_rows = [await session.get(StoredFile, fid) for fid in req.file_refs]
+    turn_uploads = resolve_upload_refs(
+        ref_rows,
+        organization_id=context.organization_id,
+        conversation_id=conversation_id,
+    )
+
     conv, memory = await _prepare_message(
         session,
         context,
@@ -683,6 +706,7 @@ async def send_message(
         images=req.images,
         files=req.files,
         documents=req.documents,
+        uploaded=turn_uploads,
     )
     user_id = context.user_id
     # Kernel-side image blocks for this turn (multimodal task message).
@@ -724,6 +748,31 @@ async def send_message(
         + "".join(_render_file_block(f.name, f.content) for f in req.files)
         + "".join(_render_file_block(n, t) for n, t in extracted_files)
     )
+
+    # Every durable upload of this conversation rides as a REFERENCE block
+    # (~1 line per file), provisioned into the sandbox — never as bytes in
+    # the task. Eager provisioning at upload time makes this a hash verify.
+    conv_uploads = (
+        (
+            await session.execute(
+                select(StoredFile).where(
+                    StoredFile.conversation_id == conversation_id,
+                    StoredFile.kind == "upload",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if conv_uploads:
+        try:
+            task_content += uploads_task_block(
+                provision_conversation_uploads(conversation_id, conv_uploads)
+            )
+        except Exception:
+            logger.exception(
+                "Upload provisioning failed for conversation %s", conversation_id
+            )
 
     if not context.policy.allow_shared_process_execution:
         active_count = (
@@ -1149,6 +1198,84 @@ async def attach_live_run(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/{conversation_id}/files", status_code=201)
+async def upload_conversation_file(
+    conversation_id: str,
+    file: UploadFile = File(...),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Store a large attachment durably (rung 4 of the attachment ladder:
+    beyond the inline/native limits, the model gets a *reference* and works
+    on the bytes in the sandbox). Also eagerly provisions the file into this
+    conversation's sandbox so send time pays no copy."""
+    import hashlib
+
+    conv = await _load_conv(session, context, conversation_id)
+
+    body = file.file  # spooled temp file — already fully received
+    body.seek(0, 2)
+    size = body.tell()
+    body.seek(0)
+    if size == 0:
+        raise HTTPException(status_code=422, detail="Empty file")
+    if size > settings.storage_max_file_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {settings.storage_max_file_mb}MB limit",
+        )
+
+    used = (
+        await session.execute(
+            select(func.coalesce(func.sum(StoredFile.size_bytes), 0)).where(
+                StoredFile.organization_id == context.organization_id
+            )
+        )
+    ).scalar_one()
+    if used + size > settings.storage_org_quota_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail="Organization storage quota exceeded",
+        )
+
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: body.read(1024 * 1024), b""):
+        digest.update(chunk)
+    body.seek(0)
+
+    name = safe_name(file.filename or "upload")
+    content_type = file.content_type or "application/octet-stream"
+    record = StoredFile(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        conversation_id=conv.id,
+        kind="upload",
+        name=name,
+        content_type=content_type,
+        size_bytes=size,
+        sha256=digest.hexdigest(),
+        storage_key="",
+    )
+    record.storage_key = upload_key(context.organization_id, conv.id, record.id, name)
+    get_object_store().put(record.storage_key, body, content_type=content_type)
+    session.add(record)
+    await session.commit()
+
+    # Eager provisioning (latency contract: the copy happens NOW, while the
+    # user is still typing — run setup just verifies the hash manifest).
+    try:
+        provision_conversation_uploads(conv.id, [record])
+    except Exception:
+        logger.exception("Eager provisioning failed for upload %s", record.id)
+
+    return {
+        "file_id": record.id,
+        "name": record.name,
+        "size_bytes": record.size_bytes,
+        "content_type": record.content_type,
+    }
 
 
 @router.post("/{conversation_id}/stop")
