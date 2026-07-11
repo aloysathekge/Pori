@@ -31,6 +31,7 @@ from .run_outcome import json_safe, make_trace_record, make_usage_record
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
+from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend")
@@ -187,15 +188,13 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     ):
                         raise ValueError("Agent config is unavailable")
             if run.team_config_id:
-                from .routes.teams import _build_team_from_config
-
                 team_config = await session.get(TeamConfig, run.team_config_id)
                 if (
                     team_config is None
                     or team_config.organization_id != run.organization_id
                 ):
                     raise ValueError("Team config is unavailable")
-                team = _build_team_from_config(
+                team = build_team_from_config(
                     team_config,
                     run.task,
                     memory=memory,

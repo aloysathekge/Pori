@@ -1,28 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
-
-from pori import (
-    AgentSettings,
-    LLMConfig,
-    MemberConfig,
-    RunContext,
-    Team,
-    TeamMode,
-    create_llm,
-    get_configured_llm,
-    register_all_tools,
-    tool_registry,
-)
-
-if TYPE_CHECKING:
-    from pori import AgentMemory
 
 from ..database import get_session
 from ..models import Run, TeamConfig
@@ -127,48 +110,8 @@ async def delete_team(
 
 
 # ---- Execution ----
-
-
-def _build_team_from_config(
-    team_config: TeamConfig,
-    task: str,
-    memory: "AgentMemory | None" = None,
-    run_context: RunContext | None = None,
-) -> Team:
-    """Construct a pori Team from a stored TeamConfig."""
-    llm, _ = get_configured_llm()
-
-    registry = tool_registry()
-    register_all_tools(registry)
-
-    members = []
-    for m in team_config.members:
-        llm_config = None
-        if m.get("llm_config"):
-            llm_config = LLMConfig(**m["llm_config"])
-
-        members.append(
-            MemberConfig(
-                name=m["name"],
-                description=m["description"],
-                llm_config=llm_config,
-                agent_settings=m.get("agent_settings"),
-                tools=m.get("tools"),
-            )
-        )
-
-    return Team(
-        task=task,
-        coordinator_llm=llm,
-        members=members,
-        mode=TeamMode(team_config.mode),
-        tools_registry=registry,
-        memory=memory,
-        max_delegation_steps=team_config.max_delegation_steps,
-        max_concurrent_members=team_config.max_concurrent_members,
-        name=team_config.name,
-        run_context=run_context,
-    )
+# (Team construction from a stored TeamConfig lives in
+# aloy_backend.team_execution — shared with the durable worker.)
 
 
 @router.post("/{team_id}/run", status_code=202)
