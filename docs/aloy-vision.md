@@ -33,6 +33,22 @@ understands, remembers, and acts. It turns moments in a person's life into
 dynamic, interactive systems — each with its own UI, logic, and evolving
 state — rather than static pages, notes, or threads.
 
+**The philosophy in one split:** the user operates life at the level of
+**intentions and decisions**; the system handles everything else.
+
+| | manages |
+|---|---|
+| **User** | intentions · decisions · review |
+| **Aloy** | planning · tracking · execution · adaptation · coordination |
+
+One-line roles: **Life** = intake + coordination layer · **Events** =
+execution systems · **Aloy** = operator + intelligence layer · **User** =
+decision-maker. The transformation: from *"I need to organize and do
+everything"* to *"I define what I want and guide decisions while the system
+handles the rest."* Interaction is **decision-only** by design: the user
+engages for approvals, tradeoffs, and commitments — everything else is
+ambient.
+
 ## 2. The core model
 
 ```
@@ -94,11 +110,29 @@ Emerging → Active → Dormant → Concluded → Archived
   interview → offer) is composed by the model per event. Hard-coding domain
   phases builds yesterday's assumptions into tomorrow's models.
 
-**The Life Event is the default root.** Unstructured reality — thoughts,
-loose tasks, questions, incoming information — enters Life first and earns
-structure: `unstructured reality → Life → Proposal → dedicated Event`.
-Event creation is itself a Proposal (Aloy notices, proposes; the user
-decides).
+**The Life Event is the default root — the intake and coordination layer.**
+Its five responsibilities:
+
+1. **Capture** — all inputs land here first (thoughts, requests, ideas,
+   external signals).
+2. **Routing** — does this belong to an existing Event? Should it become a
+   new one (via Proposal)? Or stay unstructured?
+3. **Undefined-things storage** — "I want to travel someday", "maybe learn
+   guitar" live here indefinitely without pressure.
+4. **Global awareness — cross-event coordination.** *Events are not
+   isolated; Life coordinates them.* Life is itself an Event whose agents'
+   scope is the graph: they Observe across Events, detect conflicts (exam
+   tomorrow + gym scheduled → suggest adjusting) and priority collisions,
+   and raise them as Proposals or attention items. Coordination is
+   Observe/Compute (free, Trail-logged); *resolution* routes to the user
+   (V1 arbitration). Life is the honest broker — event agents never
+   negotiate through a back channel.
+5. **The Today view** — what needs attention, what changed, what decisions
+   are pending (see §3.3).
+
+Unstructured reality earns structure:
+`unstructured reality → Life → Proposal → dedicated Event`. Event creation
+is itself a Proposal (Aloy notices, proposes; the user decides).
 
 **The cold start: Aloy is useful before any structure exists.** With zero
 Events, Life is a smart evolving stream — you capture anything, get
@@ -323,6 +357,15 @@ Create Event → Surface appears → agent works → Trail explains
 
 The magic moment: watching Aloy transform an intention into a living
 system.
+
+**What it feels like across lives** (the same primitives, different
+intelligence): a *student's* University event knows exams, deadlines, weak
+areas — builds study plans, surfaces urgency ("Math exam in 5 days; you're
+behind on Chemistry"). A *developer's* project event analyzes bugs,
+monitors deployments, filters interruptions. A *gym* event plans workouts
+and tracks consistency. A *household* event coordinates family logistics
+and remembers everything. And Life coordinates across them — the exam
+reschedules the workout.
 
 **The wedge (V1):** the Event loop end-to-end on a thin slice — Life Event +
 one dedicated event type with a Surface, the Agent Trail, Proposals with
