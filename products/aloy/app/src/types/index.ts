@@ -20,6 +20,25 @@ export interface MessageFile {
   file_id?: string; // durable upload — downloadable via GET /files/{id}
 }
 
+/** A composer attachment staged for send, across all attachment rungs.
+ *  Exactly one "ride" carries the bytes to the model — inline text
+ *  (`content`), native document (`data` + `media_type`), or the durable
+ *  upload reference (`file_id`) — while the upload-tracking fields drive
+ *  the chip's progress UI. */
+export interface PendingFile extends MessageFile {
+  /** Inline rung: text content embedded into the task. */
+  content?: string;
+  /** Native-doc rung: base64 bytes the model reads directly (pdf/docx/xlsx). */
+  data?: string;
+  media_type?: string;
+  // Durable-upload rung: set while/after uploading to object storage.
+  key?: string;
+  file_id?: string;
+  uploading?: boolean;
+  progress?: number;
+  error?: boolean;
+}
+
 export interface MessageMetadata {
   images?: MessageImage[];
   files?: MessageFile[];
