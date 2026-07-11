@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..database import get_session
 from ..models import Run, RunEventLog
@@ -67,7 +67,7 @@ async def create_run(
             .select_from(Run)
             .where(
                 Run.organization_id == context.organization_id,
-                Run.status.in_(["pending", "running"]),
+                col(Run.status).in_(["pending", "running"]),
             )
         )
     ).scalar_one()
@@ -107,7 +107,7 @@ async def list_runs(
     result = await session.execute(
         select(Run)
         .where(Run.organization_id == context.organization_id)
-        .order_by(Run.created_at.desc())
+        .order_by(col(Run.created_at).desc())
     )
     return result.scalars().all()
 

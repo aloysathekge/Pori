@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..config import settings
 from ..connections import available_providers, get_provider
@@ -60,8 +60,8 @@ async def list_providers(
                 select(OAuthConnection).where(
                     OAuthConnection.organization_id == context.organization_id,
                     or_(
-                        OAuthConnection.user_id == context.user_id,
-                        OAuthConnection.scope == "org",
+                        col(OAuthConnection.user_id) == context.user_id,
+                        col(OAuthConnection.scope) == "org",
                     ),
                 )
             )

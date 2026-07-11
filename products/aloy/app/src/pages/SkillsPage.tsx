@@ -44,6 +44,8 @@ export function SkillsPage() {
   }, []);
 
   useEffect(() => {
+    // Mount-time fetch; `loading` already initializes true (no cascade).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

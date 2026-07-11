@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import SkillCatalog, SkillManifest
 
@@ -30,7 +30,7 @@ async def load_skill_catalog(
     grants = await session.execute(
         select(SkillGrant).where(
             SkillGrant.organization_id == organization_id,
-            SkillGrant.skill_id.in_([skill.id for skill in skills]),
+            col(SkillGrant.skill_id).in_([skill.id for skill in skills]),
         )
     )
     allowed_ids = {

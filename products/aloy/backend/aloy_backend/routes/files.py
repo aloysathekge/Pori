@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..config import settings
 from ..database import get_session
@@ -51,7 +51,7 @@ async def list_my_library(
                     StoredFile.user_id == context.user_id,
                     StoredFile.in_library == True,  # noqa: E712
                 )
-                .order_by(StoredFile.created_at.desc())
+                .order_by(col(StoredFile.created_at).desc())
             )
         )
         .scalars()

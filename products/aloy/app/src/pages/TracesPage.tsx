@@ -206,12 +206,12 @@ export function TracesPage() {
             <div key={convId}>
               <div className="mb-2 flex items-center gap-2">
                 <h2 className="truncate text-sm font-medium text-zinc-300">
-                  {group[0].conversation_title || 'Untitled conversation'}
+                  {group[0]?.conversation_title || 'Untitled conversation'}
                 </h2>
                 <span className="shrink-0 text-xs text-zinc-600">
                   {group.length} run{group.length === 1 ? '' : 's'}
                 </span>
-                {group[0].conversation_id && (
+                {group[0]?.conversation_id && (
                   <a
                     href={`/chat/${group[0].conversation_id}`}
                     className="shrink-0 text-xs text-accent-600 hover:underline"

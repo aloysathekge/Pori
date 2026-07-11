@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..connections.crypto import encrypt
 from ..database import get_session
@@ -43,8 +43,8 @@ async def list_servers(
                 select(McpServer).where(
                     McpServer.organization_id == context.organization_id,
                     or_(
-                        McpServer.user_id == context.user_id,
-                        McpServer.scope == "org",
+                        col(McpServer.user_id) == context.user_id,
+                        col(McpServer.scope) == "org",
                     ),
                 )
             )
@@ -93,6 +93,12 @@ async def create_server(
     if dup is not None:
         raise HTTPException(status_code=409, detail="A server with that name exists")
 
+    static_secret_enc = None
+    if req.auth_kind == "static":
+        # Guarded above: static auth always carries a secret.
+        assert req.static_secret is not None
+        static_secret_enc = encrypt(req.static_secret)
+
     server = McpServer(
         organization_id=context.organization_id,
         user_id=eff_user,
@@ -102,9 +108,7 @@ async def create_server(
         transport=req.transport,
         url=req.url,
         auth_kind=req.auth_kind,
-        static_secret_enc=(
-            encrypt(req.static_secret) if req.auth_kind == "static" else None
-        ),
+        static_secret_enc=static_secret_enc,
         tools_include=req.tools_include,
         tools_exclude=req.tools_exclude,
     )

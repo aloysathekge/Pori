@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { FolderOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from 'lucide-react';
 import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import {
   AgentsIcon,

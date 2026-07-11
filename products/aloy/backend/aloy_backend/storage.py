@@ -97,7 +97,8 @@ class LocalDiskObjectStore:
         written = 0
         try:
             with os.fdopen(fd, "wb") as out:
-                written = shutil.copyfileobj(data, out) or out.tell()
+                shutil.copyfileobj(data, out)
+                written = out.tell()
             os.replace(tmp, target)
         except BaseException:
             try:

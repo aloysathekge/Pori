@@ -8,3 +8,32 @@ repos:
     rev: 5.13.2
     hooks:
       - id: isort
+
+  # Hygiene (cheap, every commit).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+  # Type gate at push time (matches CI; too slow for every commit).
+  # Uses the local venvs so versions match the project exactly.
+  - repo: local
+    hooks:
+      - id: mypy-kernel
+        name: mypy (pori kernel)
+        entry: python -m mypy pori/
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: mypy-backend
+        name: mypy (aloy backend)
+        entry: bash tools/ci/mypy-backend.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

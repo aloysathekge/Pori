@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_
-from sqlmodel import select
+from sqlmodel import col, select
 
 from .background import execute_claimed_run
 from .config import settings
@@ -34,13 +34,16 @@ async def claim_next_run(worker_id: str) -> str | None:
             .where(
                 Run.cancel_requested == False,
                 or_(
-                    Run.status == "pending",
-                    (Run.status == "running")
-                    & (Run.lease_expires_at.is_(None) | (Run.lease_expires_at < now)),
+                    col(Run.status) == "pending",
+                    (col(Run.status) == "running")
+                    & (
+                        col(Run.lease_expires_at).is_(None)
+                        | (col(Run.lease_expires_at) < now)
+                    ),
                 ),
                 Run.attempt_count < Run.max_attempts,
             )
-            .order_by(Run.created_at)
+            .order_by(col(Run.created_at))
             .limit(1)
         )
         if session.bind and session.bind.dialect.name == "postgresql":

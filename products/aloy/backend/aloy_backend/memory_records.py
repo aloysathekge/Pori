@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from pori import (
     ConflictPolicy,
@@ -196,7 +196,7 @@ def search_records(
     scope: MemoryScope,
     query: str,
     k: int,
-    kinds: list[str] | None,
+    kinds: Sequence[str] | None,
     tags: list[str] | None,
     min_score: float,
 ) -> list[MemoryHit]:

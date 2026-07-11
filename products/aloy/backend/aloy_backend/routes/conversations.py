@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import (
     AgentMemory,
@@ -116,12 +116,12 @@ async def list_conversations(
     stmt = (
         select(
             Conversation,
-            func.count(Message.id).label("message_count"),
+            func.count(col(Message.id)).label("message_count"),
         )
-        .outerjoin(Message, Message.conversation_id == Conversation.id)
+        .outerjoin(Message, col(Message.conversation_id) == col(Conversation.id))
         .where(Conversation.organization_id == context.organization_id)
         .group_by(Conversation.id)
-        .order_by(Conversation.updated_at.desc())
+        .order_by(col(Conversation.updated_at).desc())
         .offset(offset)
         .limit(limit)
     )
@@ -234,7 +234,7 @@ async def get_conversation(
     result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at)
+        .order_by(col(Message.created_at))
     )
     messages = result.scalars().all()
 
@@ -277,7 +277,9 @@ async def update_conversation(
     await session.refresh(conv)
 
     result = await session.execute(
-        select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
+        select(func.count(col(Message.id))).where(
+            Message.conversation_id == conversation_id
+        )
     )
     count = result.scalar() or 0
 
@@ -306,7 +308,7 @@ async def export_conversation(
             ContextArtifact.organization_id == context.organization_id,
             ContextArtifact.conversation_id == conversation_id,
         )
-        .order_by(ContextArtifact.created_at)
+        .order_by(col(ContextArtifact.created_at))
     )
     return ConversationExportResponse(
         conversation=ConversationResponse(
@@ -352,7 +354,7 @@ async def branch_conversation(
     messages_result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at, Message.id)
+        .order_by(col(Message.created_at), col(Message.id))
     )
     messages = list(messages_result.scalars().all())
     if body.through_message_id:
@@ -526,28 +528,28 @@ async def _prepare_message(
             memory.core_memory.get_block(label).set_value(row.value)
 
     # Seed knowledge entries as experiences (for recall during agent run)
-    result = await session.execute(
+    entries_result = await session.execute(
         select(KnowledgeEntry)
         .where(
             KnowledgeEntry.organization_id == context.organization_id,
             KnowledgeEntry.user_id == context.user_id,
         )
-        .order_by(KnowledgeEntry.created_at.desc())
+        .order_by(col(KnowledgeEntry.created_at).desc())
         .limit(100)
     )
-    for entry in result.scalars().all():
+    for entry in entries_result.scalars().all():
         record = row_to_record(entry)
         if memory.scope.can_access(record.scope) and record.is_retrievable():
             record.metadata["legacy_collection"] = "experience"
             memory.memory_records.append(record)
 
     # Load conversation message history from the messages table
-    result = await session.execute(
+    messages_result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at)
+        .order_by(col(Message.created_at))
     )
-    history = result.scalars().all()
+    history = messages_result.scalars().all()
     for msg in history[:-1]:  # Exclude the user message we just saved
         body = msg.content
         for f in (msg.metadata_ or {}).get("files", []) or []:
@@ -662,7 +664,7 @@ async def list_artifacts(
             await session.execute(
                 select(Message)
                 .where(Message.conversation_id == conversation_id)
-                .order_by(Message.created_at)
+                .order_by(col(Message.created_at))
             )
         )
         .scalars()
@@ -825,7 +827,7 @@ async def send_message(
                 .select_from(Run)
                 .where(
                     Run.organization_id == context.organization_id,
-                    Run.status.in_(["pending", "running"]),
+                    col(Run.status).in_(["pending", "running"]),
                 )
             )
         ).scalar_one()
@@ -1233,7 +1235,7 @@ async def send_message(
     logger.info(
         "Message in conversation %s, steps=%d",
         conversation_id,
-        assistant_msg.metadata_.get("steps_taken", 0),
+        (assistant_msg.metadata_ or {}).get("steps_taken", 0),
     )
 
     return MessageResponse(

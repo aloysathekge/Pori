@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import (
     VIRTUAL_PREFIX,
@@ -368,7 +368,7 @@ async def persist_run_outcome(
                     .where(
                         Message.conversation_id == conv.id, Message.role == "assistant"
                     )
-                    .order_by(Message.created_at.desc())
+                    .order_by(col(Message.created_at).desc())
                 )
             )
             .scalars()

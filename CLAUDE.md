@@ -37,7 +37,7 @@ uv run mypy pori/ --ignore-missing-imports
 pre-commit install
 ```
 
-CI (`.github/workflows/ci.yml`) runs black-check, isort-check, mypy, and pytest on Python 3.11 and 3.12. Tests run with empty API keys — tests must work via mocks.
+CI (`.github/workflows/ci.yml`) runs black-check, isort-check, mypy, and pytest on Python 3.10, 3.11, and 3.12 (plus backend, app, boundary, and dep-bound jobs). Tests run with empty API keys — tests must work via mocks.
 
 ## Configuration
 

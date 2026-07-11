@@ -23,6 +23,7 @@ from ..schemas import (
 )
 from ..tenancy import (
     OrganizationContext,
+    OrganizationPolicy,
     Permission,
     get_organization_context,
     require_permission,
@@ -39,7 +40,7 @@ def _organization_response(
         name=organization.name,
         slug=organization.slug,
         role=membership.role,
-        policy=organization.policy,
+        policy=OrganizationPolicy.model_validate(organization.policy or {}),
         created_at=organization.created_at,
     )
 

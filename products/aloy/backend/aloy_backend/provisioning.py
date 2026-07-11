@@ -196,10 +196,14 @@ def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
     fetch_my_file tool, which runs without a DB session — the manifest
     carries everything it needs."""
     from datetime import datetime
-    from types import SimpleNamespace
 
-    shim = SimpleNamespace(
+    # Transient in-memory row (never persisted): provisioning only reads the
+    # blob-pointer fields, which the manifest entry carries in full.
+    shim = StoredFile(
         id=entry["file_id"],
+        organization_id="",
+        user_id="",
+        conversation_id=thread_id,
         name=entry["name"],
         size_bytes=entry["size_bytes"],
         content_type=entry["content_type"],

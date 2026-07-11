@@ -16,7 +16,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from croniter import croniter
-from sqlmodel import select
+from sqlmodel import col, select
 
 from .database import async_session
 from .models import CronJob, Run
@@ -66,8 +66,8 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
     async with async_session() as session:
         statement = select(CronJob).where(
             CronJob.enabled == True,  # noqa: E712 - SQLAlchemy expression
-            CronJob.next_run_at.is_not(None),
-            CronJob.next_run_at <= moment,
+            col(CronJob.next_run_at).is_not(None),
+            col(CronJob.next_run_at) <= moment,
         )
         if session.bind and session.bind.dialect.name == "postgresql":
             statement = statement.with_for_update(skip_locked=True)

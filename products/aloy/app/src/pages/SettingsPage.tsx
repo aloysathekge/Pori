@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { getProfile, updateProfile } from '@/api/profile';
 import { getExecutionStatus, type ExecutionStatus } from '@/api/system';
 import type { UserProfileResponse } from '@/types';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/useAuth';
 import { SoulEditor } from '@/components/settings/SoulEditor';
 
 export function SettingsPage() {

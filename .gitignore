@@ -45,3 +45,7 @@ Thumbs.db
 .claude/
 uvicorn.*.log
 stdin.empty
+# founder ideation scratchpad (content graduates into docs/aloy-vision.md)
+products/aloy.txt
+# dev sqlite dbs
+*.db
