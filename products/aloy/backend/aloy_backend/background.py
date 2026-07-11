@@ -204,7 +204,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     team.run(), timeout=run.timeout_seconds
                 )
                 final_state = team_result.get("final_state") or {}
-                final = {
+                final: dict | None = {
                     "final_answer": final_state.get("final_answer"),
                     "reasoning": final_state.get("reasoning"),
                 }

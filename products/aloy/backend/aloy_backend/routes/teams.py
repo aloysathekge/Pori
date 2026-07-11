@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import (
     AgentSettings,
@@ -19,6 +20,9 @@ from pori import (
     register_all_tools,
     tool_registry,
 )
+
+if TYPE_CHECKING:
+    from pori import AgentMemory
 
 from ..database import get_session
 from ..models import Run, TeamConfig
@@ -68,7 +72,7 @@ async def list_teams(
     result = await session.execute(
         select(TeamConfig)
         .where(TeamConfig.organization_id == context.organization_id)
-        .order_by(TeamConfig.created_at.desc())
+        .order_by(col(TeamConfig.created_at).desc())
     )
     return result.scalars().all()
 
@@ -97,7 +101,7 @@ async def update_team(
         raise HTTPException(status_code=404, detail="Team config not found")
 
     update_data = req.model_dump(exclude_unset=True)
-    if "members" in update_data:
+    if "members" in update_data and req.members is not None:
         update_data["members"] = [m.model_dump() for m in req.members]
     for key, value in update_data.items():
         setattr(team, key, value)
@@ -184,7 +188,7 @@ async def run_team(
             .select_from(Run)
             .where(
                 Run.organization_id == context.organization_id,
-                Run.status.in_(["pending", "running"]),
+                col(Run.status).in_(["pending", "running"]),
             )
         )
     ).scalar_one()

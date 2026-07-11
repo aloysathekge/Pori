@@ -146,6 +146,9 @@ export function ChatPage() {
     return () => {
       cancelled = true;
     };
+    // tryReattach is deliberately NOT a dependency: it closes over per-render
+    // callbacks, and this effect must re-run only on route change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeConversationId, resetStreamUi]);
 
   // Abort the stream when leaving the chat page entirely.
@@ -156,8 +159,9 @@ export function ChatPage() {
   // Landing on /chat with no conversation selected: open the most recent one
   // (nav 'Chat' should drop you into your chat, not an empty state).
   useEffect(() => {
-    if (!routeConversationId && conversations.length > 0) {
-      navigate(`/chat/${conversations[0].id}`, { replace: true });
+    const mostRecent = conversations[0];
+    if (!routeConversationId && mostRecent) {
+      navigate(`/chat/${mostRecent.id}`, { replace: true });
     }
   }, [routeConversationId, conversations, navigate]);
 
@@ -374,8 +378,9 @@ export function ChatPage() {
           const next = [...prev];
           const name = String(payload.name ?? '');
           for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].tool === name) {
-              next[i] = { ...next[i], success: Boolean(payload.success) };
+            const entry = next[i];
+            if (entry && entry.tool === name) {
+              next[i] = { ...entry, success: Boolean(payload.success) };
               break;
             }
           }

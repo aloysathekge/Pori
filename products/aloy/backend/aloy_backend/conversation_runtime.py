@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import AgentMemory
 
@@ -86,19 +86,19 @@ async def load_conversation_memory(
     # The moat: assemble knowledge from the org + personal layers (team slots in
     # once membership exists), then let the most-specific level win per
     # ``conflict_key`` (personal > team > org). See scope_resolver.py.
-    result = await session.execute(
+    entries_result = await session.execute(
         select(KnowledgeEntry)
         .where(
             KnowledgeEntry.organization_id == organization_id,
             or_(
-                KnowledgeEntry.user_id == user_id,
-                KnowledgeEntry.scope_level == ORG,
+                col(KnowledgeEntry.user_id) == user_id,
+                col(KnowledgeEntry.scope_level) == ORG,
             ),
         )
-        .order_by(KnowledgeEntry.created_at.desc())
+        .order_by(col(KnowledgeEntry.created_at).desc())
         .limit(200)
     )
-    for entry in resolve_layered(list(result.scalars().all())):
+    for entry in resolve_layered(list(entries_result.scalars().all())):
         record = row_to_record(entry)
         if not record.is_retrievable():
             continue
@@ -109,12 +109,12 @@ async def load_conversation_memory(
         record.metadata["legacy_collection"] = "experience"
         memory.memory_records.append(record)
 
-    result = await session.execute(
+    messages_result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id)
-        .order_by(Message.created_at)
+        .order_by(col(Message.created_at))
     )
-    for message in result.scalars().all():
+    for message in messages_result.scalars().all():
         memory.add_message(message.role, message.content)
     return memory
 
@@ -161,5 +161,5 @@ async def flush_conversation_memory(
     for record in memory.memory_records:
         if not scope.can_access(record.scope):
             continue
-        existing = await session.get(KnowledgeEntry, record.id)
-        session.add(record_to_row(record, existing))
+        existing_entry = await session.get(KnowledgeEntry, record.id)
+        session.add(record_to_row(record, existing_entry))

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col
 
 from ..auth import get_current_user
 from ..database import get_session
@@ -65,7 +66,7 @@ async def get_my_usage(
 
     conv_count = (
         await session.execute(
-            select(func.count()).where(Conversation.user_id == user_id)
+            select(func.count()).where(col(Conversation.user_id) == user_id)
         )
     ).scalar_one()
 
@@ -73,13 +74,13 @@ async def get_my_usage(
         await session.execute(
             select(func.count())
             .select_from(Message)
-            .join(Conversation, Message.conversation_id == Conversation.id)
-            .where(Conversation.user_id == user_id)
+            .join(Conversation, col(Message.conversation_id) == col(Conversation.id))
+            .where(col(Conversation.user_id) == user_id)
         )
     ).scalar_one()
 
     run_count = (
-        await session.execute(select(func.count()).where(Run.user_id == user_id))
+        await session.execute(select(func.count()).where(col(Run.user_id) == user_id))
     ).scalar_one()
 
     return UsageStatsResponse(

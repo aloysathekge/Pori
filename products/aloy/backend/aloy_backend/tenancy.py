@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from enum import Enum
-from typing import Callable
+from typing import Awaitable, Callable
 
 from fastapi import Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -198,7 +198,7 @@ async def get_organization_context(
 
 def require_permission(
     permission: Permission,
-) -> Callable[..., OrganizationContext]:
+) -> Callable[..., Awaitable[OrganizationContext]]:
     async def dependency(
         context: OrganizationContext = Depends(get_organization_context),
     ) -> OrganizationContext:

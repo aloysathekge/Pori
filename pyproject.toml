@@ -43,7 +43,7 @@ dependencies = [
 pori = "pori.cli:run"
 
 [tool.setuptools.packages.find]
-where = ["."] 
+where = ["."]
 include = ["pori*"]
 exclude = ["dev_docs*", "tests*", "examples*"]
 
@@ -146,6 +146,15 @@ exclude_lines = [
 line-length = 88
 target-version = ["py310"]
 include = '\.pyi?$'
+
+[tool.mypy]
+# The kernel's type gate (CI runs `mypy pori/`). Bodies of untyped functions
+# ARE checked; incomplete defs are allowed for now and ratcheted per-module.
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
 
 [tool.isort]
 profile = "black"

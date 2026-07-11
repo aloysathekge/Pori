@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..database import get_session
 from ..models import Conversation, TraceRecord
@@ -30,7 +30,7 @@ async def list_traces(
     stmt = (
         select(TraceRecord)
         .where(TraceRecord.organization_id == context.organization_id)
-        .order_by(TraceRecord.created_at.desc())
+        .order_by(col(TraceRecord.created_at).desc())
         .offset(offset)
         .limit(limit)
     )
@@ -45,7 +45,7 @@ async def list_traces(
         rows = (
             await session.execute(
                 select(Conversation.id, Conversation.title).where(
-                    Conversation.id.in_(conv_ids)
+                    col(Conversation.id).in_(conv_ids)
                 )
             )
         ).all()

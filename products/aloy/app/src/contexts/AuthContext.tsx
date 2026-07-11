@@ -1,24 +1,7 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode,
-} from 'react';
-import { createClient, type SupabaseClient, type Session } from '@supabase/supabase-js';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { createClient, type Session } from '@supabase/supabase-js';
 import { setTokenGetter } from '@/api/client';
-
-interface AuthCtx {
-  session: Session | null;
-  supabase: SupabaseClient;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthCtx | null>(null);
+import { AuthContext } from './auth-context';
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -68,10 +51,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
 }

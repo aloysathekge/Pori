@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..database import get_session
 from ..models import EvolutionActivation, EvolutionProposal
@@ -94,7 +94,7 @@ async def list_evolution_proposals(
     result = await session.execute(
         select(EvolutionProposal)
         .where(EvolutionProposal.organization_id == context.organization_id)
-        .order_by(EvolutionProposal.created_at.desc())
+        .order_by(col(EvolutionProposal.created_at).desc())
     )
     return result.scalars().all()
 
@@ -216,9 +216,9 @@ async def get_active_evolution(
         .where(
             EvolutionActivation.organization_id == context.organization_id,
             EvolutionActivation.target == target,
-            EvolutionActivation.rolled_back_at.is_(None),
+            col(EvolutionActivation.rolled_back_at).is_(None),
         )
-        .order_by(EvolutionActivation.activated_at.desc())
+        .order_by(col(EvolutionActivation.activated_at).desc())
     )
     return result.scalars().first()
 
@@ -239,9 +239,9 @@ async def rollback_evolution(
         .where(
             EvolutionActivation.organization_id == context.organization_id,
             EvolutionActivation.target == target,
-            EvolutionActivation.rolled_back_at.is_(None),
+            col(EvolutionActivation.rolled_back_at).is_(None),
         )
-        .order_by(EvolutionActivation.activated_at.desc())
+        .order_by(col(EvolutionActivation.activated_at).desc())
     )
     current = result.scalars().first()
     if current is None:
@@ -260,8 +260,8 @@ async def rollback_evolution(
         .where(
             EvolutionActivation.organization_id == context.organization_id,
             EvolutionActivation.target == target,
-            EvolutionActivation.rolled_back_at.is_(None),
+            col(EvolutionActivation.rolled_back_at).is_(None),
         )
-        .order_by(EvolutionActivation.activated_at.desc())
+        .order_by(col(EvolutionActivation.activated_at).desc())
     )
     return restored.scalars().first()

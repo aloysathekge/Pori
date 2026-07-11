@@ -1079,16 +1079,9 @@ async def main():
         sandbox_base_dir = str(Path(config.sandbox.base_dir).resolve())
         logger.info(f"Sandbox enabled; base_dir={sandbox_base_dir}")
 
-    memory_backend = (
-        getattr(config, "memory", None).backend
-        if getattr(config, "memory", None)
-        else "memory"
-    )
-    memory_sqlite_path = (
-        getattr(config, "memory", None).sqlite_path
-        if getattr(config, "memory", None)
-        else None
-    )
+    memory_config = getattr(config, "memory", None)
+    memory_backend = memory_config.backend if memory_config else "memory"
+    memory_sqlite_path = memory_config.sqlite_path if memory_config else None
     memory_store = create_memory_store(
         backend=memory_backend,
         sqlite_path=memory_sqlite_path,
@@ -1158,6 +1151,7 @@ async def main():
     team_config = getattr(config, "team", None)
     use_team = team_config is not None and len(team_config.members) > 0
     if use_team:
+        assert team_config is not None  # narrowed by use_team
         logger.info(
             f"Team mode enabled: '{team_config.name}' ({team_config.mode.value}) "
             f"with {len(team_config.members)} members"
@@ -1458,6 +1452,7 @@ async def main():
 
         try:
             if use_team:
+                assert team_config is not None  # narrowed by use_team
                 if selected_skill_ids:
                     print("Explicit skill commands run in single-agent mode.")
                     continue

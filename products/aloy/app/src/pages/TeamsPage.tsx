@@ -112,7 +112,9 @@ export function TeamsPage() {
   function updateMember(index: number, updates: Partial<TeamMember>) {
     setForm((prev) => {
       const members = [...prev.members];
-      members[index] = { ...members[index], ...updates };
+      const current = members[index];
+      if (!current) return prev;
+      members[index] = { ...current, ...updates };
       return { ...prev, members };
     });
   }

@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import (
     CapabilityResolutionError,
@@ -207,7 +207,7 @@ async def list_agent_configs(
     result = await session.execute(
         select(AgentConfig)
         .where(AgentConfig.organization_id == context.organization_id)
-        .order_by(AgentConfig.created_at.desc())
+        .order_by(col(AgentConfig.created_at).desc())
     )
     return result.scalars().all()
 

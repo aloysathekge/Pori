@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import MemoryCatalog, MemoryStatus
 
@@ -110,13 +110,13 @@ async def reset_memory(
         session.add(block)
 
     # Soft-delete long-term records so deletion remains auditable.
-    result = await session.execute(
+    entries_result = await session.execute(
         select(KnowledgeEntry).where(
             KnowledgeEntry.organization_id == context.organization_id,
             KnowledgeEntry.user_id == context.user_id,
         )
     )
-    entries = result.scalars().all()
+    entries = entries_result.scalars().all()
     catalog = MemoryCatalog(row_to_record(entry) for entry in entries)
     try:
         for record in list(catalog.records()):
@@ -150,7 +150,7 @@ async def list_knowledge(
             KnowledgeEntry.organization_id == context.organization_id,
             KnowledgeEntry.user_id == context.user_id,
         )
-        .order_by(KnowledgeEntry.created_at.desc())
+        .order_by(col(KnowledgeEntry.created_at).desc())
     )
     records = [row_to_record(entry) for entry in result.scalars().all()]
     records = [record for record in records if record.is_retrievable()]

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..database import get_session
 from ..models import UsageRecord
@@ -108,7 +108,7 @@ async def list_usage_records(
     result = await session.execute(
         select(UsageRecord)
         .where(UsageRecord.organization_id == context.organization_id)
-        .order_by(UsageRecord.created_at.desc())
+        .order_by(col(UsageRecord.created_at).desc())
         .offset(offset)
         .limit(limit)
     )

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..cron import compute_next_run, validate_schedule
 from ..database import get_session
@@ -92,7 +92,7 @@ async def list_cron_jobs(
     result = await session.execute(
         select(CronJob)
         .where(CronJob.organization_id == context.organization_id)
-        .order_by(CronJob.created_at.desc())
+        .order_by(col(CronJob.created_at).desc())
         .limit(max(1, min(limit, 200)))
     )
     return result.scalars().all()

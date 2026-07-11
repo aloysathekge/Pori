@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from pori import SessionExport, SessionMessage, SessionRecord, SessionSearchHit
 
@@ -78,19 +78,19 @@ class CloudSessionRepository:
         result = await self.session.execute(
             select(Message)
             .where(Message.conversation_id == session_id)
-            .order_by(Message.created_at, Message.id)
+            .order_by(col(Message.created_at), col(Message.id))
         )
         return [self._message(message) for message in result.scalars().all()]
 
     async def search(self, query: str, limit: int = 10) -> list[SessionSearchHit]:
         statement = (
             select(Message, Conversation)
-            .join(Conversation, Conversation.id == Message.conversation_id)
+            .join(Conversation, col(Conversation.id) == col(Message.conversation_id))
             .where(
                 Conversation.organization_id == self.organization_id,
                 func.lower(Message.content).contains(query.lower()),
             )
-            .order_by(Message.created_at.desc())
+            .order_by(col(Message.created_at).desc())
             .limit(limit)
         )
         if not self.allow_shared_search:
