@@ -395,6 +395,10 @@ after the loop proves itself. **Sequencing:** engineering-excellence phases
 | Attention: reach-out | Telegram gateway | Built |
 | Attention: push | — | New |
 | Memory as index | Knowledge entries + library pointers + scope resolver | Built |
+| Event-scoped memory | MemoryRecord scoping contract (org/user/agent/session) | Schema evolution — event dimension rides the conversation→Event migration |
+| Life capture stream + soft clusters | Cron chassis + kernel curator concept + typed memory contract | New: captures/signals table + a scheduled Life curation agent (pattern detection = model judgment over the store, per invariant #6) |
+| Learned trust (routing) | — | Comes free with the Proposal table (structured decision history — deliberately NOT prose memory) |
+| Semantic recall at Life scale | Kernel Chroma archival seam | Hosted wiring (pgvector or similar) when scale demands; seam exists |
 | Tenancy (personal + org) | Orgs, RBAC, policies, org→team→personal scoping | Built |
 
 ## 8. Deferred (deliberately, not forgotten)
