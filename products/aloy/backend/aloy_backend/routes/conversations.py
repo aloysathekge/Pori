@@ -23,12 +23,9 @@ from pori import (
 
 from .. import live_runs, resumable_runs
 from ..config import settings
-from ..connections.mcp_store import resolve_run_mcp_servers
-from ..connections.store import resolve_run_connections
 from ..database import async_session, get_session
 from ..doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ..event_log import EventLogCollector
-from ..library import library_manifest
 from ..memory_records import request_scope, row_to_record
 from ..models import (
     AgentConfig,
@@ -49,8 +46,9 @@ from ..provisioning import (
     resolve_upload_refs,
     uploads_task_block,
 )
-from ..rate_limit import check_rate_limit
+from ..rate_limit import check_rate_limit, rate_limited_permission
 from ..run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
+from ..run_surface import resolve_run_surface
 from ..runtime import authenticated_run_context
 from ..schemas import (
     XLSX_MIME,
@@ -70,7 +68,6 @@ from ..skills import load_skill_catalog
 from ..storage import get_object_store, safe_name, upload_key
 from ..streaming import resolve_clarification, stream_agent_execution, subscribe_frames
 from ..tenancy import OrganizationContext, Permission, require_permission
-from ..tools import GOOGLE_TOOL_NAMES, LIBRARY_TOOL_NAMES
 from .teams import _build_team_from_config
 
 logger = logging.getLogger("aloy_backend")
@@ -731,7 +728,9 @@ async def get_artifact_content(
 async def send_message(
     conversation_id: str,
     req: SendMessageRequest,
-    context: OrganizationContext = Depends(check_rate_limit),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
     session: AsyncSession = Depends(get_session),
 ):
     # Durable upload refs for this turn (already in the store; validate they
@@ -977,34 +976,14 @@ async def send_message(
         ):
             raise HTTPException(status_code=404, detail="Agent config not found")
 
-    # Resolve the user's connected accounts (Gmail, …) into fresh tokens for the
-    # run, and exclude a provider's tools when it isn't connected (per-user gate).
-    run_connections = await resolve_run_connections(
-        session, context.organization_id, context.user_id
+    # The run's capability surface (connections + MCP + library + gated
+    # denials) — resolved by the ONE shared service, same as the worker path.
+    surface = await resolve_run_surface(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        policy=context.policy,
     )
-    connection_denied = () if "google" in run_connections else tuple(GOOGLE_TOOL_NAMES)
-    # Resolve this member's + the org's MCP servers (union) for the run.
-    run_mcp_servers = await resolve_run_mcp_servers(
-        session, context.organization_id, context.user_id
-    )
-    # The user's file library: memory pointers already ride in KnowledgeEntry
-    # recall; the manifest here powers fetch_my_file. Empty library → the
-    # tool is excluded from the surface (zero context cost).
-    library_rows = (
-        (
-            await session.execute(
-                select(StoredFile).where(
-                    StoredFile.organization_id == context.organization_id,
-                    StoredFile.user_id == context.user_id,
-                    StoredFile.in_library == True,  # noqa: E712
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    run_library = library_manifest(list(library_rows))
-    library_denied = () if run_library else tuple(LIBRARY_TOOL_NAMES)
 
     # Continue a stopped run: claim its warm state (live AgentMemory + kernel
     # task checkpoint) for a TRUE resume — the run picks up at the step it was
@@ -1033,9 +1012,7 @@ async def send_message(
         shared_memory=memory,
         agent_config=agent_config,
         allowed_tools=context.policy.allowed_tools or None,
-        denied_tools=tuple(context.policy.denied_tools)
-        + connection_denied
-        + library_denied,
+        denied_tools=surface.denied_tools,
         allowed_capability_groups=(context.policy.allowed_capability_groups or None),
         allowed_provider_profiles=(context.policy.allowed_provider_profiles or None),
         allowed_models=context.policy.allowed_models or None,
@@ -1081,11 +1058,8 @@ async def send_message(
                     settings=agent_settings,
                     run_context=stream_context,
                     collector=event_collector,
-                    tool_context_extra={
-                        "connections": run_connections,
-                        "library_files": run_library,
-                    },
-                    mcp_servers=run_mcp_servers,
+                    tool_context_extra=surface.tool_context_extra,
+                    mcp_servers=surface.mcp_servers,
                     task_attachments=task_attachments,
                     result_holder=result_holder,
                     conversation_id=conv.id,
@@ -1193,11 +1167,8 @@ async def send_message(
             task=task_content,
             agent_settings=agent_settings,
             run_context=run_context,
-            tool_context_extra={
-                "connections": run_connections,
-                "library_files": run_library,
-            },
-            mcp_servers=run_mcp_servers,
+            tool_context_extra=surface.tool_context_extra,
+            mcp_servers=surface.mcp_servers,
             task_attachments=task_attachments,
             sandbox_base_dir=sandbox_base_dir(),
         )
@@ -1383,7 +1354,9 @@ class ClarifyBody(BaseModel):
 async def submit_clarification(
     clarification_id: str,
     body: ClarifyBody,
-    context: OrganizationContext = Depends(check_rate_limit),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
 ):
     """Resolve a paused ``ask_user`` by delivering the user's answer (a tapped
     option or free text) to the waiting stream — but only if the awaiting run

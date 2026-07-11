@@ -47,3 +47,22 @@ async def check_rate_limit(
     """Enforce rate limiting within the active organization and user scope."""
     _limiter.check(f"{context.organization_id}:{context.user_id}")
     return context
+
+
+def rate_limited_permission(permission):
+    """Compose authorization AND rate limiting for endpoints that start agent
+    runs (they spend money). Rate limiting is not a substitute for a
+    permission check — run-starting endpoints require both."""
+
+    async def dependency(
+        context: OrganizationContext = Depends(get_organization_context),
+    ) -> OrganizationContext:
+        if not context.permits(permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing permission: {permission.value}",
+            )
+        _limiter.check(f"{context.organization_id}:{context.user_id}")
+        return context
+
+    return dependency

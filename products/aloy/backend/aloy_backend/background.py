@@ -28,6 +28,7 @@ from .models import (
 )
 from .orchestrator import build_orchestrator, sandbox_base_dir
 from .run_outcome import json_safe, make_trace_record, make_usage_record
+from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
@@ -215,11 +216,21 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     "trace": None,
                 }
             else:
+                # The worker path resolves the SAME capability surface as the
+                # chat path — connections, MCP servers, file library, gated
+                # denials. (It used to build runs without any of them: the
+                # drift the 2026-07-11 audit flagged.)
+                surface = await resolve_run_surface(
+                    session,
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    policy=policy,
+                )
                 orchestrator = build_orchestrator(
                     shared_memory=memory,
                     agent_config=agent_config,
                     allowed_tools=policy.allowed_tools or None,
-                    denied_tools=policy.denied_tools,
+                    denied_tools=surface.denied_tools,
                     allowed_capability_groups=(
                         policy.allowed_capability_groups or None
                     ),
@@ -254,6 +265,8 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         resume_task_id=kernel_task_id,
                         on_step_end=checkpoint,
                         sandbox_base_dir=sandbox_base_dir(),
+                        tool_context_extra=surface.tool_context_extra,
+                        mcp_servers=surface.mcp_servers,
                     ),
                     timeout=run.timeout_seconds,
                 )
