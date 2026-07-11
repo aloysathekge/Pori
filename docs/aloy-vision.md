@@ -1,146 +1,179 @@
 # Aloy — the vision, refined
 
-_Living document (started 2026-07-11). This is where "my version of Aloy"
-gets pinned down. Part 1 is what's already decided across the ideation
-sessions (`products/aloy.txt` iterations + conversations). Part 2 is the six
-question clusters that determine the product's shape — Aloy (the user)
-answers inline under each **ANSWER:** marker; we then discuss, and settled
-answers move up into Part 1. Specs build from THIS document, not from vibes._
+_Living document (started 2026-07-11, major update same day after the
+founder's cluster decisions). Part 1 is decided truth — specs build from it.
+Part 2 holds what's still open. History: the six original question clusters
+were answered via founder ideation (`products/aloy.txt` scratchpad) +
+discussion; settled answers live here now._
 
 ---
 
-## Part 1 — What Aloy is (decided so far)
+## Part 1 — What Aloy is (decided)
 
-**One sentence:** Aloy is an agentic operating system for your life and work
-— an external brain that doesn't just respond, but continuously understands,
-remembers, and **acts**.
+**One sentence:** Aloy is an operating system for persistent events, where
+agents act on reality and humans interact through surfaces and
+conversations.
 
-**The organizing primitive is the EVENT, not the chat.** Each important part
-of life — "Trip to San Francisco", "Weekly review", "Building Pori this
-week" — gets its own dedicated, branded, evolving interface: a living space,
-not a page. Interfaces are **state-aware** (you check into the hotel, the
-space reflects it) and **time-aware** (before-trip shows planning and packing;
-during-trip shows real-time context; afterwards, progress). Chat remains one
-surface among several — you can always just talk to Aloy.
+**The thesis: chat is no longer the container — reality is the container.**
+Current AI: `conversation → response`. Aloy:
+`reality → Event → Surface + Chat → agent actions → updated reality`.
 
-**The three-way loop is the edge:** User ↔ Interface ↔ Agent. You interact
-with an event's interface; it updates the system instantly; agents react —
-suggest, replan, modify the interface. Nobody's chat app closes this loop.
+### The core model
 
-**Interfaces are schema-driven, not generated code.** The model composes an
-interface from a trusted component vocabulary (typed JSON schema rendered by
-our components) — safe, versionable, diffable, brandable. Branding comes from
-DESIGN.md-style design files (Google Labs' open spec), scope-resolved like
-knowledge: org brand → team → personal.
+```
+                        EVENT  (source of truth)
+                          |
+        ----------------------------------------
+        |                 |                    |
+     SURFACE            CHAT             AGENT SYSTEM
+   "What is?"      "Help me think"      "Make progress"
+                          |
+                     AGENT TRAIL
+                   "What happened?"
+                          |
+                      PROPOSALS
+                "Should reality change?"
+```
 
-**Design stance: build for the future where models are very capable.** We
-build durable substrate — events, state, bindings, rendering contracts,
-permissions, trust rails — and let model capability fill in the intelligence.
-The component vocabulary is a floor, not a ceiling. No hand-crafted
-heuristics that better models will obsolete. (Models get smarter for free;
-substrate doesn't.)
+### Event — the canonical object
 
-**Memory is an index over durable things.** Aloy's memory holds pointers —
-to files, events, facts — not copies. The bytes live in durable storage; the
-agent fetches what a task needs into its workspace. (Built and proven: the
-file library / "my CV" flow.)
+An Event represents something meaningful in the user's life: Trip to San
+Francisco, Building Aloy Studio, Applying for a job, Weekly review, Health
+journey. It owns: identity, goals, state, timeline, tasks, projects,
+documents, memory references, connected services, agent context. Events are
+permanent (Sessions — interaction periods — are temporary). An Event is not
+a page, conversation, or task list; it is the reality Aloy manages.
 
-**The wedge (V1): the Agentic Task + Life Manager** — tasks, events,
-documents, one or two background agents — with the event-based interface as
-its display layer. Full automation, deep integrations, and the complete
-canvas come after the wedge proves the loop.
+**The Life Event is the default root.** Reality enters unstructured —
+thoughts, loose tasks, questions, observations, incoming information — and
+lives in Life until it earns structure. Promotion is itself a Proposal:
+Aloy notices repeated interest ("mentioned Japan 4×, searched flights
+twice") and proposes `Create Event: Japan Trip`; the user accepts.
+Lifecycle: `unstructured reality → Life Event → Proposal → dedicated Event`.
 
-**Already true today (the substrate so far):** the Pori kernel (agent loop,
-sub-agents, teams, streaming, stop/resume, receipts); multi-tenant backend
-(orgs, RBAC, policies); memory (CoreMemory + knowledge + library); durable
-object storage + per-conversation sandboxes; connections (Gmail, Calendar,
-MCP); durable background runs + cron; live re-attach/stop/continue; the
-premium chat shell.
+**Events contain contextual state but REFERENCE shared Reality Objects.**
+Calendar, Money, People, Documents, Locations, Accounts, Preferences are
+shared objects in a Reality Graph; the Trip references the travel-budget
+object rather than owning a copy. This prevents duplicated truth,
+conflicting state, fragmented memory. (Engineering note: several Reality
+Objects already have substrate — Documents = the durable file store;
+Accounts = connections; Preferences = core memory.)
+
+### Surface — the new primitive
+
+A Surface is the living visual representation of an Event — not a dashboard
+(dashboards display information; a Surface represents an evolving reality).
+It reflects current state, provides actions, updates as the Event changes,
+adapts to context (before-trip: planning/packing; during: real-time), and is
+composed from **trusted components via a typed schema** — the model composes,
+our components render. Branded via DESIGN.md-style scope-resolved design
+files (Google Labs' open spec).
+
+### Chat — a lens, not the center
+
+The conversational channel for questions, reasoning, brainstorming,
+instruction. Chat helps the user interact with the Event; it does not
+represent it. Chat remains first-class — you can always just talk to Aloy.
+
+### Agent Trail — trust made visible
+
+The history of agent activity per Event: what happened, why, what changed.
+(Engineering note: this is the kernel's receipts/traces/run-event-log moat
+surfaced as product.)
+
+### Proposal — the agency primitive
+
+Agents do not directly change important reality; they emit Proposals
+(action + reason + impact + risk). **Routing is a core primitive** with
+three outcomes:
+
+```
+Proposal → Risk + Context + Trust → Auto | Notify | Ask
+```
+
+Routing considers: **fixed policies** (always ask: spending money, external
+messages, deleting important data), **user trust grants** ("Aloy may manage
+my calendar"), and **learned behaviour** ("you always approve flight
+recommendations"). Approval is just one outcome; Notify is do-then-tell.
+
+### What wakes Aloy — event-scoped triggers
+
+Aloy is event-driven: time (Sunday → weekly review wakes), incoming
+information (email → job-application event updates), state changes (flight
+cancelled → trip reacts), patterns (repeated Japan mentions → propose an
+event). **The anti-noise rule: the Event determines relevance** — a finance
+event monitors markets, a trip event monitors flights; subscriptions belong
+to events, not to a global firehose.
+
+### The hero flow — the Event loop
+
+> "Plan my San Francisco trip."
+
+`Create Event → Surface appears → agent works → Agent Trail explains →
+Proposal appears → user decides → reality changes → Surface evolves.`
+The magic moment: watching Aloy transform an intention into a living system.
+
+### Design stance
+
+**Build for the future where models are very capable.** Durable substrate
+(events, state, bindings, rendering contracts, proposals/routing, trust
+rails) — model capability fills in the intelligence. The component
+vocabulary is a floor, not a ceiling. No heuristics that better models will
+obsolete. Memory stays an index over durable things.
+
+### The wedge (V1)
+
+The Event loop end-to-end on a thin slice: Life Event + one dedicated event
+type with a Surface, the Agent Trail, and Proposals with routing. Full
+canvas, deep integrations, and the Reality Graph's long tail come after the
+loop proves itself.
+
+### Substrate already built (as of 2026-07-11)
+
+Pori kernel (loop, sub-agents, teams, streaming, stop/resume, receipts);
+multi-tenant backend (orgs, RBAC, policy); memory (core + knowledge +
+library pointers); durable object storage + sandboxes + provisioning;
+connections (Gmail/Calendar/MCP); durable background runs + cron; live
+re-attach/stop/continue; premium chat shell; CI gates on every surface.
+
+### Known architectural implication (accepted, not yet executed)
+
+Today the *conversation* is the aggregate root (memory, workspace, files
+keyed per-conversation). The model demotes conversation to a lens and
+promotes Event to the root — workspaces, files, and context follow the
+EVENT across chats. A real but tractable migration; sequence it with the
+wedge.
 
 ---
 
-## Part 2 — The six question clusters (answer inline)
+## Part 2 — Still open
 
-### Cluster 1 — The event primitive ⭐ (everything bends around this one)
+1. **The Tuesday screen** (last piece of Cluster 1): what do you see when
+   you open Aloy — the Life surface? Active-event cards? A "today" braid
+   across events? **ANSWER:**
 
-"Trip to SF" is bounded and phased. "Weekly review" recurs. "Building Pori"
-is an ongoing project. "Health" never ends. Are these all ONE kind of thing
-(events), or two (events vs. areas of life)? Does everything in Aloy live
-inside some event, or do free-floating tasks/notes exist? Who creates events
-— only you, explicitly, or can Aloy notice ("you've mentioned SF flights
-three times…") and propose one? What ends an event, and what happens to its
-space afterwards (archive? searchable history? feeds memory?)
+2. **The agent boundary** (Cluster 3, sharpened by Proposals): what may
+   Aloy do WITHOUT creating a Proposal, and what always requires one?
+   Under active discussion — current working position: the
+   workspace/reality line (agents freely observe, compute, and stage inside
+   their workspace; ANY mutation of Reality Objects or the external world is
+   a Proposal, and routing decides its latency). Plus: do event-internal
+   state tweaks (phase updates, checking off the agent's own research task)
+   ride the auto tier by default? **ANSWER:**
 
-Also: when you open Aloy on a random Tuesday, what do you SEE first — a list
-of current events? A "today" space drawing from all of them? Describe the
-first screen as you picture it.
+3. **Event hierarchy**: can Events nest (projects inside "Building Aloy
+   Studio")? Do sub-events get their own Surfaces? **ANSWER:**
 
-**ANSWER:**
-
-### Cluster 2 — The interfaces
-
-Is an event's interface generated once and then *evolved*, or re-generated
-at each phase change? If you manually rearrange or edit an interface, does
-your layout win over the agent's next update (and how do the two coexist)?
-What belongs in the smallest component vocabulary that makes the trip AND the
-weekly review feel alive (checklist, timeline, card, form, button, metric,
-map…)? Should interfaces be shareable (send someone your trip space, read-
-only) — now or someday?
-
-**ANSWER:**
-
-### Cluster 3 — Agency & trust
-
-What may an agent do with nobody watching? Draft an email vs SEND it;
-suggest a booking vs MAKE it; reprioritize your tasks vs propose the change.
-Where's your line today, and where should the line be able to move per-user
-(a trust dial)? And in reverse: how does Aloy reach YOU — a morning brief?
-push notifications? or silently-up-to-date spaces you visit when you want?
-How does it ask when it's unsure mid-task and you're not there?
-
-**ANSWER:**
-
-### Cluster 4 — What wakes the system
-
-Time (schedules), incoming data (email/calendar events), state changes (task
-completed), observed patterns (you always plan Sundays)? Which of these
-should trigger agents in V1? And the taste question: what separates
-"proactive" from "annoying" for you personally — frequency caps? importance
-thresholds? everything visible-but-quiet until you look?
-
-**ANSWER:**
-
-### Cluster 5 — The data spine
-
-How do events, tasks, files, memory, and chat relate? Is chat per-event, one
-global chat that routes to events, or both? When an agent asks "what is the
-state of Aloy's (the user's) life right now?" — what is the ONE structure it
-consults? What's canonical vs derived?
-
-**ANSWER:**
-
-### Cluster 6 — The hero flow
-
-Which single experience, done end-to-end, makes someone FEEL the whole
-vision in 60 seconds? Candidates: (a) the **weekly review** — recurring, so
-it compounds; exercises tasks + interface + agent reaction; (b) the **trip**
-— cinematic, phased, time-aware; (c) something else you have in mind. Which
-one is THE demo, and what exactly happens in those 60 seconds?
-
-**ANSWER:**
+4. **How Aloy reaches you** (Cluster 3 remainder): the Notify tier's
+   channels — in-app inbox, push, daily brief, gateway (Telegram)?
+   Frequency discipline? **ANSWER:**
 
 ---
 
 ## Part 3 — Process
 
-1. Aloy answers the clusters above (rough is fine — voice-note-style text
-   welcome).
-2. We discuss each cluster; disagreements get argued, decisions get made.
-3. Settled answers move into Part 1 as decided truth; this file is the
-   canonical product definition.
-4. The wedge spec (and everything after) cites this document.
-
-Related: `docs/aloy-object-storage-sandbox-spec.md` (storage substrate),
-`docs/engineering-excellence-spec.md` (the bar the codebase meets first),
-`docs/architecture-primer.md` (hosted-agent fundamentals), aloy-vision memory
-notes (session-level context).
+Founder ideates (scratchpad: `products/aloy.txt`, gitignored — read
+critically, it's raw); we discuss; settled answers graduate into Part 1;
+specs cite this document. Related: `docs/engineering-excellence-spec.md`
+(the codebase bar — phases 0–3 precede the wedge),
+`docs/aloy-object-storage-sandbox-spec.md`, `docs/architecture-primer.md`.
