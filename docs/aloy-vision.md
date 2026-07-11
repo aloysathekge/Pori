@@ -100,6 +100,52 @@ structure: `unstructured reality → Life → Proposal → dedicated Event`.
 Event creation is itself a Proposal (Aloy notices, proposes; the user
 decides).
 
+**The cold start: Aloy is useful before any structure exists.** With zero
+Events, Life is a smart evolving stream — you capture anything, get
+time-based reminders, ask "what do I have this week?", and see a basic
+Today view. Three stages, never forced:
+
+1. **No Events** — Life = stream, Aloy = observer, the user just talks.
+2. **Emerging structure** — Aloy forms *soft clusters* internally
+   (school-ish, health-ish, social). Soft clusters are **Life's working
+   state**: invisible, agent-owned, Trail-logged — the same two-state model
+   as every Event, graduating into a visible Proposal only when confident.
+3. **Events created** — systems form; automation increases.
+
+> Events are not required to start — they are the *result* of your life
+> having structure. Life is your intelligent inbox until patterns are
+> strong enough to become systems.
+
+(Wedge consequence: Life + Today ship first; the cinematic dedicated event
+comes second. The system must be useful the moment someone says "don't
+forget to call mom.")
+
+**Event-worthiness is a model judgment, not a formula** (per invariant #6 —
+no mention-count thresholds we'd tune for today's models). The rubric the
+model weighs, as qualities:
+
+- **It has a future** — multiple steps over time ("call mom" = a Life task;
+  "plan mom's 60th" = an Event).
+- **Context accumulates** — history would improve future action.
+- **It coordinates** — naturally touches tasks + documents + calendar +
+  people together.
+- **An agent could act on it** — there's ongoing work a background agent
+  could do.
+
+One line: *something deserves an Event when structure would let agents make
+progress on it without you.*
+
+**The threshold self-tunes because the errors are asymmetric.** Proposing
+too early costs one dismissed proposal — mild, and the dismissal is signal
+(learned routing stops re-proposing). Proposing too late costs a slightly
+messy Life — recoverable, nothing lost. The genuinely bad behaviors are
+already outlawed by the invariants: structure without consent (impossible —
+creation is a Proposal) and nagging after dismissal (dismissals demote).
+Event-creation proposals ride the attention ladder at the **digest tier by
+default** — the morning brief, never a push. Smart-vs-annoying is decided
+by cheap, consent-gated, dismissal-learning proposals — not by a cleverer
+threshold.
+
 **Recurring events are ONE Event with occurrences** (Weekly Review owns
 July 5, July 12… as occurrences inside it). The Event accumulates patterns,
 preferences, trust, history; an occurrence is a moment inside it. Splitting
