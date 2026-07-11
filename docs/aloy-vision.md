@@ -352,9 +352,16 @@ the Event's committed + relevant working state = RAM (kilobytes per run);
 the Event graph, Reality Objects, captures, and files = disk (queried,
 paged in by tools on demand); receipts = the journal. Three consequences:
 
-1. **Scoping is compression** — an agent working the trip loads the trip,
-   not the life; Life's coordinator loads cross-event summaries, not raw
-   everything. The Event decomposition IS the context solution.
+1. **Scoping is compression — and scoped ≠ sealed.** An agent working the
+   trip loads *the trip plus everything the trip references*: its Reality
+   Objects (the calendar — which carries the exam; the budget; the people),
+   CoreMemory, and task-relevant recall — but never the irrelevant bulk of
+   other events' working state. Four layers keep scoped agents from missing
+   context: **references** carry cross-cutting facts; **queries** fetch
+   known-unknowns on demand (the page fault); **Life's coordinator** watches
+   across events for the collisions no scoped agent would look for; and
+   **Proposals** gate whatever slips through before it commits. Relevance
+   beats volume: the Event decomposition IS the context solution.
 2. **State lives as state, not as transcript.** Truth is receipt-backed
    committed state, readable in one fact — never buried in conversation
    scrollback. Chat is disposable; the Event state machine is the memory.
