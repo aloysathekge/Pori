@@ -1,3 +1,9 @@
+"""Uvicorn launcher for the backend: forces UTF-8 stdio (Windows), reads
+HOST / PORT / RELOAD from the environment, and serves
+``aloy_backend.api:app``. Invoked as a console script or
+``python -m aloy_backend.main``.
+"""
+
 import io
 import os
 import sys

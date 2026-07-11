@@ -1,3 +1,8 @@
+"""Current-user endpoints under ``/me``: profile get/update (auto-created on
+first access) and usage stats aggregated from the user's runs, conversations,
+and messages.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -30,7 +35,7 @@ async def _get_or_create_profile(user_id: str, session: AsyncSession) -> UserPro
 async def get_my_profile(
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-):
+) -> UserProfile:
     """Get the current user's profile (auto-creates if missing)."""
     profile = await _get_or_create_profile(user_id, session)
     return profile
@@ -41,7 +46,7 @@ async def update_my_profile(
     body: UserProfileUpdate,
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-):
+) -> UserProfile:
     """Update the current user's profile."""
     profile = await _get_or_create_profile(user_id, session)
 
@@ -60,7 +65,7 @@ async def update_my_profile(
 async def get_my_usage(
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-):
+) -> UsageStatsResponse:
     """Get usage statistics for the current user."""
     profile = await _get_or_create_profile(user_id, session)
 

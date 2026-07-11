@@ -1,3 +1,9 @@
+"""Supabase JWT authentication. ``get_current_user`` is the FastAPI
+dependency that verifies the bearer token against Supabase's JWKS (cached
+in-process, refreshed on restart) and returns the user id (``sub`` claim).
+Every authenticated route depends on it, directly or via the tenancy helpers.
+"""
+
 from __future__ import annotations
 
 import httpx

@@ -1,3 +1,11 @@
+"""Tool registration and execution. ``ToolRegistry`` holds Pydantic-validated
+tool definitions with capability gating (``CapabilityGroup`` prerequisites and
+per-tool ``check_fn``); ``ToolExecutor`` validates params and runs a tool.
+Every registered tool's schema ships on every LLM call, so additions are a
+permanent context-budget tax — see the Footprint Ladder in CLAUDE.md.
+``tool_registry()`` returns the process-wide default registry.
+"""
+
 from __future__ import annotations
 
 import json

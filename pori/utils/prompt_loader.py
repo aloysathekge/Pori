@@ -1,3 +1,10 @@
+"""Loads system prompts from Markdown files under ``pori/prompts/`` via the
+cached ``load_prompt``. Base-directory resolution order: in-process
+``set_prompts_dir`` override, then the ``PORI_PROMPTS_DIR`` env var, then the
+packaged prompts directory — so embedding applications can ship their own
+prompt sets.
+"""
+
 import os
 from functools import lru_cache
 from pathlib import Path

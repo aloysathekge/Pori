@@ -31,7 +31,7 @@ async def attach_live_run(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> StreamingResponse:
     """Re-attach to this conversation's in-flight run: replays every frame so
     far, then continues live — so navigating away and back resumes streaming."""
     await _load_conv(session, context, conversation_id)
@@ -54,7 +54,7 @@ async def stop_live_run(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Stop this conversation's in-flight run. Cooperative: the agent halts at
     the next step boundary, then the stream finishes with a final frame (so
     every subscriber — including re-attached ones — sees a clean end)."""
@@ -77,7 +77,7 @@ async def submit_clarification(
     context: OrganizationContext = Depends(
         rate_limited_permission(Permission.RUN_CREATE)
     ),
-):
+) -> dict:
     """Resolve a paused ``ask_user`` by delivering the user's answer (a tapped
     option or free text) to the waiting stream — but only if the awaiting run
     belongs to the caller (ownership enforced in resolve_clarification)."""

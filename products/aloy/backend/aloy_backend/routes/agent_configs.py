@@ -1,6 +1,13 @@
+"""Agent-config endpoints: CRUD for ``AgentConfig`` rows (per-org agent
+presets — provider, model, tools) plus the ``/info/*`` discovery endpoints
+(available models, tools, provider setup diagnostics). Tenancy-gated via
+``require_permission``.
+"""
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +15,7 @@ from sqlmodel import col, select
 
 from pori import (
     CapabilityResolutionError,
+    CapabilitySnapshot,
     diagnose_provider,
     get_provider_profile,
     provider_profiles,
@@ -51,7 +59,7 @@ def _validate_provider_grant(
 
 def _resolve_capabilities(
     context: OrganizationContext, requested_tools: list[str] | None = None
-):
+) -> CapabilitySnapshot:
     registry = tool_registry()
     register_all_tools(registry)
     if requested_tools and context.policy.allowed_tools:
@@ -78,7 +86,7 @@ def _resolve_capabilities(
 @router.get("/info/models", tags=["info"])
 async def list_models(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
-):
+) -> dict[str, list[str]]:
     """List provider models after organization policy is applied."""
     return {
         profile.name: list(profile.models)
@@ -93,7 +101,7 @@ async def list_models(
 @router.get("/info/tools", tags=["info"])
 async def list_tools(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
-):
+) -> dict:
     """List the exact model-visible tool snapshot for this organization."""
     snapshot = _resolve_capabilities(context)
     return {
@@ -112,7 +120,7 @@ async def setup_diagnostics(
     provider: str | None = Query(default=None),
     model: str | None = Query(default=None),
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
-):
+) -> dict:
     """Report provider and capability readiness without exposing credentials."""
     selected = (get_provider_profile(provider),) if provider else provider_profiles()
     provider_results = []
@@ -170,7 +178,7 @@ async def create_agent_config(
     req: AgentConfigCreate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> AgentConfig:
     _validate_provider_grant(req.provider, req.model, context)
     if req.tools:
         _resolve_capabilities(context, req.tools)
@@ -203,7 +211,7 @@ async def create_agent_config(
 async def list_agent_configs(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[AgentConfig]:
     result = await session.execute(
         select(AgentConfig)
         .where(AgentConfig.organization_id == context.organization_id)
@@ -217,7 +225,7 @@ async def get_agent_config(
     config_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> AgentConfig:
     config = await session.get(AgentConfig, config_id)
     if not config or config.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Agent config not found")
@@ -230,7 +238,7 @@ async def update_agent_config(
     req: AgentConfigUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> AgentConfig:
     config = await session.get(AgentConfig, config_id)
     if not config or config.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Agent config not found")
@@ -272,7 +280,7 @@ async def delete_agent_config(
     config_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     config = await session.get(AgentConfig, config_id)
     if not config or config.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Agent config not found")

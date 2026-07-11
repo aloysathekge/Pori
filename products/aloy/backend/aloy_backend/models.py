@@ -1,3 +1,11 @@
+"""All SQLModel table definitions for the backend: organizations and
+memberships, conversations/messages, runs and event logs, agent/team configs,
+core-memory blocks and knowledge entries, skills and grants, evolution
+proposals/activations, traces, usage, and user profiles. Invariants: schema
+changes here must ship with an Alembic migration, and timestamps are
+timezone-aware UTC (``_utcnow``).
+"""
+
 from __future__ import annotations
 
 import uuid

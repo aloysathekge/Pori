@@ -53,7 +53,7 @@ async def create_conversation(
     req: ConversationCreate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConversationResponse:
     conv = Conversation(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -82,7 +82,7 @@ async def list_conversations(
     session: AsyncSession = Depends(get_session),
     limit: int = 20,
     offset: int = 0,
-):
+) -> list[ConversationResponse]:
     stmt = (
         select(
             Conversation,
@@ -118,7 +118,7 @@ async def get_conversation(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConversationDetail:
     conv = await _load_conv(session, context, conversation_id)
 
     result = await session.execute(
@@ -155,7 +155,7 @@ async def update_conversation(
     req: ConversationUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConversationResponse:
     conv = await _load_conv(session, context, conversation_id)
 
     conv.title = req.title
@@ -188,7 +188,7 @@ async def export_conversation(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConversationExportResponse:
     detail = await get_conversation(conversation_id, context, session)
     artifacts = await session.execute(
         select(ContextArtifact)
@@ -235,7 +235,7 @@ async def branch_conversation(
     body: ConversationBranchRequest,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConversationDetail:
     parent = await _load_conv(session, context, conversation_id)
     messages_result = await session.execute(
         select(Message)
@@ -279,7 +279,7 @@ async def delete_conversation(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     conv = await _load_conv(session, context, conversation_id)
 
     # Delete all related records to avoid orphans

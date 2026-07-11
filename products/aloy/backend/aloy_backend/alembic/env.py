@@ -1,3 +1,8 @@
+"""Alembic migration environment: imports every model so
+``SQLModel.metadata`` is fully populated, then runs migrations on an async
+engine built from the app's configured database URL.
+"""
+
 import asyncio
 from logging.config import fileConfig
 

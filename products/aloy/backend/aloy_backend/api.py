@@ -1,3 +1,9 @@
+"""The ASGI application: lifespan wiring (logging, DB init, sandbox
+configuration — streamed runs execute in this process), request-ID and CORS
+middleware, and the aggregate ``routes.router`` mounted under ``/v1``. Served
+by ``main.run()`` as ``aloy_backend.api:app``.
+"""
+
 from __future__ import annotations
 
 import logging

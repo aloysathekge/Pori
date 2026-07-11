@@ -1,3 +1,9 @@
+"""Memory HTTP surface: core-memory block read/update, knowledge-entry
+(long-term ``MemoryRecord``) CRUD and search, archival passages, export, and
+retention pruning. Record semantics (scope, conflict policy) are delegated to
+``memory_records.py``.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -75,7 +81,7 @@ async def _get_or_create_block(
 async def get_core_memory(
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> CoreMemoryResponse:
     """View all CoreMemory blocks (persona, human, notes)."""
     blocks = []
     for label in DEFAULT_LABELS:
@@ -95,7 +101,7 @@ async def get_core_memory(
 async def reset_memory(
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     """Reset all persistent memory for the current user."""
     # Clear core memory blocks
     result = await session.execute(
@@ -142,7 +148,7 @@ async def list_knowledge(
     session: AsyncSession = Depends(get_session),
     limit: int = 50,
     offset: int = 0,
-):
+) -> list[KnowledgeEntryResponse]:
     """List knowledge entries."""
     result = await session.execute(
         select(KnowledgeEntry)
@@ -162,7 +168,7 @@ async def create_knowledge_entry(
     body: KnowledgeEntryCreate,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> KnowledgeEntryResponse:
     """Manually add a knowledge entry."""
     record = create_record(
         user_id=context.user_id,
@@ -222,7 +228,7 @@ async def delete_knowledge_entry(
     hard: bool = False,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     """Delete a specific knowledge entry."""
     entry = await session.get(KnowledgeEntry, entry_id)
     if not entry or entry.organization_id != context.organization_id:
@@ -249,7 +255,7 @@ async def list_archival(
     session: AsyncSession = Depends(get_session),
     limit: int = 50,
     offset: int = 0,
-):
+) -> list[KnowledgeEntryResponse]:
     """List knowledge entries (archival alias)."""
     return await list_knowledge(
         context=context, session=session, limit=limit, offset=offset
@@ -261,7 +267,7 @@ async def search_archival(
     body: KnowledgeSearchRequest,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[KnowledgeEntryResponse]:
     """Search knowledge entries by tag filter."""
     stmt = select(KnowledgeEntry).where(
         KnowledgeEntry.organization_id == context.organization_id,
@@ -290,7 +296,7 @@ async def delete_archival_passage(
     passage_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     """Delete a knowledge entry (archival alias)."""
     return await delete_knowledge_entry(
         entry_id=passage_id, context=context, session=session
@@ -301,7 +307,7 @@ async def delete_archival_passage(
 async def export_memory(
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> MemoryExportResponse:
     """Export all active and superseded memory owned by the current tenant."""
     result = await session.execute(
         select(KnowledgeEntry).where(
@@ -324,7 +330,7 @@ async def export_memory(
 async def prune_expired_memory(
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Permanently remove expired records not protected by legal hold."""
     result = await session.execute(
         select(KnowledgeEntry).where(
@@ -354,7 +360,7 @@ async def get_core_memory_block(
     block_label: str,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> CoreMemoryBlockResponse:
     """View a specific CoreMemory block."""
     if block_label not in DEFAULT_LABELS:
         raise HTTPException(status_code=404, detail="Block not found")
@@ -373,7 +379,7 @@ async def update_core_memory_block(
     body: CoreMemoryBlockUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> CoreMemoryBlockResponse:
     """Manually edit a CoreMemory block."""
     if block_label not in DEFAULT_LABELS:
         raise HTTPException(status_code=404, detail="Block not found")

@@ -7,7 +7,7 @@ fetch_my_file tool can pull it into any conversation's sandbox."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -40,7 +40,7 @@ def _file_view(r: StoredFile) -> dict:
 async def list_my_library(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[dict]:
     """The caller's file library (their own saved files, newest first)."""
     rows = (
         (
@@ -60,7 +60,9 @@ async def list_my_library(
     return [_file_view(r) for r in rows]
 
 
-async def _own_file(session, context, file_id: str) -> StoredFile:
+async def _own_file(
+    session: AsyncSession, context: OrganizationContext, file_id: str
+) -> StoredFile:
     record = await session.get(StoredFile, file_id)
     if (
         record is None
@@ -76,7 +78,7 @@ async def save_to_library(
     file_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Save a file to the caller's library: flags the row + writes the memory
     pointer (one transaction), so every future run knows the file exists."""
     record = await _own_file(session, context, file_id)
@@ -90,7 +92,7 @@ async def remove_from_my_library(
     file_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Remove from the library: unflags + deletes the memory pointer in the
     same transaction — memory never points at nothing. The file itself (and
     its conversation history) remains."""
@@ -105,7 +107,7 @@ async def download_file(
     file_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Response:
     """Stream one stored file (org-checked). Presigned redirect when the
     store supports it; otherwise streamed through the backend."""
     record = await session.get(StoredFile, file_id)

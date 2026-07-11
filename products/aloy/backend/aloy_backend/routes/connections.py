@@ -51,7 +51,7 @@ def _callback_uri(provider: str) -> str:
 async def list_providers(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[ProviderInfo]:
     """Available providers with this member's (user) and the org's (shared)
     connection status for each."""
     rows = (
@@ -99,7 +99,7 @@ async def start_connection(
     scope: str = Query("user", pattern="^(user|org)$"),
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConnectionStartResponse:
     spec = get_provider(provider)
     if spec is None or not spec.is_configured():
         raise HTTPException(status_code=404, detail="Provider not available")
@@ -147,7 +147,7 @@ async def oauth_callback(
     code: str | None = Query(default=None),
     error: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
-):
+) -> RedirectResponse:
     """Provider redirects here (no auth header — identity is carried by `state`)."""
     dest = f"{settings.app_base_url}/connections"
     flow = await session.get(OAuthFlowState, state)
@@ -194,7 +194,7 @@ async def disconnect(
     scope: str = Query("user", pattern="^(user|org)$"),
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> ConnectionResponse:
     spec = get_provider(provider)
     if spec is None:
         raise HTTPException(status_code=404, detail="Unknown provider")

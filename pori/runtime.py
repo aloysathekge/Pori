@@ -4,18 +4,32 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@contextmanager
+def fail_open(
+    what: str, logger: logging.Logger, *, level: int = logging.DEBUG
+) -> Iterator[None]:
+    """Swallow exceptions from non-essential bookkeeping (ADR 0004): the
+    run must survive metrics/checkpoint/journal failures. Logs and moves on."""
+    try:
+        yield
+    except Exception:
+        logger.log(level, "fail-open: %s failed", what, exc_info=True)
 
 
 def stable_fingerprint(value: Any) -> str:
@@ -237,6 +251,7 @@ __all__ = [
     "ReceiptStatus",
     "RunContext",
     "ToolExecutionReceipt",
+    "fail_open",
     "stable_fingerprint",
     "utc_now",
 ]

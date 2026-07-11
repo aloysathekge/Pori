@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import select
 
-from pori import AgentMemory, AgentSettings
+from pori import Agent, AgentMemory, AgentSettings
 
 from .conversation_runtime import (
     flush_context_artifact,
@@ -47,7 +48,9 @@ def kernel_task_id_for_run(run_id: str) -> str:
     return f"run-{run_id[:12]}"
 
 
-def _make_progress_checkpointer(run_id: str, worker_id: str, kernel_task_id: str):
+def _make_progress_checkpointer(
+    run_id: str, worker_id: str, kernel_task_id: str
+) -> Callable[[Agent], Awaitable[None]]:
     """Per-step callback: persist the loop checkpoint AND renew the lease.
 
     This is the heartbeat (docs/long-running.md Phase 2): while steps advance,
@@ -59,7 +62,7 @@ def _make_progress_checkpointer(run_id: str, worker_id: str, kernel_task_id: str
     """
     from .config import settings as app_settings
 
-    async def _checkpoint(agent) -> None:
+    async def _checkpoint(agent: Agent) -> None:
         try:
             async with async_session() as beat_session:
                 run = await beat_session.get(Run, run_id)
@@ -92,7 +95,9 @@ def _make_progress_checkpointer(run_id: str, worker_id: str, kernel_task_id: str
     return _checkpoint
 
 
-def _inject_resume_checkpoint(memory, run: Run, kernel_task_id: str) -> bool:
+def _inject_resume_checkpoint(
+    memory: AgentMemory, run: Run, kernel_task_id: str
+) -> bool:
     """Seed a reconstructed AgentMemory with the persisted loop checkpoint.
 
     The worker's AgentMemory is rebuilt from the database each attempt, so the

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -148,7 +149,7 @@ async def list_members(
     organization_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.ORG_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[OrganizationMembership]:
     if context.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     result = await session.execute(
@@ -171,7 +172,7 @@ async def add_member(
         require_permission(Permission.MEMBER_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> OrganizationMembership:
     if context.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     membership = OrganizationMembership(
@@ -201,7 +202,7 @@ async def update_member(
         require_permission(Permission.MEMBER_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> OrganizationMembership:
     if context.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found")
     membership = await session.get(OrganizationMembership, membership_id)

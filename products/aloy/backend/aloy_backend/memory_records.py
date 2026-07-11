@@ -1,3 +1,10 @@
+"""Bridges the kernel's ``MemoryRecord`` contract onto the backend's
+``KnowledgeEntry`` rows: row↔record converters, request-scope construction
+(per-user tenant boundary until organization membership owns memory),
+conflict-policy application, and search. Used by the memory routes and by run
+surfaces that read/write long-term knowledge.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

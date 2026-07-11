@@ -1,3 +1,10 @@
+"""Step-outcome judging for the agent loop. ``ActionResult`` is the uniform
+success/failure envelope every executed action reduces to, and ``Evaluator``
+maps raw tool results onto it with per-tool retry counting bounded by
+``max_retries``. Consumed each step by ``Agent.run()`` to decide progress vs.
+failure.
+"""
+
 from typing import Any, Dict, List, Optional, Tuple
 
 

@@ -1,6 +1,13 @@
+"""Run endpoints: submit a run (202 — executed asynchronously by the durable
+worker), list/get runs, read the run event log, create child runs, and cancel.
+Operates on ``Run`` / ``RunEventLog`` rows; tenancy-gated via
+``require_permission``.
+"""
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -103,7 +110,7 @@ async def create_run(
 async def list_runs(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[Run]:
     result = await session.execute(
         select(Run)
         .where(Run.organization_id == context.organization_id)
@@ -117,7 +124,7 @@ async def get_run(
     run_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Run:
     run = await session.get(Run, run_id)
     if not run or run.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -129,7 +136,7 @@ async def get_run_events(
     run_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> RunEventLog:
     """The coalesced event log for a run — powers the read-only replay view."""
     log = await session.get(RunEventLog, run_id)
     if not log or log.organization_id != context.organization_id:
@@ -143,7 +150,7 @@ async def create_child_run(
     body: ChildRunCreate,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> RunResponse:
     parent = await session.get(Run, run_id)
     if not parent or parent.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Parent run not found")
@@ -203,7 +210,7 @@ async def cancel_run(
     run_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CANCEL)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Run:
     run = await session.get(Run, run_id)
     if not run or run.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Run not found")

@@ -1,3 +1,8 @@
+"""Route aggregation: imports every resource router and composes them into
+the single ``router`` that ``api.py`` mounts under ``/v1``. A new route module
+must be registered here to be served.
+"""
+
 from fastapi import APIRouter
 
 from .agent_configs import router as agent_configs_router

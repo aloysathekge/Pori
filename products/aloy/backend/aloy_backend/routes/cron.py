@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,7 +50,7 @@ async def create_cron_job(
     req: CronJobCreate,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> CronJob:
     try:
         validate_schedule(req.schedule)
     except ValueError as exc:
@@ -88,7 +89,7 @@ async def list_cron_jobs(
     limit: int = 100,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[CronJob]:
     result = await session.execute(
         select(CronJob)
         .where(CronJob.organization_id == context.organization_id)
@@ -104,7 +105,7 @@ async def update_cron_job(
     req: CronJobUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> CronJob:
     job = await _get_owned_job(job_id, context, session)
     if req.schedule is not None:
         try:
@@ -138,7 +139,7 @@ async def delete_cron_job(
     job_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     job = await _get_owned_job(job_id, context, session)
     await session.delete(job)
     await session.commit()

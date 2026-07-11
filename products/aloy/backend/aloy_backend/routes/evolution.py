@@ -1,5 +1,11 @@
+"""Evolution endpoints: org-scoped CRUD for ``EvolutionProposal`` rows and
+their lifecycle (eval recording, approve/reject, activation via
+``EvolutionActivation``).
+"""
+
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -64,7 +70,7 @@ async def create_evolution_proposal(
     body: EvolutionProposalCreate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionProposal:
     proposal = EvolutionProposal(
         organization_id=context.organization_id,
         created_by=context.user_id,
@@ -90,7 +96,7 @@ async def create_evolution_proposal(
 async def list_evolution_proposals(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[EvolutionProposal]:
     result = await session.execute(
         select(EvolutionProposal)
         .where(EvolutionProposal.organization_id == context.organization_id)
@@ -104,7 +110,7 @@ async def get_evolution_proposal(
     proposal_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionProposal:
     return await _get_proposal(session, proposal_id, context.organization_id)
 
 
@@ -114,7 +120,7 @@ async def record_evolution_evals(
     body: EvolutionEvalRecord,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionProposal:
     proposal = await _get_proposal(session, proposal_id, context.organization_id)
     _require_status(proposal, "proposed", "evaluated")
     proposal.eval_results = [item.model_dump(mode="json") for item in body.results]
@@ -133,7 +139,7 @@ async def approve_evolution_proposal(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionProposal:
     proposal = await _get_proposal(session, proposal_id, context.organization_id)
     _require_status(proposal, "evaluated")
     if not _evals_passed(proposal):
@@ -157,7 +163,7 @@ async def reject_evolution_proposal(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionProposal:
     proposal = await _get_proposal(session, proposal_id, context.organization_id)
     _require_status(proposal, "proposed", "evaluated")
     proposal.status = "rejected"
@@ -180,7 +186,7 @@ async def activate_evolution_proposal(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionActivation:
     proposal = await _get_proposal(session, proposal_id, context.organization_id)
     _require_status(proposal, "approved")
     now = _utcnow()
@@ -210,7 +216,7 @@ async def get_active_evolution(
     target: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionActivation | None:
     result = await session.execute(
         select(EvolutionActivation)
         .where(
@@ -233,7 +239,7 @@ async def rollback_evolution(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> EvolutionActivation | None:
     result = await session.execute(
         select(EvolutionActivation)
         .where(

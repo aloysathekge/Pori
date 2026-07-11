@@ -1,3 +1,9 @@
+"""Pydantic request/response schemas for the HTTP API, grouped by resource
+(organizations, runs, conversations, agent/team configs, memory, skills,
+evolution, usage). These are the wire contract — keep them decoupled from the
+SQLModel rows in ``models.py``.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

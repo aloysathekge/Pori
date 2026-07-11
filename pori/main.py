@@ -1,3 +1,11 @@
+"""The interactive CLI REPL. ``main()`` assembles config, LLM, memory
+store, skills/evolution catalogs, and background-delegation plumbing into an
+``Orchestrator``, then loops on user input — dispatching ``/commands`` through
+``cli_commands.COMMAND_REGISTRY`` and streaming agent runs (text/thinking
+deltas, tool calls) to the terminal. Entered via the ``pori`` console script
+(``cli.py``) or ``python -m pori``; not imported by library code.
+"""
+
 import asyncio
 import json
 import logging

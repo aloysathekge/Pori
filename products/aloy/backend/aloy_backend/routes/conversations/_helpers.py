@@ -9,16 +9,24 @@ No routes live here.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from pori.llm import BaseChatModel
 
 from ...deps import load_owned
-from ...models import Conversation
+from ...models import Conversation, Message
+from ...tenancy import OrganizationContext
 
 logger = logging.getLogger("aloy_backend")
 
 _load_owned_conversation = load_owned(Conversation)
 
 
-async def _load_conv(session, context, conversation_id) -> Conversation:
+async def _load_conv(
+    session: AsyncSession, context: OrganizationContext, conversation_id: str
+) -> Conversation:
     """Load a conversation owned by the caller's org, or 404."""
     return await _load_owned_conversation(conversation_id, context, session)
 
@@ -28,7 +36,12 @@ def _render_file_block(name: str, content: str) -> str:
     return f'\n\n<attached-file name="{name}">\n{content}\n</attached-file>'
 
 
-async def _maybe_generate_title(session, conv, llm, first_user_content: str) -> None:
+async def _maybe_generate_title(
+    session: AsyncSession,
+    conv: Conversation,
+    llm: BaseChatModel,
+    first_user_content: str,
+) -> None:
     """Give an untitled conversation a short topic title from its first message
     (like ChatGPT/Claude). Best-effort: an LLM title, else a clean heuristic."""
     if conv.title:
@@ -89,7 +102,7 @@ _LANG_BY_EXT = {
 _ARTIFACT_MAX_BYTES = 200_000
 
 
-def _conversation_artifacts(messages) -> dict:
+def _conversation_artifacts(messages: Iterable[Message]) -> dict:
     """path -> {path, tool_name, bytes_written, message_id} across a conversation
     (the allowlist of files its runs actually wrote)."""
     out: dict = {}

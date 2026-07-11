@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 import string
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +33,7 @@ def _mint_code() -> str:
 async def create_pairing_code(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> GatewayPairResponse:
     """Mint a one-time code the user sends to the bot to pair a chat."""
     code = GatewayPairingCode(
         code=_mint_code(),
@@ -54,7 +55,7 @@ async def create_pairing_code(
 async def list_links(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[GatewayLink]:
     result = await session.execute(
         select(GatewayLink).where(
             GatewayLink.organization_id == context.organization_id,
@@ -69,7 +70,7 @@ async def delete_link(
     link_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     link = await session.get(GatewayLink, link_id)
     if (
         not link

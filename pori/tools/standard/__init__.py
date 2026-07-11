@@ -1,3 +1,10 @@
+"""Assembles the built-in toolset: ``register_all_tools`` installs the
+standard domains (core, filesystem, internet, planning, skills) plus external
+plugins from the ``pori.tools`` entry-point group. ``STANDARD_KERNEL_TOOLS``
+names the always-on kernel tools — the terminal ``answer`` / ``done`` among
+them must never be removed.
+"""
+
 from importlib import metadata
 
 from pori.capabilities import CapabilityGroup, CapabilityPrerequisites
