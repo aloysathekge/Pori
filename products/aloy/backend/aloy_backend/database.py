@@ -1,3 +1,9 @@
+"""Async SQLAlchemy/SQLModel database plumbing: the module-level ``engine``
+and ``async_session`` factory, the ``get_session`` FastAPI dependency, and
+``init_db`` (dev-time ``create_all`` — production schema changes go through
+Alembic). ``_async_url`` upgrades sync postgres URLs to asyncpg.
+"""
+
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

@@ -1,3 +1,12 @@
+"""Provider-agnostic long-term memory contracts: ``MemoryRecord`` (the
+kind/scope/provenance/retention/sensitivity envelope), the
+``MemoryRepository`` protocol backends implement, and ``MemoryCatalog``, which
+enforces scope filtering and conflict policy on top of any repository.
+Invariant: all timestamps are timezone-aware UTC (``utc_now`` / ``as_utc``).
+Consumed by product backends (e.g. the Aloy backend's knowledge store) rather
+than the agent loop itself.
+"""
+
 from __future__ import annotations
 
 import uuid

@@ -1,3 +1,9 @@
+"""Request-ID middleware: assigns or propagates ``X-Request-ID``, stores it
+in the ``request_id_var`` ContextVar (readable anywhere for log correlation),
+and converts unhandled exceptions into a 500 that still carries the id.
+Outermost middleware — registered first in ``api.py``.
+"""
+
 from __future__ import annotations
 
 import logging

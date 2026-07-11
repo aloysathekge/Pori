@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
@@ -25,7 +26,7 @@ async def get_usage_summary(
     context: OrganizationContext = Depends(require_permission(Permission.USAGE_READ)),
     session: AsyncSession = Depends(get_session),
     days: int = Query(30, ge=1, le=365),
-):
+) -> UsageSummaryResponse:
     """Get aggregated usage stats for the current user."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -64,7 +65,7 @@ async def get_usage_history(
     context: OrganizationContext = Depends(require_permission(Permission.USAGE_READ)),
     session: AsyncSession = Depends(get_session),
     days: int = Query(30, ge=1, le=365),
-):
+) -> list[DailyUsageResponse]:
     """Get daily usage breakdown."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -103,7 +104,7 @@ async def list_usage_records(
     session: AsyncSession = Depends(get_session),
     limit: int = 50,
     offset: int = 0,
-):
+) -> Sequence[UsageRecord]:
     """List individual usage records."""
     result = await session.execute(
         select(UsageRecord)

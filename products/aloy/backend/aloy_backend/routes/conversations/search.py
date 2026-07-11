@@ -32,7 +32,7 @@ async def search_conversations(
     limit: int = Query(default=20, ge=1, le=100),
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[ConversationSearchHit]:
     """Search only after applying the organization boundary in SQL."""
     repository = CloudSessionRepository(
         session,
@@ -59,7 +59,7 @@ async def search_continuity_context(
     limit: int = Query(default=10, ge=1, le=50),
     context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[ContextSearchHit]:
     session_hits = await search_conversations(q, limit, context, session)
     session_evidence = [
         RetrievalEvidence(

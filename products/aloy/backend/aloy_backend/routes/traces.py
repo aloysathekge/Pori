@@ -25,7 +25,7 @@ async def list_traces(
     limit: int = 50,
     offset: int = 0,
     conversation_id: str | None = None,
-):
+) -> list[TraceListResponse]:
     """List traces (each labeled with its conversation, optionally filtered)."""
     stmt = (
         select(TraceRecord)
@@ -71,7 +71,7 @@ async def get_trace(
     trace_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.TRACE_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> TraceRecord:
     """Get a full trace with span tree."""
     trace = await session.get(TraceRecord, trace_id)
     if not trace or trace.organization_id != context.organization_id:
@@ -84,7 +84,7 @@ async def delete_trace(
     trace_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.ORG_MANAGE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     """Delete a trace."""
     trace = await session.get(TraceRecord, trace_id)
     if not trace or trace.organization_id != context.organization_id:

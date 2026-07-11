@@ -863,7 +863,7 @@ def _pori_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract_config_declarations(
-    metadata: dict[str, Any]
+    metadata: dict[str, Any],
 ) -> Tuple[SkillConfigDeclaration, ...]:
     raw = _pori_metadata(metadata).get("config")
     if raw is None:

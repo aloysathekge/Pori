@@ -34,7 +34,7 @@ async def list_artifacts(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[dict]:
     """Files the conversation's agent runs wrote (from message receipts)."""
     await _load_conv(session, context, conversation_id)
     msgs = (
@@ -63,7 +63,7 @@ async def get_artifact_content(
     path: str = Query(..., max_length=1024),
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Read one artifact's text, allowlisted to paths this conversation wrote
     and served from the object store (durable across replicas/redeploys)."""
     await _load_conv(session, context, conversation_id)

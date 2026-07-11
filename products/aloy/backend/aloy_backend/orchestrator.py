@@ -1,3 +1,11 @@
+"""The single place the backend constructs the Pori kernel:
+``configure_sandbox`` activates the configured sandbox backend at process
+startup (API server and worker both run agent code), ``sandbox_base_dir``
+resolves the always-enforced filesystem jail root, and ``build_orchestrator``
+assembles LLM, tool registry (kernel + Aloy product tools, filtered by org
+policy and per-run denials), skills, and prompts into an ``Orchestrator``.
+"""
+
 import logging
 import os
 from pathlib import Path

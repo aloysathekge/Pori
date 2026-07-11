@@ -36,7 +36,7 @@ def _info(server: McpServer, can_manage_org: bool) -> McpServerInfo:
 async def list_servers(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[McpServerInfo]:
     rows = (
         (
             await session.execute(
@@ -61,7 +61,7 @@ async def create_server(
     req: McpServerCreate,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> McpServerInfo:
     if req.scope not in ("user", "org"):
         raise HTTPException(status_code=422, detail="scope must be user|org")
     if req.transport not in ("http", "sse"):
@@ -118,7 +118,9 @@ async def create_server(
     return _info(server, context.permits(Permission.CONNECTION_MANAGE))
 
 
-async def _load_manageable(session, context, server_id: str) -> McpServer:
+async def _load_manageable(
+    session: AsyncSession, context: OrganizationContext, server_id: str
+) -> McpServer:
     server = await session.get(McpServer, server_id)
     if server is None or server.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -136,7 +138,7 @@ async def update_server(
     req: McpServerUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> McpServerInfo:
     server = await _load_manageable(session, context, server_id)
     server.enabled = req.enabled
     server.updated_at = datetime.now(timezone.utc)
@@ -151,7 +153,7 @@ async def delete_server(
     server_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     server = await _load_manageable(session, context, server_id)
     await session.delete(server)
     await session.commit()

@@ -46,7 +46,7 @@ async def upload_conversation_file(
     file: UploadFile = File(...),
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     """Store a large attachment durably (rung 4 of the attachment ladder:
     beyond the inline/native limits, the model gets a *reference* and works
     on the bytes in the sandbox). Also eagerly provisions the file into this

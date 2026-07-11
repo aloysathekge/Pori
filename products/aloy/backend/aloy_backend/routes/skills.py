@@ -1,5 +1,10 @@
+"""Org-scoped skill registry endpoints: CRUD for ``SkillDefinition`` rows
+and grant management (``SkillGrant``) controlling who may use each skill.
+"""
+
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +31,7 @@ async def create_skill(
     body: SkillCreate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> SkillDefinition:
     skill = SkillDefinition(
         organization_id=context.organization_id,
         created_by=context.user_id,
@@ -46,7 +51,7 @@ async def create_skill(
 async def list_skills(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[SkillDefinition]:
     result = await session.execute(
         select(SkillDefinition)
         .where(SkillDefinition.organization_id == context.organization_id)
@@ -60,7 +65,7 @@ async def get_skill(
     skill_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> SkillDefinition:
     skill = await session.get(SkillDefinition, skill_id)
     if not skill or skill.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -75,7 +80,7 @@ async def update_skill(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> SkillDefinition:
     skill = await session.get(SkillDefinition, skill_id)
     if not skill or skill.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -96,7 +101,7 @@ async def create_skill_grant(
         require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> SkillGrant:
     skill = await session.get(SkillDefinition, skill_id)
     if not skill or skill.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -122,7 +127,7 @@ async def list_skill_grants(
     skill_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[SkillGrant]:
     skill = await session.get(SkillDefinition, skill_id)
     if not skill or skill.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Skill not found")

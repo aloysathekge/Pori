@@ -136,6 +136,7 @@ from .runtime import (
     ReceiptStatus,
     RunContext,
     ToolExecutionReceipt,
+    fail_open,
     stable_fingerprint,
 )
 
@@ -241,6 +242,7 @@ __all__ = [
     "ReceiptStatus",
     "RunContext",
     "ToolExecutionReceipt",
+    "fail_open",
     "stable_fingerprint",
     "CapabilityGroup",
     "CapabilityPrerequisites",

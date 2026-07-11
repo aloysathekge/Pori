@@ -1,3 +1,9 @@
+"""Backend settings via pydantic-settings: one ``Settings`` class read from
+the environment / ``.env`` (database URL, Supabase, CORS, rate limits, worker
+and cron cadence, sandbox backend). Import the module-level ``settings``
+singleton rather than instantiating ``Settings`` again.
+"""
+
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings

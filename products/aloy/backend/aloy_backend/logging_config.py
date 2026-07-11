@@ -1,3 +1,8 @@
+"""dictConfig-based logging for the backend: ``setup_logging`` sends
+``aloy_backend`` (and uvicorn) loggers to stdout at ``settings.log_level``.
+Called once from the app lifespan in ``api.py``.
+"""
+
 from __future__ import annotations
 
 import logging

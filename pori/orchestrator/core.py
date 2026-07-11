@@ -1,3 +1,11 @@
+"""``Orchestrator`` — the main programmatic entrypoint for single-task runs.
+``execute_task`` builds an ``Agent`` (threading shared memory, sandbox, HITL
+handlers, skills, and sub-agent runners) and runs it; per-``session_key``
+in-flight tracking rejects or queues duplicate runs (``ConversationBusy``).
+Also home of ``run_subagent``, the child-agent spawner behind the
+``delegate_task`` tool.
+"""
+
 import asyncio
 import logging
 import uuid

@@ -1,3 +1,11 @@
+"""The ``Agent`` class and its Plan → Act → Reflect → Evaluate loop.
+``core`` keeps the loop whole; cohesive method groups (prompting, planning,
+dispatch, artifacts, authorization) live in sibling modules and are bound onto
+the class here. ``Agent.run()`` is bounded by ``AgentSettings.max_steps`` /
+``max_failures``, terminates when the model calls a terminal tool (``answer``
+/ ``done``), and always returns its trace + metrics.
+"""
+
 import asyncio
 import inspect
 import logging
@@ -33,6 +41,7 @@ from pori.llm.model_context import get_model_context_length
 
 from ..compression import compress_context
 from ..context import ContextDiagnostics, ContextEngine, DefaultContextEngine
+from ..eval.base import BaseEval
 from ..evaluation import ActionResult, Evaluator
 from ..evolution import EvolutionRepository
 from ..hitl import ApprovalResponse, HITLConfig, HITLHandler, resolve_interrupt_config
@@ -61,6 +70,7 @@ from ..runtime import (
     RunCancelled,
     RunContext,
     ToolExecutionReceipt,
+    fail_open,
     stable_fingerprint,
     utc_now,
 )
@@ -152,11 +162,11 @@ class Agent:
         llm: BaseChatModel,
         tools_registry: ToolRegistry,
         settings: AgentSettings = AgentSettings(),
-        memory: Optional[Any] = None,
+        memory: Optional[AgentMemory] = None,
         sandbox_base_dir: Optional[str] = None,
         hitl_handler: Optional[HITLHandler] = None,
         hitl_config: Optional[HITLConfig] = None,
-        guardrails: Optional[List] = None,
+        guardrails: Optional[List[BaseEval]] = None,
         system_prompt: Optional[str] = None,
         run_context: Optional[RunContext] = None,
         context_engine: Optional[ContextEngine] = None,
@@ -190,7 +200,7 @@ class Agent:
         self._tool_context_extra = dict(tool_context_extra or {})
         if run_context is not None:
             self.run_context = run_context
-        elif isinstance(memory, AgentMemory):
+        elif memory is not None:
             self.run_context = RunContext(
                 organization_id=memory.organization_id,
                 user_id=memory.user_id,
@@ -214,7 +224,7 @@ class Agent:
         self._completion_validation_attempts = 0
 
         # Guardrails (BaseEval instances with pre_check/post_check)
-        self.guardrails = guardrails or []
+        self.guardrails: List[BaseEval] = guardrails or []
 
         logger.info(f"Initializing new agent", extra={"task_id": self.task_id})
         logger.info(f"Task: {task}", extra={"task_id": self.task_id})
@@ -261,7 +271,7 @@ class Agent:
 
         # Initialize state components
         self.state = AgentState()
-        if isinstance(memory, AgentMemory):
+        if memory is not None:
             expected_scope = (
                 self.run_context.organization_id,
                 self.run_context.user_id,
@@ -278,8 +288,6 @@ class Agent:
                 raise ValueError(
                     "AgentMemory scope must exactly match RunContext scope"
                 )
-            self.memory = memory
-        elif memory is not None:
             self.memory = memory
         else:
             self.memory = AgentMemory(
@@ -484,13 +492,8 @@ class Agent:
             # Reflection adds an LLM call after acting. In auto mode it is only
             # used for failed/unclear progress, and never after a final answer.
             if self._should_reflect(tool_results):
-                try:
+                with fail_open("reflection", logger):
                     await self._reflect_and_update_plan(tool_results)
-                except Exception as reflect_err:
-                    logger.debug(
-                        f"Reflection skipped/failed: {reflect_err}",
-                        extra={"task_id": self.task_id, "step": step_number},
-                    )
             else:
                 logger.debug(
                     "Skipping reflection: disabled or task is complete",
@@ -543,15 +546,10 @@ class Agent:
         )
 
         # Record step duration in metrics
-        try:
+        with fail_open("recording step metrics", logger):
             step_metrics.duration_seconds = step_duration
             if self._run_metrics is not None:
                 self._run_metrics.steps.append(step_metrics)
-        except Exception as metrics_err:
-            logger.debug(
-                f"Failed to record step metrics: {metrics_err}",
-                extra={"task_id": self.task_id, "step": step_number},
-            )
 
         # Finish step span if not already finished (error case finishes early)
         if step_span and step_span.end_time is None:
@@ -562,34 +560,24 @@ class Agent:
             if result.include_in_memory:
                 self.memory.add_message("system", str(result))
                 # Capture final answer in state for this task
-                try:
+                with fail_open("updating final_answer state", logger):
                     if (
                         isinstance(result.value, dict)
                         and "final_answer" in result.value
                     ):
                         self.memory.update_state("final_answer", result.value)
-                except Exception as state_err:
-                    logger.debug(
-                        f"Failed to update final_answer state: {state_err}",
-                        extra={"task_id": self.task_id},
-                    )
                 # Skip indexing intermediate step results — they add noise.
                 # Only task descriptions and final answers are stored as experiences.
 
         # Checkpoint the loop position on the task record so an interrupted run
         # can resume from here instead of step 0 (fail-open).
-        try:
+        with fail_open("checkpointing task progress", logger):
             self.memory.checkpoint_task_progress(
                 self.task_id,
                 n_steps=self.state.n_steps,
                 consecutive_failures=self.state.consecutive_failures,
                 current_activity=self.state.current_activity,
                 plan=self._plan_snapshot(),
-            )
-        except Exception as checkpoint_err:
-            logger.debug(
-                f"Failed to checkpoint task progress: {checkpoint_err}",
-                extra={"task_id": self.task_id},
             )
 
     def _record_llm_call_metrics(
@@ -752,15 +740,10 @@ class Agent:
         """
         if callback is None:
             return
-        try:
+        with fail_open("step callback", logger):
             result = callback(self)
             if inspect.isawaitable(result):
                 await result
-        except Exception as cb_err:
-            logger.debug(
-                f"Step callback raised, ignoring: {cb_err}",
-                extra={"task_id": self.task_id},
-            )
 
     def _emit(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
         """Emit a normalized PoriEvent to the subscribed consumer, if any."""
@@ -978,7 +961,7 @@ class Agent:
 
         # Finalize metrics
         if self._run_metrics is not None:
-            try:
+            with fail_open("run metrics summary", logger):
                 self._run_metrics.end_time = datetime.now()
                 self._run_metrics.finalize()
                 summary = self._run_metrics.summary()
@@ -987,11 +970,6 @@ class Agent:
                     f"steps={summary['steps']}, "
                     f"llm_calls={summary['llm_calls']}, "
                     f"tool_calls={summary['tool_calls']}",
-                    extra={"task_id": self.task_id},
-                )
-            except Exception as e:
-                logger.debug(
-                    f"Failed to log run metrics summary: {e}",
                     extra={"task_id": self.task_id},
                 )
 

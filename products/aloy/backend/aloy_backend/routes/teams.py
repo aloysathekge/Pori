@@ -1,6 +1,11 @@
+"""Team endpoints: CRUD for ``TeamConfig`` rows and launching a team run
+(202 — recorded as a ``Run`` row for the worker to execute).
+"""
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -30,7 +35,7 @@ async def create_team(
     req: TeamConfigCreate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> TeamConfig:
     team = TeamConfig(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -51,7 +56,7 @@ async def create_team(
 async def list_teams(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> Sequence[TeamConfig]:
     result = await session.execute(
         select(TeamConfig)
         .where(TeamConfig.organization_id == context.organization_id)
@@ -65,7 +70,7 @@ async def get_team(
     team_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
-):
+) -> TeamConfig:
     team = await session.get(TeamConfig, team_id)
     if not team or team.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Team config not found")
@@ -78,7 +83,7 @@ async def update_team(
     req: TeamConfigUpdate,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> TeamConfig:
     team = await session.get(TeamConfig, team_id)
     if not team or team.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Team config not found")
@@ -100,7 +105,7 @@ async def delete_team(
     team_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> None:
     team = await session.get(TeamConfig, team_id)
     if not team or team.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Team config not found")
@@ -120,7 +125,7 @@ async def run_team(
     req: TeamRunRequest,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict:
     team_config = await session.get(TeamConfig, team_id)
     if not team_config or team_config.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Team config not found")

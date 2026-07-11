@@ -775,7 +775,9 @@ async def _run_blocking(
 # ---- endpoint ----
 
 
-@router.post("/{conversation_id}/messages", status_code=202)
+# response_model=None: the honest return is a union with Response
+# subclasses, which FastAPI cannot build a response model for.
+@router.post("/{conversation_id}/messages", status_code=202, response_model=None)
 async def send_message(
     conversation_id: str,
     req: SendMessageRequest,
@@ -783,7 +785,7 @@ async def send_message(
         rate_limited_permission(Permission.RUN_CREATE)
     ),
     session: AsyncSession = Depends(get_session),
-):
+) -> dict | MessageResponse | StreamingResponse:
     """Dispatcher: prepare the turn, assemble the task, then hand off to one
     of the four execution modes (see module docstring)."""
     # Durable upload refs for this turn (already in the store; validate they

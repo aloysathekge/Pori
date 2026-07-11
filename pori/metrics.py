@@ -1,3 +1,10 @@
+"""Token and cost accounting for agent runs: ``TokenUsage`` per LLM call,
+``LLMCallMetrics`` / ``ToolCallMetrics`` / ``StepMetrics`` per step, and
+``RunMetrics`` aggregating a whole run. ``PRICE_PER_MTOK`` maps model ids to
+$/MTok; ``estimate_llm_call_cost`` returns ``None`` (not an error) for unknown
+models. Populated by ``Agent.run()`` and returned alongside the trace.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional

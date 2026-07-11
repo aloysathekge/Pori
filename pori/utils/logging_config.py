@@ -1,3 +1,10 @@
+"""Logging plumbing for the pori package: ``PoriFormatter`` (level colors +
+request/task context), ``RequestIdFilter`` (injects the ``request_id``
+contextvar), and ``ensure_logger_configured`` — the accessor modules use to
+get a namespaced, configured logger without double-adding handlers.
+``setup_logging`` does one-time global configuration for the CLI.
+"""
+
 import logging
 import sys
 from typing import Any, Dict

@@ -1,3 +1,9 @@
+"""Logging wrapper for structured LLM calls: ``ainvoke_structured`` runs
+``llm.with_structured_output(...).ainvoke(...)`` and logs start / success /
+failure with timing on the ``pori.llm`` logger. Prefer it over calling
+structured output directly so the call shows up in LLM logs.
+"""
+
 import time
 from typing import Any, Dict, List, Optional, Type
 
