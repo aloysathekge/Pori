@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import json
 import logging
 import re
 import uuid
@@ -26,7 +25,6 @@ from pori.llm import (
     BaseMessage,
     DocumentBlock,
     ImageBlock,
-    SystemMessage,
     UserMessage,
     normalize_usage,
 )
@@ -37,32 +35,16 @@ from ..compression import compress_context
 from ..context import ContextDiagnostics, ContextEngine, DefaultContextEngine
 from ..evaluation import ActionResult, Evaluator
 from ..evolution import EvolutionRepository
-from ..hitl import (
-    ActionRequest,
-    ApprovalRequest,
-    ApprovalResponse,
-    HITLConfig,
-    HITLHandler,
-    ReviewConfig,
-    resolve_interrupt_config,
-)
+from ..hitl import ApprovalResponse, HITLConfig, HITLHandler, resolve_interrupt_config
 from ..memory import AgentMemory
 from ..metrics import (
     LLMCallMetrics,
     RunMetrics,
     StepMetrics,
     TokenUsage,
-    ToolCallMetrics,
     estimate_llm_call_cost,
 )
-from ..observability import (
-    RUN_END,
-    RUN_START,
-    STEP_START,
-    TOOL_CALL_END,
-    TOOL_CALL_START,
-    PoriEvent,
-)
+from ..observability import RUN_END, RUN_START, STEP_START, PoriEvent
 from ..observability.trace import Span, SpanStatus, SpanType, Trace
 from ..planning import PlanStore
 from ..prompts import (
@@ -76,7 +58,6 @@ from ..runtime import (
     BudgetExceeded,
     BudgetLedger,
     CancellationToken,
-    ReceiptStatus,
     RunCancelled,
     RunContext,
     ToolExecutionReceipt,
@@ -102,13 +83,14 @@ logger = ensure_logger_configured("pori.agent")
 
 from . import artifacts as _artifacts
 from . import authorization as _authz
+from . import completion as _completion
+from . import dispatch as _dispatch
 from . import planning as _planning
 from . import prompting as _prompting
 from .schemas import (
     AgentOutput,
     AgentSettings,
     AgentState,
-    CompletionValidation,
     FatalAgentError,
     PlanOutput,
     ReflectOutput,
@@ -124,7 +106,8 @@ class Agent:
 
     # Cohesive method groups extracted to sibling modules for readability and
     # bound back onto the class (they take `self`); see agent/artifacts.py,
-    # agent/authorization.py.
+    # agent/authorization.py, agent/prompting.py, agent/planning.py,
+    # agent/completion.py, agent/dispatch.py.
     _record_tool_receipt = _artifacts._record_tool_receipt
     _extract_tool_artifacts = _artifacts._extract_tool_artifacts
     _run_artifacts = _artifacts._run_artifacts
@@ -146,6 +129,18 @@ class Agent:
     _task_looks_complex = _planning._task_looks_complex
     _plan_if_needed = _planning._plan_if_needed
     _reflect_and_update_plan = _planning._reflect_and_update_plan
+    _current_task_status = _completion._current_task_status
+    _current_task_terminal = _completion._current_task_terminal
+    _task_requests_memory_mutation = _completion._task_requests_memory_mutation
+    _current_task_has_core_memory_mutation = (
+        _completion._current_task_has_core_memory_mutation
+    )
+    _current_task_has_loaded_skill = _completion._current_task_has_loaded_skill
+    _SKILL_NUDGE_MIN_SCORE = _completion._SKILL_NUDGE_MIN_SCORE
+    _required_skill_view_before_answer = _completion._required_skill_view_before_answer
+    _validate_answer_text = _completion._validate_answer_text
+    _reject_action = _dispatch._reject_action
+    execute_actions = _dispatch.execute_actions
 
     # Lazily set in _build_messages (now prompting.py); declared here so it's a
     # known Agent attribute after that method was extracted.
@@ -450,43 +445,7 @@ class Agent:
                 llm_span.finish()
 
             # Record LLM call metrics for this step
-            try:
-                # Token usage: normalize the provider-shaped dict in the llm
-                # layer (AC-4) so the loop never branches on Anthropic vs
-                # OpenAI/Google token keys.
-                usage = normalize_usage(getattr(self.llm, "last_usage", None))
-                tokens = TokenUsage()
-                tokens.input_tokens = usage.input_tokens
-                tokens.output_tokens = usage.output_tokens
-                tokens.total_tokens = usage.total_tokens
-                tokens.cache_read_tokens = usage.cache_read_tokens
-                tokens.cache_write_tokens = usage.cache_write_tokens
-
-                model_id = getattr(self.llm, "model", "")
-                cost = (
-                    estimate_llm_call_cost(model_id, tokens)
-                    if tokens.total_tokens
-                    else None
-                )
-
-                llm_metrics = LLMCallMetrics(
-                    model_id=model_id,
-                    model_provider=self.llm.__class__.__name__,
-                    tokens=tokens,
-                    cost=cost,
-                    duration_seconds=llm_duration,
-                )
-                step_metrics.llm_calls.append(llm_metrics)
-                self.budget_ledger.consume_tokens(tokens.total_tokens)
-                if cost is not None:
-                    self.budget_ledger.consume_cost(cost)
-            except BudgetExceeded:
-                raise
-            except Exception as metrics_err:
-                logger.debug(
-                    f"Failed to record LLM call metrics: {metrics_err}",
-                    extra={"task_id": self.task_id, "step": step_number},
-                )
+            self._record_llm_call_metrics(step_metrics, llm_duration)
 
             action_count = len(model_output.action) if model_output.action else 0
             if action_count > 0:
@@ -633,6 +592,53 @@ class Agent:
                 extra={"task_id": self.task_id},
             )
 
+    def _record_llm_call_metrics(
+        self, step_metrics: StepMetrics, llm_duration: float
+    ) -> None:
+        """Record token/cost metrics for the step's LLM call and charge the budget.
+
+        Fail-open for bookkeeping errors, but a ``BudgetExceeded`` raised while
+        charging the ledger propagates so the run stops.
+        """
+        step_number = self.state.n_steps + 1
+        try:
+            # Token usage: normalize the provider-shaped dict in the llm
+            # layer (AC-4) so the loop never branches on Anthropic vs
+            # OpenAI/Google token keys.
+            usage = normalize_usage(getattr(self.llm, "last_usage", None))
+            tokens = TokenUsage()
+            tokens.input_tokens = usage.input_tokens
+            tokens.output_tokens = usage.output_tokens
+            tokens.total_tokens = usage.total_tokens
+            tokens.cache_read_tokens = usage.cache_read_tokens
+            tokens.cache_write_tokens = usage.cache_write_tokens
+
+            model_id = getattr(self.llm, "model", "")
+            cost = (
+                estimate_llm_call_cost(model_id, tokens)
+                if tokens.total_tokens
+                else None
+            )
+
+            llm_metrics = LLMCallMetrics(
+                model_id=model_id,
+                model_provider=self.llm.__class__.__name__,
+                tokens=tokens,
+                cost=cost,
+                duration_seconds=llm_duration,
+            )
+            step_metrics.llm_calls.append(llm_metrics)
+            self.budget_ledger.consume_tokens(tokens.total_tokens)
+            if cost is not None:
+                self.budget_ledger.consume_cost(cost)
+        except BudgetExceeded:
+            raise
+        except Exception as metrics_err:
+            logger.debug(
+                f"Failed to record LLM call metrics: {metrics_err}",
+                extra={"task_id": self.task_id, "step": step_number},
+            )
+
     async def _await_cancellable(self, coro: Any) -> Any:
         """Await ``coro``, aborting promptly when the cancellation token fires.
 
@@ -731,757 +737,6 @@ class Agent:
             )
             raise ValueError(f"Failed to get action from LLM: {str(e)}")
 
-    def _current_task_status(self) -> str:
-        """Return the status of the current task."""
-        task = self.memory.tasks.get(self.task_id)
-        return task.status if task else "unknown"
-
-    def _current_task_terminal(self) -> bool:
-        """Return True if the current task is in a terminal state (completed or failed)."""
-        status = self._current_task_status()
-        return status in ("completed", "failed")
-
-    def _task_requests_memory_mutation(self) -> bool:
-        """Return True if the current task explicitly requests memory deletion/removal."""
-        task_lower = self.task.lower()
-        deletion_keywords = ["forget", "delete", "remove", "erase"]
-        memory_keywords = ["memory", "role", "instruction", "persona", "identity"]
-        has_deletion = any(kw in task_lower for kw in deletion_keywords)
-        has_memory = any(kw in task_lower for kw in memory_keywords)
-        return has_deletion and has_memory
-
-    def _current_task_has_core_memory_mutation(self) -> bool:
-        """Return True if a core memory mutation tool succeeded in the current task.
-
-        Only replacement/rewrite tools count (core_memory_replace, memory_rethink,
-        core_memory_rethink). Append/insert tools do not satisfy deletion requests.
-        """
-        mutation_tools = {
-            "core_memory_replace",
-            "memory_rethink",
-            "core_memory_rethink",
-        }
-        for tc in self.memory.tool_call_history:
-            if (
-                getattr(tc, "task_id", None) == self.task_id
-                and getattr(tc, "tool_name", None) in mutation_tools
-                and getattr(tc, "success", False)
-            ):
-                return True
-        return False
-
-    def _current_task_has_loaded_skill(self) -> bool:
-        """Return True if this task loaded a skill at runtime or explicitly."""
-        if self.selected_skills:
-            return True
-        for tc in self.memory.tool_call_history:
-            if (
-                getattr(tc, "task_id", None) == self.task_id
-                and getattr(tc, "tool_name", None) == "skill_view"
-                and getattr(tc, "success", False)
-            ):
-                return True
-        return False
-
-    # A skill is only nudged when the task references the skill's own declared
-    # identity strongly enough to clear the catalog search score (slug/name/
-    # command boosts), rather than matching a hardcoded list of English phrases.
-    _SKILL_NUDGE_MIN_SCORE = 6
-
-    def _required_skill_view_before_answer(self) -> Optional[str]:
-        """Return a skill id when this task should load a skill before answering.
-
-        Catalog-driven: the trigger is a high-confidence match against a skill's
-        own metadata, not a fixed set of workflow phrases.
-        """
-        if self.skill_catalog is None or self._current_task_has_loaded_skill():
-            return None
-        hits = self.skill_catalog.search(
-            self.task,
-            self.capability_snapshot,
-            model_capabilities=self.model_capabilities,
-            limit=5,
-            min_score=self._SKILL_NUDGE_MIN_SCORE,
-        )
-        for hit in hits:
-            entry = hit.entry
-            # Honor `disable-model-invocation`: such skills are user-invoked only
-            # (slash command / explicit selection), never auto-loaded by the model.
-            if entry.eligible and not entry.model_invocation_disabled:
-                return entry.skill_id
-        return None
-
-    async def _validate_answer_text(self, answer_text: str) -> Tuple[bool, str]:
-        """LLM-judge whether a proposed final answer adequately addresses the task.
-
-        Fails open: if the validator itself errors, the answer is accepted so a
-        validator outage never blocks legitimate completion. Returns
-        (is_adequate, reason).
-        """
-        try:
-            messages = [
-                SystemMessage(
-                    content=(
-                        "You are a strict reviewer. Decide whether the proposed "
-                        "answer adequately and directly addresses the user's task. "
-                        "Reject answers that are empty, evasive, off-topic, refuse "
-                        "without cause, or leave the core request unaddressed. "
-                        "Do not reward verbosity; a short correct answer is adequate."
-                    )
-                ),
-                UserMessage(
-                    content=(
-                        f"Task:\n{self.task}\n\n"
-                        f"Proposed answer:\n{answer_text}\n\n"
-                        "Is this answer adequate? Set adequate=true/false and give a "
-                        "brief reason. If false, the reason should say what is missing."
-                    )
-                ),
-            ]
-            structured_llm = self.llm.with_structured_output(CompletionValidation)
-            result = await structured_llm.ainvoke(messages)
-            adequate = bool(getattr(result, "adequate", True))
-            reason = str(getattr(result, "reason", "") or "")
-            logger.info(
-                f"Output validation: adequate={adequate}"
-                + (f" — {reason}" if reason else ""),
-                extra={"task_id": self.task_id},
-            )
-            return adequate, reason
-        except Exception as e:
-            logger.debug(
-                f"Output validation failed open (accepting answer): {e}",
-                extra={"task_id": self.task_id},
-            )
-            return True, ""
-
-    def _reject_action(
-        self,
-        tool_name: str,
-        params: Any,
-        results: List[ActionResult],
-        reject_msg: str,
-        *,
-        log_level: str = "warning",
-    ) -> None:
-        """Record a rejected tool action and append a failed ActionResult.
-
-        Logs the rejection, persists a tool_call record for traceability, and
-        appends a failed ActionResult. The caller is responsible for
-        ``continue``-ing the action loop after invoking this.
-        """
-        log = getattr(logger, log_level, logger.warning)
-        log(reject_msg, extra={"task_id": self.task_id})
-        self.memory.add_tool_call(
-            tool_name=tool_name,
-            parameters=params,
-            result={"rejected": True, "message": reject_msg},
-            success=False,
-        )
-        self._record_tool_receipt(
-            tool_name,
-            params,
-            ReceiptStatus.REJECTED,
-            error=reject_msg,
-        )
-        results.append(
-            ActionResult(success=False, error=reject_msg, include_in_memory=True)
-        )
-
-    async def execute_actions(
-        self,
-        actions: List[Dict[str, Any]],
-        agent_reasoning: Optional[Dict[str, str]] = None,
-        step_metrics: Optional[StepMetrics] = None,
-    ) -> List[ActionResult]:
-        """Execute a list of actions."""
-        logger.info(
-            f"Executing {len(actions)} actions", extra={"task_id": self.task_id}
-        )
-        results = []
-        # Track duplicates within the same step
-        seen_signatures_this_step: set[str] = set()
-        results_by_signature_this_step: Dict[str, Dict[str, Any]] = {}
-
-        def _make_signature(tool: str, p: Dict[str, Any]) -> str:
-            try:
-                return f"{tool}:{json.dumps(p, sort_keys=True)}"
-            except Exception:
-                # Fallback to string repr if params not JSON-serializable
-                return f"{tool}:{str(p)}"
-
-        def _is_duplicate_this_step(tool: str, p: Dict[str, Any]) -> bool:
-            sig = _make_signature(tool, p)
-            return sig in seen_signatures_this_step
-
-        def _find_recent_same_call_result(
-            tool: str, p: Dict[str, Any], lookback: int = 5
-        ) -> Optional[Dict[str, Any]]:
-            """Return the most recent recorded result for the same tool+params within this task.
-
-            Terminal tools (answer, done) are never eligible for reuse.
-            Only results from the current task are considered.
-            """
-            # Never reuse terminal tools
-            if tool in ("answer", "done"):
-                return None
-            sig = _make_signature(tool, p)
-            # Prefer same-step prior result if present
-            if sig in results_by_signature_this_step:
-                return results_by_signature_this_step[sig]
-            # Search recent history across steps, but only within the current task
-            try:
-                recent = [
-                    tc
-                    for tc in self.memory.tool_call_history[-lookback:]
-                    if getattr(tc, "task_id", None) == self.task_id
-                ]
-            except Exception:
-                recent = []
-            for rec in reversed(recent):
-                try:
-                    if (
-                        getattr(rec, "tool_name", None) == tool
-                        and _make_signature(tool, getattr(rec, "parameters", {})) == sig
-                        and getattr(rec, "success", False)
-                    ):
-                        return getattr(rec, "result", None)
-                except Exception:
-                    continue
-            return None
-
-        for i, action_dict in enumerate(actions, 1):
-            if not action_dict:
-                logger.warning(
-                    f"Empty action {i}, skipping", extra={"task_id": self.task_id}
-                )
-                continue
-
-            # Extract tool name and parameters
-            tool_name = list(action_dict.keys())[0]
-            params = action_dict[tool_name]
-            # Write-ahead journal id for this action (set just before execution)
-            dispatch_id: Optional[str] = None
-
-            logger.info(
-                f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
-            )
-            logger.debug(f"Tool parameters: {params}", extra={"task_id": self.task_id})
-
-            # Duplicate handling: reuse last identical result instead of re-running
-            try:
-                sig = _make_signature(tool_name, params)
-                seen_before_this_step = _is_duplicate_this_step(tool_name, params)
-                prior_result = _find_recent_same_call_result(
-                    tool_name, params, lookback=5
-                )
-                if seen_before_this_step or prior_result is not None:
-                    reused = prior_result or results_by_signature_this_step.get(sig)
-                    if reused is not None:
-                        logger.info(
-                            f"Reusing previous result for duplicate action {i}: {tool_name}",
-                            extra={"task_id": self.task_id},
-                        )
-                        # Record the tool call for traceability
-                        try:
-                            self.memory.add_tool_call(
-                                tool_name=tool_name,
-                                parameters=params,
-                                result=reused,
-                                success=True,
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                f"Failed to record reused tool call for {tool_name}: {e}",
-                                extra={"task_id": self.task_id},
-                            )
-                        # Evaluate and append reused result
-                        action_result = self.evaluator.evaluate_tool_result(
-                            tool_name=tool_name, result=reused
-                        )
-                        results.append(action_result)
-                        # Ensure signature recorded for this step
-                        seen_signatures_this_step.add(sig)
-                        results_by_signature_this_step[sig] = reused
-                        self._record_tool_receipt(
-                            tool_name,
-                            params,
-                            ReceiptStatus.REUSED,
-                            metadata={"reason": "duplicate"},
-                        )
-                        continue
-                # First time seeing this signature this step
-                seen_signatures_this_step.add(sig)
-            except Exception as e:
-                # If duplicate detection fails, proceed normally
-                logger.debug(
-                    f"Duplicate detection failed for {tool_name}, proceeding: {e}",
-                    extra={"task_id": self.task_id},
-                )
-
-            # Special handling for "done" tool
-            if tool_name == "done":
-                is_successful = params.get("success", True)
-                message = params.get("message", "Task completed")
-
-                # Reject done(success=True) if no final_answer exists yet
-                if is_successful and self.memory.get_state("final_answer") is None:
-                    reject_msg = (
-                        "Cannot mark task done with success=True before providing "
-                        "a final answer via the 'answer' tool."
-                    )
-                    logger.warning(reject_msg, extra={"task_id": self.task_id})
-                    self.memory.add_tool_call(
-                        tool_name=tool_name,
-                        parameters=params,
-                        result={"rejected": True, "message": reject_msg},
-                        success=False,
-                    )
-                    results.append(
-                        ActionResult(
-                            success=False, error=reject_msg, include_in_memory=True
-                        )
-                    )
-                    self._record_tool_receipt(
-                        tool_name,
-                        params,
-                        ReceiptStatus.REJECTED,
-                        error=reject_msg,
-                    )
-                    continue
-
-                logger.info(
-                    f"Task marked as done - Success: {is_successful}",
-                    extra={"task_id": self.task_id},
-                )
-
-                # Mark only the current task as complete, not all tasks
-                current_task = self.memory.tasks.get(self.task_id)
-                if current_task:
-                    current_task.complete(success=is_successful)
-
-                # Record the tool call so the evaluator knows the task is complete.
-                self.memory.add_tool_call(
-                    tool_name=tool_name,
-                    parameters=params,
-                    result={"message": message},
-                    success=is_successful,
-                )
-
-                results.append(
-                    ActionResult(
-                        success=is_successful, value=message, include_in_memory=True
-                    )
-                )
-                self._record_tool_receipt(
-                    tool_name,
-                    params,
-                    ReceiptStatus.SUCCEEDED if is_successful else ReceiptStatus.FAILED,
-                    error=None if is_successful else message,
-                )
-                continue
-
-            # For regular tools, execute and evaluate
-            try:
-                authorization = self._authorize_side_effects(tool_name)
-                if not authorization.allowed:
-                    self._reject_action(
-                        tool_name, params, results, authorization.reason
-                    )
-                    continue
-
-                # --- HITL approval gate ---
-                if self.hitl_handler and self.hitl_config and self.hitl_config.enabled:
-                    interrupt_cfg = self._get_interrupt_config(tool_name)
-                    if interrupt_cfg is not None:
-                        # Auto-approve duplicates: skip if same tool+params was already approved
-                        if self.hitl_config.auto_approve_duplicates:
-                            sig = _make_signature(tool_name, params)
-                            if sig in self._approved_signatures:
-                                logger.info(
-                                    f"HITL: auto-approved duplicate {tool_name}",
-                                    extra={"task_id": self.task_id},
-                                )
-                                # Fall through to normal execution
-                                interrupt_cfg = None
-
-                    if interrupt_cfg is not None:
-                        request = ApprovalRequest(
-                            action_requests=[
-                                ActionRequest(
-                                    name=tool_name,
-                                    arguments=params,
-                                    description=(
-                                        f"{interrupt_cfg.description or self.hitl_config.description_prefix}"
-                                        + (
-                                            f"\n\nAgent reasoning:"
-                                            f"\n  Goal: {agent_reasoning.get('next_goal', 'N/A')}"
-                                            f"\n  Context: {agent_reasoning.get('memory', 'N/A')}"
-                                            if agent_reasoning
-                                            else ""
-                                        )
-                                    ),
-                                )
-                            ],
-                            review_configs=[
-                                ReviewConfig(
-                                    action_name=tool_name,
-                                    allowed_decisions=interrupt_cfg.allowed_decisions,
-                                )
-                            ],
-                            task_id=self.task_id,
-                            step_number=self.state.n_steps,
-                        )
-                        response = await self.hitl_handler.request_approval(request)
-                        decision = response.decisions[0]
-
-                        if decision.type == "reject":
-                            msg = decision.message or "Action rejected by human."
-                            logger.info(
-                                f"HITL: {tool_name} rejected — {msg}",
-                                extra={"task_id": self.task_id},
-                            )
-                            self.memory.add_message(
-                                "system", f"Human rejected {tool_name}: {msg}"
-                            )
-                            self.memory.add_tool_call(
-                                tool_name=tool_name,
-                                parameters=params,
-                                result={"rejected": True, "message": msg},
-                                success=False,
-                            )
-                            results.append(
-                                ActionResult(
-                                    success=False,
-                                    error=f"Rejected by human: {msg}",
-                                    include_in_memory=True,
-                                )
-                            )
-                            self._record_tool_receipt(
-                                tool_name,
-                                params,
-                                ReceiptStatus.REJECTED,
-                                error=f"Rejected by human: {msg}",
-                            )
-                            continue
-
-                        if decision.type == "edit" and decision.edited_action:
-                            old_name = tool_name
-                            tool_name = decision.edited_action.name
-                            params = decision.edited_action.args
-                            logger.info(
-                                f"HITL: edited {old_name} → {tool_name} with new params",
-                                extra={"task_id": self.task_id},
-                            )
-
-                        # Track approved signature for auto_approve_duplicates
-                        try:
-                            self._approved_signatures.add(
-                                _make_signature(tool_name, params)
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                f"Failed to track approved signature for {tool_name}: {e}",
-                                extra={"task_id": self.task_id},
-                            )
-                # --- end HITL gate ---
-
-                # --- Memory deletion guards ---
-                # For deletion tasks, reject append/insert tools that cannot satisfy deletion
-                if self._task_requests_memory_mutation():
-                    if tool_name in ("core_memory_append", "memory_insert"):
-                        reject_msg = (
-                            f"Tool '{tool_name}' cannot satisfy a memory deletion request. "
-                            "Use core_memory_replace, memory_rethink, or core_memory_rethink instead."
-                        )
-                        self._reject_action(tool_name, params, results, reject_msg)
-                        continue
-
-                # Reject memory tools that attempt to write forbidden terms back
-                memory_tools = {
-                    "core_memory_append",
-                    "core_memory_replace",
-                    "memory_insert",
-                    "memory_rethink",
-                    "core_memory_rethink",
-                }
-                if tool_name in memory_tools:
-                    if self._params_write_forbidden_memory_terms(tool_name, params):
-                        reject_msg = f"Tool '{tool_name}' would reintroduce terms the user asked to remove."
-                        self._reject_action(tool_name, params, results, reject_msg)
-                        continue
-
-                # Guard for answer: reject false deletion confirmations
-                if tool_name == "answer":
-                    if self._task_requests_memory_mutation():
-                        if not self._current_task_has_core_memory_mutation():
-                            reject_msg = (
-                                "Cannot confirm memory deletion without first successfully "
-                                "using a core memory mutation tool (core_memory_replace, "
-                                "memory_rethink, or core_memory_rethink)."
-                            )
-                            self._reject_action(tool_name, params, results, reject_msg)
-                            continue
-                # --- end Memory deletion guards ---
-
-                # --- Completion quality gate (answer tool) ---
-                if tool_name == "answer":
-                    answer_text = ""
-                    if isinstance(params, dict):
-                        raw = params.get("final_answer")
-                        if isinstance(raw, str):
-                            answer_text = raw.strip()
-
-                    # 1) Deterministic (always on): never accept an empty answer.
-                    if not answer_text:
-                        reject_msg = (
-                            "The 'answer' tool requires a non-empty final_answer. "
-                            "Provide a substantive answer to the user's question."
-                        )
-                        self._reject_action(tool_name, params, results, reject_msg)
-                        continue
-
-                    required_skill_id = self._required_skill_view_before_answer()
-                    if required_skill_id:
-                        reject_msg = (
-                            "This task matches an available skill workflow. Load "
-                            f"{required_skill_id} with skill_view before answering, "
-                            "then follow the loaded skill instructions."
-                        )
-                        self._reject_action(tool_name, params, results, reject_msg)
-                        continue
-
-                    artifact_reference_errors = self._artifact_reference_errors(
-                        params.get("artifact_references")
-                        if isinstance(params, dict)
-                        else None
-                    )
-                    if artifact_reference_errors:
-                        reject_msg = (
-                            "Invalid artifact_references in final answer. "
-                            "Only reference artifacts present in Runtime Facts: "
-                            + "; ".join(artifact_reference_errors)
-                        )
-                        self._reject_action(tool_name, params, results, reject_msg)
-                        continue
-
-                    # 2) Semantic (opt-in via validate_output): LLM judges adequacy,
-                    #    bounded by max_validation_retries to avoid loops.
-                    if (
-                        self.settings.validate_output
-                        and self._completion_validation_attempts
-                        < self.settings.max_validation_retries
-                    ):
-                        adequate, reason = await self._validate_answer_text(answer_text)
-                        if not adequate:
-                            self._completion_validation_attempts += 1
-                            reject_msg = (
-                                "Answer rejected by output validation "
-                                f"({self._completion_validation_attempts}/"
-                                f"{self.settings.max_validation_retries}): "
-                                f"{reason or 'inadequate'}. Revise and call 'answer' "
-                                "again with a corrected response."
-                            )
-                            self._reject_action(
-                                tool_name, params, results, reject_msg, log_level="info"
-                            )
-                            continue
-                # --- end Completion quality gate ---
-
-                start_time = datetime.now()
-                # Announce the tool with its full args, so the renderer can show a
-                # specific label ("Writing age_calculator.py", not "Writing a file").
-                self._emit(
-                    TOOL_CALL_START,
-                    {
-                        "name": tool_name,
-                        "args": params if isinstance(params, dict) else {},
-                    },
-                )
-
-                # Execute the tool
-                tool_context = {
-                    "memory": self.memory,
-                    "state": self.state,
-                    "thread_id": self._sandbox_thread_id(),
-                    "sandbox_base_dir": self.sandbox_base_dir,
-                    "run_context": self.run_context,
-                    "evolution_repository": self.evolution_repository,
-                    "skill_catalog": self.skill_catalog,
-                    "capability_snapshot": self.capability_snapshot,
-                    "tools_registry": self.tools_registry,
-                    "plan_store": self.plan_store,
-                    "task_id": self.task_id,
-                    **self._tool_context_extra,
-                }
-                # Write-ahead journal: persist the dispatch BEFORE side effects
-                # run, so a crash mid-tool is distinguishable on resume from a
-                # call that never happened (fail-open).
-                try:
-                    dispatch_id = self.memory.record_tool_dispatch(
-                        tool_name, params if isinstance(params, dict) else {}
-                    )
-                except Exception as dispatch_err:
-                    logger.debug(
-                        f"Failed to journal dispatch for {tool_name}: {dispatch_err}",
-                        extra={"task_id": self.task_id},
-                    )
-
-                tool_result = self.tool_executor.execute_tool(
-                    tool_name=tool_name,
-                    params=params,
-                    context=tool_context,
-                )
-
-                execution_time = (datetime.now() - start_time).total_seconds()
-                success = tool_result.get("success", False)
-                # Emit tool_call_end so a renderer can close the "» ..." line
-                # with a "✓ / ✗" as soon as the tool finishes.
-                self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
-
-                # AC-5: cross-step loop guard. Surface a recovery hint on the tool
-                # output; halt the run on a detected loop instead of spinning to
-                # max_steps.
-                if self.settings.tool_loop_guardrail:
-                    guard = self.tool_guardrails.after_call(
-                        tool_name, params, bool(success), tool_result
-                    )
-                    if guard is not None:
-                        note = f"\n\n[loop-guard] {guard.guidance}"
-                        if isinstance(tool_result.get("error"), str):
-                            tool_result["error"] += note
-                        elif isinstance(tool_result.get("output"), str):
-                            tool_result["output"] += note
-                        else:
-                            tool_result["guardrail"] = guard.guidance
-                        if guard.action == "halt":
-                            logger.warning(
-                                f"Tool loop-guard halt ({guard.reason}) on {tool_name}",
-                                extra={"task_id": self.task_id},
-                            )
-                            self.state.consecutive_failures = self.settings.max_failures
-
-                artifacts = self._extract_tool_artifacts(tool_name, params, tool_result)
-                self._record_tool_receipt(
-                    tool_name,
-                    params,
-                    ReceiptStatus.SUCCEEDED if success else ReceiptStatus.FAILED,
-                    started_at=start_time,
-                    duration_seconds=execution_time,
-                    error=tool_result.get("error") if not success else None,
-                    artifacts=artifacts,
-                    metadata={"backend": self.tool_executor.__class__.__name__},
-                )
-
-                logger.info(
-                    f"Tool {tool_name} executed in {execution_time:.2f}s - {'Success' if success else 'Failed'}",
-                    extra={"task_id": self.task_id},
-                )
-
-                if not success:
-                    logger.warning(
-                        f"Tool {tool_name} failed: {tool_result.get('error', 'Unknown error')}",
-                        extra={"task_id": self.task_id},
-                    )
-
-                # Record tool metrics for this step
-                try:
-                    if step_metrics is not None:
-                        step_metrics.tool_calls.append(
-                            ToolCallMetrics(
-                                tool_name=tool_name,
-                                duration_seconds=execution_time,
-                                success=success,
-                            )
-                        )
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to record tool metrics for {tool_name}: {e}",
-                        extra={"task_id": self.task_id},
-                    )
-
-                # Complete the write-ahead journal entry with the real result
-                if dispatch_id is not None:
-                    self.memory.complete_tool_dispatch(
-                        dispatch_id, tool_result, success
-                    )
-                else:
-                    self.memory.add_tool_call(
-                        tool_name=tool_name,
-                        parameters=params,
-                        result=tool_result,
-                        success=success,
-                    )
-
-                # Cache the result for potential reuse within this step
-                try:
-                    results_by_signature_this_step[
-                        _make_signature(tool_name, params)
-                    ] = tool_result
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to cache result for {tool_name}: {e}",
-                        extra={"task_id": self.task_id},
-                    )
-
-                # Evaluate the result
-                action_result = self.evaluator.evaluate_tool_result(
-                    tool_name=tool_name, result=tool_result
-                )
-
-                results.append(action_result)
-
-                # If failed and should retry, add info to memory
-                if not action_result.success and self.evaluator.should_retry(tool_name):
-                    retry_count = self.evaluator.retry_counts[tool_name]
-                    logger.info(
-                        f"Tool {tool_name} will be retried ({retry_count}/{self.settings.max_failures})",
-                        extra={"task_id": self.task_id},
-                    )
-                    self.memory.add_message(
-                        "system",
-                        f"Tool '{tool_name}' failed. Retrying ({retry_count}/{self.settings.max_failures}).",
-                    )
-
-            except Exception as e:
-                logger.error(
-                    f"Error executing tool {tool_name}: {str(e)}",
-                    extra={"task_id": self.task_id},
-                    exc_info=True,
-                )
-                # Close the write-ahead journal entry: the process survived, so
-                # the outcome is known (failed) — only a real crash may leave a
-                # record in "dispatched".
-                if dispatch_id is not None:
-                    try:
-                        self.memory.complete_tool_dispatch(
-                            dispatch_id, {"error": str(e)}, success=False
-                        )
-                    except Exception as journal_err:
-                        logger.debug(
-                            f"Failed to close dispatch journal: {journal_err}",
-                            extra={"task_id": self.task_id},
-                        )
-                results.append(
-                    ActionResult(
-                        success=False,
-                        error=f"Error executing tool '{tool_name}': {str(e)}",
-                        include_in_memory=True,
-                    )
-                )
-                self._record_tool_receipt(
-                    tool_name,
-                    params,
-                    ReceiptStatus.FAILED,
-                    error=str(e),
-                )
-
-        logger.info(
-            f"Completed executing {len(actions)} actions",
-            extra={"task_id": self.task_id},
-        )
-        return results
-
     async def _invoke_step_callback(
         self,
         callback: Optional[Callable[["Agent"], Union[Any, Awaitable[Any]]]],
@@ -1552,7 +807,6 @@ class Agent:
         self.budget_ledger.start_clock()
         self._emit(RUN_START, {"task": self.task, "task_id": self.task_id})
         logger.info(f"Starting agent run", extra={"task_id": self.task_id})
-        print(f"Starting task: {self.task}")
 
         # Initialize run metrics
         self._run_metrics = RunMetrics(
@@ -1620,12 +874,10 @@ class Agent:
 
             if self.state.stopped:
                 logger.info("Agent stopped by request", extra={"task_id": self.task_id})
-                print("Agent stopped")
                 break
 
             if self.state.paused:
                 logger.info("Agent paused", extra={"task_id": self.task_id})
-                print("Agent paused")
                 while self.state.paused and not self.state.stopped:
                     await asyncio.sleep(0.5)
                 if self.state.stopped:
@@ -1637,9 +889,6 @@ class Agent:
                 logger.error(
                     f"Stopping due to {self.settings.max_failures} consecutive failures",
                     extra={"task_id": self.task_id},
-                )
-                print(
-                    f"Stopping due to {self.settings.max_failures} consecutive failures"
                 )
                 break
 
@@ -1693,7 +942,6 @@ class Agent:
                     f"Task completed: {completion_message}",
                     extra={"task_id": self.task_id},
                 )
-                print(f"Task complete: {completion_message}")
                 # Mark only the current task complete
                 current_task = self.memory.tasks.get(self.task_id)
                 if current_task:
@@ -1710,9 +958,6 @@ class Agent:
             logger.warning(
                 f"Reached maximum steps ({self.settings.max_steps}) without completing task",
                 extra={"task_id": self.task_id},
-            )
-            print(
-                f"Reached maximum steps ({self.settings.max_steps}) without completing task"
             )
 
         # Completion is based solely on the current task

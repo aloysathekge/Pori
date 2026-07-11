@@ -1,125 +1,87 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, Send } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
 import { Composer } from '@/components/chat/Composer';
-import { MessageBubble } from '@/components/chat/MessageBubble';
+import { MessageList } from '@/components/chat/MessageList';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
-import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
-import {
-  listConversations,
-  getConversation,
-  createConversation,
-  deleteConversation,
-  stopGeneration,
-  uploadConversationFile,
-} from '@/api/conversations';
-import {
-  attachLiveRun,
-  streamMessage,
-  submitClarification,
-  type SSECallbacks,
-} from '@/api/sse';
-import type {
-  ConversationResponse,
-  MessageFile,
-  MessageImage,
-  MessageResponse,
-  SSEMessageEvent,
-  SSEToolEvent,
-  PlanItem,
-} from '@/types';
+import { getConversation } from '@/api/conversations';
+import { useConversations } from '@/hooks/useConversations';
+import { useAttachments } from '@/hooks/useAttachments';
+import { useStreamingRun } from '@/hooks/useStreamingRun';
+import type { MessageResponse } from '@/types';
 
-const MAX_IMAGES = 3;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
-const MAX_FILES = 3;
-const MAX_FILE_CHARS = 200_000; // ~200KB of text (backend-enforced too)
-const DOC_MIMES: Record<string, string> = {
-  pdf: 'application/pdf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-};
-const MAX_DOC_BYTES = 10 * 1024 * 1024; // 10MB per document
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // durable-upload rung cap (backend too)
-const TEXT_EXTENSIONS =
-  /\.(txt|md|markdown|csv|tsv|json|jsonl|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|cs|php|html|css|scss|xml|yml|yaml|toml|ini|cfg|conf|env|sh|bash|ps1|sql|log|diff|patch)$/i;
-
+/**
+ * Thin composition over the chat hooks. All router coupling lives HERE —
+ * route-change load/reset/reattach, redirect-to-most-recent, unmount abort —
+ * while the hooks (useConversations / useAttachments / useStreamingRun) stay
+ * page-agnostic so future Surfaces can reuse them.
+ */
 export function ChatPage() {
   const { conversationId: routeConversationId } = useParams();
   const navigate = useNavigate();
-  const [conversations, setConversations] = useState<ConversationResponse[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const {
+    conversations,
+    activeId,
+    setActiveId,
+    loadConversations,
+    createConversation,
+    deleteConversation,
+  } = useConversations();
+
   const [messages, setMessages] = useState<MessageResponse[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<
-    (MessageFile & {
-      content?: string;
-      data?: string;
-      media_type?: string;
-      // Durable-upload rung: set while/after uploading to object storage.
-      key?: string;
-      file_id?: string;
-      uploading?: boolean;
-      progress?: number;
-      error?: boolean;
-    })[]
-  >([]);
-  const [sending, setSending] = useState(false);
-  const [streaming, setStreaming] = useState(false);
-  const [streamStatus, setStreamStatus] = useState('');
-  const [streamActivity, setStreamActivity] = useState('');
-  const [streamPlan, setStreamPlan] = useState<PlanItem[]>([]);
-  const [streamTools, setStreamTools] = useState<SSEToolEvent[]>([]);
-  const [streamStep, setStreamStep] = useState<
-    { step: number; max_steps: number } | undefined
-  >(undefined);
-  const [streamText, setStreamText] = useState('');
-  const [clarify, setClarify] = useState<{
-    id: string;
-    question: string;
-    options: string[];
-  } | null>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  // The in-flight stream's abort handle — aborted on conversation switch and
-  // on unmount so a stream can never bleed into another conversation's view.
-  const streamAbortRef = useRef<AbortController | null>(null);
 
-  const resetStreamUi = useCallback(() => {
-    setStreaming(false);
-    setSending(false);
-    setStreamStatus('');
-    setStreamActivity('');
-    setStreamPlan([]);
-    setStreamTools([]);
-    setStreamStep(undefined);
-    setStreamText('');
-    setClarify(null);
-  }, []);
+  const {
+    pendingImages,
+    pendingFiles,
+    addAttachments,
+    removeImage,
+    removeFile,
+    resetAttachments,
+    uploadsInFlight,
+    attachmentsFull,
+  } = useAttachments(activeId);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, streaming, scrollToBottom]);
+  const {
+    sending,
+    streaming,
+    streamStatus,
+    streamActivity,
+    streamPlan,
+    streamTools,
+    streamStep,
+    streamText,
+    clarify,
+    resetStreamUi,
+    abortStream,
+    dispatchSend,
+    tryReattach,
+    resend,
+    continueRun,
+    stopRun,
+    answerClarify,
+  } = useStreamingRun({
+    activeId,
+    setMessages,
+    onConversationsRefresh: loadConversations,
+  });
 
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [loadConversations]);
 
   useEffect(() => {
     // Kill any in-flight stream from the previous conversation and reset the
     // streaming UI + artifact drawer before rendering the new one.
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on route change
+    abortStream();
     resetStreamUi();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on route change
     setArtifactPath(null);
 
     let cancelled = false;
@@ -149,12 +111,12 @@ export function ChatPage() {
     // tryReattach is deliberately NOT a dependency: it closes over per-render
     // callbacks, and this effect must re-run only on route change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeConversationId, resetStreamUi]);
+  }, [routeConversationId, abortStream, resetStreamUi, setActiveId]);
 
   // Abort the stream when leaving the chat page entirely.
   useEffect(() => {
-    return () => streamAbortRef.current?.abort();
-  }, []);
+    return () => abortStream();
+  }, [abortStream]);
 
   // Landing on /chat with no conversation selected: open the most recent one
   // (nav 'Chat' should drop you into your chat, not an empty state).
@@ -165,307 +127,19 @@ export function ChatPage() {
     }
   }, [routeConversationId, conversations, navigate]);
 
-  async function loadConversations() {
-    try {
-      const convos = await listConversations(50);
-      setConversations(convos);
-    } catch {
-      // handle silently
-    }
-  }
-
-  /** Durable-upload rung: too big (or too binary) for inline/native — the
-   *  file streams to object storage NOW (eager, while the user types) and
-   *  the message will carry only its reference. */
-  /** Durable copy for an existing chip: streams the bytes to object storage
-   *  and attaches file_id to the chip (which is what makes it bookmarkable
-   *  into My Files). Failure just clears the uploading flag — the chip still
-   *  works through its inline/native ride. */
-  function uploadDurable(file: File, key: string) {
-    const convId = activeId;
-    if (!convId) return;
-    uploadConversationFile(convId, file, (pct) =>
-      setPendingFiles((prev) =>
-        prev.map((f) => (f.key === key ? { ...f, progress: pct } : f)),
-      ),
-    )
-      .then((res) =>
-        setPendingFiles((prev) =>
-          prev.map((f) =>
-            f.key === key
-              ? { ...f, uploading: false, progress: 100, file_id: res.file_id }
-              : f,
-          ),
-        ),
-      )
-      .catch((err) => {
-        console.error('[aloy] durable upload failed:', err);
-        setPendingFiles((prev) =>
-          prev.map((f) =>
-            f.key === key ? { ...f, uploading: false, error: true } : f,
-          ),
-        );
-      });
-  }
-
-  function uploadAttachment(file: File) {
-    if (!activeId || file.size > MAX_UPLOAD_BYTES) return;
-    if (pendingFiles.length >= MAX_FILES) return;
-    const key = `${file.name}-${Date.now()}-${Math.random()}`;
-    setPendingFiles((prev) =>
-      prev.length >= MAX_FILES
-        ? prev
-        : [
-            ...prev,
-            { key, name: file.name, size: file.size, uploading: true, progress: 0 },
-          ],
-    );
-    uploadDurable(file, key);
-  }
-
-  /** Route attachments: images render for the model's eyes; text-like files
-   *  embed their content into the task; everything bigger or binary takes
-   *  the durable-upload rung. Docs and text files ALSO get a durable copy
-   *  (same chip), so any attachment can be saved to My Files — and later
-   *  turns can still reach the bytes in the sandbox. */
-  function addAttachments(files: Iterable<File>) {
-    for (const file of files) {
-      if (file.type.startsWith('image/')) {
-        if (file.size > MAX_IMAGE_BYTES) {
-          uploadAttachment(file);
-          continue;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = String(reader.result || '').split(',')[1] ?? '';
-          if (!base64) return;
-          setPendingImages((prev) =>
-            prev.length >= MAX_IMAGES
-              ? prev
-              : [...prev, { data: base64, media_type: file.type }],
-          );
-        };
-        reader.readAsDataURL(file);
-      } else if (DOC_MIMES[file.name.split('.').pop()?.toLowerCase() ?? '']) {
-        if (file.size > MAX_DOC_BYTES) {
-          uploadAttachment(file);
-          continue;
-        }
-        if (pendingFiles.length >= MAX_FILES) continue;
-        const key = `${file.name}-${Date.now()}-${Math.random()}`;
-        const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
-        setPendingFiles((prev) =>
-          prev.length >= MAX_FILES
-            ? prev
-            : [
-                ...prev,
-                {
-                  key,
-                  name: file.name,
-                  size: file.size,
-                  media_type: mediaType,
-                  uploading: true,
-                  progress: 0,
-                },
-              ],
-        );
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = String(reader.result || '').split(',')[1] ?? '';
-          if (!base64) return;
-          setPendingFiles((prev) =>
-            prev.map((f) => (f.key === key ? { ...f, data: base64 } : f)),
-          );
-        };
-        reader.readAsDataURL(file);
-        uploadDurable(file, key);
-      } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
-        if (file.size > MAX_FILE_CHARS) {
-          // Too big to inline without truncating — store it whole instead.
-          uploadAttachment(file);
-          continue;
-        }
-        if (pendingFiles.length >= MAX_FILES) continue;
-        const key = `${file.name}-${Date.now()}-${Math.random()}`;
-        setPendingFiles((prev) =>
-          prev.length >= MAX_FILES
-            ? prev
-            : [
-                ...prev,
-                {
-                  key,
-                  name: file.name,
-                  size: file.size,
-                  uploading: true,
-                  progress: 0,
-                },
-              ],
-        );
-        const reader = new FileReader();
-        reader.onload = () => {
-          const text = String(reader.result || '').slice(0, MAX_FILE_CHARS);
-          if (!text) return;
-          setPendingFiles((prev) =>
-            prev.map((f) =>
-              f.key === key ? { ...f, content: text, size: text.length } : f,
-            ),
-          );
-        };
-        reader.readAsText(file);
-        uploadDurable(file, key);
-      } else {
-        // Any other type (zip, sqlite, parquet, unknown binaries…): the
-        // durable-upload rung — the agent works on it in the sandbox.
-        uploadAttachment(file);
-      }
-    }
-  }
-
-
   function openConversation(id: string) {
     navigate(`/chat/${id}`);
   }
 
   async function handleCreate() {
-    try {
-      const convo = await createConversation({});
-      setConversations((prev) => [convo, ...prev]);
-      navigate(`/chat/${convo.id}`);
-    } catch {
-      // handle silently
-    }
+    const convo = await createConversation();
+    if (convo) navigate(`/chat/${convo.id}`);
   }
 
   async function handleDelete(id: string) {
-    try {
-      await deleteConversation(id);
-      setConversations((prev) => prev.filter((c) => c.id !== id));
-      if (activeId === id) {
-        navigate('/chat');
-      }
-    } catch {
-      // handle silently
-    }
-  }
-
-  /** Shared stream callbacks — used by a fresh send AND by re-attaching to an
-   *  in-flight run after navigating back. */
-  function buildStreamCallbacks(): SSECallbacks {
-    let firstText = true;
-    return {
-      onText: (text) => {
-        if (firstText) {
-          firstText = false;
-          setStreamStatus('Writing…');
-          setStreamActivity('');
-        }
-        setStreamText((prev) => prev + text);
-      },
-      onStep: (info) => {
-        setStreamStep(info);
-        setStreamStatus('Thinking…');
-      },
-      onToolStart: (payload) => {
-        const name = String(payload.name ?? 'tool');
-        setStreamActivity(`Running ${name}…`);
-        setStreamTools((prev) => [
-          ...prev,
-          { step: 0, tool: name, preview: '', success: false },
-        ]);
-      },
-      onToolEnd: (payload) =>
-        setStreamTools((prev) => {
-          const next = [...prev];
-          const name = String(payload.name ?? '');
-          for (let i = next.length - 1; i >= 0; i--) {
-            const entry = next[i];
-            if (entry && entry.tool === name) {
-              next[i] = { ...entry, success: Boolean(payload.success) };
-              break;
-            }
-          }
-          return next;
-        }),
-      onClarification: (req) =>
-        setClarify({ id: req.id, question: req.question, options: req.options }),
-      onMessage: (data: SSEMessageEvent) => {
-        const assistantMsg: MessageResponse = {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: data.content,
-          metadata: {
-            run_id: data.run_id || null,
-            reasoning: data.reasoning || null,
-            steps_taken: data.steps_taken,
-            metrics: data.metrics || null,
-            artifacts: data.artifacts || [],
-            plan: data.plan || [],
-            selected_skills: data.selected_skills || [],
-            ...(data.stopped ? { stopped: true } : {}),
-          },
-          created_at: new Date().toISOString(),
-        };
-        // Dedupe by run_id: on re-attach the persisted message may already be
-        // in the loaded history when the replayed 'message' frame arrives.
-        setMessages((prev) =>
-          data.run_id &&
-          prev.some((m) => m.metadata?.run_id === data.run_id)
-            ? prev
-            : [...prev, assistantMsg],
-        );
-        // Tear down the whole streaming UI (bubble + indicator) the instant the
-        // final message lands, so nothing lingers/overlaps beneath it.
-        setStreamText('');
-        setStreaming(false);
-        setStreamStatus('');
-        setStreamActivity('');
-        setStreamPlan([]);
-        setStreamTools([]);
-        setStreamStep(undefined);
-      },
-      onError: (err) => {
-        const errMsg: MessageResponse = {
-          id: `err-${Date.now()}`,
-          role: 'assistant',
-          content: `Error: ${err}`,
-          metadata: null,
-          created_at: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errMsg]);
-        // Fully reset — an error frame may arrive with the stream held open,
-        // and relying on a later onDone left the UI locked in 'sending'.
-        resetStreamUi();
-      },
-      onDone: () => {
-        resetStreamUi();
-        loadConversations();
-      },
-    };
-  }
-
-  /** If this conversation has an in-flight run (we navigated away and came
-   *  back), re-attach: the server replays all frames, then continues live. */
-  async function tryReattach(convId: string) {
-    const controller = new AbortController();
-    try {
-      const attached = await attachLiveRun(
-        convId,
-        buildStreamCallbacks(),
-        controller.signal,
-        () => {
-          streamAbortRef.current = controller;
-          setSending(true);
-          setStreaming(true);
-          setStreamStatus('Resuming…');
-        },
-      );
-      if (!attached) return;
-    } catch {
-      resetStreamUi();
-    } finally {
-      if (streamAbortRef.current === controller) {
-        streamAbortRef.current = null;
-      }
+    const deleted = await deleteConversation(id);
+    if (deleted && activeId === id) {
+      navigate('/chat');
     }
   }
 
@@ -475,7 +149,7 @@ export function ChatPage() {
       !activeId
     )
       return;
-    if (pendingFiles.some((f) => f.uploading)) return; // wait for uploads
+    if (uploadsInFlight) return; // wait for uploads
     const content = input.trim() || 'See the attached content.';
 
     // If the agent is waiting on a clarification, the message box answers it
@@ -488,133 +162,9 @@ export function ChatPage() {
     if (sending) return;
     const images = pendingImages;
     const files = pendingFiles;
-    setPendingImages([]);
-    setPendingFiles([]);
+    resetAttachments();
     setInput('');
     await dispatchSend(content, images, files);
-  }
-
-  /** Re-send an earlier user message as a fresh turn (from its bubble). */
-  async function handleResend(content: string) {
-    if (!activeId || sending || clarify || !content.trim()) return;
-    await dispatchSend(content.trim(), [], []);
-  }
-
-  /** Continue an interrupted response. If the stopped run's state is still
-   *  warm on the server this truly resumes it (tool work intact); otherwise
-   *  the continuation instruction runs as a normal turn over history. */
-  async function handleContinueRun(message: MessageResponse) {
-    if (!activeId || sending || clarify) return;
-    const runId = message.metadata?.run_id ?? undefined;
-    await dispatchSend(
-      'Continue your interrupted response from exactly where it stopped. Do not repeat what you already wrote.',
-      [],
-      [],
-      runId ? { resumeRunId: runId } : undefined,
-    );
-  }
-
-  async function dispatchSend(
-    content: string,
-    images: MessageImage[],
-    files: (MessageFile & { content?: string; data?: string; media_type?: string })[],
-    opts?: { resumeRunId?: string },
-  ) {
-    if (!activeId) return;
-    setSending(true);
-    setStreaming(true);
-    setStreamStatus('Thinking…');
-    setStreamActivity('');
-    setStreamPlan([]);
-    setStreamTools([]);
-    setStreamStep(undefined);
-    setStreamText('');
-    setClarify(null);
-
-    const userMsg: MessageResponse = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content,
-      metadata:
-        images.length > 0 || files.length > 0
-          ? {
-              ...(images.length > 0 ? { images } : {}),
-              ...(files.length > 0
-                ? {
-                    files: files.map((f) => ({
-                      name: f.name,
-                      size: f.size,
-                      // Keep the durable ref so the chip's download/bookmark
-                      // icons work on the OPTIMISTIC message too, not only
-                      // after a reload.
-                      ...(f.file_id ? { file_id: f.file_id } : {}),
-                    })),
-                  }
-                : {}),
-            }
-          : null,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-
-    const callbacks = buildStreamCallbacks();
-
-    // Abortable stream: switching conversations or leaving the page aborts it
-    // so tokens can't bleed into another conversation's view.
-    const controller = new AbortController();
-    streamAbortRef.current = controller;
-    try {
-      const textFiles = files.filter((f) => f.content != null);
-      const binaryDocs = files.filter((f) => f.data != null);
-      const uploadRefs = files.filter((f) => f.file_id).map((f) => f.file_id!);
-      await streamMessage(activeId, content, callbacks, {
-        resume_run_id: opts?.resumeRunId,
-        file_refs: uploadRefs.length > 0 ? uploadRefs : undefined,
-        images: images.length > 0 ? images : undefined,
-        files:
-          textFiles.length > 0
-            ? textFiles.map((f) => ({ name: f.name, content: f.content! }))
-            : undefined,
-        documents:
-          binaryDocs.length > 0
-            ? binaryDocs.map((f) => ({
-                name: f.name,
-                data: f.data!,
-                media_type: f.media_type!,
-              }))
-            : undefined,
-        signal: controller.signal,
-      });
-    } catch {
-      resetStreamUi();
-    } finally {
-      if (streamAbortRef.current === controller) {
-        streamAbortRef.current = null;
-      }
-    }
-  }
-
-  /** Stop the in-flight run: the agent halts at the next step boundary and
-   *  the stream finishes with a final frame (which resets the UI). */
-  async function handleStop() {
-    if (!activeId) return;
-    setStreamStatus('Stopping…');
-    try {
-      await stopGeneration(activeId);
-    } catch {
-      // 404 = the run already finished; the stream's done frame cleans up.
-    }
-  }
-
-  async function answerClarify(value: string) {
-    if (!clarify) return;
-    const id = clarify.id;
-    setClarify(null);
-    try {
-      await submitClarification(id, value);
-    } catch {
-      // the error surfaces via the stream
-    }
   }
 
   return (
@@ -662,63 +212,21 @@ export function ChatPage() {
                   <p className="text-sm">Send a message to start chatting</p>
                 </div>
               ) : (
-                <div className="mx-auto max-w-4xl space-y-6">
-                  {messages.map((msg) => (
-                    <MessageBubble
-                      key={msg.id}
-                      message={msg}
-                      onOpenArtifact={setArtifactPath}
-                      onResend={sending ? undefined : handleResend}
-                      onContinue={sending ? undefined : handleContinueRun}
-                    />
-                  ))}
-                  {streaming && streamText && (
-                    <MessageBubble
-                      message={{
-                        id: 'streaming',
-                        role: 'assistant',
-                        content: streamText,
-                        metadata: null,
-                        created_at: new Date().toISOString(),
-                      }}
-                    />
-                  )}
-                  {streaming && (
-                    <StreamingIndicator
-                      status={streamStatus}
-                      activity={streamActivity}
-                      plan={streamPlan}
-                      tools={streamTools}
-                      step={streamStep}
-                    />
-                  )}
-                  {clarify && (
-                    <div className="mx-auto max-w-4xl rounded-xl border border-accent-500/40 bg-zinc-800 p-4">
-                      <p className="mb-3 text-sm text-zinc-200">
-                        {clarify.question}
-                      </p>
-                      {clarify.options.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {clarify.options.map((opt) => (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => answerClarify(opt)}
-                              className="rounded-full border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 hover:border-accent-500 hover:bg-accent-600/10 hover:text-accent-600"
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-zinc-500">
-                          Type your answer in the message box below.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
+                <MessageList
+                  messages={messages}
+                  streaming={streaming}
+                  streamText={streamText}
+                  streamStatus={streamStatus}
+                  streamActivity={streamActivity}
+                  streamPlan={streamPlan}
+                  streamTools={streamTools}
+                  streamStep={streamStep}
+                  clarify={clarify}
+                  onAnswerClarify={answerClarify}
+                  onOpenArtifact={setArtifactPath}
+                  onResend={sending ? undefined : resend}
+                  onContinue={sending ? undefined : continueRun}
+                />
               )}
             </div>
 
@@ -731,26 +239,15 @@ export function ChatPage() {
                   onSend={handleSend}
                   onAddFiles={addAttachments}
                   pendingImages={pendingImages}
-                  onRemoveImage={(i) =>
-                    setPendingImages((prev) =>
-                      prev.filter((_, idx) => idx !== i),
-                    )
-                  }
+                  onRemoveImage={removeImage}
                   pendingFiles={pendingFiles}
-                  onRemoveFile={(i) =>
-                    setPendingFiles((prev) =>
-                      prev.filter((_, idx) => idx !== i),
-                    )
-                  }
+                  onRemoveFile={removeFile}
                   disabled={sending && !clarify}
                   placeholder={
                     clarify ? 'Answer the question above…' : 'Message Aloy…'
                   }
-                  attachFull={
-                    pendingImages.length >= MAX_IMAGES &&
-                    pendingFiles.length >= MAX_FILES
-                  }
-                  onStop={sending && !clarify ? handleStop : undefined}
+                  attachFull={attachmentsFull}
+                  onStop={sending && !clarify ? stopRun : undefined}
                 />
               </div>
             </div>

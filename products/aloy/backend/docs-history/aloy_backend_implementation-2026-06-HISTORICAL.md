@@ -1,3 +1,9 @@
+> **HISTORICAL DOCUMENT — DO NOT USE FOR CURRENT STATE.** This was the
+> original implementation plan, frozen at the single-Run-table era. It
+> predates conversations, memory, teams, tenancy/RBAC, connections, MCP,
+> storage, and 15 of the 17 current route modules. Kept for provenance.
+> Current truth: `aloy_backend_api.md` (architecture) and the code.
+
 # Pori Cloud — Implementation Plan
 
 ## Current State

@@ -14,6 +14,14 @@ product. Complete index — if you add a doc, add it here.
 - [`engineering-excellence-spec.md`](./engineering-excellence-spec.md) — the
   quality bar (standards + phased plan) the codebase is being held to.
 
+## Decisions
+
+- [`adr/`](./adr/README.md) — **Architecture Decision Records**: the ten
+  load-bearing decisions (no-LangChain, loop-stays-whole, fail-open,
+  footprint ladder, memory-as-index, single-finalizer, front-door-only,
+  single-API-worker, schema-driven surfaces…). If something looks odd,
+  check here before changing it.
+
 ## Kernel (Pori)
 
 - [`Pori.md`](./Pori.md) — PRD for Pori as a standalone kernel.
