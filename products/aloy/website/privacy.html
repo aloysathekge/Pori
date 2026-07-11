@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — Aloy</title>
+<meta name="description" content="How Aloy collects, uses, stores, and protects your data — including Google user data." />
+<meta name="theme-color" content="#0F8571" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%230F8571'/%3E%3Cpath%20d='M16%207.5%20L24%2024%20H19.6%20L16%2016.2%20L12.4%2024%20H8%20Z'%20fill='white'/%3E%3C/svg%3E" />
+<style>
+  :root { --bg:#FCFBF9; --ink:#191C1E; --body:#52585E; --muted:#838A90; --line:#E9E5DE;
+          --accent:#0F8571; --accent-deep:#0A5F51; --maxw:760px;
+          --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--body); font-family:var(--sans); line-height:1.65; }
+  .wrap { max-width:var(--maxw); margin:0 auto; padding:0 24px; }
+  header { padding:28px 0; border-bottom:1px solid var(--line); }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-weight:700; color:var(--ink); text-decoration:none; }
+  .mark { width:26px; height:26px; }
+  main { padding:48px 0 80px; }
+  h1 { color:var(--ink); font-size:2rem; margin-bottom:4px; }
+  .updated { color:var(--muted); font-size:.9rem; margin-bottom:36px; }
+  h2 { color:var(--ink); font-size:1.2rem; margin:36px 0 10px; }
+  p, li { margin-bottom:10px; }
+  ul { padding-left:22px; }
+  a { color:var(--accent-deep); }
+  footer { border-top:1px solid var(--line); padding:24px 0; color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="/"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0F8571"/><path d="M16 7.5 L24 24 H19.6 L16 16.2 L12.4 24 H8 Z" fill="white"/></svg>Aloy</a>
+</div></header>
+<main><div class="wrap">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: 10 July 2026</p>
+
+  <p>Aloy is a personal AI agent operated by Aloy Sathekge ("we", "us"). This
+  policy explains what data Aloy collects, how it is used and stored, and the
+  choices you have. The short version: your data powers your agent, and
+  nothing else.</p>
+
+  <h2>Data we collect</h2>
+  <ul>
+    <li><strong>Account data</strong> — your email address and authentication
+    identifiers, managed by our auth provider (Supabase).</li>
+    <li><strong>Conversations</strong> — the messages you exchange with the
+    agent, and the artifacts (files, plans, traces) its runs produce.</li>
+    <li><strong>Memory</strong> — facts the agent stores to serve you across
+    sessions (e.g. preferences, saved-file pointers). You can view and delete
+    these in the app's Memory page.</li>
+    <li><strong>Files</strong> — attachments you upload and files you save to
+    "My Files", stored in our object storage.</li>
+    <li><strong>Usage records</strong> — per-run token counts and cost
+    accounting for your own usage page.</li>
+  </ul>
+
+  <h2>How we use it</h2>
+  <p>Exclusively to operate Aloy for you: running your requests through AI
+  models, remembering context you asked it to keep, and showing you your own
+  history, files, and usage. We do not sell your data, use it for
+  advertising, or train models on it.</p>
+
+  <h2>Google user data</h2>
+  <p>If you connect your Google account, Aloy accesses Google user data only
+  to perform the actions you ask for:</p>
+  <ul>
+    <li><strong>Gmail</strong> — searching and reading messages when you ask
+    the agent to work with your inbox; sending email only when you instruct
+    it to.</li>
+    <li><strong>Google Calendar</strong> — listing your events and creating
+    events you request.</li>
+  </ul>
+  <p>Message and event content retrieved this way is used in-the-moment to
+  fulfil your request (including being sent to the AI model processing that
+  request) and appears in your conversation history like any other agent
+  output. We store your OAuth tokens encrypted at rest (Fernet/AES) and never
+  your Google password. We do not transfer Google user data to third parties
+  except as needed to process your request, and we do not use it for
+  advertising.</p>
+  <p><strong>Limited Use disclosure:</strong> Aloy's use and transfer of
+  information received from Google APIs adheres to the
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Google
+  API Services User Data Policy</a>, including the Limited Use requirements.</p>
+  <p>You can disconnect Google at any time from the app's Connections page,
+  which deletes the stored tokens; you can also revoke access from your
+  <a href="https://myaccount.google.com/permissions">Google Account
+  permissions</a>.</p>
+
+  <h2>Processors we rely on</h2>
+  <ul>
+    <li><strong>AI model providers</strong> (Anthropic; Google; others you
+    select) — receive the content of the requests your agent runs.</li>
+    <li><strong>Supabase</strong> — authentication and database hosting.</li>
+    <li><strong>Amazon Web Services</strong> — application hosting and
+    encrypted secret storage (EU region).</li>
+    <li><strong>Vercel</strong> — serves the web application.</li>
+  </ul>
+
+  <h2>Retention &amp; deletion</h2>
+  <p>Deleting a conversation deletes its messages, runs, traces, and stored
+  files (files you explicitly saved to "My Files" remain until you remove
+  them there). Deleting a memory entry removes it from future runs. To delete
+  your account and all associated data, contact us at the address below.</p>
+
+  <h2>Security</h2>
+  <p>Data in transit is encrypted with TLS; OAuth tokens are encrypted at
+  rest; secrets live in a managed KMS-backed store; per-tenant isolation is
+  enforced on every data access path.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or deletion requests: <a href="mailto:sathekgealoy@gmail.com">sathekgealoy@gmail.com</a>.</p>
+</div></main>
+<footer><div class="wrap">© 2026 Aloy · <a href="/">Home</a> · <a href="/terms.html">Terms of Service</a></div></footer>
+</body>
+</html>

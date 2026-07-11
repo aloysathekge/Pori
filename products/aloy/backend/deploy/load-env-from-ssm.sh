@@ -4,14 +4,14 @@
 #
 #   load-env-from-ssm.sh [SSM_PATH] [OUT_FILE]
 #
-# Defaults: /aloy-backend/prod → /opt/aloy-backend/.env
+# Defaults: /aloy-backend/prod → /opt/aloy/.env
 # Requires the AWS CLI and an IAM role (or credentials) with
 # ssm:GetParametersByPath + kms:Decrypt on the SSM KMS key.
 
 set -euo pipefail
 
 PREFIX="${1:-/aloy-backend/prod}"
-OUT="${2:-/opt/aloy-backend/.env}"
+OUT="${2:-/opt/aloy/.env}"
 REGION="${AWS_REGION:-eu-west-1}"
 
 umask 077

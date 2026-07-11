@@ -53,12 +53,23 @@ export SUPABASE_URL='https://xxxxxx.supabase.co'
 export ANTHROPIC_API_KEY='sk-ant-...'
 export GOOGLE_API_KEY='...'
 export TAVILY_API_KEY='tvly-...'
+# Connections (Gmail/Calendar OAuth). Generate the Fernet key with:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+export CONNECTIONS_ENC_KEY='...'
+export GOOGLE_OAUTH_CLIENT_ID='....apps.googleusercontent.com'
+export GOOGLE_OAUTH_CLIENT_SECRET='GOCSPX-...'
+export BACKEND_BASE_URL='https://api.pori.aloysathekge.com'
+export APP_BASE_URL='https://your-app.vercel.app'
+# Object storage. 'local' keeps blobs on the instance's /data volume —
+# fine for one box. Move to Supabase Storage later with STORAGE_BACKEND=s3
+# + the STORAGE_S3_* keys (see .env.example) — config only, no rebuild.
+export STORAGE_BACKEND='local'
 ```
 
 Put each as a SecureString under `/aloy-backend/prod/`:
 
 ```bash
-for name in DATABASE_URL SUPABASE_URL CORS_ORIGINS ANTHROPIC_API_KEY GOOGLE_API_KEY TAVILY_API_KEY; do
+for name in DATABASE_URL SUPABASE_URL CORS_ORIGINS ANTHROPIC_API_KEY GOOGLE_API_KEY TAVILY_API_KEY \n            CONNECTIONS_ENC_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \n            BACKEND_BASE_URL APP_BASE_URL STORAGE_BACKEND; do
   aws ssm put-parameter \
     --name "/aloy-backend/prod/$name" \
     --value "${!name}" \
@@ -200,17 +211,16 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
                         nginx certbot python3-certbot-nginx awscli git
 sudo usermod -aG docker ubuntu
 
-# Layout: /opt/aloy-backend/{Pori,aloy_backend}
-sudo mkdir -p /opt/aloy-backend
-sudo chown -R ubuntu:ubuntu /opt/aloy-backend
-cd /opt/aloy-backend
-git clone https://github.com/aloysathekge/pori.git Pori
-git clone https://github.com/aloysathekge/aloy-backend.git aloy_backend   # adjust repo URL if different
+# Layout: ONE monorepo clone. The backend lives at products/aloy/backend.
+sudo mkdir -p /opt/aloy
+sudo chown -R ubuntu:ubuntu /opt/aloy
+cd /opt/aloy
+git clone https://github.com/aloysathekge/Pori.git Pori
 
 # Confirm SSM access (from the instance role)
 aws sts get-caller-identity
-AWS_REGION=eu-west-1 /opt/aloy-backend/aloy_backend/deploy/load-env-from-ssm.sh
-ls -l /opt/aloy-backend/.env   # should be -rw------- 1 ubuntu
+AWS_REGION=eu-west-1 /opt/aloy/Pori/products/aloy/backend/deploy/load-env-from-ssm.sh
+ls -l /opt/aloy/.env   # should be -rw------- 1 ubuntu
 
 # Log out then back in so the docker group takes effect
 exit
@@ -228,7 +238,7 @@ docker ps   # should work without sudo now
 ## 5. First app boot + migrations
 
 ```bash
-cd /opt/aloy-backend/aloy_backend
+cd /opt/aloy/Pori/products/aloy/backend
 
 # Build the image (5-10 min on t3.small first time)
 docker compose build
@@ -252,13 +262,23 @@ curl -s http://127.0.0.1:8000/v1/health
 # → {"status":"ok","version":"0.1"}
 ```
 
+Two invariants worth knowing (both encoded in the Dockerfile/compose, don't
+"fix" them):
+
+- **ONE uvicorn worker.** Live-run re-attach, clarify, stop, and warm resume
+  are in-process registries; more API workers break them intermittently.
+  Scale the `worker` service (durable-run executor), never the API.
+- **`/data` is the durable volume** — object-store blobs (`STORAGE_BACKEND=local`)
+  and per-conversation sandbox jails. It's a named volume shared by api+worker;
+  `docker compose down` keeps it, `down -v` destroys user files.
+
 ---
 
 ## 6. nginx + TLS
 
 ```bash
 # Install the site config and reload nginx (HTTP only at this point)
-sudo install -m 0644 /opt/aloy-backend/aloy_backend/deploy/nginx.conf \
+sudo install -m 0644 /opt/aloy/Pori/products/aloy/backend/deploy/nginx.conf \
   /etc/nginx/sites-available/api.pori.aloysathekge.com
 sudo ln -sf /etc/nginx/sites-available/api.pori.aloysathekge.com \
             /etc/nginx/sites-enabled/api.pori.aloysathekge.com
@@ -283,8 +303,8 @@ Certbot adds its own systemd timer for renewals — no extra work.
 ## 7. Enable the systemd unit (survive reboot)
 
 ```bash
-sudo chmod +x /opt/aloy-backend/aloy_backend/deploy/load-env-from-ssm.sh
-sudo install -m 0644 /opt/aloy-backend/aloy_backend/deploy/aloy-backend.service \
+sudo chmod +x /opt/aloy/Pori/products/aloy/backend/deploy/load-env-from-ssm.sh
+sudo install -m 0644 /opt/aloy/Pori/products/aloy/backend/deploy/aloy-backend.service \
   /etc/systemd/system/aloy-backend.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now aloy-backend.service
@@ -324,9 +344,9 @@ sudo systemctl restart aloy-backend.service
 ## 9. Day-2 cheatsheet
 
 ```bash
-# Deploy new code
-cd /opt/aloy-backend/Pori && git pull
-cd /opt/aloy-backend/aloy_backend && git pull
+# Deploy new code (one repo now)
+cd /opt/aloy/Pori && git pull
+cd products/aloy/backend
 docker compose build && docker compose up -d
 
 # Run new migrations
