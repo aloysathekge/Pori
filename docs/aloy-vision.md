@@ -344,6 +344,28 @@ the intelligence — and gets smarter for free; substrate doesn't. Memory
 stays an index over durable things (pointers in memory, bytes in storage,
 work in the sandbox).
 
+**The context architecture: context is a cache, not a home.** The goal is
+never to fit a life into a context window (attention degrades, cost and
+latency scale with every carried token) — it is the operating-system answer:
+load the **working set**. CoreMemory = registers (identity, always loaded);
+the Event's committed + relevant working state = RAM (kilobytes per run);
+the Event graph, Reality Objects, captures, and files = disk (queried,
+paged in by tools on demand); receipts = the journal. Three consequences:
+
+1. **Scoping is compression** — an agent working the trip loads the trip,
+   not the life; Life's coordinator loads cross-event summaries, not raw
+   everything. The Event decomposition IS the context solution.
+2. **State lives as state, not as transcript.** Truth is receipt-backed
+   committed state, readable in one fact — never buried in conversation
+   scrollback. Chat is disposable; the Event state machine is the memory.
+3. **Memory gets denser, not bigger.** Curation distills captures into
+   compact knowledge with provenance pointing back to evidence; old signals
+   age into structure; forgetting is a feature (retention/supersession).
+
+This is robust to small context windows and scales with big ones — larger
+contexts mean bigger working sets and fewer page-ins, never a dependency.
+When memory contradicts a receipt, **the receipt wins**.
+
 ## 6. The hero flow and the wedge
 
 **Hero flow — the Event loop** (the 60-second demo):
