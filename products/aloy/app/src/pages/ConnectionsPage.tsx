@@ -87,7 +87,15 @@ export function ConnectionsPage() {
       ) : providers.length === 0 ? (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-500">
           <Plug size={20} className="mx-auto mb-2 text-zinc-600" />
-          No integrations are configured on this server yet.
+          <p className="font-medium text-zinc-400">
+            Account integrations aren't set up on this server yet.
+          </p>
+          <p className="mt-1">
+            Connecting accounts (Google — Gmail &amp; Calendar) requires the
+            server operator to configure OAuth credentials. Once that's done,
+            the connect buttons appear here. MCP servers below work
+            regardless.
+          </p>
         </div>
       ) : (
         <div className="space-y-8">
