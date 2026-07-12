@@ -131,13 +131,30 @@ async def create_skill(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
 ) -> SkillDefinition:
+    # A user-created skill is live immediately: approved + an org-wide grant
+    # in the same transaction. (The 'draft' default on the model is for the
+    # AGENT-proposed evolution path, which earns approval; a human clicking
+    # Save IS the approval. Without these two rows a skill NEVER loads into
+    # a run — the load path requires status=='approved' AND a matching grant,
+    # which made every web-created skill silently dead before this.)
     skill = SkillDefinition(
         organization_id=context.organization_id,
         created_by=context.user_id,
+        status="approved",
         **body.model_dump(),
     )
     session.add(skill)
     try:
+        await session.flush()
+        session.add(
+            SkillGrant(
+                organization_id=context.organization_id,
+                skill_id=skill.id,
+                principal_type="role",
+                principal_id="*",
+                created_by=context.user_id,
+            )
+        )
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()

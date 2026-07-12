@@ -158,3 +158,31 @@ class TestMcpTestEndpoint:
         body = resp.json()
         assert body["ok"] is False
         assert "check the URL" in body["detail"]
+
+
+class TestCreatedSkillsActuallyLoad:
+    async def test_imported_skill_reaches_the_run_catalog(
+        self, client, db_session_maker
+    ):
+        """The regression that mattered: created skills used to be draft +
+        grantless — status=='approved' AND a grant are both required by
+        load_skill_catalog, so no web-created skill ever loaded into a run."""
+        preview = (
+            await client.post("/v1/skills/preview", json={"text": SKILL_MD})
+        ).json()
+        preview.pop("warnings")
+        created = await client.post("/v1/skills", json=preview)
+        assert created.status_code == 201
+
+        from aloy_backend.skills import load_skill_catalog
+        from tests.conftest import TEST_USER_ID
+
+        async with db_session_maker() as s:
+            catalog = await load_skill_catalog(
+                s,
+                organization_id=f"user:{TEST_USER_ID}",
+                user_id=TEST_USER_ID,
+                role="owner",
+            )
+        slugs = [m.slug for m in catalog.manifests()]
+        assert "weekly-review" in slugs
