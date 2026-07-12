@@ -129,10 +129,15 @@ export function ConnectionsPage() {
               ))}
             </Section>
           )}
-
-          <McpServersSection />
         </div>
       )}
+
+      {/* MCP servers are independent of OAuth providers — always shown
+          (previously nested in the providers branch, so a server with no
+          OAuth configured hid the entire MCP UI). */}
+      <div className="mt-8">
+        <McpServersSection />
+      </div>
     </div>
   );
 }
