@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Plus, Save, X } from 'lucide-react';
+import { Download, Loader2, Plus, Save, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import {
   createSkill,
   listSkills,
+  previewSkillImport,
   updateSkill,
   type SkillCreate,
   type SkillResponse,
@@ -28,6 +29,11 @@ export function SkillsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<SkillResponse | null>(null);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importText, setImportText] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [form, setForm] = useState<SkillCreate>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +62,53 @@ export function SkillsPage() {
     setEditing(null);
     setForm(EMPTY);
     setError('');
+    setImporting(false);
     setCreating(true);
+  }
+
+  function startImport() {
+    setEditing(null);
+    setError('');
+    setImportUrl('');
+    setImportText('');
+    setImportWarnings([]);
+    setCreating(false);
+    setImporting(true);
+  }
+
+  /** Parse the pasted URL/text server-side, then drop the user into the
+   *  normal editor with everything prefilled — review, tweak, save. */
+  async function runImportPreview(input: { url?: string; text?: string }) {
+    setImportBusy(true);
+    setError('');
+    try {
+      const p = await previewSkillImport(input);
+      setForm({
+        slug: p.slug,
+        version: p.version,
+        name: p.name,
+        summary: p.summary,
+        instructions: p.instructions,
+        tags: p.tags,
+        category: p.category,
+      });
+      setImportWarnings(p.warnings);
+      setImporting(false);
+      setCreating(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  function onImportFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      if (text) void runImportPreview({ text });
+    };
+    reader.readAsText(file);
   }
 
   function startEdit(skill: SkillResponse) {
@@ -106,10 +158,19 @@ export function SkillsPage() {
             Reusable instructions the agent loads on demand.
           </p>
         </div>
-        {!creating && (
-          <Button onClick={startCreate} className="gap-2">
-            <Plus size={16} /> New skill
-          </Button>
+        {!creating && !importing && (
+          <div className="flex gap-2">
+            <Button onClick={startImport} className="gap-2">
+              <Download size={16} /> Import
+            </Button>
+            <button
+              type="button"
+              onClick={startCreate}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-600"
+            >
+              <Plus size={16} /> Write from scratch
+            </button>
+          </div>
         )}
       </div>
 
@@ -120,11 +181,84 @@ export function SkillsPage() {
           </div>
         )}
 
-        {creating ? (
+        {importing ? (
+          <div className="mx-auto max-w-2xl space-y-4">
+            <h2 className="text-base font-medium text-zinc-200">Import a skill</h2>
+            <p className="text-sm text-zinc-400">
+              Skills use the standard <code className="text-zinc-300">SKILL.md</code>{' '}
+              format (YAML frontmatter + markdown instructions). Paste a link —
+              GitHub links work directly — or the file itself.
+            </p>
+            <Field label="From a URL">
+              <div className="flex gap-2">
+                <input
+                  className={INPUT}
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="https://github.com/…/SKILL.md"
+                />
+                <Button
+                  onClick={() => void runImportPreview({ url: importUrl.trim() })}
+                  disabled={importBusy || !importUrl.trim()}
+                  className="shrink-0 gap-2"
+                >
+                  {importBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  Fetch
+                </Button>
+              </div>
+            </Field>
+            <div className="text-center text-xs text-zinc-600">— or —</div>
+            <Field label="Paste the SKILL.md contents">
+              <textarea
+                className={`${INPUT} min-h-40 font-mono`}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={'---\nname: My skill\ndescription: …\n---\nInstructions…'}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => void runImportPreview({ text: importText })}
+                disabled={importBusy || !importText.trim()}
+                className="gap-2"
+              >
+                {importBusy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                Preview
+              </Button>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-600">
+                <Upload size={16} /> Upload .md file
+                <input
+                  type="file"
+                  accept=".md,text/markdown,text/plain"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onImportFile(f);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setImporting(false)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-600"
+              >
+                <X size={16} /> Cancel
+              </button>
+            </div>
+          </div>
+        ) : creating ? (
           <div className="mx-auto max-w-2xl space-y-4">
             <h2 className="text-base font-medium text-zinc-200">
               {editing ? `Edit ${editing.name}` : 'New skill'}
             </h2>
+            {importWarnings.length > 0 && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-300">
+                {importWarnings.map((w) => (
+                  <p key={w}>{w}</p>
+                ))}
+              </div>
+            )}
             {!editing && (
               <Field label="Slug">
                 <input

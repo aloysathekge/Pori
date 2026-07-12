@@ -8,8 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
+from starlette.concurrency import run_in_threadpool
+
+from pori import McpSessionSet, ToolRegistry
 
 from ..connections.crypto import encrypt
+from ..connections.mcp_store import server_to_config
 from ..database import get_session
 from ..models import ORG_CONNECTION_USER, McpServer
 from ..schemas import McpServerCreate, McpServerInfo, McpServerUpdate
@@ -116,6 +120,38 @@ async def create_server(
     await session.commit()
     await session.refresh(server)
     return _info(server, context.permits(Permission.CONNECTION_MANAGE))
+
+
+@router.post("/{server_id}/test")
+async def test_server(
+    server_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Connect to the server once and report what a run would see — so
+    adding an MCP server is never a blind paste. Distinguishes 'failed to
+    connect' from 'connected, zero tools'; teardown always runs."""
+    server = await _load_manageable(session, context, server_id)
+    config = server_to_config(server)
+
+    def _probe() -> tuple[bool, int, list[str]]:
+        session_set = McpSessionSet([config])
+        registry = ToolRegistry()
+        try:
+            count = session_set.connect_and_register(registry)
+            connected = config.name in session_set.connected_server_names
+            names = sorted(registry.tools.keys())[:25]
+            return connected, count, names
+        finally:
+            session_set.close()
+
+    connected, tool_count, tools = await run_in_threadpool(_probe)
+    if not connected:
+        return {
+            "ok": False,
+            "detail": "Could not connect — check the URL, transport, and auth.",
+        }
+    return {"ok": True, "tool_count": tool_count, "tools": tools}
 
 
 async def _load_manageable(

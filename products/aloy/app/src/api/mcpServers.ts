@@ -42,3 +42,15 @@ export function setMcpServerEnabled(id: string, enabled: boolean) {
 export function deleteMcpServer(id: string) {
   return apiFetch<void>(`/mcp-servers/${id}`, { method: 'DELETE' });
 }
+
+export interface McpTestResult {
+  ok: boolean;
+  tool_count?: number;
+  tools?: string[];
+  detail?: string;
+}
+
+/** Probe the server once and report what a run would see. */
+export function testMcpServer(id: string) {
+  return apiFetch<McpTestResult>(`/mcp-servers/${id}/test`, { method: 'POST' });
+}

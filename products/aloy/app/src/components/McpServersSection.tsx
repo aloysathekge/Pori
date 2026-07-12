@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Plus, Server, Trash2, User } from 'lucide-react';
+import { Building2, Plug, Plus, Server, Trash2, User } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import {
   createMcpServer,
   deleteMcpServer,
+  testMcpServer,
   listMcpServers,
   setMcpServerEnabled,
   type McpServerInfo,
@@ -126,6 +127,8 @@ function ServerList({
   onToggle: (s: McpServerInfo) => void;
   onRemove: (s: McpServerInfo) => void;
 }) {
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
   if (servers.length === 0) return null;
   return (
     <div>
@@ -141,7 +144,47 @@ function ServerList({
             <div className="min-w-0 flex-1">
               <div className="font-medium text-zinc-100">{s.name}</div>
               <div className="truncate text-xs text-zinc-500">{s.url}</div>
+              {testResults[s.id] && (
+                <div
+                  className={`mt-0.5 text-xs ${
+                    testResults[s.id]?.startsWith('OK')
+                      ? 'text-emerald-400'
+                      : 'text-red-400'
+                  }`}
+                >
+                  {testResults[s.id]}
+                </div>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setTestingId(s.id);
+                setTestResults((prev) => ({ ...prev, [s.id]: '' }));
+                testMcpServer(s.id)
+                  .then((r) =>
+                    setTestResults((prev) => ({
+                      ...prev,
+                      [s.id]: r.ok
+                        ? `OK — ${r.tool_count} tool${r.tool_count === 1 ? '' : 's'} available`
+                        : (r.detail ?? 'Connection failed'),
+                    })),
+                  )
+                  .catch((e) =>
+                    setTestResults((prev) => ({
+                      ...prev,
+                      [s.id]: e instanceof Error ? e.message : 'Test failed',
+                    })),
+                  )
+                  .finally(() => setTestingId(null));
+              }}
+              disabled={testingId === s.id}
+              title="Connect once and list the tools a run would see"
+              className="inline-flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
+            >
+              <Plug size={12} />
+              {testingId === s.id ? 'Testing…' : 'Test'}
+            </button>
             {s.account_managed ? (
               <>
                 <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-400">
