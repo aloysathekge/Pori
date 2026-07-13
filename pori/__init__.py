@@ -62,6 +62,10 @@ from .hitl import (
     HITLHandler,
     InterruptConfig,
 )
+
+# The LLM interface type (products annotate against it; construct via
+# create_llm / get_configured_llm above).
+from .llm.base import BaseChatModel
 from .llm.messages import (
     DocumentBlock,
     ImageBlock,
@@ -302,6 +306,7 @@ __all__ = [
     "ClarificationRequest",
     "ClarifyBridge",
     "LLMConfig",
+    "BaseChatModel",
     "create_llm",
     "get_configured_llm",
     "SystemMessage",
