@@ -132,7 +132,7 @@ export function SettingsPage() {
             <span
               className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
                 execution.isolated
-                  ? 'bg-accent-50 text-accent-600'
+                  ? 'bg-accent-600/12 text-accent-600'
                   : 'bg-zinc-800 text-zinc-500'
               }`}
             >

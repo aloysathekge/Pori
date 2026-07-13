@@ -123,7 +123,7 @@ export function SchedulesPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600">
             {error}
           </div>
         )}
@@ -206,7 +206,7 @@ export function SchedulesPage() {
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs ${
                         s.enabled
-                          ? 'bg-emerald-50 text-emerald-700'
+                          ? 'bg-emerald-500/12 text-emerald-600'
                           : 'bg-zinc-800 text-zinc-500'
                       }`}
                     >

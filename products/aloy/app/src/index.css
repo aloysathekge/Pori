@@ -44,6 +44,32 @@
   --color-zinc-950: #fcfbf9; /* the page — landing --bg */
 }
 
+/* Dark theme. Every screen is authored in zinc-* utilities that resolve through
+   the variables above, so redefining that ramp here restyles the ENTIRE app —
+   no per-component changes. This restores the ramp to its natural direction
+   (the components were first authored for dark; light is the inverted retrofit).
+   The <html data-theme> attribute is set pre-paint by the script in index.html
+   and flipped at runtime by useTheme / the sidebar toggle. */
+:root[data-theme="dark"] {
+  --color-zinc-50: #f7f8f9; /* lightest (rare) */
+  --color-zinc-100: #eceef0; /* primary text */
+  --color-zinc-200: #d5dade; /* strong body / hover text */
+  --color-zinc-300: #b8bec4; /* body text */
+  --color-zinc-400: #949ba3; /* secondary text, inactive nav */
+  --color-zinc-500: #6b727a; /* muted / placeholders / icons */
+  --color-zinc-600: #414750; /* strong line */
+  --color-zinc-700: #2f343a; /* input borders, scrollbar thumb */
+  --color-zinc-800: #22262a; /* hairlines + hover fills + input fills */
+  --color-zinc-900: #16191b; /* cards / surfaces (lifted off the page) */
+  --color-zinc-950: #0b0d0e; /* the page */
+
+  /* Accent reads brighter on dark so links + active nav stay legible; same
+     teal hue, shifted a couple of steps up the brand ramp. */
+  --color-accent-500: #6fc5ae;
+  --color-accent-600: #3aa88d;
+  --color-accent-700: #169176;
+}
+
 html,
 body,
 #root {
