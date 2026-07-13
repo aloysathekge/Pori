@@ -75,7 +75,7 @@ export function ConnectionsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -221,19 +221,19 @@ function ProviderCard({
   const Icon = ICONS[provider.provider] ?? Link2;
   return (
     <div className="flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-600/12 text-accent-600">
         <Icon size={20} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium text-zinc-100">{provider.label}</span>
           {connected && (
-            <span className="rounded-full bg-accent-50 px-2 py-0.5 text-xs text-accent-700">
+            <span className="rounded-full bg-accent-600/12 px-2 py-0.5 text-xs text-accent-700">
               connected
             </span>
           )}
           {status === 'error' && (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+            <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-xs text-amber-600">
               reconnect
             </span>
           )}

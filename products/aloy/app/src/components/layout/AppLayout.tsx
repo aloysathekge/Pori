@@ -3,6 +3,7 @@ import { FolderOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from
 import { useState } from 'react';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   AgentsIcon,
   AloyMark,
@@ -150,6 +151,7 @@ export function AppLayout() {
               <PanelLeftOpen size={18} className="text-zinc-500" />
             )}
           </button>
+          <ThemeToggle expanded={expanded} />
           <Button
             variant="ghost"
             size="md"

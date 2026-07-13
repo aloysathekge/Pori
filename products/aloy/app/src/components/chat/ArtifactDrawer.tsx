@@ -83,7 +83,7 @@ export function ArtifactDrawer({
               {name(active)}
             </span>
             {content?.truncated && (
-              <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
+              <span className="shrink-0 rounded bg-amber-500/12 px-1.5 py-0.5 text-xs text-amber-600">
                 truncated
               </span>
             )}
