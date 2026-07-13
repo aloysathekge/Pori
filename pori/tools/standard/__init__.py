@@ -122,8 +122,13 @@ def _define_standard_groups(registry) -> None:
             name="internet",
             description="Public web retrieval.",
             tool_names=frozenset({"web_search"}),
+            # Web search accepts either backend: Tavily (tavily-python) or
+            # Google via Serper (a plain REST call, no extra package). The tool
+            # picks whichever key is present and reports a per-backend error at
+            # call time, so gate on "at least one key set" — not a hard AND on
+            # Tavily, which would hide the tool from Google-only deployments.
             prerequisites=CapabilityPrerequisites(
-                environment=("TAVILY_API_KEY",), modules=("tavily",)
+                environment_any=("TAVILY_API_KEY", "SERPER_API_KEY")
             ),
             max_output_chars=50_000,
         ),

@@ -118,7 +118,7 @@ budget forever. Before adding one, climb the lowest rung that works:
 1. **Extend an existing tool / skill** — no new surface at all.
 2. **A CLI command + a skill that documents it** — for user-driven, non-model flows.
 3. **A gated tool** — either a capability group with `CapabilityPrerequisites`
-   (env/module gated, like `internet` on `TAVILY_API_KEY`) or a per-tool
+   (env/module gated, like `internet` on a Tavily or Serper/Google key) or a per-tool
    `check_fn` (SK-6). The tool disappears from the model surface when its
    predicate is false, so it costs nothing until it's usable.
 4. **An entry-point or `.pori/plugins/` plugin** — third-party/optional capability.

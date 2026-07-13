@@ -24,7 +24,8 @@ never dispatches tools itself.
   tools. `answer`/`done` are the loop's terminal signals — never remove.
 - `standard/filesystem_tools.py`, `standard/internet_tools.py`,
   `standard/planning_tools.py`, `standard/skills_tools.py` — the other
-  built-in domains (internet is capability-gated on `TAVILY_API_KEY`).
+  built-in domains (internet is capability-gated on any web-search key —
+  `TAVILY_API_KEY` or `SERPER_API_KEY`).
 
 ## Key contracts
 - Register via `@registry.tool(...)` or `register_tool(...)`; params are a

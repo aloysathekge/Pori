@@ -18,11 +18,18 @@ def _module_available(name: str) -> bool:
 
 @dataclass(frozen=True)
 class CapabilityPrerequisites:
-    """Runtime requirements shared by a capability group."""
+    """Runtime requirements shared by a capability group.
+
+    ``environment`` / ``modules`` / ``platforms`` are ALL required (AND).
+    ``environment_any`` is satisfied when AT LEAST ONE of the names is set —
+    for capabilities that accept alternative backends (e.g. web search works
+    with a Tavily key OR a Serper/Google key).
+    """
 
     environment: Tuple[str, ...] = ()
     modules: Tuple[str, ...] = ()
     platforms: Tuple[str, ...] = ()
+    environment_any: Tuple[str, ...] = ()
 
     def missing(
         self,
@@ -38,6 +45,10 @@ class CapabilityPrerequisites:
         missing.extend(
             f"module:{name}" for name in self.modules if not _module_available(name)
         )
+        if self.environment_any and not any(
+            values.get(name) for name in self.environment_any
+        ):
+            missing.append("environment_any:" + "|".join(self.environment_any))
         if self.platforms and current_platform not in self.platforms:
             missing.append(f"platform:{current_platform}")
         return tuple(missing)

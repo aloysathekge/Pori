@@ -4,13 +4,14 @@ Internet search tools for retrieving public web information.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
 from pydantic import BaseModel, Field
@@ -39,64 +40,138 @@ class WebSearchParams(BaseModel):
     )
 
 
+# ── Backend selection ────────────────────────────────────────────────────────
+# One web_search tool, pluggable backend (the Hermes pattern). A deployment
+# sets a provider key and the tool routes to it; WEB_SEARCH_BACKEND forces one
+# when several keys are present. New providers add a branch + a normalizer that
+# returns the shared (results, answer) shape — nothing else changes.
+
+
+def _select_search_backend() -> Optional[str]:
+    """Return 'google', 'tavily', or None based on explicit override then keys."""
+    override = (os.getenv("WEB_SEARCH_BACKEND") or "").strip().lower()
+    if override in {"google", "serper"}:
+        return "google"
+    if override == "tavily":
+        return "tavily"
+    if os.getenv("SERPER_API_KEY"):
+        return "google"
+    if os.getenv("TAVILY_API_KEY"):
+        return "tavily"
+    return None
+
+
+def _search_google(
+    query: str, max_results: int, api_key: str
+) -> Tuple[List[Dict[str, str]], Optional[str]]:
+    """Google results via Serper (google.serper.dev) — a plain REST call, so no
+    extra dependency. Returns the shared (results, answer) shape."""
+    payload = json.dumps({"q": query, "num": max_results}).encode("utf-8")
+    request = urllib.request.Request(
+        "https://google.serper.dev/search",
+        data=payload,
+        headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
+        data = json.loads(response.read(_MAX_FETCH_BYTES).decode("utf-8", "replace"))
+
+    results: List[Dict[str, str]] = []
+    for r in (data.get("organic") or [])[:max_results]:
+        link = r.get("link", "")
+        if not link:
+            continue
+        results.append(
+            {
+                "title": r.get("title") or "Untitled",
+                "url": link,
+                "snippet": r.get("snippet", "") or "",
+                "source": "google",
+            }
+        )
+    answer_box = data.get("answerBox") or {}
+    answer = (
+        (answer_box.get("answer") or answer_box.get("snippet"))
+        if isinstance(answer_box, dict)
+        else None
+    )
+    return results, answer
+
+
+def _search_tavily(
+    query: str, max_results: int, topic: str, api_key: str
+) -> Tuple[List[Dict[str, str]], Optional[str]]:
+    """Tavily backend. Returns the shared (results, answer) shape."""
+    client = TavilyClient(api_key=api_key)
+    response = client.search(
+        query=query,
+        max_results=max_results,
+        search_depth="basic",
+        topic=topic or "general",
+    )
+    results: List[Dict[str, str]] = []
+    for r in (response.get("results") or [])[:max_results]:
+        url = r.get("url", "")
+        if not url:
+            continue
+        results.append(
+            {
+                "title": r.get("title") or "Untitled",
+                "url": url,
+                "snippet": r.get("content", "") or "",
+                "source": "tavily",
+            }
+        )
+    return results, response.get("answer")
+
+
 @Registry.tool(
     name="web_search",
     description="Search the public web for information and return concise result snippets. Use for current events, news, facts, and general knowledge.",
 )
 def web_search_tool(params: WebSearchParams, context: Dict[str, Any]) -> Dict[str, Any]:
-    """Search the web using Tavily API."""
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
+    """Search the web via the configured backend (Google/Serper or Tavily)."""
+    backend = _select_search_backend()
+    if backend is None:
         return {
-            "error": "Tavily API not configured. Set TAVILY_API_KEY in your environment.",
-        }
-
-    if TavilyClient is None:
-        return {
-            "error": "Tavily API requires the tavily-python package. Install with: pip install tavily-python",
+            "error": (
+                "Web search not configured. Set SERPER_API_KEY (Google) or "
+                "TAVILY_API_KEY in your environment."
+            ),
         }
 
     try:
-        client = TavilyClient(api_key=api_key)
-        response = client.search(
-            query=params.query,
-            max_results=params.max_results,
-            search_depth="basic",
-            topic=params.topic or "general",
-        )
+        if backend == "google":
+            key = os.getenv("SERPER_API_KEY") or ""
+            if not key:
+                return {
+                    "error": "Google search selected but SERPER_API_KEY is not set."
+                }
+            results, answer = _search_google(params.query, params.max_results, key)
+        else:
+            key = os.getenv("TAVILY_API_KEY") or ""
+            if not key:
+                return {"error": "Tavily selected but TAVILY_API_KEY is not set."}
+            if TavilyClient is None:
+                return {
+                    "error": "Tavily API requires the tavily-python package. Install with: pip install tavily-python",
+                }
+            results, answer = _search_tavily(
+                params.query, params.max_results, params.topic, key
+            )
     except Exception as exc:
         logger.warning("Web search failed: %s", exc)
         return {"error": f"Web search failed: {exc}"}
-
-    results_raw = response.get("results", [])
-    results: List[Dict[str, str]] = []
-
-    for r in results_raw[: params.max_results]:
-        title = r.get("title", "")
-        url = r.get("url", "")
-        content = r.get("content", "")
-        if not url:
-            continue
-        results.append(
-            {
-                "title": title or "Untitled",
-                "url": url,
-                "snippet": content or "",
-                "source": "tavily",
-            }
-        )
 
     result: Dict[str, Any] = {
         "query": params.query,
         "results": results,
         "total_found": len(results),
-        "answer": response.get("answer"),
+        "answer": answer,
     }
     # INF-5: warn (don't block) if the untrusted fetched content looks like a
     # prompt-injection / exfil attempt, so the model treats it as data.
-    scanned = " ".join(
-        [r.get("snippet", "") for r in results] + [str(response.get("answer") or "")]
-    )
+    scanned = " ".join([r.get("snippet", "") for r in results] + [str(answer or "")])
     warning = first_threat_message(scanned)
     if warning:
         result["security_warning"] = (
