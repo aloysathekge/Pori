@@ -130,9 +130,24 @@ Its five responsibilities:
 5. **The Today view** — what needs attention, what changed, what decisions
    are pending (see §3.3).
 
-Unstructured reality earns structure:
-`unstructured reality → Life → Proposal → dedicated Event`. Event creation
-is itself a Proposal (Aloy notices, proposes; the user decides).
+**Two ways an Event is born — and manual is the primary one:**
+
+1. **User-initiated (direct, always available).** The user creates an Event
+   outright — "make an event for my SF trip", or a **New Event** action. It
+   commits immediately with **no Proposal gate**: the user is the authority,
+   so they are proposer and decider at once. This is the default path — a
+   human must never have to wait for Aloy to *notice* before they can
+   structure their own life.
+2. **Aloy-initiated (emergent).** Aloy notices a pattern (mentioned Japan
+   4×, searched flights twice) and *raises a Proposal* to create the Event;
+   the user approves or dismisses:
+   `unstructured reality → Life → Proposal → dedicated Event`. This is the
+   layer on top — structure the user didn't think to ask for.
+
+This stays consistent with "everything is a Proposal": Proposals gate
+**agent → reality** changes. A human directly creating an Event is a direct
+committed action, not a proposal — the gate was never meant to sit between a
+user and their own intent.
 
 **The cold start: Aloy is useful before any structure exists.** With zero
 Events, Life is a smart evolving stream — you capture anything, get
@@ -316,8 +331,10 @@ a dormant event monitors nothing.
 
 ## 4. The invariants (the constitution — never violate)
 
-1. **No reality change without a Proposal.** Auto/Notify/Ask are latencies
-   of consent on one mechanism, not different mechanisms. Protected forever.
+1. **No _agent_ reality change without a Proposal.** Auto/Notify/Ask are
+   latencies of consent on one mechanism, not different mechanisms. Protected
+   forever. (The user acting directly — e.g. creating an Event — is not a
+   Proposal; the gate governs agent→reality, never a user's own intent.)
 2. **Verifiable Reality.** Aloy never represents agent belief as reality.
    The Surface renders only state backed by evidence; committed changes
    require receipts; the checkmark means "this state has a receipt," not
