@@ -62,6 +62,10 @@ from .hitl import (
     HITLHandler,
     InterruptConfig,
 )
+
+# The LLM interface type (products annotate against it; construct via
+# create_llm / get_configured_llm above).
+from .llm.base import BaseChatModel
 from .llm.messages import (
     DocumentBlock,
     ImageBlock,
@@ -178,6 +182,7 @@ from .skills import (
     install_skill_source,
     load_skill_bundles_from_directory,
     load_skill_catalog_from_directories,
+    parse_skill_markdown,
     render_selected_skills,
     uninstall_skill_from_directory,
 )
@@ -286,6 +291,7 @@ __all__ = [
     "SkillSummary",
     "inspect_skill_source",
     "install_skill_source",
+    "parse_skill_markdown",
     "load_skill_bundles_from_directory",
     "load_skill_catalog_from_directories",
     "render_selected_skills",
@@ -300,6 +306,7 @@ __all__ = [
     "ClarificationRequest",
     "ClarifyBridge",
     "LLMConfig",
+    "BaseChatModel",
     "create_llm",
     "get_configured_llm",
     "SystemMessage",

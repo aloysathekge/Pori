@@ -13,7 +13,7 @@ from collections.abc import Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pori.llm import BaseChatModel
+from pori import BaseChatModel
 
 from ...deps import load_owned
 from ...models import Conversation, Message

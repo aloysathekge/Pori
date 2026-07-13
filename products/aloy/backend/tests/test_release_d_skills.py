@@ -41,7 +41,11 @@ async def test_skill_lifecycle_requires_approval_and_grant(client):
     )
     assert created.status_code == 201
     skill = created.json()
-    assert skill["status"] == "draft"
+    # Human-created skills are live immediately (approved + org-wide grant
+    # in one transaction) — the draft→approve ceremony added no real gate
+    # (the same permission created AND approved) and left UI-created skills
+    # dead. Draft remains the default for agent-proposed evolution skills.
+    assert skill["status"] == "approved"
     assert skill["category"] == "software-development"
     assert skill["commands"] == ["migrate"]
     assert skill["argument_hint"] == "Which database is being migrated?"
@@ -49,14 +53,8 @@ async def test_skill_lifecycle_requires_approval_and_grant(client):
     assert skill["required_commands"] == ["psql"]
     assert skill["readiness_warnings"] == ["reviewed by policy"]
 
-    approved = await client.patch(
-        f"/v1/skills/{skill['id']}",
-        headers=headers,
-        json={"status": "approved"},
-    )
-    assert approved.status_code == 200
-    assert approved.json()["status"] == "approved"
-
+    # A default org-wide grant exists from creation; targeted grants can
+    # still be added on top.
     grant = await client.post(
         f"/v1/skills/{skill['id']}/grants",
         headers=headers,
@@ -65,7 +63,8 @@ async def test_skill_lifecycle_requires_approval_and_grant(client):
     assert grant.status_code == 201
 
     grants = await client.get(f"/v1/skills/{skill['id']}/grants", headers=headers)
-    assert [item["principal_id"] for item in grants.json()] == ["member"]
+    principal_ids = sorted(item["principal_id"] for item in grants.json())
+    assert principal_ids == ["*", "member"]
 
 
 async def test_cloud_skill_catalog_loads_only_approved_granted_skills(db_session_maker):

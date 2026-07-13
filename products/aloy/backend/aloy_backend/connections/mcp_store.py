@@ -44,6 +44,11 @@ def _to_config(server: McpServer) -> McpServerConfig:
     )
 
 
+# Public alias: the test-connection endpoint maps a single row the same way
+# runs do — one mapping, no drift.
+server_to_config = _to_config
+
+
 async def resolve_run_mcp_servers(
     session, organization_id: str, user_id: str
 ) -> List[McpServerConfig]:

@@ -692,6 +692,17 @@ def _read_skill_file(path: Path) -> tuple[dict[str, Any], str]:
     return _read_skill_text(text)
 
 
+def parse_skill_markdown(text: str) -> tuple[dict[str, Any], str]:
+    """Parse SKILL.md text into (metadata, instructions).
+
+    The ecosystem-standard skill format: optional YAML frontmatter between
+    ``---`` fences, followed by markdown instructions. Public seam — embedding
+    products (web import flows) parse pasted/uploaded skill files through
+    this, so the format has exactly one implementation.
+    """
+    return _read_skill_text(text)
+
+
 def _read_skill_text(text: str) -> tuple[dict[str, Any], str]:
     if not text.startswith("---"):
         return {}, text

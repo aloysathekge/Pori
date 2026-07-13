@@ -119,6 +119,12 @@ class McpSessionSet:
             registered += self._register_server(registry, runtime)
         return registered
 
+    @property
+    def connected_server_names(self) -> List[str]:
+        """Names of servers that actually connected (products use this to
+        distinguish 'connected, zero tools' from 'failed to connect')."""
+        return list(self._runtimes.keys())
+
     def _connect_one(self, config: McpServerConfig) -> Optional[_ServerRuntime]:
         assert self._loop is not None
         ready: concurrent.futures.Future = concurrent.futures.Future()

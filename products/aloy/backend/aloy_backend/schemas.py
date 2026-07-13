@@ -319,6 +319,30 @@ class TeamRunResponse(BaseModel):
 # --- Skills ---
 
 
+class SkillImportRequest(BaseModel):
+    """Import a skill from the ecosystem SKILL.md format: a direct URL or
+    the pasted/uploaded file text (exactly one)."""
+
+    url: str | None = Field(default=None, max_length=2000)
+    text: str | None = Field(default=None, max_length=200_000)
+
+
+class SkillImportPreview(BaseModel):
+    """Parsed SKILL.md, prefilled and slug-sanitized — feed it to the
+    existing create form/endpoint."""
+
+    slug: str
+    version: str
+    name: str
+    summary: str
+    instructions: str
+    tags: list[str] = []
+    category: str = "organization"
+    author: str = ""
+    license: str = ""
+    warnings: list[str] = []
+
+
 class SkillCreate(BaseModel):
     slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
     version: str = Field("1", min_length=1, max_length=64)

@@ -7,6 +7,17 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
+def _credential(env_name: str) -> str:
+    """Process env first, then Settings (which reads the .env file — values
+    there never reach ``os.environ``, so env-only lookup missed them)."""
+    value = os.getenv(env_name, "")
+    if value:
+        return value
+    from ..config import settings
+
+    return str(getattr(settings, env_name.lower(), "") or "")
+
+
 @dataclass(frozen=True)
 class ProviderSpec:
     name: str
@@ -24,11 +35,11 @@ class ProviderSpec:
 
     @property
     def client_id(self) -> str:
-        return os.getenv(self.client_id_env, "")
+        return _credential(self.client_id_env)
 
     @property
     def client_secret(self) -> str:
-        return os.getenv(self.client_secret_env, "")
+        return _credential(self.client_secret_env)
 
     def is_configured(self) -> bool:
         """A provider is only offered when its OAuth app credentials are set."""

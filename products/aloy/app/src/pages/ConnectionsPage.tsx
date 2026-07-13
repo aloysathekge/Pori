@@ -85,9 +85,41 @@ export function ConnectionsPage() {
           <Spinner className="h-8 w-8" />
         </div>
       ) : providers.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-500">
-          <Plug size={20} className="mx-auto mb-2 text-zinc-600" />
-          No integrations are configured on this server yet.
+        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-400">
+          <div className="mb-2 flex items-center gap-2 font-medium text-zinc-200">
+            <Plug size={16} className="text-accent-600" />
+            Set up Google (Gmail &amp; Calendar) on this server
+          </div>
+          <p className="text-zinc-500">
+            Google requires every app to register once for OAuth — users of a
+            configured server just click “Connect”. You're running this
+            server, so the one-time setup is yours (±10 minutes):
+          </p>
+          <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-zinc-400">
+            <li>
+              Google Cloud Console → APIs &amp; Services → Credentials →
+              create an <span className="text-zinc-300">OAuth client ID</span>{' '}
+              (Web application).
+            </li>
+            <li>
+              Add redirect URI:{' '}
+              <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">
+                {'{BACKEND_URL}'}/v1/connections/google/callback
+              </code>
+            </li>
+            <li>
+              Put <code className="rounded bg-zinc-800 px-1 text-xs">GOOGLE_OAUTH_CLIENT_ID</code>{' '}
+              and{' '}
+              <code className="rounded bg-zinc-800 px-1 text-xs">GOOGLE_OAUTH_CLIENT_SECRET</code>{' '}
+              in the backend <code className="rounded bg-zinc-800 px-1 text-xs">.env</code>, add
+              yourself as a test user on the consent screen, restart the
+              backend.
+            </li>
+          </ol>
+          <p className="mt-3 text-xs text-zinc-600">
+            Full guide: <code>deploy/OAUTH-VERIFICATION.md</code> in the repo.
+            MCP servers below work without any of this.
+          </p>
         </div>
       ) : (
         <div className="space-y-8">
@@ -129,10 +161,15 @@ export function ConnectionsPage() {
               ))}
             </Section>
           )}
-
-          <McpServersSection />
         </div>
       )}
+
+      {/* MCP servers are independent of OAuth providers — always shown
+          (previously nested in the providers branch, so a server with no
+          OAuth configured hid the entire MCP UI). */}
+      <div className="mt-8">
+        <McpServersSection />
+      </div>
     </div>
   );
 }

@@ -38,18 +38,36 @@ class TestCrypto:
         assert "sk-secret-token" not in encrypt("sk-secret-token")
 
 
+@pytest.fixture
+def no_google_creds(monkeypatch):
+    # Blank BOTH sources: process env and Settings (a dev box's real .env
+    # feeds Settings, which the spec now falls back to).
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(config_mod.settings, "google_oauth_client_id", "")
+    monkeypatch.setattr(config_mod.settings, "google_oauth_client_secret", "")
+
+
 class TestProviders:
-    def test_google_unconfigured_by_default(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
-        monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    def test_google_unconfigured_by_default(self, no_google_creds):
         from aloy_backend.connections import available_providers, get_provider
 
         assert get_provider("google") is not None
         assert available_providers() == []  # no creds -> not offered
 
-    def test_google_available_when_configured(self, monkeypatch):
+    def test_google_available_when_configured(self, no_google_creds, monkeypatch):
         monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "id")
         monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+        from aloy_backend.connections import available_providers
+
+        assert [p.name for p in available_providers()] == ["google"]
+
+    def test_settings_fallback_when_env_unset(self, no_google_creds, monkeypatch):
+        """pydantic-settings reads .env into Settings without touching
+        os.environ — the spec must still see those credentials (the bug that
+        hid the Connect button on any .env-configured deployment)."""
+        monkeypatch.setattr(config_mod.settings, "google_oauth_client_id", "id")
+        monkeypatch.setattr(config_mod.settings, "google_oauth_client_secret", "secret")
         from aloy_backend.connections import available_providers
 
         assert [p.name for p in available_providers()] == ["google"]
@@ -194,12 +212,12 @@ class TestScopeAndUnionResolver:
 
 
 class TestEndpoints:
-    async def test_list_empty_when_unconfigured(self, client):
+    async def test_list_empty_when_unconfigured(self, client, no_google_creds):
         resp = await client.get("/v1/connections")
         assert resp.status_code == 200
         assert resp.json() == []  # google not configured -> not offered
 
-    async def test_start_404_when_provider_unconfigured(self, client):
+    async def test_start_404_when_provider_unconfigured(self, client, no_google_creds):
         resp = await client.post("/v1/connections/google/start")
         assert resp.status_code == 404
 
