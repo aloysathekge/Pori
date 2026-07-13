@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { LinkWithFavicon } from './LinkWithFavicon';
 
 /**
  * Renders assistant message text as GitHub-flavored Markdown — bold, italics,
@@ -14,16 +15,7 @@ const components: Components = {
     <strong className="font-semibold text-zinc-100">{children}</strong>
   ),
   em: ({ children }) => <em className="italic">{children}</em>,
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-accent-600 underline underline-offset-2 hover:text-accent-500"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => <LinkWithFavicon href={href}>{children}</LinkWithFavicon>,
   ul: ({ children }) => (
     <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>
   ),
