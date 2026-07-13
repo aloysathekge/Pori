@@ -6,7 +6,16 @@ singleton rather than instantiating ``Settings`` again.
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Bridge the dev ``.env`` into the process environment BEFORE anything reads it.
+# pydantic-settings loads ``.env`` into ``Settings`` fields only — it never
+# populates ``os.environ``. Kernel env-gated tools (web_search on
+# SERPER_API_KEY / TAVILY_API_KEY, etc.) read ``os.getenv`` directly, so without
+# this they can't see operator keys set in ``.env`` during local dev. In prod
+# these are real env vars; ``load_dotenv`` never overrides an already-set one.
+load_dotenv()
 
 
 class Settings(BaseSettings):
