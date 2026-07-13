@@ -11,8 +11,13 @@ from pydantic import BaseModel, Field
 from . import google_common as g
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
-GMAIL_TOOL_NAMES = frozenset({"gmail_search", "gmail_read", "gmail_send"})
-# Write tools — a deployment can HITL-gate these by name (hitl.interrupt_on).
+GMAIL_TOOL_NAMES = frozenset(
+    {"gmail_search", "gmail_read", "gmail_create_draft", "gmail_send"}
+)
+# Consequential write tools — a deployment can HITL-gate these by name
+# (hitl.interrupt_on). Creating a draft is deliberately NOT here: it stages an
+# email in Gmail without sending, so it needs no gate (the Proposal pattern —
+# the agent drafts, the human commits by hitting send).
 GMAIL_WRITE_TOOLS = frozenset({"gmail_send"})
 
 
@@ -93,6 +98,45 @@ def gmail_read_tool(params: GmailReadParams, context: Dict[str, Any]) -> Dict[st
         "subject": g.header(headers, "Subject"),
         "date": g.header(headers, "Date"),
         "body": _decode_body(payload)[:20000],
+    }
+
+
+class GmailDraftParams(BaseModel):
+    body: str = Field(..., description="Plain-text email body")
+    to: str | None = Field(
+        default=None, description="Recipient email address (optional for a draft)"
+    )
+    subject: str = Field("", description="Email subject")
+    cc: str | None = Field(default=None, description="Optional CC address")
+
+
+def gmail_create_draft_tool(
+    params: GmailDraftParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Save an email to Gmail Drafts WITHOUT sending it, for the user to review
+    and send themselves. Prefer this over gmail_send when the user hasn't
+    explicitly asked to send, or when the message needs their eyes first."""
+    msg = EmailMessage()
+    if params.to:
+        msg["To"] = params.to
+    msg["Subject"] = params.subject
+    if params.cc:
+        msg["Cc"] = params.cc
+    msg.set_content(params.body)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    try:
+        draft = g.post(context, f"{GMAIL_API}/drafts", {"message": {"raw": raw}})
+    except PermissionError:
+        return g.NOT_CONNECTED
+    except Exception as exc:
+        return {"error": f"Gmail draft failed: {exc}"}
+    return {
+        "drafted": True,
+        "draft_id": draft.get("id"),
+        "message_id": (draft.get("message") or {}).get("id"),
+        "to": params.to,
+        "note": "Saved to Gmail Drafts — NOT sent. The user reviews and sends it "
+        "from Gmail themselves.",
     }
 
 

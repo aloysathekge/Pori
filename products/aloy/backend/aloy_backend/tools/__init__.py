@@ -19,9 +19,11 @@ from .calendar import (
 from .gmail import (
     GMAIL_TOOL_NAMES,
     GMAIL_WRITE_TOOLS,
+    GmailDraftParams,
     GmailReadParams,
     GmailSearchParams,
     GmailSendParams,
+    gmail_create_draft_tool,
     gmail_read_tool,
     gmail_search_tool,
     gmail_send_tool,
@@ -47,10 +49,19 @@ _TOOLS = [
         "Read the full text of one Gmail message by id.",
     ),
     (
+        "gmail_create_draft",
+        GmailDraftParams,
+        gmail_create_draft_tool,
+        "Save an email to the user's Gmail Drafts WITHOUT sending it, for them "
+        "to review and send. Prefer this over gmail_send unless the user "
+        "explicitly asked to send.",
+    ),
+    (
         "gmail_send",
         GmailSendParams,
         gmail_send_tool,
-        "Send an email from the user's connected Gmail.",
+        "Send an email from the user's connected Gmail. This delivers "
+        "immediately — use gmail_create_draft unless the user asked to send.",
     ),
     (
         "calendar_list_events",

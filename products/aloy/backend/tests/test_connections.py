@@ -318,6 +318,30 @@ class TestGoogleTools:
         assert calls[0][0] == "POST" and calls[0][1].endswith("/messages/send")
         assert "raw" in calls[0][3]  # RFC822 base64 payload
 
+    def test_gmail_create_draft(self, monkeypatch):
+        from aloy_backend.tools.gmail import GmailDraftParams, gmail_create_draft_tool
+
+        calls = _fake_http(
+            monkeypatch, post_payload={"id": "d1", "message": {"id": "m1"}}
+        )
+        out = gmail_create_draft_tool(
+            GmailDraftParams(to="a@b.com", subject="Hi", body="draft me"), CTX
+        )
+        assert out["drafted"] is True
+        assert out["draft_id"] == "d1" and out["message_id"] == "m1"
+        # Hits the drafts endpoint (NOT /messages/send) with a wrapped message.
+        assert calls[0][0] == "POST" and calls[0][1].endswith("/drafts")
+        assert "message" in calls[0][3] and "raw" in calls[0][3]["message"]
+
+    def test_draft_is_not_a_gated_write(self):
+        # Drafting stages an email without sending, so it must stay OUT of the
+        # HITL-gated write set — only gmail_send is consequential.
+        from aloy_backend.tools.gmail import GMAIL_TOOL_NAMES, GMAIL_WRITE_TOOLS
+
+        assert "gmail_create_draft" in GMAIL_TOOL_NAMES
+        assert "gmail_create_draft" not in GMAIL_WRITE_TOOLS
+        assert "gmail_send" in GMAIL_WRITE_TOOLS
+
     def test_calendar_list(self, monkeypatch):
         from aloy_backend.tools.calendar import (
             CalendarListParams,
