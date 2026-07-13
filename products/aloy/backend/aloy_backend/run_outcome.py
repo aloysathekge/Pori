@@ -403,6 +403,13 @@ async def persist_run_outcome(
     )
     session.add(assistant_msg)
 
+    # This is a TERMINAL history record for a run that already executed inline
+    # (streaming/blocking) — not a unit of work. The status MUST be terminal:
+    # the durable worker's claim query treats status=='pending' (the Run model
+    # default) as claimable, so an unset status here makes the worker re-execute
+    # a finished run with max_steps=0 → ExecutionBudget(ge=1) crash. max_steps is
+    # not applicable to an already-completed run; 0 is a deliberate sentinel that
+    # is only safe because the status keeps this row out of the queue.
     run = Run(
         id=outcome.run_id,
         user_id=context.user_id,
@@ -412,6 +419,11 @@ async def persist_run_outcome(
         conversation_id=conv.id,
         task=outcome.task,
         max_steps=0,
+        status=(
+            "cancelled"
+            if outcome.stopped
+            else "completed" if outcome.success else "failed"
+        ),
         success=outcome.success,
         steps_taken=outcome.steps_taken,
         final_answer=outcome.final_answer,

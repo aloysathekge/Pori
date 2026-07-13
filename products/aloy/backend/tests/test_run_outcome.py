@@ -22,6 +22,7 @@ from aloy_backend.models import (
 )
 from aloy_backend.run_outcome import build_run_outcome, persist_run_outcome
 from aloy_backend.tenancy import OrganizationContext, OrganizationPolicy
+from aloy_backend.worker import claim_next_run
 from pori import AgentMemory
 
 pytestmark = pytest.mark.asyncio
@@ -232,6 +233,71 @@ class TestFinalizer:
             )
             assert usage is not None and usage.total_tokens == 15
 
+
+class TestTerminalStatusKeepsInlineRunsOutOfTheQueue:
+    """Regression: the finalizer records an ALREADY-EXECUTED inline run. It must
+    stamp a terminal status — the durable worker claims status=='pending' (the
+    Run default), so an unset status made the worker re-execute a finished run
+    with max_steps=0 → ExecutionBudget(ge=1) crash, failing every inline run."""
+
+    def _rc(self, run_id: str):
+        return SimpleNamespace(
+            run_id=run_id,
+            organization_id=ORG,
+            session_id="sess-1",
+            agent_id="agent-1",
+        )
+
+    async def test_success_is_completed_and_unclaimable(
+        self, db_session_maker, monkeypatch
+    ):
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            outcome = build_run_outcome(
+                _agent_result(),
+                AgentMemory(),
+                self._rc("ok-1"),
+                task="hi",
+                fallback_org=ORG,
+            )
+            await persist_run_outcome(session, conv, _context(), outcome)
+            run = await session.get(Run, "ok-1")
+            assert run.status == "completed" and run.max_steps == 0
+
+        # The actual regression: a finished inline run must not be picked up.
+        monkeypatch.setattr("aloy_backend.worker.async_session", db_session_maker)
+        assert await claim_next_run("worker-x") is None
+
+    async def test_failure_is_failed(self, db_session_maker):
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            result = {**_agent_result(), "success": False}
+            outcome = build_run_outcome(
+                result,
+                AgentMemory(),
+                self._rc("fail-1"),
+                task="hi",
+                fallback_org=ORG,
+            )
+            await persist_run_outcome(session, conv, _context(), outcome)
+            assert (await session.get(Run, "fail-1")).status == "failed"
+
+    async def test_stopped_is_cancelled(self, db_session_maker):
+        async with db_session_maker() as session:
+            conv = await _make_conv(session)
+            result = {**_agent_result(), "success": False, "stopped": True}
+            outcome = build_run_outcome(
+                result,
+                AgentMemory(),
+                self._rc("stop-1"),
+                task="hi",
+                fallback_org=ORG,
+            )
+            await persist_run_outcome(session, conv, _context(), outcome)
+            assert (await session.get(Run, "stop-1")).status == "cancelled"
+
+
+class TestFinalizerAbsentData:
     async def test_no_trace_no_usage_when_absent(self, db_session_maker):
         """A run with no metrics/trace still persists the message + run cleanly."""
         async with db_session_maker() as session:
