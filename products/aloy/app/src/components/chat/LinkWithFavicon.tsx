@@ -3,7 +3,11 @@ import { Globe } from 'lucide-react';
 
 /**
  * A Markdown link rendered with the destination site's favicon before the text
- * — the pattern modern chat UIs use to make external links scannable.
+ * — the pattern ChatGPT/modern chat UIs use to make external links scannable.
+ *
+ * The favicon is an INLINE image (not a flex box) followed by the link text, so
+ * a long link wraps across lines naturally — the favicon stays before the first
+ * word and the text flows to the next line, exactly like ChatGPT.
  *
  * Only absolute http(s) links get a favicon; anything else (relative links,
  * anchors, mailto:, invalid URLs) falls back to a plain anchor. If the favicon
@@ -40,8 +44,13 @@ function externalDomain(href: string | undefined): string | null {
   }
 }
 
+// ChatGPT-style: coloured text, no underline until hover; the favicon carries
+// the "this is a link" signal alongside the colour.
 const ANCHOR_CLASS =
-  'text-accent-600 underline underline-offset-2 hover:text-accent-500';
+  'text-accent-600 no-underline underline-offset-2 hover:underline hover:text-accent-500';
+
+// Inline favicon aligned to sit on the text baseline like an emoji would.
+const ICON_CLASS = 'mr-1 inline-block h-4 w-4 shrink-0 rounded-sm align-[-0.15em]';
 
 export function LinkWithFavicon({
   href,
@@ -53,41 +62,28 @@ export function LinkWithFavicon({
   const domain = externalDomain(href);
   const [iconFailed, setIconFailed] = useState(false);
 
-  // No favicon for non-external links — render exactly the previous plain link.
-  if (!domain) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={ANCHOR_CLASS}>
-        {children}
-      </a>
-    );
-  }
-
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`group inline-flex max-w-full items-center gap-1 align-middle ${ANCHOR_CLASS}`}
-    >
-      {iconFailed ? (
-        <Globe
-          size={16}
-          aria-hidden="true"
-          className="shrink-0 text-zinc-500 transition-transform group-hover:scale-110"
-        />
-      ) : (
-        <img
-          src={faviconUrl(domain)}
-          alt="" // decorative: the link text carries the meaning
-          aria-hidden="true"
-          width={16}
-          height={16}
-          loading="lazy"
-          onError={() => setIconFailed(true)}
-          className="h-4 w-4 shrink-0 rounded-sm opacity-80 transition-all group-hover:scale-110 group-hover:opacity-100"
-        />
-      )}
-      <span className="break-words">{children}</span>
+    <a href={href} target="_blank" rel="noopener noreferrer" className={ANCHOR_CLASS}>
+      {domain &&
+        (iconFailed ? (
+          <Globe
+            size={16}
+            aria-hidden="true"
+            className={`${ICON_CLASS} text-zinc-500`}
+          />
+        ) : (
+          <img
+            src={faviconUrl(domain)}
+            alt="" // decorative: the link text carries the meaning
+            aria-hidden="true"
+            width={16}
+            height={16}
+            loading="lazy"
+            onError={() => setIconFailed(true)}
+            className={ICON_CLASS}
+          />
+        ))}
+      {children}
     </a>
   );
 }
