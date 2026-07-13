@@ -48,24 +48,33 @@ class WebSearchParams(BaseModel):
 
 
 def _select_search_backend() -> Optional[str]:
-    """Return 'google', 'tavily', or None based on explicit override then keys."""
+    """Return the provider id ('serper' | 'serpapi' | 'tavily') or None, from an
+    explicit WEB_SEARCH_BACKEND override, else whichever provider key is set.
+
+    Serper (serper.dev) and SerpApi (serpapi.com) are DIFFERENT services — both
+    return Google results but with different endpoints/auth/keys — so each has
+    its own env var; a key in the wrong one 403s."""
     override = (os.getenv("WEB_SEARCH_BACKEND") or "").strip().lower()
-    if override in {"google", "serper"}:
-        return "google"
+    if override in {"serper", "google"}:  # 'google' kept as a friendly alias
+        return "serper"
+    if override == "serpapi":
+        return "serpapi"
     if override == "tavily":
         return "tavily"
     if os.getenv("SERPER_API_KEY"):
-        return "google"
+        return "serper"
+    if os.getenv("SERPAPI_API_KEY"):
+        return "serpapi"
     if os.getenv("TAVILY_API_KEY"):
         return "tavily"
     return None
 
 
-def _search_google(
+def _search_serper(
     query: str, max_results: int, api_key: str
 ) -> Tuple[List[Dict[str, str]], Optional[str]]:
-    """Google results via Serper (google.serper.dev) — a plain REST call, so no
-    extra dependency. Returns the shared (results, answer) shape."""
+    """Google results via Serper (serper.dev). POST + X-API-KEY header. No extra
+    dependency. Returns the shared (results, answer) shape."""
     payload = json.dumps({"q": query, "num": max_results}).encode("utf-8")
     request = urllib.request.Request(
         "https://google.serper.dev/search",
@@ -86,10 +95,49 @@ def _search_google(
                 "title": r.get("title") or "Untitled",
                 "url": link,
                 "snippet": r.get("snippet", "") or "",
-                "source": "google",
+                "source": "serper",
             }
         )
     answer_box = data.get("answerBox") or {}
+    answer = (
+        (answer_box.get("answer") or answer_box.get("snippet"))
+        if isinstance(answer_box, dict)
+        else None
+    )
+    return results, answer
+
+
+def _search_serpapi(
+    query: str, max_results: int, api_key: str
+) -> Tuple[List[Dict[str, str]], Optional[str]]:
+    """Google results via SerpApi (serpapi.com). GET + api_key query param (their
+    API design; sent over HTTPS). Returns the shared (results, answer) shape."""
+    from urllib.parse import urlencode
+
+    qs = urlencode(
+        {"q": query, "api_key": api_key, "engine": "google", "num": max_results}
+    )
+    request = urllib.request.Request(
+        f"https://serpapi.com/search?{qs}",
+        headers={"User-Agent": "Pori/1.0 (+agent)"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
+        data = json.loads(response.read(_MAX_FETCH_BYTES).decode("utf-8", "replace"))
+
+    results: List[Dict[str, str]] = []
+    for r in (data.get("organic_results") or [])[:max_results]:
+        link = r.get("link", "")
+        if not link:
+            continue
+        results.append(
+            {
+                "title": r.get("title") or "Untitled",
+                "url": link,
+                "snippet": r.get("snippet", "") or "",
+                "source": "serpapi",
+            }
+        )
+    answer_box = data.get("answer_box") or {}
     answer = (
         (answer_box.get("answer") or answer_box.get("snippet"))
         if isinstance(answer_box, dict)
@@ -135,19 +183,23 @@ def web_search_tool(params: WebSearchParams, context: Dict[str, Any]) -> Dict[st
     if backend is None:
         return {
             "error": (
-                "Web search not configured. Set SERPER_API_KEY (Google) or "
+                "Web search not configured. Set one of SERPER_API_KEY (Google "
+                "via serper.dev), SERPAPI_API_KEY (Google via serpapi.com), or "
                 "TAVILY_API_KEY in your environment."
             ),
         }
 
     try:
-        if backend == "google":
+        if backend == "serper":
             key = os.getenv("SERPER_API_KEY") or ""
             if not key:
-                return {
-                    "error": "Google search selected but SERPER_API_KEY is not set."
-                }
-            results, answer = _search_google(params.query, params.max_results, key)
+                return {"error": "Serper selected but SERPER_API_KEY is not set."}
+            results, answer = _search_serper(params.query, params.max_results, key)
+        elif backend == "serpapi":
+            key = os.getenv("SERPAPI_API_KEY") or ""
+            if not key:
+                return {"error": "SerpApi selected but SERPAPI_API_KEY is not set."}
+            results, answer = _search_serpapi(params.query, params.max_results, key)
         else:
             key = os.getenv("TAVILY_API_KEY") or ""
             if not key:

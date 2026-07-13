@@ -13,7 +13,12 @@ from pori.tools.standard.internet_tools import (
 )
 
 # Isolate every test from the real environment's search keys / override.
-_NO_KEYS = {"TAVILY_API_KEY": "", "SERPER_API_KEY": "", "WEB_SEARCH_BACKEND": ""}
+_NO_KEYS = {
+    "TAVILY_API_KEY": "",
+    "SERPER_API_KEY": "",
+    "SERPAPI_API_KEY": "",
+    "WEB_SEARCH_BACKEND": "",
+}
 
 
 @patch("pori.tools.standard.internet_tools.TavilyClient")
@@ -96,7 +101,7 @@ def test_web_search_google_backend(mock_urlopen):
     assert "error" not in result
     assert result["total_found"] == 2
     assert result["results"][0]["url"] == "https://python.org"
-    assert result["results"][0]["source"] == "google"
+    assert result["results"][0]["source"] == "serper"
     assert result["answer"] == "Python is a programming language."
     # It really hit Serper's endpoint with the API key header.
     request = mock_urlopen.call_args[0][0]
@@ -104,11 +109,47 @@ def test_web_search_google_backend(mock_urlopen):
     assert request.headers.get("X-api-key") == "serper-test-key"
 
 
-@patch.dict("os.environ", {**_NO_KEYS, "SERPER_API_KEY": "s", "TAVILY_API_KEY": "t"})
-def test_backend_selection_prefers_serper_then_override():
-    # Both keys present → Google (Serper) wins by default.
-    assert _select_search_backend() == "google"
-    # Explicit override forces Tavily even when Serper is present.
+_SERPAPI_RESPONSE = {
+    "organic_results": [
+        {
+            "title": "Tokyo",
+            "link": "https://en.wikipedia.org/wiki/Tokyo",
+            "snippet": "Capital of Japan.",
+        },
+    ],
+    "answer_box": {"answer": "Tokyo"},
+}
+
+
+@patch("pori.tools.standard.internet_tools.urllib.request.urlopen")
+@patch.dict("os.environ", {**_NO_KEYS, "SERPAPI_API_KEY": "serpapi-test-key"})
+def test_web_search_serpapi_backend(mock_urlopen):
+    resp = MagicMock()
+    resp.read.return_value = json.dumps(_SERPAPI_RESPONSE).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = resp
+
+    result = web_search_tool(WebSearchParams(query="capital of japan"), context={})
+
+    assert "error" not in result
+    assert result["results"][0]["source"] == "serpapi"
+    assert result["results"][0]["url"] == "https://en.wikipedia.org/wiki/Tokyo"
+    assert result["answer"] == "Tokyo"
+    # Hit serpapi.com with the key as a query param (their API design).
+    request = mock_urlopen.call_args[0][0]
+    assert request.full_url.startswith("https://serpapi.com/search?")
+    assert "api_key=serpapi-test-key" in request.full_url
+
+
+@patch.dict(
+    "os.environ",
+    {**_NO_KEYS, "SERPER_API_KEY": "s", "SERPAPI_API_KEY": "sa", "TAVILY_API_KEY": "t"},
+)
+def test_backend_selection_priority_and_override():
+    # All keys present → Serper wins by default.
+    assert _select_search_backend() == "serper"
+    # Explicit override selects a specific provider.
+    with patch.dict("os.environ", {"WEB_SEARCH_BACKEND": "serpapi"}):
+        assert _select_search_backend() == "serpapi"
     with patch.dict("os.environ", {"WEB_SEARCH_BACKEND": "tavily"}):
         assert _select_search_backend() == "tavily"
 
@@ -118,11 +159,12 @@ def test_backend_selection_none_without_keys():
     assert _select_search_backend() is None
 
 
-def test_internet_capability_satisfied_by_either_key():
+def test_internet_capability_satisfied_by_any_key():
     prereq = CapabilityPrerequisites(
-        environment_any=("TAVILY_API_KEY", "SERPER_API_KEY")
+        environment_any=("TAVILY_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY")
     )
     assert prereq.missing(environ={"SERPER_API_KEY": "x"}) == ()
+    assert prereq.missing(environ={"SERPAPI_API_KEY": "x"}) == ()
     assert prereq.missing(environ={"TAVILY_API_KEY": "x"}) == ()
     missing = prereq.missing(environ={})
-    assert missing == ("environment_any:TAVILY_API_KEY|SERPER_API_KEY",)
+    assert missing == ("environment_any:TAVILY_API_KEY|SERPER_API_KEY|SERPAPI_API_KEY",)
