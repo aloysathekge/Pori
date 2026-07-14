@@ -58,6 +58,10 @@ GOOGLE = ProviderSpec(
     scopes=[
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
+        # gmail.compose is required for drafts.create (gmail.send only permits
+        # *sending*, not saving a draft). It also covers sending, but we keep
+        # gmail.send explicit so that capability is never lost if scopes change.
+        "https://www.googleapis.com/auth/gmail.compose",
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/userinfo.email",
         "openid",

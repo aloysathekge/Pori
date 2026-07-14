@@ -11,9 +11,22 @@ from pydantic import BaseModel, Field
 from . import google_common as g
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
-GMAIL_TOOL_NAMES = frozenset({"gmail_search", "gmail_read", "gmail_send"})
-# Write tools — a deployment can HITL-gate these by name (hitl.interrupt_on).
-GMAIL_WRITE_TOOLS = frozenset({"gmail_send"})
+GMAIL_TOOL_NAMES = frozenset(
+    {
+        "gmail_search",
+        "gmail_read",
+        "gmail_list_drafts",
+        "gmail_create_draft",
+        "gmail_send_draft",
+        "gmail_send",
+    }
+)
+# Consequential write tools — a deployment can HITL-gate these by name
+# (hitl.interrupt_on). These DELIVER an email: gmail_send composes+sends a new
+# message; gmail_send_draft sends an existing draft. Creating/listing drafts is
+# deliberately NOT here: staging a draft has no external consequence, so it
+# needs no gate (the Proposal pattern — the agent drafts, the human commits).
+GMAIL_WRITE_TOOLS = frozenset({"gmail_send", "gmail_send_draft"})
 
 
 def _decode_body(payload: dict) -> str:
@@ -96,6 +109,45 @@ def gmail_read_tool(params: GmailReadParams, context: Dict[str, Any]) -> Dict[st
     }
 
 
+class GmailDraftParams(BaseModel):
+    body: str = Field(..., description="Plain-text email body")
+    to: str | None = Field(
+        default=None, description="Recipient email address (optional for a draft)"
+    )
+    subject: str = Field("", description="Email subject")
+    cc: str | None = Field(default=None, description="Optional CC address")
+
+
+def gmail_create_draft_tool(
+    params: GmailDraftParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Save an email to Gmail Drafts WITHOUT sending it, for the user to review
+    and send themselves. Prefer this over gmail_send when the user hasn't
+    explicitly asked to send, or when the message needs their eyes first."""
+    msg = EmailMessage()
+    if params.to:
+        msg["To"] = params.to
+    msg["Subject"] = params.subject
+    if params.cc:
+        msg["Cc"] = params.cc
+    msg.set_content(params.body)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    try:
+        draft = g.post(context, f"{GMAIL_API}/drafts", {"message": {"raw": raw}})
+    except PermissionError:
+        return g.NOT_CONNECTED
+    except Exception as exc:
+        return {"error": f"Gmail draft failed: {exc}"}
+    return {
+        "drafted": True,
+        "draft_id": draft.get("id"),
+        "message_id": (draft.get("message") or {}).get("id"),
+        "to": params.to,
+        "note": "Saved to Gmail Drafts — NOT sent. The user reviews and sends it "
+        "from Gmail themselves.",
+    }
+
+
 class GmailSendParams(BaseModel):
     to: str = Field(..., description="Recipient email address")
     subject: str = Field(..., description="Email subject")
@@ -118,3 +170,66 @@ def gmail_send_tool(params: GmailSendParams, context: Dict[str, Any]) -> Dict[st
     except Exception as exc:
         return {"error": f"Gmail send failed: {exc}"}
     return {"sent": True, "id": sent.get("id"), "to": params.to}
+
+
+class GmailListDraftsParams(BaseModel):
+    max_results: int = Field(10, ge=1, le=25, description="Max drafts (1-25)")
+
+
+def gmail_list_drafts_tool(
+    params: GmailListDraftsParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """List the user's Gmail drafts (id + recipient/subject) so a draft can be
+    reviewed or sent by id with gmail_send_draft."""
+    try:
+        listing = g.get(
+            context, f"{GMAIL_API}/drafts", {"maxResults": params.max_results}
+        )
+    except PermissionError:
+        return g.NOT_CONNECTED
+    except Exception as exc:
+        return {"error": f"Gmail list drafts failed: {exc}"}
+    drafts = []
+    for d in listing.get("drafts", []) or []:
+        draft_id = d.get("id")
+        try:
+            full = g.get(
+                context,
+                f"{GMAIL_API}/drafts/{draft_id}",
+                {"format": "metadata", "metadataHeaders": ["To", "Subject"]},
+            )
+        except Exception:
+            drafts.append({"draft_id": draft_id})
+            continue
+        msg = full.get("message", {})
+        headers = msg.get("payload", {}).get("headers", [])
+        drafts.append(
+            {
+                "draft_id": draft_id,
+                "to": g.header(headers, "To"),
+                "subject": g.header(headers, "Subject"),
+                "snippet": msg.get("snippet", ""),
+            }
+        )
+    return {"drafts": drafts, "count": len(drafts)}
+
+
+class GmailSendDraftParams(BaseModel):
+    draft_id: str = Field(
+        ..., description="Draft id (from gmail_create_draft or gmail_list_drafts)"
+    )
+
+
+def gmail_send_draft_tool(
+    params: GmailSendDraftParams, context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Send an EXISTING draft by id — Gmail removes it from Drafts on send.
+    Use this to deliver a draft the user reviewed, instead of composing a new
+    message with gmail_send (which would leave the draft behind as a duplicate)."""
+    try:
+        sent = g.post(context, f"{GMAIL_API}/drafts/send", {"id": params.draft_id})
+    except PermissionError:
+        return g.NOT_CONNECTED
+    except Exception as exc:
+        return {"error": f"Gmail send draft failed: {exc}"}
+    return {"sent": True, "id": sent.get("id"), "draft_id": params.draft_id}

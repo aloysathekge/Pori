@@ -19,11 +19,17 @@ from .calendar import (
 from .gmail import (
     GMAIL_TOOL_NAMES,
     GMAIL_WRITE_TOOLS,
+    GmailDraftParams,
+    GmailListDraftsParams,
     GmailReadParams,
     GmailSearchParams,
+    GmailSendDraftParams,
     GmailSendParams,
+    gmail_create_draft_tool,
+    gmail_list_drafts_tool,
     gmail_read_tool,
     gmail_search_tool,
+    gmail_send_draft_tool,
     gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
@@ -47,10 +53,35 @@ _TOOLS = [
         "Read the full text of one Gmail message by id.",
     ),
     (
+        "gmail_create_draft",
+        GmailDraftParams,
+        gmail_create_draft_tool,
+        "Save an email to the user's Gmail Drafts WITHOUT sending it, for them "
+        "to review and send. Prefer this over gmail_send unless the user "
+        "explicitly asked to send. Returns a draft_id.",
+    ),
+    (
+        "gmail_list_drafts",
+        GmailListDraftsParams,
+        gmail_list_drafts_tool,
+        "List the user's Gmail drafts (draft_id, recipient, subject) — use to "
+        "find a draft's id before sending it with gmail_send_draft.",
+    ),
+    (
+        "gmail_send_draft",
+        GmailSendDraftParams,
+        gmail_send_draft_tool,
+        "Send an EXISTING draft by draft_id (Gmail removes it from Drafts on "
+        "send). Use this to deliver a draft the user reviewed — NOT gmail_send, "
+        "which composes a new message and would leave the draft as a duplicate.",
+    ),
+    (
         "gmail_send",
         GmailSendParams,
         gmail_send_tool,
-        "Send an email from the user's connected Gmail.",
+        "Compose and send a NEW email from the user's connected Gmail. Delivers "
+        "immediately. Use gmail_create_draft unless the user asked to send; to "
+        "send a draft they already have, use gmail_send_draft.",
     ),
     (
         "calendar_list_events",
