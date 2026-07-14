@@ -1112,13 +1112,14 @@ class Agent:
         return [item.model_dump() for item in self.plan_store.items()]
 
     def _sandbox_thread_id(self) -> str:
-        """Sandbox workspace key — the session, so files persist across tasks.
+        """Return the durable workspace key for sandbox acquisition.
 
-        Keying on the session (not the per-task id) means files created in one
-        task are visible to follow-up tasks in the same session (e.g. a CLI
-        conversation). Falls back to the task id when no session is set.
+        Event-aware products provide ``workspace_id`` so Sessions share durable
+        files. Legacy callers retain Session-scoped behavior, with task id as
+        the final fallback.
         """
-        return self.run_context.session_id or self.task_id
+        workspace_id = self.run_context.workspace_id
+        return workspace_id or self.run_context.session_id or self.task_id
 
     def result_summary(self) -> Dict[str, Any]:
         """Return the public run result fields consumers should depend on."""

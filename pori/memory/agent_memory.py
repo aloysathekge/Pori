@@ -62,17 +62,20 @@ class AgentMemory:
         *,
         organization_id: str = "default_org",
         user_id: str = "default_user",
+        event_id: Optional[str] = None,
         agent_id: str = "default_agent",
         session_id: Optional[str] = None,
         store: Optional[MemoryStore] = None,
     ):
         self.organization_id = organization_id
         self.user_id = user_id
+        self.event_id = event_id
         self.agent_id = agent_id
         self.session_id = session_id or f"session_{uuid.uuid4().hex[:10]}"
         self.scope = MemoryScope(
             organization_id=self.organization_id,
             user_id=self.user_id,
+            event_id=self.event_id,
             agent_id=self.agent_id,
             session_id=self.session_id,
         )
@@ -88,6 +91,7 @@ class AgentMemory:
 
         self.core_memory = CoreMemory()
         self.messages: List[AgentMessage] = []
+        self._event_history_messages: List[AgentMessage] = []
         self.tool_call_history: List[ToolCallRecord] = []
         self.tasks: Dict[str, TaskState] = {}
         self.state: Dict[str, Any] = {}
@@ -144,6 +148,7 @@ class AgentMemory:
             "meta": {
                 "user_id": self.user_id,
                 "organization_id": self.organization_id,
+                "event_id": self.event_id,
                 "agent_id": self.agent_id,
                 "session_id": self.session_id,
                 "namespace": self.namespace,
@@ -215,6 +220,7 @@ class AgentMemory:
             namespace=self.namespace,
             organization_id=self.organization_id,
             user_id=self.user_id,
+            event_id=self.event_id,
             agent_id=self.agent_id,
             session_id=self.session_id,
             current_task_id=self.current_task_id,
@@ -238,6 +244,7 @@ class AgentMemory:
         return cls(
             organization_id=parsed.organization_id,
             user_id=parsed.user_id,
+            event_id=parsed.event_id,
             agent_id=parsed.agent_id,
             session_id=parsed.session_id,
             store=store,
@@ -248,6 +255,18 @@ class AgentMemory:
         self.messages.append(message)
         self._persist()
         return message.id
+
+    def index_event_history(self, messages: List[Dict[str, Any]]) -> None:
+        """Index Event history without adding it to the model prompt window."""
+        self._event_history_messages = [
+            AgentMessage.model_validate(message) for message in messages
+        ]
+
+    def hydrate_messages(self, messages: List[Dict[str, Any]]) -> None:
+        """Load persisted messages without rewriting the backing memory store."""
+        self.messages.extend(
+            AgentMessage.model_validate(message) for message in messages
+        )
 
     def get_recent_messages(self, n: int = 10) -> str:
         """Get the last n messages as a string."""
@@ -630,6 +649,7 @@ class AgentMemory:
                     scope=MemoryScope(
                         organization_id=self.organization_id,
                         user_id=self.user_id,
+                        event_id=self.event_id,
                         agent_id=self.agent_id,
                     ),
                     content=text,
@@ -656,6 +676,7 @@ class AgentMemory:
                     scope=MemoryScope(
                         organization_id=self.organization_id,
                         user_id=self.user_id,
+                        event_id=self.event_id,
                         agent_id=self.agent_id,
                     ),
                     content=text,
@@ -694,6 +715,7 @@ class AgentMemory:
             or MemoryScope(
                 organization_id=self.organization_id,
                 user_id=self.user_id,
+                event_id=self.event_id,
                 agent_id=self.agent_id if agent_id is None else agent_id,
                 session_id=session_id,
             ),
@@ -812,6 +834,7 @@ class AgentMemory:
             scope=MemoryScope(
                 organization_id=self.organization_id,
                 user_id=self.user_id,
+                event_id=self.event_id,
                 agent_id=self.agent_id,
             ),
             content=text,
@@ -845,13 +868,21 @@ class AgentMemory:
     def conversation_search(
         self, query: str, limit: int = 10, roles: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
+        """Compatibility alias for :meth:`search_event_history`."""
+        return self.search_event_history(query=query, limit=limit, roles=roles)
+
+    def search_event_history(
+        self, query: str, limit: int = 10, roles: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Search the Event-scoped message history loaded for this run."""
         q = (query or "").strip()
         if not q:
             return []
 
         scored: List[Tuple[float, AgentMessage]] = []
         query_embedding = self._embed_text(q)
-        for idx, msg in enumerate(self.messages):
+        corpus = self._event_history_messages or self.messages
+        for idx, msg in enumerate(corpus):
             if roles and msg.role not in roles:
                 continue
             content = msg.content or ""
@@ -863,7 +894,7 @@ class AgentMemory:
             score = self._blend_scores(semantic, lexical)
             if score <= 0:
                 continue
-            recency = (idx + 1) / max(1, len(self.messages))
+            recency = (idx + 1) / max(1, len(corpus))
             scored.append((score + (0.05 * recency), msg))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -904,6 +935,7 @@ class AgentMemory:
             scope=MemoryScope(
                 organization_id=self.organization_id,
                 user_id=self.user_id,
+                event_id=self.event_id,
                 agent_id=self.agent_id,
             ),
             content=text,

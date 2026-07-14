@@ -2,7 +2,7 @@
 
 The library manifest rides in the tool context (injected at run setup, no DB
 access from tool code); the tool materializes the blob into the current
-conversation's sandbox uploads dir (hash-skipped) and returns the virtual
+Event's shared sandbox uploads dir (hash-skipped) and returns the virtual
 path. Gated per-run: when the user has no library files, the tool is
 excluded from the surface entirely (the Google-tools pattern), so it costs
 zero context until it's usable.
@@ -47,13 +47,14 @@ def fetch_my_file_tool(
             "available_files": [f["name"] for f in files],
         }
 
-    thread_id = context.get("thread_id") or context.get("task_id")
-    if not thread_id:
+    workspace_id = context.get("workspace_id") or context.get("thread_id")
+    run_id = context.get("run_id") or context.get("task_id")
+    if not workspace_id or not run_id:
         return {"error": "No workspace is available in this run."}
 
     from ..provisioning import provision_manifest_entry
 
-    provisioned = provision_manifest_entry(str(thread_id), match)
+    provisioned = provision_manifest_entry(str(workspace_id), str(run_id), match)
     if provisioned is None:
         return {
             "error": f"{match['name']!r} is in the library but its content "

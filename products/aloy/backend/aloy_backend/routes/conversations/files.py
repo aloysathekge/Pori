@@ -21,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from ...config import settings
 from ...database import get_session
 from ...models import StoredFile
-from ...provisioning import provision_conversation_uploads
+from ...provisioning import provision_event_uploads
 from ...storage import get_object_store, safe_name, upload_key
 from ...tenancy import OrganizationContext, Permission, require_permission
 from ._helpers import _load_conv
@@ -111,7 +111,7 @@ async def upload_conversation_file(
     # Eager provisioning (latency contract: the copy happens NOW, while the
     # user is still typing — run setup just verifies the hash manifest).
     try:
-        provision_conversation_uploads(conv.id, [record])
+        provision_event_uploads(conv.event_id, [record])
     except Exception:
         logger.exception("Eager provisioning failed for upload %s", record.id)
 

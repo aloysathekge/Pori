@@ -12,6 +12,7 @@ from .path_resolution import (
     VIRTUAL_PREFIX,
     ThreadData,
     get_thread_data,
+    get_workspace_data,
     replace_virtual_path,
     replace_virtual_paths_in_command,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "VIRTUAL_PREFIX",
     "ThreadData",
     "get_thread_data",
+    "get_workspace_data",
     "replace_virtual_path",
     "replace_virtual_paths_in_command",
 ]

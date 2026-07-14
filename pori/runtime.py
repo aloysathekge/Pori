@@ -167,6 +167,8 @@ class RunContext(BaseModel):
     agent_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
+    event_id: Optional[str] = None
+    workspace_id: Optional[str] = None
     permissions: Tuple[str, ...] = ()
     credential_scope: Optional[str] = None
     isolation_profile: str = "local"

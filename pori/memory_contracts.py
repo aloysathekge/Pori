@@ -55,19 +55,17 @@ class ConflictPolicy(str, Enum):
 class MemoryScope(BaseModel):
     organization_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
+    event_id: Optional[str] = None
     agent_id: Optional[str] = None
     session_id: Optional[str] = None
 
     @property
     def namespace(self) -> str:
-        return ":".join(
-            [
-                self.organization_id,
-                self.user_id,
-                self.agent_id or "*",
-                self.session_id or "*",
-            ]
-        )
+        parts = [self.organization_id, self.user_id]
+        if self.event_id is not None:
+            parts.append(self.event_id)
+        parts.extend([self.agent_id or "*", self.session_id or "*"])
+        return ":".join(parts)
 
     def can_access(self, record_scope: "MemoryScope") -> bool:
         """Return whether this request scope may read the record scope."""
@@ -75,9 +73,14 @@ class MemoryScope(BaseModel):
             return False
         if self.user_id != record_scope.user_id:
             return False
+        if record_scope.event_id not in (None, self.event_id):
+            return False
         if record_scope.agent_id not in (None, self.agent_id):
             return False
-        if record_scope.session_id not in (None, self.session_id):
+        if record_scope.event_id is None and record_scope.session_id not in (
+            None,
+            self.session_id,
+        ):
             return False
         return True
 

@@ -12,7 +12,7 @@ from aloy_backend.background import (
     execute_claimed_run,
     kernel_task_id_for_run,
 )
-from aloy_backend.models import Organization, OrganizationMembership, Run
+from aloy_backend.models import Event, Organization, OrganizationMembership, Run
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,6 +33,14 @@ async def _seed_org_and_run(db_session_maker, run_kwargs=None):
                 organization_id="org-1",
                 user_id="alice",
                 role="member",
+            )
+        )
+        session.add(
+            Event(
+                id="evt-worker-resume",
+                organization_id="org-1",
+                user_id="alice",
+                title="Worker resume",
             )
         )
         run = Run(

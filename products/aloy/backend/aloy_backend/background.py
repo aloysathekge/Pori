@@ -14,8 +14,8 @@ from pori import Agent, AgentMemory, AgentSettings
 from .approvals import non_interactive_write_gate
 from .conversation_runtime import (
     flush_context_artifact,
-    flush_conversation_memory,
-    load_conversation_memory,
+    flush_event_memory,
+    load_event_memory,
 )
 from .database import async_session
 from .models import (
@@ -28,7 +28,13 @@ from .models import (
     TeamConfig,
 )
 from .orchestrator import build_orchestrator, sandbox_base_dir
-from .run_outcome import json_safe, make_trace_record, make_usage_record
+from .run_outcome import (
+    RunOutcome,
+    json_safe,
+    make_trace_record,
+    make_usage_record,
+    store_run_artifacts,
+)
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
@@ -161,13 +167,14 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 organization_id=run.organization_id,
                 run_id=run.id,
                 session_id=run.session_id,
+                event_id=run.event_id,
+                workspace_id=run.event_id,
                 agent_id=run.agent_id,
                 max_steps=run.max_steps,
                 permissions=(permission.value for permission in permissions),
                 isolation_profile="worker-process",
             )
             conversation = None
-            memory = None
             agent_config = None
             agent = None
             if run.conversation_id:
@@ -177,12 +184,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     or conversation.organization_id != run.organization_id
                 ):
                     raise ValueError("Conversation is unavailable")
-                memory = await load_conversation_memory(
-                    session,
-                    organization_id=run.organization_id,
-                    user_id=run.user_id,
-                    conversation=conversation,
-                )
                 if conversation.agent_config_id:
                     agent_config = await session.get(
                         AgentConfig, conversation.agent_config_id
@@ -192,6 +193,15 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         or agent_config.organization_id != run.organization_id
                     ):
                         raise ValueError("Agent config is unavailable")
+            memory = await load_event_memory(
+                session,
+                organization_id=run.organization_id,
+                user_id=run.user_id,
+                conversation=conversation,
+                event_id=run.event_id,
+                session_id=run.session_id,
+                agent_id=run.agent_id,
+            )
             if run.team_config_id:
                 team_config = await session.get(TeamConfig, run.team_config_id)
                 if (
@@ -253,6 +263,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     memory = AgentMemory(
                         organization_id=run.organization_id,
                         user_id=run.user_id,
+                        event_id=run.event_id,
                         agent_id=run.agent_id,
                         session_id=run.session_id,
                     )
@@ -324,6 +335,27 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
+            if run.artifacts:
+                store_run_artifacts(
+                    session,
+                    conversation,
+                    run,
+                    RunOutcome(
+                        task=run.task,
+                        final_answer=run.final_answer or "",
+                        reasoning=run.reasoning,
+                        success=run.success,
+                        steps_taken=run.steps_taken,
+                        metrics=run.metrics,
+                        trace=trace_data,
+                        artifacts=run.artifacts,
+                        run_id=run.id,
+                        organization_id=run.organization_id,
+                        event_id=run.event_id,
+                        session_id=run.session_id,
+                        agent_id=run.agent_id,
+                    ),
+                )
             trace_record = make_trace_record(
                 organization_id=run.organization_id,
                 user_id=run.user_id,
@@ -356,10 +388,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 conversation.updated_at = datetime.now(timezone.utc)
                 session.add(conversation)
                 if memory is not None:
-                    await flush_conversation_memory(
+                    await flush_event_memory(
                         session,
                         organization_id=run.organization_id,
                         user_id=run.user_id,
+                        event_id=run.event_id,
                         memory=memory,
                     )
                     await flush_context_artifact(

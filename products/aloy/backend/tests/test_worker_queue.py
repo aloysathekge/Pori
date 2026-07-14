@@ -4,7 +4,13 @@ import pytest
 from sqlmodel import select
 
 from aloy_backend.background import execute_claimed_run
-from aloy_backend.models import Organization, OrganizationMembership, Run, TraceRecord
+from aloy_backend.models import (
+    Event,
+    Organization,
+    OrganizationMembership,
+    Run,
+    TraceRecord,
+)
 from aloy_backend.worker import claim_next_run
 
 pytestmark = pytest.mark.asyncio
@@ -136,6 +142,14 @@ async def test_leased_worker_revalidates_membership_and_persists_trace(
                 organization_id="org-1",
                 user_id="alice",
                 role="member",
+            )
+        )
+        session.add(
+            Event(
+                id="evt-worker",
+                organization_id="org-1",
+                user_id="alice",
+                title="Worker event",
             )
         )
         run = Run(

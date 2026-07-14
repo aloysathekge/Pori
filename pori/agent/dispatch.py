@@ -461,11 +461,24 @@ async def execute_actions(
             )
 
             # Execute the tool
+            thread_data = None
+            if self.sandbox_base_dir and self.run_context.workspace_id:
+                from ..sandbox.path_resolution import get_workspace_data
+
+                thread_data = get_workspace_data(
+                    self.run_context.workspace_id,
+                    self.run_context.run_id,
+                    self.sandbox_base_dir,
+                )
             tool_context = {
                 "memory": self.memory,
                 "state": self.state,
                 "thread_id": self._sandbox_thread_id(),
                 "sandbox_base_dir": self.sandbox_base_dir,
+                "thread_data": thread_data,
+                "event_id": self.run_context.event_id,
+                "workspace_id": self.run_context.workspace_id,
+                "run_id": self.run_context.run_id,
                 "run_context": self.run_context,
                 "evolution_repository": self.evolution_repository,
                 "skill_catalog": self.skill_catalog,
