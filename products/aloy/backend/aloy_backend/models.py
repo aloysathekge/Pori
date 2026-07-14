@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, Float, Integer, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, Index, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -58,12 +58,145 @@ class OrganizationMembership(SQLModel, table=True):
     )
 
 
+class Event(SQLModel, table=True):
+    """Durable aggregate root for a user's life or project work."""
+
+    __tablename__ = "events"
+    __table_args__ = (
+        Index(
+            "uq_events_life_per_user",
+            "organization_id",
+            "user_id",
+            unique=True,
+            sqlite_where=text("is_life = 1"),
+            postgresql_where=text("is_life = true"),
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: f"evt_{uuid.uuid4().hex}", primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    type: str = Field(default="project", index=True)
+    title: str
+    lifecycle: str = Field(default="active", index=True)
+    phase: str = ""
+    summary: str = ""
+    is_life: bool = Field(default=False, index=True)
+    metadata_: dict = Field(
+        default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class Task(SQLModel, table=True):
+    """Reversible working state owned by an Event."""
+
+    __tablename__ = "tasks"
+
+    id: str = Field(
+        default_factory=lambda: f"task_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    title: str
+    status: str = Field(default="open", index=True)
+    order: int = 0
+    created_by: str
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class ActionProposal(SQLModel, table=True):
+    """A staged external action awaiting policy routing or a decision."""
+
+    __tablename__ = "proposals"
+
+    id: str = Field(
+        default_factory=lambda: f"prop_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    origin_session_id: str | None = Field(default=None, index=True)
+    origin_run_id: str | None = Field(default=None, index=True)
+    tool: str = Field(index=True)
+    args: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    tool_schema_fingerprint: str
+    reason: str
+    impact: str
+    risk: str = Field(index=True)
+    routing: str = Field(index=True)
+    status: str = Field(default="proposed", index=True)
+    expires_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    safe_default: dict | None = Field(default=None, sa_column=Column(JSON))
+    decided_by: str | None = Field(default=None, index=True)
+    decided_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    receipt: dict | None = Field(default=None, sa_column=Column(JSON))
+    execution_attempt_id: str | None = Field(default=None, index=True)
+    provider_operation_id: str | None = Field(default=None, index=True)
+    error: str | None = None
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTrailEntry(SQLModel, table=True):
+    """Append-only activity and evidence for an Event."""
+
+    __tablename__ = "event_trail_entries"
+
+    id: str = Field(
+        default_factory=lambda: f"trail_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    actor_id: str = Field(index=True)
+    kind: str = Field(index=True)
+    summary: str
+    run_id: str | None = Field(default=None, index=True)
+    proposal_id: str | None = Field(default=None, index=True)
+    task_id: str | None = Field(default=None, index=True)
+    evidence_refs: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Conversation(SQLModel, table=True):
     __tablename__ = "conversations"
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
     title: str | None = None
     agent_config_id: str | None = None
     parent_conversation_id: str | None = Field(default=None, index=True)
@@ -103,6 +236,8 @@ class StoredFile(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    origin_session_id: str | None = Field(default=None, index=True)
     conversation_id: str = Field(index=True)
     run_id: str | None = Field(default=None, index=True)
     kind: str = "artifact"  # artifact | upload
@@ -126,6 +261,7 @@ class ContextArtifact(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
     conversation_id: str = Field(index=True)
     run_id: str | None = Field(default=None, index=True)
     artifact_type: str = Field(default="summary", index=True)
@@ -367,6 +503,7 @@ class TraceRecord(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     user_id: str = Field(index=True)
     organization_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
     run_id: str | None = Field(default=None, index=True)
     conversation_id: str | None = None
     trace_data: dict = Field(sa_column=Column(JSON, nullable=False))
@@ -408,6 +545,7 @@ class KnowledgeEntry(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    event_id: str | None = Field(default=None, foreign_key="events.id", index=True)
     agent_id: str | None = Field(default=None, index=True)
     session_id: str | None = Field(default=None, index=True)
     content: str
@@ -451,6 +589,7 @@ class Run(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     user_id: str = Field(index=True)
     organization_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
     agent_id: str = Field(index=True)
     session_id: str = Field(index=True)
     conversation_id: str | None = Field(default=None, index=True)
@@ -627,6 +766,7 @@ class RunEventLog(SQLModel, table=True):
     run_id: str = Field(primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
     conversation_id: str | None = Field(default=None, index=True)
     events: list[dict] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
