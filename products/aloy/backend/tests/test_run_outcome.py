@@ -14,7 +14,6 @@ from sqlmodel import select
 from aloy_backend.models import (
     Conversation,
     CoreMemoryBlock,
-    Message,
     Run,
     RunEventLog,
     TraceRecord,
@@ -76,7 +75,9 @@ def _run_context():
 
 
 async def _make_conv(session) -> Conversation:
-    conv = Conversation(organization_id=ORG, user_id=USER, title="t")
+    conv = Conversation(
+        organization_id=ORG, user_id=USER, event_id="evt-run-outcome", title="t"
+    )
     session.add(conv)
     await session.commit()
     await session.refresh(conv)
@@ -107,6 +108,7 @@ class TestFinalizer:
             # Run
             run = await session.get(Run, "run-parity-1")
             assert run is not None and run.success is True
+            assert run.event_id == conv.event_id
             assert run.prompt_fingerprint == "pf-1"
             assert run.execution_receipts == [{"tool": "answer"}]
             # Usage
@@ -134,6 +136,7 @@ class TestFinalizer:
                 .first()
             )
             assert trace is not None and trace.total_spans == 4
+            assert trace.event_id == conv.event_id
             assert abs(trace.duration_seconds - 2.5) < 1e-9
             # Replay event log
             log = (
@@ -146,6 +149,7 @@ class TestFinalizer:
                 .first()
             )
             assert log is not None and log.event_count == 1
+            assert log.event_id == conv.event_id
             # Core memory persisted
             block = (
                 (

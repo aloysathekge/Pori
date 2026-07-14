@@ -34,7 +34,7 @@ def env(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(storage_mod, "_STORE", None)  # rebuild against tmp dir
     thread = get_thread_data("conv-1", str(sandbox))
-    conv = SimpleNamespace(id="conv-1", agent_config_id=None)
+    conv = SimpleNamespace(id="conv-1", event_id="evt-artifacts", agent_config_id=None)
     ctx = SimpleNamespace(organization_id="org-1", user_id="user-1")
     return SimpleNamespace(thread=thread, conv=conv, ctx=ctx)
 

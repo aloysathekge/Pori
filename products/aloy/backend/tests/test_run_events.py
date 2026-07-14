@@ -1,7 +1,5 @@
 """Read-only run replay: the event-log collector coalescing + the endpoint."""
 
-from datetime import datetime, timezone
-
 import pytest
 
 from aloy_backend.event_log import MAX_EVENTS, EventLogCollector
@@ -79,6 +77,7 @@ class TestEndpoint:
                     run_id="run-xyz",
                     organization_id=CLIENT_ORG,
                     user_id=CLIENT_USER,
+                    event_id="evt-client",
                     conversation_id="conv-1",
                     events=[{"type": "text", "payload": {"text": "hi"}, "step": 1}],
                     event_count=1,
@@ -104,6 +103,7 @@ class TestEndpoint:
                     run_id="run-other",
                     organization_id="some-other-org",
                     user_id="mallory",
+                    event_id="evt-other",
                     conversation_id=None,
                     events=[],
                     event_count=0,

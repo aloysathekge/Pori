@@ -37,6 +37,7 @@ async def test_worker_claims_pending_and_recovers_expired_lease(
         pending = Run(
             organization_id="org-1",
             user_id="alice",
+            event_id="evt-worker",
             agent_id="agent-1",
             session_id="session-1",
             task="pending",
@@ -44,6 +45,7 @@ async def test_worker_claims_pending_and_recovers_expired_lease(
         expired = Run(
             organization_id="org-1",
             user_id="alice",
+            event_id="evt-worker",
             agent_id="agent-1",
             session_id="session-2",
             task="expired",
@@ -54,6 +56,7 @@ async def test_worker_claims_pending_and_recovers_expired_lease(
         cancelled = Run(
             organization_id="org-1",
             user_id="alice",
+            event_id="evt-worker",
             agent_id="agent-1",
             session_id="session-3",
             task="cancelled",
@@ -138,6 +141,7 @@ async def test_leased_worker_revalidates_membership_and_persists_trace(
         run = Run(
             organization_id="org-1",
             user_id="alice",
+            event_id="evt-worker",
             agent_id="agent-1",
             session_id="session-1",
             task="execute",
@@ -210,6 +214,7 @@ async def test_worker_rejects_run_after_membership_revocation(
         run = Run(
             organization_id="org-2",
             user_id="alice",
+            event_id="evt-worker-org-2",
             agent_id="agent-1",
             session_id="session-1",
             task="blocked",

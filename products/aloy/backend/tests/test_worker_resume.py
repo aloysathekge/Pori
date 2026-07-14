@@ -38,6 +38,7 @@ async def _seed_org_and_run(db_session_maker, run_kwargs=None):
         run = Run(
             organization_id="org-1",
             user_id="alice",
+            event_id="evt-worker-resume",
             agent_id="agent-1",
             session_id="session-1",
             task="long task",
