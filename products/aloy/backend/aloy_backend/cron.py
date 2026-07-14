@@ -19,7 +19,8 @@ from croniter import croniter
 from sqlmodel import col, select
 
 from .database import async_session
-from .models import CronJob, Run
+from .events import ensure_life_event
+from .models import Conversation, CronJob, Run
 
 logger = logging.getLogger("aloy_backend.cron")
 
@@ -86,9 +87,24 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
                 job.enabled = False
                 session.add(job)
                 continue
+            conversation = (
+                await session.get(Conversation, job.conversation_id)
+                if job.conversation_id
+                else None
+            )
+            if conversation is None:
+                life = await ensure_life_event(
+                    session,
+                    organization_id=job.organization_id,
+                    user_id=job.user_id,
+                )
+                event_id = life.id
+            else:
+                event_id = conversation.event_id
             run = Run(
                 user_id=job.user_id,
                 organization_id=job.organization_id,
+                event_id=event_id,
                 agent_id="default_agent",
                 session_id="pending",
                 conversation_id=job.conversation_id,

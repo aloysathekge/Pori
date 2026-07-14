@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from ..database import get_session
+from ..events import ensure_life_event
 from ..models import Run, RunEventLog
 from ..schemas import ChildRunCreate, RunEventLogResponse, RunRequest, RunResponse
 from ..tenancy import OrganizationContext, Permission, require_permission
@@ -28,6 +29,7 @@ def _run_response(run: Run) -> RunResponse:
     return RunResponse(
         id=run.id,
         organization_id=run.organization_id,
+        event_id=run.event_id,
         agent_id=run.agent_id,
         session_id=run.session_id,
         status=run.status,
@@ -82,9 +84,15 @@ async def create_run(
         raise HTTPException(status_code=429, detail="Organization run limit reached")
 
     max_steps = min(req.max_steps, context.policy.max_steps_per_run)
+    life = await ensure_life_event(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    )
     run = Run(
         user_id=context.user_id,
         organization_id=context.organization_id,
+        event_id=life.id,
         agent_id="default_agent",
         session_id="pending",
         task=req.task,
@@ -183,6 +191,7 @@ async def create_child_run(
     child = Run(
         user_id=context.user_id,
         organization_id=context.organization_id,
+        event_id=parent.event_id,
         agent_id=body.agent_id,
         session_id="pending",
         task=body.task,

@@ -203,6 +203,8 @@ def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
         id=entry["file_id"],
         organization_id="",
         user_id="",
+        event_id=str(entry.get("event_id") or "transient"),
+        origin_session_id=thread_id,
         conversation_id=thread_id,
         name=entry["name"],
         size_bytes=entry["size_bytes"],

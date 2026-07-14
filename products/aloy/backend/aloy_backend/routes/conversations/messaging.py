@@ -302,6 +302,7 @@ async def _enqueue_durable_run(
     run = Run(
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=conv.event_id,
         agent_id=(
             f"team:{team_config.id}"
             if team_config is not None
@@ -670,8 +671,7 @@ def _stream_response(
                     # and persist its outcome — ChatGPT behavior. The user
                     # sees the answer when they come back.
                     logger.info(
-                        "Client disconnected mid-run %s — continuing in "
-                        "the background",
+                        "Client disconnected mid-run %s — continuing in the background",
                         stream_context.run_id,
                     )
                     asyncio.get_running_loop().create_task(
