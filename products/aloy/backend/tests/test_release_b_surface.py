@@ -86,7 +86,11 @@ async def test_setup_diagnostics_reuse_runtime_availability_without_secrets(
 
 
 async def test_unavailable_explicit_capability_is_rejected(client, monkeypatch):
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    # web_search is available if ANY backend key is set (Tavily/Serper/SerpApi),
+    # so clear them all — otherwise a dev .env key makes the capability
+    # available and the request is accepted (201) instead of rejected.
+    for key in ("TAVILY_API_KEY", "SERPER_API_KEY", "SERPAPI_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
     response = await client.post(
         "/v1/agent-configs",
         json={"name": "Web", "tools": ["web_search"]},

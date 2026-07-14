@@ -9,7 +9,9 @@ import pytest
 from aloy_backend.approvals import (
     APPROVAL_BRIDGES,
     ApprovalBridge,
+    NonInteractiveDenyHandler,
     build_write_hitl_config,
+    non_interactive_write_gate,
     resolve_approval,
 )
 from pori import ActionRequest, ApprovalRequest, ReviewConfig
@@ -134,6 +136,23 @@ class TestApprovalBridge:
         assert frames[0]["arguments"] == {"to": "a@b.com"}  # original args intact
         bridge.submit_decisions(frames[0]["id"], [{"type": "approve"}])
         await task
+
+
+class TestNonInteractiveGuardrail:
+    async def test_denies_every_gated_action(self):
+        """A run with no user attached must REJECT a gated tool, not run it."""
+        handler = NonInteractiveDenyHandler()
+        response = await handler.request_approval(_request("gmail_send"))
+        assert response.decisions[0].type == "reject"
+        assert "approval" in (response.decisions[0].message or "").lower()
+
+    def test_gate_helper_denies_the_write_tools(self):
+        handler, config = non_interactive_write_gate()
+        assert isinstance(handler, NonInteractiveDenyHandler)
+        assert config.enabled is True
+        # The consequential Gmail writes are gated (so they hit the deny).
+        assert "gmail_send" in config.interrupt_on
+        assert "gmail_send_draft" in config.interrupt_on
 
 
 class TestResolveApprovalOwnership:

@@ -30,6 +30,7 @@ from sqlmodel import col, select
 from pori import AgentMemory, AgentSettings, DocumentBlock, ImageBlock
 
 from ... import resumable_runs
+from ...approvals import non_interactive_write_gate
 from ...database import async_session, get_session
 from ...doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ...event_log import EventLogCollector
@@ -717,6 +718,9 @@ async def _run_blocking(
             permissions=context.permissions,
             isolation_profile="shared-process",
         )
+        # Blocking mode returns a single response with no approval UI, so a
+        # consequential send can't be approved live — deny it (safety floor).
+        deny_handler, deny_config = non_interactive_write_gate()
         agent_result = await orchestrator.execute_task(
             task=task_content,
             agent_settings=agent_settings,
@@ -725,6 +729,8 @@ async def _run_blocking(
             mcp_servers=surface.mcp_servers,
             task_attachments=task_attachments,
             sandbox_base_dir=sandbox_base_dir(),
+            hitl_handler=deny_handler,
+            hitl_config=deny_config,
         )
     except Exception as e:
         logger.exception("Agent failed for conversation %s", conv.id)
