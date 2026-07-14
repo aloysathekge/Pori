@@ -333,14 +333,51 @@ class TestGoogleTools:
         assert calls[0][0] == "POST" and calls[0][1].endswith("/drafts")
         assert "message" in calls[0][3] and "raw" in calls[0][3]["message"]
 
-    def test_draft_is_not_a_gated_write(self):
-        # Drafting stages an email without sending, so it must stay OUT of the
-        # HITL-gated write set — only gmail_send is consequential.
+    def test_gmail_send_draft(self, monkeypatch):
+        from aloy_backend.tools.gmail import GmailSendDraftParams, gmail_send_draft_tool
+
+        calls = _fake_http(monkeypatch, post_payload={"id": "sent1"})
+        out = gmail_send_draft_tool(GmailSendDraftParams(draft_id="d1"), CTX)
+        assert out == {"sent": True, "id": "sent1", "draft_id": "d1"}
+        # Sends the existing draft (drafts/send with its id) — no new compose.
+        assert calls[0][0] == "POST" and calls[0][1].endswith("/drafts/send")
+        assert calls[0][3] == {"id": "d1"}
+
+    def test_gmail_list_drafts(self, monkeypatch):
+        from aloy_backend.tools.gmail import (
+            GmailListDraftsParams,
+            gmail_list_drafts_tool,
+        )
+
+        calls = _fake_http(
+            monkeypatch,
+            get_payloads=[
+                {"drafts": [{"id": "d1"}]},
+                {
+                    "message": {
+                        "snippet": "hi",
+                        "payload": {
+                            "headers": [{"name": "Subject", "value": "Re: Hello"}]
+                        },
+                    }
+                },
+            ],
+        )
+        out = gmail_list_drafts_tool(GmailListDraftsParams(), CTX)
+        assert out["count"] == 1
+        assert out["drafts"][0]["draft_id"] == "d1"
+        assert out["drafts"][0]["subject"] == "Re: Hello"
+        assert calls[0][1].endswith("/drafts")
+
+    def test_draft_gating_split(self):
+        # Staging (create/list) has no external consequence → ungated. Delivery
+        # (send/send_draft) is consequential → in the HITL-gate-able write set.
         from aloy_backend.tools.gmail import GMAIL_TOOL_NAMES, GMAIL_WRITE_TOOLS
 
-        assert "gmail_create_draft" in GMAIL_TOOL_NAMES
-        assert "gmail_create_draft" not in GMAIL_WRITE_TOOLS
-        assert "gmail_send" in GMAIL_WRITE_TOOLS
+        for staging in ("gmail_create_draft", "gmail_list_drafts"):
+            assert staging in GMAIL_TOOL_NAMES
+            assert staging not in GMAIL_WRITE_TOOLS
+        assert GMAIL_WRITE_TOOLS == {"gmail_send", "gmail_send_draft"}
 
     def test_calendar_list(self, monkeypatch):
         from aloy_backend.tools.calendar import (
