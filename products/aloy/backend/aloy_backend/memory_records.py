@@ -37,10 +37,12 @@ def request_scope(
     organization_id: str | None = None,
     agent_id: str | None = None,
     session_id: str | None = None,
+    event_id: str | None = None,
 ) -> MemoryScope:
     return MemoryScope(
         organization_id=organization_id or personal_organization_id(user_id),
         user_id=user_id,
+        event_id=event_id,
         agent_id=agent_id,
         session_id=session_id,
     )
@@ -57,6 +59,7 @@ def row_to_record(row: KnowledgeEntry) -> MemoryRecord:
             "scope": {
                 "organization_id": row.organization_id,
                 "user_id": row.user_id,
+                "event_id": row.event_id,
                 "agent_id": row.agent_id,
                 "session_id": row.session_id,
             },
@@ -87,6 +90,7 @@ def record_to_row(
         "id": record.id,
         "organization_id": record.scope.organization_id,
         "user_id": record.scope.user_id,
+        "event_id": record.scope.event_id,
         "agent_id": record.scope.agent_id,
         "session_id": record.scope.session_id,
         "content": record.content,
@@ -119,6 +123,7 @@ def record_response(record: MemoryRecord) -> KnowledgeEntryResponse:
         id=record.id,
         organization_id=record.scope.organization_id,
         user_id=record.scope.user_id,
+        event_id=record.scope.event_id,
         agent_id=record.scope.agent_id,
         session_id=record.scope.session_id,
         content=record.content,
@@ -146,6 +151,7 @@ def create_record(
     content: str,
     agent_id: str | None = None,
     session_id: str | None = None,
+    event_id: str | None = None,
     tags: list[str] | None = None,
     importance: int = 1,
     kind: str = "semantic",
@@ -164,6 +170,7 @@ def create_record(
         scope=request_scope(
             user_id,
             organization_id=organization_id,
+            event_id=event_id,
             agent_id=agent_id,
             session_id=session_id,
         ),

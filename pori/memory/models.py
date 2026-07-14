@@ -197,6 +197,7 @@ class SerializableMemoryState(BaseModel):
     namespace: str
     organization_id: str = "default_org"
     user_id: str
+    event_id: Optional[str] = None
     agent_id: str
     session_id: str
     current_task_id: Optional[str] = None

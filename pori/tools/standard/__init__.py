@@ -87,6 +87,7 @@ def _define_standard_groups(registry) -> None:
             tool_names=frozenset(
                 {
                     "remember",
+                    "search_event_history",
                     "conversation_search",
                     "archival_memory_insert",
                     "archival_memory_search",

@@ -6,7 +6,7 @@ import aloy_backend.config as config_mod
 import aloy_backend.storage as storage_mod
 from aloy_backend.models import StoredFile
 from aloy_backend.provisioning import (
-    provision_conversation_uploads,
+    provision_event_uploads,
     resolve_upload_refs,
     uploads_task_block,
 )
@@ -47,7 +47,9 @@ class TestUploadEndpoint:
         blobs = list(store.root.rglob("data.csv"))
         assert len(blobs) == 1
         # ...and already provisioned into the conversation's sandbox uploads.
-        provisioned = tmp_path / "sandbox" / "threads" / conv_id
+        detail = await client.get(f"/v1/conversations/{conv_id}")
+        event_id = detail.json()["event_id"]
+        provisioned = tmp_path / "sandbox" / "events" / event_id
         assert (provisioned / "user-data" / "uploads" / "data.csv").is_file()
 
         # Downloadable through /files/{id}.
@@ -132,7 +134,7 @@ def _record(rec_id: str, name: str, sha: str, **kw) -> StoredFile:
         id=rec_id,
         organization_id=kw.get("org", "org-1"),
         user_id="u1",
-        event_id="evt-upload",
+        event_id=kw.get("event", "evt-upload"),
         origin_session_id=kw.get("conv", "conv-1"),
         conversation_id=kw.get("conv", "conv-1"),
         kind=kw.get("kind", "upload"),
@@ -162,13 +164,13 @@ class TestProvisioning:
 
     def test_provisions_and_skips_when_hash_matches(self, tmp_path):
         rec = self._put("notes.txt", b"hello")
-        entries = provision_conversation_uploads("conv-1", [rec])
+        entries = provision_event_uploads("evt-upload", [rec])
         assert entries[0]["name"] == "notes.txt"
         target = (
             tmp_path
             / "sandbox"
-            / "threads"
-            / "conv-1"
+            / "events"
+            / "evt-upload"
             / "user-data"
             / "uploads"
             / "notes.txt"
@@ -176,17 +178,19 @@ class TestProvisioning:
         assert target.read_bytes() == b"hello"
         # Second call: skip (delete the blob to PROVE no re-copy happens).
         storage_mod.get_object_store().delete(rec.storage_key)
-        entries2 = provision_conversation_uploads("conv-1", [rec])
+        entries2 = provision_event_uploads("evt-upload", [rec])
         assert entries2[0]["name"] == "notes.txt"
         assert target.read_bytes() == b"hello"
 
     def test_same_name_different_content_does_not_overwrite(self, tmp_path):
         a = self._put("data.csv", b"version-a")
         b = self._put("data.csv", b"version-b")
-        entries = provision_conversation_uploads("conv-1", [a, b])
+        entries = provision_event_uploads("evt-upload", [a, b])
         names = {e["name"] for e in entries}
         assert "data.csv" in names and len(names) == 2
-        uploads = tmp_path / "sandbox" / "threads" / "conv-1" / "user-data" / "uploads"
+        uploads = (
+            tmp_path / "sandbox" / "events" / "evt-upload" / "user-data" / "uploads"
+        )
         contents = {p.read_bytes() for p in uploads.iterdir() if p.suffix == ".csv"}
         assert contents == {b"version-a", b"version-b"}
 
@@ -207,12 +211,12 @@ class TestProvisioning:
     def test_resolve_refs_drops_foreign_rows(self):
         mine = _record("f1", "a.txt", "s1")
         other_org = _record("f2", "b.txt", "s2", org="org-2")
-        other_conv = _record("f3", "c.txt", "s3", conv="conv-9")
+        other_event = _record("f3", "c.txt", "s3", event="evt-other")
         artifact = _record("f4", "d.txt", "s4", kind="artifact")
         out = resolve_upload_refs(
-            [mine, other_org, other_conv, artifact, None],
+            [mine, other_org, other_event, artifact, None],
             organization_id="org-1",
-            conversation_id="conv-1",
+            event_id="evt-upload",
         )
         assert out == [mine]
 
@@ -241,7 +245,7 @@ class TestExtractedCompanion:
         from datetime import datetime, timezone
         from types import SimpleNamespace
 
-        from aloy_backend.provisioning import provision_conversation_uploads
+        from aloy_backend.provisioning import provision_event_uploads
         from aloy_backend.storage import upload_key
 
         data = self._docx_bytes()
@@ -260,13 +264,13 @@ class TestExtractedCompanion:
             rec.storage_key, io.BytesIO(data), content_type=rec.content_type
         )
 
-        entries = provision_conversation_uploads("conv-x", [rec])
+        entries = provision_event_uploads("evt-docx", [rec])
         assert entries[0]["extracted_text"] == "cv.docx.extracted.txt"
         companion = (
             tmp_path
             / "sandbox"
-            / "threads"
-            / "conv-x"
+            / "events"
+            / "evt-docx"
             / "user-data"
             / "uploads"
             / "cv.docx.extracted.txt"

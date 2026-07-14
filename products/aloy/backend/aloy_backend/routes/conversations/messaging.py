@@ -31,15 +31,13 @@ from pori import AgentMemory, AgentSettings, DocumentBlock, ImageBlock
 
 from ... import resumable_runs
 from ...approvals import non_interactive_write_gate
+from ...conversation_runtime import load_event_memory
 from ...database import async_session, get_session
 from ...doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ...event_log import EventLogCollector
-from ...memory_records import row_to_record
 from ...models import (
     AgentConfig,
     Conversation,
-    CoreMemoryBlock,
-    KnowledgeEntry,
     Message,
     Run,
     StoredFile,
@@ -47,7 +45,7 @@ from ...models import (
 )
 from ...orchestrator import build_orchestrator, sandbox_base_dir
 from ...provisioning import (
-    provision_conversation_uploads,
+    provision_event_uploads,
     resolve_upload_refs,
     uploads_task_block,
 )
@@ -124,63 +122,20 @@ async def _prepare_message(
     # _maybe_generate_title (a topic title, not the raw first message).
 
     # Create in-memory AgentMemory (no persistent store — we manage persistence)
-    agent_id = conv.agent_config_id or "default_agent"
-    memory = AgentMemory(
+    memory = await load_event_memory(
+        session,
         organization_id=context.organization_id,
         user_id=context.user_id,
-        agent_id=agent_id,
-        session_id=conversation_id,
+        conversation=conv,
+        exclude_message_id=user_msg.id,
     )
-
-    # Seed core memory blocks from the core_memory_blocks table
-    for label in ("persona", "human", "notes"):
-        result = await session.execute(
-            select(CoreMemoryBlock).where(
-                CoreMemoryBlock.organization_id == context.organization_id,
-                CoreMemoryBlock.user_id == context.user_id,
-                CoreMemoryBlock.label == label,
-            )
-        )
-        row = result.scalars().first()
-        if row and row.value:
-            memory.core_memory.get_block(label).set_value(row.value)
-
-    # Seed knowledge entries as experiences (for recall during agent run)
-    entries_result = await session.execute(
-        select(KnowledgeEntry)
-        .where(
-            KnowledgeEntry.organization_id == context.organization_id,
-            KnowledgeEntry.user_id == context.user_id,
-        )
-        .order_by(col(KnowledgeEntry.created_at).desc())
-        .limit(100)
-    )
-    for entry in entries_result.scalars().all():
-        record = row_to_record(entry)
-        if memory.scope.can_access(record.scope) and record.is_retrievable():
-            record.metadata["legacy_collection"] = "experience"
-            memory.memory_records.append(record)
-
-    # Load conversation message history from the messages table
-    messages_result = await session.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(col(Message.created_at))
-    )
-    history = messages_result.scalars().all()
-    for msg in history[:-1]:  # Exclude the user message we just saved
-        body = msg.content
-        for f in (msg.metadata_ or {}).get("files", []) or []:
-            if f.get("content"):
-                body += _render_file_block(f["name"], f["content"])
-        memory.add_message(msg.role, body)
 
     return conv, memory
 
 
 async def _assemble_task(
     session: AsyncSession,
-    conversation_id: str,
+    conversation: Conversation,
     req: SendMessageRequest,
 ) -> tuple[str, list]:
     """Build the multimodal task the model receives: (task_content, blocks).
@@ -236,7 +191,7 @@ async def _assemble_task(
         (
             await session.execute(
                 select(StoredFile).where(
-                    StoredFile.conversation_id == conversation_id,
+                    StoredFile.event_id == conversation.event_id,
                     StoredFile.kind == "upload",
                 )
             )
@@ -247,11 +202,11 @@ async def _assemble_task(
     if conv_uploads:
         try:
             task_content += uploads_task_block(
-                provision_conversation_uploads(conversation_id, conv_uploads)
+                provision_event_uploads(conversation.event_id, conv_uploads)
             )
         except Exception:
             logger.exception(
-                "Upload provisioning failed for conversation %s", conversation_id
+                "Upload provisioning failed for Event %s", conversation.event_id
             )
 
     return task_content, task_attachments
@@ -346,6 +301,8 @@ async def _run_team_inline(
         organization_id=context.organization_id,
         run_id=uuid.uuid4().hex,
         session_id=conv.id,
+        event_id=conv.event_id,
+        workspace_id=conv.event_id,
         agent_id=f"team:{team_config.id}",
         permissions=context.permissions,
         max_steps=min(
@@ -619,6 +576,8 @@ def _stream_response(
         organization_id=context.organization_id,
         run_id=uuid.uuid4().hex,
         session_id=conv.id,
+        event_id=conv.event_id,
+        workspace_id=conv.event_id,
         agent_id=conv.agent_config_id or "default_agent",
         max_steps=agent_settings.max_steps,
         permissions=context.permissions,
@@ -713,6 +672,8 @@ async def _run_blocking(
             organization_id=context.organization_id,
             run_id=uuid.uuid4().hex,
             session_id=conv.id,
+            event_id=conv.event_id,
+            workspace_id=conv.event_id,
             agent_id=conv.agent_config_id or "default_agent",
             max_steps=agent_settings.max_steps,
             permissions=context.permissions,
@@ -794,6 +755,7 @@ async def send_message(
 ) -> dict | MessageResponse | StreamingResponse:
     """Dispatcher: prepare the turn, assemble the task, then hand off to one
     of the four execution modes (see module docstring)."""
+    conv_for_refs = await _load_conv(session, context, conversation_id)
     # Durable upload refs for this turn (already in the store; validate they
     # are THIS org+conversation's uploads — a foreign id is dropped, not an
     # oracle).
@@ -801,7 +763,7 @@ async def send_message(
     turn_uploads = resolve_upload_refs(
         ref_rows,
         organization_id=context.organization_id,
-        conversation_id=conversation_id,
+        event_id=conv_for_refs.event_id,
     )
 
     conv, memory = await _prepare_message(
@@ -814,7 +776,7 @@ async def send_message(
         documents=req.documents,
         uploaded=turn_uploads,
     )
-    task_content, task_attachments = await _assemble_task(session, conversation_id, req)
+    task_content, task_attachments = await _assemble_task(session, conv, req)
 
     if not context.policy.allow_shared_process_execution:
         return await _enqueue_durable_run(session, context, conv, req)

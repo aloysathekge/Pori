@@ -530,6 +530,7 @@ class KnowledgeEntryResponse(BaseModel):
     id: str
     organization_id: str
     user_id: str
+    event_id: str | None = None
     agent_id: str | None = None
     session_id: str | None = None
     content: str

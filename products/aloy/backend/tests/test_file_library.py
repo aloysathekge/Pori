@@ -111,14 +111,18 @@ class TestFetchMyFileTool:
     def test_fetch_materializes_into_current_thread(self, tmp_path):
         manifest = self._manifest_for("cv.pdf", b"%PDF-my-cv")
         # A DIFFERENT conversation than the one that uploaded it — the point.
-        context = {"library_files": manifest, "thread_id": "new-chat"}
+        context = {
+            "library_files": manifest,
+            "workspace_id": "event-library",
+            "run_id": "run-fetch",
+        }
         result = fetch_my_file_tool(FetchMyFileParams(name="cv.pdf"), context)
         assert result.get("path") == "/mnt/user-data/uploads/cv.pdf"
         on_disk = (
             tmp_path
             / "sandbox"
-            / "threads"
-            / "new-chat"
+            / "events"
+            / "event-library"
             / "user-data"
             / "uploads"
             / "cv.pdf"
@@ -127,7 +131,11 @@ class TestFetchMyFileTool:
 
     def test_partial_name_matches_when_unambiguous(self, tmp_path):
         manifest = self._manifest_for("cv_2026_final.pdf", b"%PDF")
-        context = {"library_files": manifest, "thread_id": "t2"}
+        context = {
+            "library_files": manifest,
+            "workspace_id": "event-library",
+            "run_id": "run-fetch",
+        }
         result = fetch_my_file_tool(FetchMyFileParams(name="cv"), context)
         assert result.get("path", "").endswith("cv_2026_final.pdf")
 

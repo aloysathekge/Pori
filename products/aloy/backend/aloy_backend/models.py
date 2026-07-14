@@ -238,7 +238,7 @@ class StoredFile(SQLModel, table=True):
     user_id: str = Field(index=True)
     event_id: str = Field(foreign_key="events.id", index=True)
     origin_session_id: str | None = Field(default=None, index=True)
-    conversation_id: str = Field(index=True)
+    conversation_id: str | None = Field(default=None, index=True)
     run_id: str | None = Field(default=None, index=True)
     kind: str = "artifact"  # artifact | upload
     # In the user's file library: durable beyond its conversation — a

@@ -52,6 +52,23 @@ def get_thread_data(
     return data
 
 
+def get_workspace_data(
+    workspace_id: str,
+    run_id: str,
+    base_dir: str,
+) -> ThreadData:
+    """Return an Event workspace with isolated scratch for one run."""
+    event_root = Path(base_dir) / "events" / workspace_id
+    user_data = event_root / "user-data"
+    data = ThreadData(
+        workspace_path=str(user_data / WORKSPACE_SEGMENT),
+        uploads_path=str(user_data / UPLOADS_SEGMENT),
+        outputs_path=str(event_root / "runs" / run_id / "scratch"),
+    )
+    data.ensure_dirs()
+    return data
+
+
 def _resolve_existing(p: Path) -> Path:
     """Resolve ``p`` even when it doesn't exist yet.
 

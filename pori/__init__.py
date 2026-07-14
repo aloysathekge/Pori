@@ -157,6 +157,7 @@ from .sandbox import (
     ThreadData,
     create_sandbox_provider,
     get_thread_data,
+    get_workspace_data,
     replace_virtual_path,
     set_sandbox_provider,
 )
@@ -331,6 +332,7 @@ __all__ = [
     "ThreadData",
     "VIRTUAL_PREFIX",
     "get_thread_data",
+    "get_workspace_data",
     "replace_virtual_path",
     "STANDARD_KERNEL_TOOLS",
     "set_prompts_dir",

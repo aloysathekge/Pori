@@ -17,7 +17,7 @@ import uuid
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -26,7 +26,7 @@ from pori import (
     VIRTUAL_PREFIX,
     AgentMemory,
     ThreadData,
-    get_thread_data,
+    get_workspace_data,
     replace_virtual_path,
 )
 
@@ -35,6 +35,7 @@ from .memory_records import record_to_row, request_scope
 from .models import (
     Conversation,
     CoreMemoryBlock,
+    EventTrailEntry,
     KnowledgeEntry,
     Message,
     Run,
@@ -47,6 +48,11 @@ from .storage import artifact_key, get_object_store, safe_name
 from .tenancy import OrganizationContext
 
 logger = logging.getLogger("aloy_backend")
+
+
+class TenantIdentity(Protocol):
+    organization_id: str
+    user_id: str
 
 
 def _json_default(o: Any) -> Any:
@@ -168,6 +174,7 @@ async def flush_memory_to_db(
         if not request_scope(
             context.user_id,
             organization_id=context.organization_id,
+            event_id=memory.event_id,
             agent_id=memory.agent_id,
             session_id=memory.session_id,
         ).can_access(record.scope):
@@ -196,6 +203,7 @@ class RunOutcome:
     # Identity (authoritative, from the run's RunContext).
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     organization_id: str = ""
+    event_id: str = ""
     session_id: str = ""
     agent_id: str = "default_agent"
     # The run's memory, to flush; and the coalesced replay events (streaming).
@@ -243,6 +251,7 @@ def build_run_outcome(
         ),
         run_id=getattr(run_context, "run_id", None) or uuid.uuid4().hex,
         organization_id=getattr(run_context, "organization_id", None) or fallback_org,
+        event_id=getattr(run_context, "event_id", None) or "",
         session_id=getattr(run_context, "session_id", None) or "",
         agent_id=getattr(run_context, "agent_id", None) or "default_agent",
         memory=(agent.memory if agent else None) or memory,
@@ -273,8 +282,8 @@ def _resolve_artifact_file(path_str: str, thread: ThreadData) -> Optional[Path]:
 
 def store_run_artifacts(
     session: AsyncSession,
-    conv: Conversation,
-    context: OrganizationContext,
+    conv: Conversation | None,
+    context: TenantIdentity,
     outcome: RunOutcome,
 ) -> None:
     """Extraction OUT: copy the run's written files from the (ephemeral)
@@ -285,7 +294,12 @@ def store_run_artifacts(
     artifacts = outcome.artifacts or []
     if not artifacts:
         return
-    thread = get_thread_data(outcome.session_id or conv.id, settings.sandbox_base_dir)
+    event_id = outcome.event_id or (conv.event_id if conv is not None else "")
+    if not event_id:
+        logger.error("Run %s has artifacts but no Event identity", outcome.run_id)
+        return
+    origin_session_id = conv.id if conv is not None else None
+    thread = get_workspace_data(event_id, outcome.run_id, settings.sandbox_base_dir)
     store = get_object_store()
     per_file_cap = settings.storage_max_artifact_mb * 1024 * 1024
     run_budget = settings.storage_max_run_artifact_mb * 1024 * 1024
@@ -314,7 +328,12 @@ def store_run_artifacts(
                 for chunk in iter(lambda: fh.read(1024 * 1024), b""):
                     digest.update(chunk)
             file_id = uuid.uuid4().hex
-            key = artifact_key(context.organization_id, conv.id, file_id, real.name)
+            key = artifact_key(
+                context.organization_id,
+                origin_session_id or event_id,
+                file_id,
+                real.name,
+            )
             with real.open("rb") as fh:
                 store.put(
                     key,
@@ -327,9 +346,9 @@ def store_run_artifacts(
                     id=file_id,
                     organization_id=context.organization_id,
                     user_id=context.user_id,
-                    event_id=conv.event_id,
-                    origin_session_id=conv.id,
-                    conversation_id=conv.id,
+                    event_id=event_id,
+                    origin_session_id=origin_session_id,
+                    conversation_id=origin_session_id,
                     run_id=outcome.run_id,
                     kind="artifact",
                     name=safe_name(real.name),
@@ -338,6 +357,23 @@ def store_run_artifacts(
                     size_bytes=size,
                     sha256=digest.hexdigest(),
                     storage_key=key,
+                )
+            )
+            session.add(
+                EventTrailEntry(
+                    organization_id=context.organization_id,
+                    user_id=context.user_id,
+                    event_id=event_id,
+                    actor_id=outcome.agent_id or "agent",
+                    kind="artifact_added",
+                    summary=f"Added artifact {safe_name(real.name)}",
+                    run_id=outcome.run_id,
+                    evidence_refs=[{"file_id": file_id}],
+                    payload={
+                        "file_id": file_id,
+                        "name": safe_name(real.name),
+                        "size_bytes": size,
+                    },
                 )
             )
             run_budget -= size

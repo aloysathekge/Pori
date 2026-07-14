@@ -1,4 +1,4 @@
-"""Provisioning IN: materialize durable uploads into a conversation's sandbox.
+"""Provisioning IN: materialize durable uploads into an Event workspace.
 
 The object store is the source of truth; the sandbox uploads dir
 (``/mnt/user-data/uploads``) is where the agent's tools can actually reach
@@ -17,11 +17,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from pori import get_thread_data
+from pori import get_workspace_data
 
 from .config import settings
 from .models import StoredFile
@@ -30,6 +31,32 @@ from .storage import get_object_store, safe_name
 logger = logging.getLogger("aloy_backend")
 
 _MANIFEST = ".provisioned.json"
+
+
+def migrate_legacy_session_workspace(session_id: str, event_id: str) -> None:
+    """Best-effort copy of pre-Event workspace/uploads into the Event lane."""
+    legacy = Path(settings.sandbox_base_dir) / "threads" / session_id / "user-data"
+    if not legacy.is_dir():
+        return
+    target = get_workspace_data(event_id, "migration", settings.sandbox_base_dir)
+    for source, destination in (
+        (legacy / "workspace", Path(target.workspace_path)),
+        (legacy / "uploads", Path(target.uploads_path)),
+    ):
+        if not source.is_dir():
+            continue
+        for item in source.rglob("*"):
+            if not item.is_file():
+                continue
+            relative = item.relative_to(source)
+            dest = destination / relative
+            if dest.exists():
+                continue
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, dest)
+            except OSError:
+                logger.warning("Could not migrate legacy workspace file %s", item)
 
 
 def _human_size(n: int) -> str:
@@ -41,15 +68,15 @@ def _human_size(n: int) -> str:
     return f"{size:.1f}GB"
 
 
-def provision_conversation_uploads(
-    conversation_id: str, records: Iterable[StoredFile]
+def provision_event_uploads(
+    event_id: str, records: Iterable[StoredFile], *, run_id: str = "provision"
 ) -> List[dict]:
-    """Ensure every upload is present in the conversation's sandbox uploads
+    """Ensure every upload is present in the Event's shared sandbox uploads
     dir. Returns manifest entries [{name, size_bytes, content_type}] for the
     task block — an entry appears even when the copy was skipped (already
     present, same hash). A missing blob is logged and omitted, never fatal.
     """
-    thread = get_thread_data(conversation_id, settings.sandbox_base_dir)
+    thread = get_workspace_data(event_id, run_id, settings.sandbox_base_dir)
     uploads_dir = Path(thread.uploads_path)
     manifest_path = uploads_dir / _MANIFEST
     try:
@@ -189,7 +216,9 @@ def uploads_task_block(entries: List[dict]) -> str:
     )
 
 
-def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
+def provision_manifest_entry(
+    workspace_id: str, run_id: str, entry: dict
+) -> Optional[dict]:
     """Materialize ONE manifest-shaped file (see library.library_manifest)
     into a thread's uploads dir; returns the provisioned entry
     ({name, extracted_text?, …}), or None when the blob is gone. Used by the
@@ -204,8 +233,8 @@ def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
         organization_id="",
         user_id="",
         event_id=str(entry.get("event_id") or "transient"),
-        origin_session_id=thread_id,
-        conversation_id=thread_id,
+        origin_session_id=None,
+        conversation_id=workspace_id,
         name=entry["name"],
         size_bytes=entry["size_bytes"],
         content_type=entry["content_type"],
@@ -213,7 +242,7 @@ def provision_manifest_entry(thread_id: str, entry: dict) -> Optional[dict]:
         storage_key=entry["storage_key"],
         created_at=datetime.fromisoformat(entry["created_at"]),
     )
-    provisioned = provision_conversation_uploads(thread_id, [shim])
+    provisioned = provision_event_uploads(workspace_id, [shim], run_id=run_id)
     return provisioned[0] if provisioned else None
 
 
@@ -221,9 +250,9 @@ def resolve_upload_refs(
     records: Iterable[Optional[StoredFile]],
     *,
     organization_id: str,
-    conversation_id: str,
+    event_id: str,
 ) -> List[StoredFile]:
-    """Filter looked-up rows to real uploads of THIS org + conversation —
+    """Filter looked-up rows to real uploads of this organization and Event —
     a ref to someone else's file id is silently dropped, never an oracle."""
     return [
         r
@@ -231,5 +260,9 @@ def resolve_upload_refs(
         if r is not None
         and r.kind == "upload"
         and r.organization_id == organization_id
-        and r.conversation_id == conversation_id
+        and r.event_id == event_id
     ]
+
+
+# One-release compatibility alias; product paths use Event identity directly.
+provision_conversation_uploads = provision_event_uploads
