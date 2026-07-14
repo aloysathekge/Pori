@@ -58,6 +58,7 @@ export function ChatPage() {
     streamStep,
     streamText,
     clarify,
+    approval,
     resetStreamUi,
     abortStream,
     dispatchSend,
@@ -66,6 +67,7 @@ export function ChatPage() {
     continueRun,
     stopRun,
     answerClarify,
+    answerApproval,
   } = useStreamingRun({
     activeId,
     setMessages,
@@ -223,6 +225,8 @@ export function ChatPage() {
                   streamStep={streamStep}
                   clarify={clarify}
                   onAnswerClarify={answerClarify}
+                  approval={approval}
+                  onDecideApproval={answerApproval}
                   onOpenArtifact={setArtifactPath}
                   onResend={sending ? undefined : resend}
                   onContinue={sending ? undefined : continueRun}
@@ -244,7 +248,11 @@ export function ChatPage() {
                   onRemoveFile={removeFile}
                   disabled={sending && !clarify}
                   placeholder={
-                    clarify ? 'Answer the question above…' : 'Message Aloy…'
+                    clarify
+                      ? 'Answer the question above…'
+                      : approval
+                        ? 'Approve or reject the action above…'
+                        : 'Message Aloy…'
                   }
                   attachFull={attachmentsFull}
                   onStop={sending && !clarify ? stopRun : undefined}

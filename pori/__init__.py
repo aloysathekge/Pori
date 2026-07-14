@@ -56,11 +56,17 @@ from .evolution import (
     run_local_evolution_evals,
 )
 from .hitl import (
+    ActionRequest,
+    ApprovalRequest,
+    ApprovalResponse,
     AutoApproveHandler,
     CLIHITLHandler,
+    Decision,
+    EditedAction,
     HITLConfig,
     HITLHandler,
     InterruptConfig,
+    ReviewConfig,
 )
 
 # The LLM interface type (products annotate against it; construct via
@@ -379,4 +385,10 @@ __all__ = [
     "CLIHITLHandler",
     "AutoApproveHandler",
     "InterruptConfig",
+    "ApprovalRequest",
+    "ApprovalResponse",
+    "ActionRequest",
+    "ReviewConfig",
+    "Decision",
+    "EditedAction",
 ]

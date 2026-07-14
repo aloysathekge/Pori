@@ -9,7 +9,9 @@ import { stopGeneration } from '@/api/conversations';
 import {
   attachLiveRun,
   streamMessage,
+  submitApproval,
   submitClarification,
+  type ApprovalDecision,
   type SSECallbacks,
 } from '@/api/sse';
 import type {
@@ -25,6 +27,14 @@ export interface ClarifyState {
   id: string;
   question: string;
   options: string[];
+}
+
+export interface ApprovalState {
+  id: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  description: string;
+  allowedDecisions: string[];
 }
 
 export interface UseStreamingRunParams {
@@ -61,6 +71,7 @@ export function useStreamingRun({
   >(undefined);
   const [streamText, setStreamText] = useState('');
   const [clarify, setClarify] = useState<ClarifyState | null>(null);
+  const [approval, setApproval] = useState<ApprovalState | null>(null);
   // The in-flight stream's abort handle — aborted on conversation switch and
   // on unmount so a stream can never bleed into another conversation's view.
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -75,6 +86,7 @@ export function useStreamingRun({
     setStreamStep(undefined);
     setStreamText('');
     setClarify(null);
+    setApproval(null);
   }, []);
 
   /** Kill the in-flight stream (conversation switch / page unmount). */
@@ -123,6 +135,14 @@ export function useStreamingRun({
         }),
       onClarification: (req) =>
         setClarify({ id: req.id, question: req.question, options: req.options }),
+      onApproval: (req) =>
+        setApproval({
+          id: req.id,
+          tool: req.tool,
+          arguments: req.arguments,
+          description: req.description,
+          allowedDecisions: req.allowed_decisions,
+        }),
       onMessage: (data: SSEMessageEvent) => {
         const assistantMsg: MessageResponse = {
           id: `msg-${Date.now()}`,
@@ -219,6 +239,7 @@ export function useStreamingRun({
     setStreamStep(undefined);
     setStreamText('');
     setClarify(null);
+    setApproval(null);
 
     const userMsg: MessageResponse = {
       id: `temp-${Date.now()}`,
@@ -326,6 +347,20 @@ export function useStreamingRun({
     }
   }
 
+  /** Approve or reject the paused consequential tool. The run resumes (runs the
+   *  tool) or skips it and continues, then streams on. */
+  async function answerApproval(decision: ApprovalDecision) {
+    if (!approval) return;
+    const id = approval.id;
+    setApproval(null);
+    setStreamStatus(decision.type === 'approve' ? 'Sending…' : 'Skipping…');
+    try {
+      await submitApproval(id, decision);
+    } catch {
+      // the error surfaces via the stream
+    }
+  }
+
   return {
     sending,
     streaming,
@@ -336,6 +371,7 @@ export function useStreamingRun({
     streamStep,
     streamText,
     clarify,
+    approval,
     resetStreamUi,
     abortStream,
     dispatchSend,
@@ -344,5 +380,6 @@ export function useStreamingRun({
     continueRun,
     stopRun,
     answerClarify,
+    answerApproval,
   };
 }

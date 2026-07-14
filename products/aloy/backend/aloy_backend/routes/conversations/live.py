@@ -8,6 +8,7 @@ All state lives in ``live_runs`` / ``streaming`` — no persistence here.
 from __future__ import annotations
 
 import logging
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ... import live_runs
+from ...approvals import resolve_approval
 from ...database import get_session
 from ...rate_limit import rate_limited_permission
 from ...streaming import resolve_clarification, subscribe_frames
@@ -91,3 +93,34 @@ async def submit_clarification(
     raise HTTPException(
         status_code=404, detail="Unknown or already-answered clarification"
     )
+
+
+class ApprovalDecision(BaseModel):
+    type: Literal["approve", "reject", "edit"]
+    message: Optional[str] = None
+    edited_action: Optional[dict[str, Any]] = None
+
+
+class ApproveBody(BaseModel):
+    decisions: list[ApprovalDecision]
+
+
+@router.post("/approve/{approval_id}")
+async def submit_approval(
+    approval_id: str,
+    body: ApproveBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+) -> dict:
+    """Resolve a paused consequential-tool approval by delivering the user's
+    decision (approve / reject / edit) to their waiting run — ownership enforced
+    in resolve_approval so an id belonging to another user 404s."""
+    if resolve_approval(
+        approval_id,
+        [d.model_dump() for d in body.decisions],
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    ):
+        return {"ok": True}
+    raise HTTPException(status_code=404, detail="Unknown or already-decided approval")

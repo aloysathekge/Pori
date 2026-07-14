@@ -34,7 +34,9 @@ from pori import (
 )
 
 from . import live_runs, resumable_runs
+from .approvals import APPROVAL_BRIDGES, ApprovalBridge, build_write_hitl_config
 from .event_log import EventLogCollector
+from .tools import GOOGLE_WRITE_TOOLS
 
 logger = logging.getLogger("aloy_backend")
 
@@ -99,11 +101,22 @@ async def stream_agent_execution(
     def emit_clarification(req: ClarificationRequest) -> None:
         push(PoriEvent("clarification_request", req.to_event(), step=0))
 
-    bridge = ClarifyBridge(emit=emit_clarification)
-    CLARIFY_BRIDGES[bridge] = (
+    owner = (
         getattr(run_context, "organization_id", None) or "",
         getattr(run_context, "user_id", None) or "",
     )
+    bridge = ClarifyBridge(emit=emit_clarification)
+    CLARIFY_BRIDGES[bridge] = owner
+
+    def emit_approval(event: dict) -> None:
+        push(PoriEvent("approval_request", event, step=0))
+
+    approval_bridge = ApprovalBridge(emit=emit_approval)
+    APPROVAL_BRIDGES[approval_bridge] = owner
+    # Consequential writes (send email, calendar changes) pause for the user's
+    # yes/no — the Proposal-commit gate. Interactive path only: a run with a
+    # user watching can be asked; durable/blocking paths don't wire this.
+    hitl_config = build_write_hitl_config(GOOGLE_WRITE_TOOLS)
 
     merged_tool_context = dict(tool_context_extra or {})
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
@@ -124,6 +137,8 @@ async def stream_agent_execution(
                 cancellation_token=cancel_token,
                 resume_task_id=resume_task_id,
                 sandbox_base_dir=sandbox_base_dir,
+                hitl_handler=approval_bridge,
+                hitl_config=hitl_config,
             )
         )
 
@@ -140,6 +155,7 @@ async def stream_agent_execution(
         # so unblock it too (empty answer → the loop resumes → sees the token).
         cancel_token.cancel()
         bridge.cancel_pending()
+        approval_bridge.cancel_pending()
 
     run_id = getattr(run_context, "run_id", "") or ""
     live = live_runs.register(conversation_id or run_id, run_id, cancel=request_stop)
@@ -157,7 +173,9 @@ async def stream_agent_execution(
             # The RUN owns the clarify bridge lifecycle (not the HTTP response):
             # a re-attached client can still answer a pending clarification.
             bridge.cancel_pending()
+            approval_bridge.cancel_pending()
             CLARIFY_BRIDGES.pop(bridge, None)
+            APPROVAL_BRIDGES.pop(approval_bridge, None)
             live.publish(_sse_event("done", {}))
             live.finish()
             live_runs.retire_later(conversation_id or run_id, live)

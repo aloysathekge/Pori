@@ -9,6 +9,19 @@ import {
 import type { ClarificationRequestPayload } from '@pori/client';
 import type { SSEMessageEvent } from '@/types';
 
+/** A consequential tool paused for the user's yes/no (the HITL approval gate). */
+export interface ApprovalRequestPayload {
+  id: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+  description: string;
+  allowed_decisions: string[];
+}
+
+export type ApprovalDecision =
+  | { type: 'approve' }
+  | { type: 'reject'; message?: string };
+
 /**
  * Consumes the backend's kernel `PoriEvent` SSE stream (see
  * `products/aloy/backend/pori_cloud/streaming.py`). PoriEvent frames carry
@@ -26,6 +39,7 @@ export interface SSECallbacks {
   }) => void;
   onStep?: (info: { step: number; max_steps: number }) => void;
   onClarification?: (request: ClarificationRequestPayload) => void;
+  onApproval?: (request: ApprovalRequestPayload) => void;
   onMessage?: (data: SSEMessageEvent) => void;
   onError?: (err: string) => void;
   onDone?: () => void;
@@ -180,6 +194,17 @@ export async function submitClarification(
   });
 }
 
+/** Resolve a paused consequential tool with the user's decision (approve/reject). */
+export async function submitApproval(
+  approvalId: string,
+  decision: ApprovalDecision,
+): Promise<void> {
+  await apiFetch(`/conversations/approve/${encodeURIComponent(approvalId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ decisions: [decision] }),
+  });
+}
+
 function dispatchFrame(frame: string, cb: SSECallbacks) {
   let event = 'message';
   const dataLines: string[] = [];
@@ -219,6 +244,9 @@ function dispatchFrame(frame: string, cb: SSECallbacks) {
       break;
     case CLARIFICATION_REQUEST:
       cb.onClarification?.(payload as unknown as ClarificationRequestPayload);
+      break;
+    case 'approval_request':
+      cb.onApproval?.(payload as unknown as ApprovalRequestPayload);
       break;
     case 'message':
       cb.onMessage?.(data as unknown as SSEMessageEvent);
