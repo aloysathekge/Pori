@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from ..database import get_session
+from ..events import ensure_life_event
 from ..models import Run, TeamConfig
 from ..schemas import (
     TeamConfigCreate,
@@ -143,9 +144,15 @@ async def run_team(
     if active_count >= context.policy.max_concurrent_runs:
         raise HTTPException(status_code=429, detail="Organization run limit reached")
 
+    life = await ensure_life_event(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    )
     run = Run(
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=life.id,
         agent_id=f"team:{team_id}",
         session_id="pending",
         team_config_id=team_id,

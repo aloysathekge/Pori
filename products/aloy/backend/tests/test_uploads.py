@@ -1,7 +1,5 @@
 """Durable uploads: endpoint (caps/quota/tenancy) + provisioning IN."""
 
-from types import SimpleNamespace
-
 import pytest
 
 import aloy_backend.config as config_mod
@@ -134,6 +132,8 @@ def _record(rec_id: str, name: str, sha: str, **kw) -> StoredFile:
         id=rec_id,
         organization_id=kw.get("org", "org-1"),
         user_id="u1",
+        event_id="evt-upload",
+        origin_session_id=kw.get("conv", "conv-1"),
         conversation_id=kw.get("conv", "conv-1"),
         kind=kw.get("kind", "upload"),
         name=name,

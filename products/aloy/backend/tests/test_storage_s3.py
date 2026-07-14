@@ -102,7 +102,7 @@ class TestRetentionOnConversationDelete:
         )
         return up.json()["file_id"]
 
-    async def test_blobs_die_with_the_conversation_except_library(self, client):
+    async def test_event_files_survive_session_deletion(self, client):
         created = await client.post("/v1/conversations", json={"title": "r"})
         conv_id = created.json()["id"]
         plain_id = await self._upload(client, conv_id, "scratch.txt")
@@ -112,8 +112,11 @@ class TestRetentionOnConversationDelete:
         resp = await client.delete(f"/v1/conversations/{conv_id}")
         assert resp.status_code == 204
 
-        # The plain upload is gone (row + download); the library file lives.
-        assert (await client.get(f"/v1/files/{plain_id}")).status_code == 404
+        # Both files belong to the Event; deleting only its Session cannot
+        # erase either blob or pointer row.
+        plain = await client.get(f"/v1/files/{plain_id}")
+        assert plain.status_code == 200
+        assert plain.content == b"data-scratch.txt"
         dl = await client.get(f"/v1/files/{saved_id}")
         assert dl.status_code == 200
         assert dl.content == b"data-cv.txt"

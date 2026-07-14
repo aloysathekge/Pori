@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func
@@ -11,14 +10,7 @@ from sqlmodel import col, select
 
 from pori import SessionExport, SessionMessage, SessionRecord, SessionSearchHit
 
-from .models import (
-    ContextArtifact,
-    Conversation,
-    Message,
-    Run,
-    TraceRecord,
-    UsageRecord,
-)
+from .models import Conversation, Message
 
 
 class CloudSessionRepository:
@@ -131,6 +123,9 @@ class CloudSessionRepository:
         parent = await self.get(session_id)
         if parent is None:
             raise KeyError("Session not found")
+        parent_row = await self.session.get(Conversation, session_id)
+        if parent_row is None:
+            raise KeyError("Session not found")
         messages = await self.messages(session_id)
         if through_message_id:
             ids = [message.id for message in messages]
@@ -140,6 +135,7 @@ class CloudSessionRepository:
         child = Conversation(
             organization_id=self.organization_id,
             user_id=self.user_id,
+            event_id=parent_row.event_id,
             title=title or parent.title,
             agent_config_id=parent.agent_id,
             parent_conversation_id=parent.id,
@@ -163,17 +159,15 @@ class CloudSessionRepository:
         return self._record(child)
 
     async def delete(self, session_id: str) -> bool:
-        if await self.get(session_id) is None:
-            return False
-        for model in (Message, Run, UsageRecord, TraceRecord, ContextArtifact):
-            result = await self.session.execute(
-                select(model).where(model.conversation_id == session_id)
-            )
-            for row in result.scalars().all():
-                await self.session.delete(row)
         conversation = await self.session.get(Conversation, session_id)
-        if conversation is not None:
-            await self.session.delete(conversation)
+        if conversation is None or conversation.organization_id != self.organization_id:
+            return False
+        result = await self.session.execute(
+            select(Message).where(Message.conversation_id == session_id)
+        )
+        for row in result.scalars().all():
+            await self.session.delete(row)
+        await self.session.delete(conversation)
         await self.session.commit()
         return True
 

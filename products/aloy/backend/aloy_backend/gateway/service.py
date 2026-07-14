@@ -23,6 +23,7 @@ from sqlmodel import select
 
 from ..config import settings
 from ..database import async_session
+from ..events import ensure_life_event
 from ..models import Conversation, GatewayLink, GatewayPairingCode, Run
 from .delivery import DeliveryRouter
 from .registry import build_adapters
@@ -57,9 +58,15 @@ async def try_pair(chat_id: str, chat_title: str, code: str) -> Optional[Gateway
         pairing = await session.get(GatewayPairingCode, normalized)
         if pairing is None or _aware(pairing.expires_at) < _utcnow():
             return None
+        life = await ensure_life_event(
+            session,
+            organization_id=pairing.organization_id,
+            user_id=pairing.user_id,
+        )
         conversation = Conversation(
             organization_id=pairing.organization_id,
             user_id=pairing.user_id,
+            event_id=life.id,
             title=f"Telegram: {chat_title or chat_id}",
         )
         session.add(conversation)
@@ -99,9 +106,24 @@ async def find_link(chat_id: str) -> Optional[GatewayLink]:
 async def enqueue_run_for_link(link: GatewayLink, task: str) -> str:
     """Inbound message → ordinary durable Run on the worker queue."""
     async with async_session() as session:
+        conversation = (
+            await session.get(Conversation, link.conversation_id)
+            if link.conversation_id
+            else None
+        )
+        if conversation is None:
+            life = await ensure_life_event(
+                session,
+                organization_id=link.organization_id,
+                user_id=link.user_id,
+            )
+            event_id = life.id
+        else:
+            event_id = conversation.event_id
         run = Run(
             user_id=link.user_id,
             organization_id=link.organization_id,
+            event_id=event_id,
             agent_id="default_agent",
             session_id="pending",
             conversation_id=link.conversation_id,

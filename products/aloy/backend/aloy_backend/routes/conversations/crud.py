@@ -9,27 +9,16 @@ conversation's blobs and sandbox scratch dir, sparing library files.
 from __future__ import annotations
 
 import logging
-import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
-from starlette.concurrency import run_in_threadpool
 
-from ...config import settings
 from ...database import get_session
-from ...models import (
-    ContextArtifact,
-    Conversation,
-    Message,
-    Run,
-    StoredFile,
-    TraceRecord,
-    UsageRecord,
-)
+from ...events import ensure_life_event
+from ...models import ContextArtifact, Conversation, Message
 from ...schemas import (
     ConversationBranchRequest,
     ConversationCreate,
@@ -39,7 +28,6 @@ from ...schemas import (
     ConversationUpdate,
     MessageResponse,
 )
-from ...storage import get_object_store
 from ...tenancy import OrganizationContext, Permission, require_permission
 from ._helpers import _load_conv
 
@@ -54,9 +42,15 @@ async def create_conversation(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
 ) -> ConversationResponse:
+    life = await ensure_life_event(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    )
     conv = Conversation(
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=life.id,
         title=req.title,
         agent_config_id=req.agent_config_id,
     )
@@ -66,6 +60,7 @@ async def create_conversation(
     logger.info("Conversation %s created", conv.id)
     return ConversationResponse(
         id=conv.id,
+        event_id=conv.event_id,
         title=conv.title,
         agent_config_id=conv.agent_config_id,
         parent_conversation_id=conv.parent_conversation_id,
@@ -101,6 +96,7 @@ async def list_conversations(
     return [
         ConversationResponse(
             id=conv.id,
+            event_id=conv.event_id,
             title=conv.title,
             agent_config_id=conv.agent_config_id,
             parent_conversation_id=conv.parent_conversation_id,
@@ -130,6 +126,7 @@ async def get_conversation(
 
     return ConversationDetail(
         id=conv.id,
+        event_id=conv.event_id,
         title=conv.title,
         agent_config_id=conv.agent_config_id,
         parent_conversation_id=conv.parent_conversation_id,
@@ -173,6 +170,7 @@ async def update_conversation(
 
     return ConversationResponse(
         id=conv.id,
+        event_id=conv.event_id,
         title=conv.title,
         agent_config_id=conv.agent_config_id,
         parent_conversation_id=conv.parent_conversation_id,
@@ -201,6 +199,7 @@ async def export_conversation(
     return ConversationExportResponse(
         conversation=ConversationResponse(
             id=detail.id,
+            event_id=detail.event_id,
             title=detail.title,
             agent_config_id=detail.agent_config_id,
             parent_conversation_id=detail.parent_conversation_id,
@@ -251,6 +250,7 @@ async def branch_conversation(
     child = Conversation(
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=parent.event_id,
         title=body.title or parent.title,
         agent_config_id=parent.agent_config_id,
         parent_conversation_id=parent.id,
@@ -282,49 +282,15 @@ async def delete_conversation(
 ) -> None:
     conv = await _load_conv(session, context, conversation_id)
 
-    # Delete all related records to avoid orphans
-    for model in (Message, Run, UsageRecord, TraceRecord, ContextArtifact):
-        related = await session.execute(
-            select(model).where(model.conversation_id == conversation_id)
-        )
-        for record in related.scalars().all():
-            await session.delete(record)
-
-    # Retention: the conversation's durable blobs go with it — EXCEPT files
-    # the user saved to their library, which belong to the user, not the
-    # conversation (their memory pointers must never dangle).
-    stored = (
-        (
-            await session.execute(
-                select(StoredFile).where(StoredFile.conversation_id == conversation_id)
-            )
-        )
-        .scalars()
-        .all()
+    # A Session owns only its messages. Event-owned history, files, and
+    # workspace data retain this session id as provenance.
+    related = await session.execute(
+        select(Message).where(Message.conversation_id == conversation_id)
     )
-    store = get_object_store()
-    for record in stored:
-        if record.in_library:
-            continue
-        try:
-            await run_in_threadpool(store.delete, record.storage_key)
-        except Exception:
-            logger.warning(
-                "Could not delete blob %s for conversation %s",
-                record.storage_key,
-                conversation_id,
-                exc_info=True,
-            )
-        await session.delete(record)
+    for message in related.scalars().all():
+        await session.delete(message)
 
     await session.delete(conv)
     await session.commit()
 
-    # The conversation's sandbox scratch dir (best effort — it's ephemeral
-    # by contract, but no reason to leave tenant data on disk).
-    await run_in_threadpool(
-        shutil.rmtree,
-        Path(settings.sandbox_base_dir) / "threads" / conversation_id,
-        ignore_errors=True,
-    )
     logger.info("Conversation %s deleted", conversation_id)

@@ -26,6 +26,7 @@ async def flush_context_artifact(
     *,
     organization_id: str,
     user_id: str,
+    event_id: str,
     conversation_id: str,
     run_id: str,
     memory: AgentMemory,
@@ -47,6 +48,7 @@ async def flush_context_artifact(
         ContextArtifact(
             organization_id=organization_id,
             user_id=user_id,
+            event_id=event_id,
             conversation_id=conversation_id,
             run_id=run_id,
             artifact_type="summary",

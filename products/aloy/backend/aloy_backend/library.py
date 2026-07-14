@@ -90,6 +90,7 @@ def library_manifest(records: list[StoredFile]) -> list[dict]:
     return [
         {
             "file_id": r.id,
+            "event_id": getattr(r, "event_id", None),
             "name": r.name,
             "size_bytes": r.size_bytes,
             "content_type": r.content_type,

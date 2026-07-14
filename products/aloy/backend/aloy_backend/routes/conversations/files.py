@@ -91,6 +91,8 @@ async def upload_conversation_file(
     record = StoredFile(
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=conv.event_id,
+        origin_session_id=conv.id,
         conversation_id=conv.id,
         kind="upload",
         name=name,

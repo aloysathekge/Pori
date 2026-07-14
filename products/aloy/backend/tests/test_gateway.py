@@ -121,7 +121,10 @@ class TestInboundRuns:
     async def _pair(self, db_session_maker):
         async with db_session_maker() as session:
             conversation = Conversation(
-                organization_id="org-1", user_id="alice", title="Telegram"
+                organization_id="org-1",
+                user_id="alice",
+                event_id="evt-gateway",
+                title="Telegram",
             )
             session.add(conversation)
             await session.flush()

@@ -73,6 +73,7 @@ class ChildRunCreate(BaseModel):
 class RunResponse(BaseModel):
     id: str
     organization_id: str
+    event_id: str
     agent_id: str
     session_id: str
     status: str
@@ -116,6 +117,7 @@ class ConversationUpdate(BaseModel):
 
 class ConversationResponse(BaseModel):
     id: str
+    event_id: str
     title: str | None
     agent_config_id: str | None
     parent_conversation_id: str | None = None
@@ -127,6 +129,7 @@ class ConversationResponse(BaseModel):
 
 class ConversationDetail(BaseModel):
     id: str
+    event_id: str
     title: str | None
     agent_config_id: str | None
     parent_conversation_id: str | None = None
@@ -751,6 +754,7 @@ class GatewayLinkResponse(BaseModel):
 
 class RunEventLogResponse(BaseModel):
     run_id: str
+    event_id: str
     conversation_id: str | None
     events: list[dict]
     event_count: int

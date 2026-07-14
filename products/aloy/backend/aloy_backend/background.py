@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -328,6 +327,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             trace_record = make_trace_record(
                 organization_id=run.organization_id,
                 user_id=run.user_id,
+                event_id=run.event_id,
                 run_id=run.id,
                 conversation_id=run.conversation_id,
                 trace=trace_data,
@@ -366,6 +366,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         session,
                         organization_id=run.organization_id,
                         user_id=run.user_id,
+                        event_id=run.event_id,
                         conversation_id=conversation.id,
                         run_id=run.id,
                         memory=memory,
