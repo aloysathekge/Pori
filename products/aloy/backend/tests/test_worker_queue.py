@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from pydantic import BaseModel
 from sqlmodel import select
 
 from aloy_backend.background import execute_claimed_run
 from aloy_backend.models import (
+    ActionProposal,
     Event,
     Organization,
     OrganizationMembership,
@@ -12,6 +14,8 @@ from aloy_backend.models import (
     TraceRecord,
 )
 from aloy_backend.worker import claim_next_run
+from pori import ActionRequest, ApprovalRequest, ReviewConfig
+from pori.tools.registry import ToolRegistry
 
 pytestmark = pytest.mark.asyncio
 
@@ -249,3 +253,110 @@ async def test_worker_rejects_run_after_membership_revocation(
         assert failed.status == "failed"
         assert failed.lease_owner is None
     assert invoked is False
+
+
+async def test_worker_stages_external_action_without_executing(
+    db_session_maker, monkeypatch
+):
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
+    tool_calls = []
+    staged = {}
+
+    class SendParams(BaseModel):
+        to: str
+
+    registry = ToolRegistry()
+    registry.register_tool(
+        "gmail_send",
+        SendParams,
+        lambda params, context: tool_calls.append(params),
+        "send",
+    )
+
+    class FakeOrchestrator:
+        tools_registry = registry
+
+        async def execute_task(self, **kwargs):
+            response = await kwargs["hitl_handler"].request_approval(
+                ApprovalRequest(
+                    action_requests=[
+                        ActionRequest(
+                            name="gmail_send",
+                            arguments={"to": "a@b.com"},
+                            description="Send the update",
+                        )
+                    ],
+                    review_configs=[
+                        ReviewConfig(
+                            action_name="gmail_send",
+                            allowed_decisions=["approve", "reject"],
+                        )
+                    ],
+                    task_id="task-1",
+                    step_number=1,
+                )
+            )
+            staged.update(response.decisions[0].result or {})
+            return {
+                "success": True,
+                "steps_taken": 1,
+                "agent": None,
+                "result": {"metrics": None},
+                "trace": {},
+            }
+
+    monkeypatch.setattr(
+        "aloy_backend.background.build_orchestrator",
+        lambda **kwargs: FakeOrchestrator(),
+    )
+    async with db_session_maker() as session:
+        session.add(
+            Organization(
+                id="org-stage-worker",
+                name="Stage worker",
+                slug="stage-worker",
+                created_by="alice",
+                policy={},
+            )
+        )
+        session.add(
+            OrganizationMembership(
+                organization_id="org-stage-worker",
+                user_id="alice",
+                role="member",
+            )
+        )
+        session.add(
+            Event(
+                id="evt-stage-worker",
+                organization_id="org-stage-worker",
+                user_id="alice",
+                title="Stage worker",
+            )
+        )
+        run = Run(
+            organization_id="org-stage-worker",
+            user_id="alice",
+            event_id="evt-stage-worker",
+            agent_id="agent-1",
+            session_id="session-1",
+            task="send update",
+            status="running",
+            attempt_count=1,
+            lease_owner="worker-a",
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await execute_claimed_run(run_id, "worker-a")
+
+    assert staged["status"] == "staged"
+    assert tool_calls == []
+    async with db_session_maker() as session:
+        completed = await session.get(Run, run_id)
+        proposal = await session.get(ActionProposal, staged["proposal_id"])
+        assert completed.status == "completed"
+        assert proposal.status == "pending"
+        assert proposal.origin_run_id == run_id

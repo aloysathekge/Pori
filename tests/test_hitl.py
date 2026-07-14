@@ -29,6 +29,7 @@ from pori.hitl import (
     resolve_interrupt_config,
 )
 from pori.memory import AgentMemory
+from pori.runtime import ReceiptStatus
 from pori.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,18 @@ class ApproveHandler(HITLHandler):
     async def request_approval(self, request):
         self.requests.append(request)
         return ApprovalResponse(decisions=[Decision(type="approve")])
+
+
+class DeferHandler(HITLHandler):
+    async def request_approval(self, request):
+        return ApprovalResponse(
+            decisions=[
+                Decision(
+                    type="defer",
+                    result={"status": "staged", "proposal_id": "prop-test"},
+                )
+            ]
+        )
 
 
 def _make_registry():
@@ -353,6 +366,52 @@ def test_approve_allows_execution(event_loop):
     calls = [tc for tc in agent.memory.tool_call_history if tc.tool_name == "test_tool"]
     assert len(calls) >= 1
     assert calls[0].success is True
+
+
+def test_defer_stages_without_executing_tool(event_loop):
+    handler = DeferHandler()
+    config = _make_hitl_config(tool_names=["test_tool"])
+    agent = _make_agent(hitl_handler=handler, hitl_config=config)
+    agent.tool_executor.execute_tool = MagicMock(
+        side_effect=AssertionError("staged tool must not execute")
+    )
+
+    results = event_loop.run_until_complete(
+        agent.execute_actions([{"test_tool": {"param1": "value"}}])
+    )
+
+    assert results[0].success is True
+    assert results[0].value == {"status": "staged", "proposal_id": "prop-test"}
+    call = agent.memory.tool_call_history[-1]
+    assert call.success is False
+    assert call.result["proposal_id"] == "prop-test"
+    assert agent.execution_receipts[-1].status == ReceiptStatus.STAGED
+    agent.tool_executor.execute_tool.assert_not_called()
+
+
+def test_staged_action_cannot_be_claimed_as_committed(event_loop):
+    handler = DeferHandler()
+    config = _make_hitl_config(tool_names=["test_tool"])
+    agent = _make_agent(hitl_handler=handler, hitl_config=config)
+    event_loop.run_until_complete(
+        agent.execute_actions([{"test_tool": {"param1": "value"}}])
+    )
+
+    results = event_loop.run_until_complete(
+        agent.execute_actions(
+            [
+                {
+                    "answer": {
+                        "final_answer": "I sent the email.",
+                        "reasoning": "done",
+                    }
+                }
+            ]
+        )
+    )
+
+    assert results[0].success is False
+    assert "only staged" in (results[0].error or "")
 
 
 def test_auto_approve_duplicates(event_loop):

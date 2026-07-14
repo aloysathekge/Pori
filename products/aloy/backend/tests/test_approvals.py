@@ -5,16 +5,22 @@ bridge's pause/resume + ownership-scoped resolve."""
 import asyncio
 
 import pytest
+from pydantic import BaseModel, Field
+from sqlmodel import select
 
 from aloy_backend.approvals import (
     APPROVAL_BRIDGES,
     ApprovalBridge,
     NonInteractiveDenyHandler,
+    ProposalStagingHandler,
     build_write_hitl_config,
     non_interactive_write_gate,
+    proposal_write_gate,
     resolve_approval,
 )
-from pori import ActionRequest, ApprovalRequest, ReviewConfig
+from aloy_backend.models import ActionProposal, Event, EventTrailEntry
+from pori import ActionRequest, ApprovalRequest, ReviewConfig, RunContext
+from pori.tools.registry import ToolRegistry
 
 pytestmark = pytest.mark.asyncio
 
@@ -124,6 +130,163 @@ class TestApprovalBridge:
         bridge.submit_decisions(frames[0]["id"], [{"type": "approve"}])
         await task
 
+
+class TestProposalStaging:
+    async def test_valid_action_stages_proposal_and_trail_without_execution(
+        self, db_session_maker
+    ):
+        calls = []
+
+        class SendParams(BaseModel):
+            to: str
+            retries: int = Field(default=1, ge=1)
+
+        def send_tool(params, context):
+            calls.append(params)
+            return {"sent": True}
+
+        registry = ToolRegistry()
+        registry.register_tool("gmail_send", SendParams, send_tool, "send")
+        async with db_session_maker() as session:
+            session.add(
+                Event(
+                    id="evt-stage",
+                    organization_id="org-1",
+                    user_id="alice",
+                    title="Stage",
+                )
+            )
+            await session.commit()
+
+        frames = []
+        handler = ProposalStagingHandler(
+            run_context=RunContext(
+                organization_id="org-1",
+                user_id="alice",
+                agent_id="agent-1",
+                session_id="session-1",
+                run_id="run-1",
+                event_id="evt-stage",
+            ),
+            tools_registry=registry,
+            emit=frames.append,
+            session_factory=db_session_maker,
+        )
+
+        response = await handler.request_approval(_request())
+
+        decision = response.decisions[0]
+        assert decision.type == "defer"
+        assert decision.result["status"] == "staged"
+        assert calls == []
+        assert frames[0]["proposal_id"] == decision.result["proposal_id"]
+        async with db_session_maker() as session:
+            proposal = await session.get(ActionProposal, decision.result["proposal_id"])
+            trail = (
+                (
+                    await session.execute(
+                        select(EventTrailEntry).where(
+                            EventTrailEntry.proposal_id == proposal.id
+                        )
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            assert proposal.status == "pending"
+            assert proposal.args == {"to": "a@b.com", "retries": 1}
+            assert proposal.routing == "ask"
+            assert proposal.safe_default == {"decision": "reject"}
+            assert trail.kind == "proposal_staged"
+            assert trail.run_id == "run-1"
+
+    async def test_invalid_payload_creates_no_proposal(self, db_session_maker):
+        class SendParams(BaseModel):
+            to: str
+            retries: int = Field(ge=1)
+
+        registry = ToolRegistry()
+        registry.register_tool("gmail_send", SendParams, lambda p, c: None, "send")
+        async with db_session_maker() as session:
+            session.add(
+                Event(
+                    id="evt-invalid",
+                    organization_id="org-1",
+                    user_id="alice",
+                    title="Invalid",
+                )
+            )
+            await session.commit()
+
+        handler = ProposalStagingHandler(
+            run_context=RunContext(
+                organization_id="org-1",
+                user_id="alice",
+                agent_id="agent-1",
+                session_id="session-1",
+                run_id="run-1",
+                event_id="evt-invalid",
+            ),
+            tools_registry=registry,
+            session_factory=db_session_maker,
+        )
+        invalid = _request()
+        invalid.action_requests[0].arguments = {"to": "a@b.com", "retries": 0}
+
+        response = await handler.request_approval(invalid)
+
+        assert response.decisions[0].type == "reject"
+        async with db_session_maker() as session:
+            proposals = (await session.execute(select(ActionProposal))).scalars().all()
+            trails = (await session.execute(select(EventTrailEntry))).scalars().all()
+            assert proposals == []
+            assert trails == []
+
+    async def test_worker_thread_marshals_persistence_to_serving_loop(
+        self, db_session_maker
+    ):
+        class SendParams(BaseModel):
+            to: str
+
+        registry = ToolRegistry()
+        registry.register_tool("gmail_send", SendParams, lambda p, c: None, "send")
+        async with db_session_maker() as session:
+            session.add(
+                Event(
+                    id="evt-threaded",
+                    organization_id="org-1",
+                    user_id="alice",
+                    title="Threaded",
+                )
+            )
+            await session.commit()
+
+        serving_loop = asyncio.get_running_loop()
+        handler = ProposalStagingHandler(
+            run_context=RunContext(
+                organization_id="org-1",
+                user_id="alice",
+                agent_id="agent-1",
+                session_id="session-1",
+                run_id="run-threaded",
+                event_id="evt-threaded",
+            ),
+            tools_registry=registry,
+            session_factory=db_session_maker,
+            owner_loop=serving_loop,
+        )
+
+        response = await serving_loop.run_in_executor(
+            None, lambda: asyncio.run(handler.request_approval(_request()))
+        )
+
+        assert response.decisions[0].type == "defer"
+        async with db_session_maker() as session:
+            proposal = await session.get(
+                ActionProposal, response.decisions[0].result["proposal_id"]
+            )
+            assert proposal.origin_run_id == "run-threaded"
+
     async def test_enrich_failure_is_swallowed(self):
         """Enrichment is best-effort — a raising enricher must not block the gate."""
         frames = []
@@ -153,6 +316,22 @@ class TestNonInteractiveGuardrail:
         # The consequential Gmail writes are gated (so they hit the deny).
         assert "gmail_send" in config.interrupt_on
         assert "gmail_send_draft" in config.interrupt_on
+
+    def test_proposal_gate_replaces_deny_for_event_runs(self):
+        registry = ToolRegistry()
+        handler, config = proposal_write_gate(
+            run_context=RunContext(
+                organization_id="org-1",
+                user_id="alice",
+                agent_id="agent-1",
+                session_id="session-1",
+                run_id="run-1",
+                event_id="evt-1",
+            ),
+            tools_registry=registry,
+        )
+        assert isinstance(handler, ProposalStagingHandler)
+        assert "gmail_send" in config.interrupt_on
 
 
 class TestResolveApprovalOwnership:
