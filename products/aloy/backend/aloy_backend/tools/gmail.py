@@ -214,6 +214,25 @@ def gmail_list_drafts_tool(
     return {"drafts": drafts, "count": len(drafts)}
 
 
+def gmail_draft_preview(context: Dict[str, Any], draft_id: str) -> Dict[str, str]:
+    """Fetch a draft's recipient/subject/body — for the approval card on a
+    "send this draft" gate, where the tool call only carries the draft id.
+    Best-effort: returns {} if the draft can't be read (the gate still works,
+    just with less detail)."""
+    try:
+        full = g.get(context, f"{GMAIL_API}/drafts/{draft_id}", {"format": "full"})
+    except Exception:
+        return {}
+    payload = full.get("message", {}).get("payload", {})
+    headers = payload.get("headers", [])
+    preview = {
+        "to": g.header(headers, "To"),
+        "subject": g.header(headers, "Subject"),
+        "body": _decode_body(payload)[:5000],
+    }
+    return {k: v for k, v in preview.items() if v}
+
+
 class GmailSendDraftParams(BaseModel):
     draft_id: str = Field(
         ..., description="Draft id (from gmail_create_draft or gmail_list_drafts)"

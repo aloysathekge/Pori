@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import { ClarifyPrompt } from '@/components/chat/ClarifyPrompt';
+import { ApprovalPrompt } from '@/components/chat/ApprovalPrompt';
+import type { ApprovalDecision } from '@/api/sse';
 import type { MessageResponse, PlanItem, SSEToolEvent } from '@/types';
 
 interface Props {
@@ -15,6 +17,8 @@ interface Props {
   streamStep?: { step: number; max_steps: number };
   clarify: { question: string; options: string[] } | null;
   onAnswerClarify: (value: string) => void;
+  approval: { tool: string; arguments: Record<string, unknown> } | null;
+  onDecideApproval: (decision: ApprovalDecision) => void;
   onOpenArtifact: (path: string) => void;
   /** Omit while sending — the bubbles hide their resend/continue actions. */
   onResend?: (content: string) => void;
@@ -36,6 +40,8 @@ export function MessageList({
   streamStep,
   clarify,
   onAnswerClarify,
+  approval,
+  onDecideApproval,
   onOpenArtifact,
   onResend,
   onContinue,
@@ -86,6 +92,13 @@ export function MessageList({
           question={clarify.question}
           options={clarify.options}
           onAnswer={onAnswerClarify}
+        />
+      )}
+      {approval && (
+        <ApprovalPrompt
+          tool={approval.tool}
+          args={approval.arguments}
+          onDecide={onDecideApproval}
         />
       )}
       <div ref={messagesEndRef} />
