@@ -427,9 +427,7 @@ async def persist_run_outcome(
         status=(
             "cancelled"
             if outcome.stopped
-            else "completed"
-            if outcome.success
-            else "failed"
+            else "completed" if outcome.success else "failed"
         ),
         success=outcome.success,
         steps_taken=outcome.steps_taken,
