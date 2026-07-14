@@ -136,6 +136,37 @@ class ApprovalBridge(HITLHandler):
         return list(self._pending)
 
 
+class NonInteractiveDenyHandler(HITLHandler):
+    """The safety floor for runs with NO user to ask — the durable worker,
+    blocking calls, background jobs. A gated consequential tool is REJECTED, not
+    silently run: better to not-send than to send unapproved. The agent is told
+    it needs approval, so it surfaces that instead of acting. The real fix
+    (deferred approval / Notify routing — pause, ping, resume) is a later slice.
+    """
+
+    REASON = (
+        "This action needs your approval, but it ran in the background where I "
+        "can't ask. Start it in a live chat to review and approve it."
+    )
+
+    async def request_approval(self, request: ApprovalRequest) -> ApprovalResponse:
+        return ApprovalResponse(
+            decisions=[
+                Decision(type="reject", message=self.REASON)
+                for _ in request.action_requests
+            ]
+        )
+
+
+def non_interactive_write_gate() -> tuple[NonInteractiveDenyHandler, HITLConfig]:
+    """(handler, config) that DENIES the consequential write tools on any run
+    with no user attached. Wire into non-streaming execute_task calls (worker,
+    blocking) so a send can't slip through without approval."""
+    from .tools import GOOGLE_WRITE_TOOLS  # local: keep this module tool-agnostic
+
+    return NonInteractiveDenyHandler(), build_write_hitl_config(GOOGLE_WRITE_TOOLS)
+
+
 def resolve_approval(
     approval_id: str,
     decisions: List[dict],

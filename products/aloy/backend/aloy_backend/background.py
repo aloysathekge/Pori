@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from pori import Agent, AgentMemory, AgentSettings
 
+from .approvals import non_interactive_write_gate
 from .conversation_runtime import (
     flush_context_artifact,
     flush_conversation_memory,
@@ -260,6 +261,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 checkpoint = _make_progress_checkpointer(
                     run.id, worker_id, kernel_task_id
                 )
+                # No user is attached to a background run, so a consequential
+                # send can't be approved live — deny it (the safety floor)
+                # rather than let it slip through unapproved.
+                deny_handler, deny_config = non_interactive_write_gate()
                 result = await asyncio.wait_for(
                     orchestrator.execute_task(
                         task=run.task,
@@ -271,6 +276,8 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         sandbox_base_dir=sandbox_base_dir(),
                         tool_context_extra=surface.tool_context_extra,
                         mcp_servers=surface.mcp_servers,
+                        hitl_handler=deny_handler,
+                        hitl_config=deny_config,
                     ),
                     timeout=run.timeout_seconds,
                 )
