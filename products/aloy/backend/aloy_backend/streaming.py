@@ -36,7 +36,7 @@ from pori import (
 from . import live_runs, resumable_runs
 from .approvals import APPROVAL_BRIDGES, ApprovalBridge, build_write_hitl_config
 from .event_log import EventLogCollector
-from .tools import GOOGLE_WRITE_TOOLS
+from .tools import GOOGLE_WRITE_TOOLS, gmail_draft_preview
 
 logger = logging.getLogger("aloy_backend")
 
@@ -108,18 +108,25 @@ async def stream_agent_execution(
     bridge = ClarifyBridge(emit=emit_clarification)
     CLARIFY_BRIDGES[bridge] = owner
 
+    merged_tool_context = dict(tool_context_extra or {})
+    merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
+
     def emit_approval(event: dict) -> None:
         push(PoriEvent("approval_request", event, step=0))
 
-    approval_bridge = ApprovalBridge(emit=emit_approval)
+    def enrich_approval(tool: str, arguments: dict) -> dict:
+        # A "send this draft" gate carries only a draft id — fetch the draft's
+        # to/subject/body so the user reviews the real email, not an opaque id.
+        if tool == "gmail_send_draft" and arguments.get("draft_id"):
+            return gmail_draft_preview(merged_tool_context, str(arguments["draft_id"]))
+        return {}
+
+    approval_bridge = ApprovalBridge(emit=emit_approval, enrich=enrich_approval)
     APPROVAL_BRIDGES[approval_bridge] = owner
     # Consequential writes (send email, calendar changes) pause for the user's
     # yes/no — the Proposal-commit gate. Interactive path only: a run with a
     # user watching can be asked; durable/blocking paths don't wire this.
     hitl_config = build_write_hitl_config(GOOGLE_WRITE_TOOLS)
-
-    merged_tool_context = dict(tool_context_extra or {})
-    merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
 
     cancel_token = CancellationToken()
 

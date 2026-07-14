@@ -88,6 +88,53 @@ class TestApprovalBridge:
         bridge = ApprovalBridge(emit=lambda e: None)
         assert bridge.submit_decisions("nope", [{"type": "approve"}]) is False
 
+    async def test_enrich_adds_display_detail(self):
+        """A send_draft gate carries only a draft id; the enricher fills the
+        real email so the card shows it."""
+        frames = []
+
+        def enrich(tool, args):
+            assert tool == "gmail_send_draft" and args["draft_id"] == "d1"
+            return {"to": "a@b.com", "subject": "Hi", "body": "hello"}
+
+        bridge = ApprovalBridge(emit=frames.append, enrich=enrich)
+        req = ApprovalRequest(
+            action_requests=[
+                ActionRequest(
+                    name="gmail_send_draft",
+                    arguments={"draft_id": "d1"},
+                    description="",
+                )
+            ],
+            review_configs=[
+                ReviewConfig(
+                    action_name="gmail_send_draft", allowed_decisions=["approve"]
+                )
+            ],
+            task_id="t1",
+            step_number=1,
+        )
+        task = asyncio.create_task(bridge.request_approval(req))
+        await asyncio.sleep(0)
+        args = frames[0]["arguments"]
+        assert args["to"] == "a@b.com" and args["subject"] == "Hi"
+        assert args["body"] == "hello" and args["draft_id"] == "d1"
+        bridge.submit_decisions(frames[0]["id"], [{"type": "approve"}])
+        await task
+
+    async def test_enrich_failure_is_swallowed(self):
+        """Enrichment is best-effort — a raising enricher must not block the gate."""
+        frames = []
+        bridge = ApprovalBridge(
+            emit=frames.append,
+            enrich=lambda t, a: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        task = asyncio.create_task(bridge.request_approval(_request("gmail_send")))
+        await asyncio.sleep(0)
+        assert frames[0]["arguments"] == {"to": "a@b.com"}  # original args intact
+        bridge.submit_decisions(frames[0]["id"], [{"type": "approve"}])
+        await task
+
 
 class TestResolveApprovalOwnership:
     async def test_only_owner_can_resolve(self):

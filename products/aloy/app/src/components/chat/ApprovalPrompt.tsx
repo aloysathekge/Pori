@@ -70,13 +70,15 @@ function fieldsFor(
 ): [string, string][] {
   const str = (v: unknown) => (v == null ? '' : String(v));
   if (tool === 'gmail_send' || tool === 'gmail_send_draft') {
+    // draft_id is enriched server-side into to/subject/body — show the email,
+    // not the id. Fall back to the id only if enrichment couldn't read it.
     const rows: [string, string][] = [];
     if (args.to) rows.push(['To', str(args.to)]);
-    if (args.draft_id) rows.push(['Draft', str(args.draft_id)]);
     if (args.subject) rows.push(['Subject', str(args.subject)]);
     if (args.cc) rows.push(['Cc', str(args.cc)]);
     if (args.body) rows.push(['Body', str(args.body)]);
     if (rows.length) return rows;
+    if (args.draft_id) return [['Draft', str(args.draft_id)]];
   }
   return Object.entries(args).map(([k, v]) => [k, str(v)]);
 }

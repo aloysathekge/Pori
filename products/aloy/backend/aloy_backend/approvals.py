@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, Callable, Dict, Iterable, List
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from pori import (
     ApprovalRequest,
@@ -50,16 +50,30 @@ def build_write_hitl_config(write_tools: Iterable[str]) -> HITLConfig:
     )
 
 
-def _to_event(approval_id: str, request: ApprovalRequest) -> Dict[str, Any]:
+def _to_event(
+    approval_id: str,
+    request: ApprovalRequest,
+    enrich: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """The on-the-wire shape the client renders as an approval card. V1 reviews
-    one action at a time (the loop pauses per gated call)."""
+    one action at a time (the loop pauses per gated call).
+
+    ``enrich`` adds display detail the tool call itself lacks — e.g. a
+    ``gmail_send_draft`` carries only a draft id, so the enricher fetches the
+    draft's to/subject/body so the user reviews the real email, not an id."""
     action = request.action_requests[0]
     review = request.review_configs[0]
+    arguments: Dict[str, Any] = dict(action.arguments)
+    if enrich is not None:
+        try:
+            arguments.update(enrich(action.name, arguments) or {})
+        except Exception:  # enrichment is best-effort — never block the gate
+            pass
     return {
         "type": "approval_request",
         "id": approval_id,
         "tool": action.name,
-        "arguments": action.arguments,
+        "arguments": arguments,
         "description": action.description,
         "allowed_decisions": list(review.allowed_decisions),
     }
@@ -77,8 +91,13 @@ def _to_decision(payload: Dict[str, Any]) -> Decision:
 
 
 class ApprovalBridge(HITLHandler):
-    def __init__(self, emit: Callable[[Dict[str, Any]], Any]):
+    def __init__(
+        self,
+        emit: Callable[[Dict[str, Any]], Any],
+        enrich: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+    ):
         self._emit = emit
+        self._enrich = enrich
         self._pending: Dict[str, "asyncio.Future[list]"] = {}
 
     async def request_approval(self, request: ApprovalRequest) -> ApprovalResponse:
@@ -86,7 +105,7 @@ class ApprovalBridge(HITLHandler):
         loop = asyncio.get_running_loop()
         future: "asyncio.Future[list]" = loop.create_future()
         self._pending[approval_id] = future
-        self._emit(_to_event(approval_id, request))
+        self._emit(_to_event(approval_id, request, self._enrich))
         try:
             raw = await future  # list of decision dicts delivered by the endpoint
         finally:

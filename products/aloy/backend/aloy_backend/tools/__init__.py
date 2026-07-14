@@ -26,6 +26,7 @@ from .gmail import (
     GmailSendDraftParams,
     GmailSendParams,
     gmail_create_draft_tool,
+    gmail_draft_preview,
     gmail_list_drafts_tool,
     gmail_read_tool,
     gmail_search_tool,
@@ -141,6 +142,7 @@ __all__ = [
     "GOOGLE_TOOL_NAMES",
     "GOOGLE_WRITE_TOOLS",
     "LIBRARY_TOOL_NAMES",
+    "gmail_draft_preview",
     "register_google_tools",
     "register_library_tools",
 ]
