@@ -10,14 +10,20 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ... import live_runs
 from ...approvals import resolve_approval
 from ...database import get_session
+from ...models import ActionProposal
+from ...proposal_executor import (
+    ProposalDecisionError,
+    decide_proposal,
+    execute_proposal,
+)
 from ...rate_limit import rate_limited_permission
 from ...streaming import resolve_clarification, subscribe_frames
 from ...tenancy import OrganizationContext, Permission, require_permission
@@ -109,9 +115,11 @@ class ApproveBody(BaseModel):
 async def submit_approval(
     approval_id: str,
     body: ApproveBody,
+    background_tasks: BackgroundTasks,
     context: OrganizationContext = Depends(
         rate_limited_permission(Permission.RUN_CREATE)
     ),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Resolve a paused consequential-tool approval by delivering the user's
     decision (approve / reject / edit) to their waiting run — ownership enforced
@@ -123,4 +131,41 @@ async def submit_approval(
         user_id=context.user_id,
     ):
         return {"ok": True}
-    raise HTTPException(status_code=404, detail="Unknown or already-decided approval")
+    if not body.decisions:
+        raise HTTPException(status_code=422, detail="A decision is required")
+    proposal = await session.get(ActionProposal, approval_id)
+    if (
+        proposal is None
+        or proposal.organization_id != context.organization_id
+        or proposal.user_id != context.user_id
+    ):
+        raise HTTPException(
+            status_code=404, detail="Unknown or already-decided approval"
+        )
+    decision = body.decisions[0]
+    try:
+        proposal = await decide_proposal(
+            session,
+            event_id=proposal.event_id,
+            proposal_id=proposal.id,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            actor_id=context.user_id,
+            decision=decision.type,
+            edited_action=decision.edited_action,
+            message=decision.message,
+        )
+    except ProposalDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if proposal.status == "approved":
+        session_factory = async_sessionmaker(
+            session.bind,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        background_tasks.add_task(
+            execute_proposal,
+            proposal.id,
+            session_factory=session_factory,
+        )
+    return {"ok": True, "proposal_id": proposal.id, "status": proposal.status}
