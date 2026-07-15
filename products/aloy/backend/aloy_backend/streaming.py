@@ -34,7 +34,12 @@ from pori import (
 )
 
 from . import live_runs, resumable_runs
-from .approvals import APPROVAL_BRIDGES, ApprovalBridge, build_write_hitl_config
+from .approvals import (
+    APPROVAL_BRIDGES,
+    ApprovalBridge,
+    build_write_hitl_config,
+    proposal_write_gate,
+)
 from .event_log import EventLogCollector
 from .tools import GOOGLE_WRITE_TOOLS, gmail_draft_preview
 
@@ -121,12 +126,21 @@ async def stream_agent_execution(
             return gmail_draft_preview(merged_tool_context, str(arguments["draft_id"]))
         return {}
 
-    approval_bridge = ApprovalBridge(emit=emit_approval, enrich=enrich_approval)
-    APPROVAL_BRIDGES[approval_bridge] = owner
-    # Consequential writes (send email, calendar changes) pause for the user's
-    # yes/no — the Proposal-commit gate. Interactive path only: a run with a
-    # user watching can be asked; durable/blocking paths don't wire this.
-    hitl_config = build_write_hitl_config(GOOGLE_WRITE_TOOLS)
+    approval_bridge: ApprovalBridge | None = None
+    if run_context is not None and run_context.event_id:
+        hitl_handler, hitl_config = proposal_write_gate(
+            run_context=run_context,
+            tools_registry=orchestrator.tools_registry,
+            emit=emit_approval,
+            enrich=enrich_approval,
+            owner_loop=serving_loop,
+        )
+    else:
+        # Kernel-only and legacy callers have no Event aggregate to own a Proposal.
+        approval_bridge = ApprovalBridge(emit=emit_approval, enrich=enrich_approval)
+        APPROVAL_BRIDGES[approval_bridge] = owner
+        hitl_handler = approval_bridge
+        hitl_config = build_write_hitl_config(GOOGLE_WRITE_TOOLS)
 
     cancel_token = CancellationToken()
 
@@ -144,7 +158,7 @@ async def stream_agent_execution(
                 cancellation_token=cancel_token,
                 resume_task_id=resume_task_id,
                 sandbox_base_dir=sandbox_base_dir,
-                hitl_handler=approval_bridge,
+                hitl_handler=hitl_handler,
                 hitl_config=hitl_config,
             )
         )
@@ -162,7 +176,8 @@ async def stream_agent_execution(
         # so unblock it too (empty answer → the loop resumes → sees the token).
         cancel_token.cancel()
         bridge.cancel_pending()
-        approval_bridge.cancel_pending()
+        if approval_bridge is not None:
+            approval_bridge.cancel_pending()
 
     run_id = getattr(run_context, "run_id", "") or ""
     live = live_runs.register(conversation_id or run_id, run_id, cancel=request_stop)
@@ -180,9 +195,11 @@ async def stream_agent_execution(
             # The RUN owns the clarify bridge lifecycle (not the HTTP response):
             # a re-attached client can still answer a pending clarification.
             bridge.cancel_pending()
-            approval_bridge.cancel_pending()
+            if approval_bridge is not None:
+                approval_bridge.cancel_pending()
             CLARIFY_BRIDGES.pop(bridge, None)
-            APPROVAL_BRIDGES.pop(approval_bridge, None)
+            if approval_bridge is not None:
+                APPROVAL_BRIDGES.pop(approval_bridge, None)
             live.publish(_sse_event("done", {}))
             live.finish()
             live_runs.retire_later(conversation_id or run_id, live)

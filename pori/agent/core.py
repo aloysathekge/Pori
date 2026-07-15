@@ -148,6 +148,7 @@ class Agent:
     _current_task_has_loaded_skill = _completion._current_task_has_loaded_skill
     _SKILL_NUDGE_MIN_SCORE = _completion._SKILL_NUDGE_MIN_SCORE
     _required_skill_view_before_answer = _completion._required_skill_view_before_answer
+    _staged_outcome_claim_error = _completion._staged_outcome_claim_error
     _validate_answer_text = _completion._validate_answer_text
     _reject_action = _dispatch._reject_action
     execute_actions = _dispatch.execute_actions

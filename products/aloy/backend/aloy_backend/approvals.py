@@ -1,22 +1,21 @@
-"""Interactive HITL approval — the Proposal-commit rail.
+"""Proposal staging for consequential tools, plus the legacy approval bridge.
 
-When the agent is about to run a consequential tool (send an email, etc.), the
-kernel's HITL gate calls ``request_approval``; this bridge emits an
-``approval_request`` frame to the client and BLOCKS the run until the user
-approves or rejects via the approve endpoint. It is the twin of the clarify
-bridge (streaming.py): same emit-frame + await-future + ownership-scoped resolve
-plumbing, so a decision only ever resolves the caller's own paused run.
-
-The run executes on a worker thread (asyncio.run inside run_in_executor), so
-``request_approval`` awaits a future created on that worker loop; the endpoint
-resolves it from the serving loop via ``call_soon_threadsafe``.
+Event-aware Aloy runs use :class:`ProposalStagingHandler`: validate the tool
+payload, atomically persist Proposal + Trail, emit the durable proposal id, and
+return a kernel ``defer`` decision. The originating run never executes or waits
+for the external consequence. ``ApprovalBridge`` remains temporarily for
+kernel-only callers that have no Event aggregate.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
+
+from pydantic import ValidationError
 
 from pori import (
     ApprovalRequest,
@@ -26,7 +25,14 @@ from pori import (
     HITLConfig,
     HITLHandler,
     InterruptConfig,
+    RunContext,
+    stable_fingerprint,
 )
+
+from .database import async_session
+from .models import ActionProposal, Event, EventTrailEntry
+
+logger = logging.getLogger("aloy_backend")
 
 # Active approval bridges, keyed to the (organization_id, user_id) that owns the
 # run — mirrors streaming.CLARIFY_BRIDGES. A decision for an id owned by another
@@ -136,13 +142,134 @@ class ApprovalBridge(HITLHandler):
         return list(self._pending)
 
 
+def _proposal_impact(tool_name: str) -> str:
+    if tool_name.startswith("gmail_send"):
+        return "Will send an external email if later approved and committed."
+    if tool_name == "calendar_create_event":
+        return "Will create an external calendar event if later approved and committed."
+    return "Will perform an external action if later approved and committed."
+
+
+class ProposalStagingHandler(HITLHandler):
+    """Validate and durably stage gated calls without executing them."""
+
+    def __init__(
+        self,
+        *,
+        run_context: RunContext,
+        tools_registry: Any,
+        emit: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        enrich: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+        session_factory: Any = async_session,
+        owner_loop: Optional[asyncio.AbstractEventLoop] = None,
+    ):
+        self._run_context = run_context
+        self._tools_registry = tools_registry
+        self._emit = emit
+        self._enrich = enrich
+        self._session_factory = session_factory
+        self._owner_loop = owner_loop
+
+    async def _on_owner_loop(self, coroutine):
+        current = asyncio.get_running_loop()
+        if self._owner_loop is None or self._owner_loop is current:
+            return await coroutine
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._owner_loop)
+        return await asyncio.wrap_future(future)
+
+    async def _stage(self, request: ApprovalRequest, index: int) -> Decision:
+        action = request.action_requests[index]
+        try:
+            tool = self._tools_registry.get_tool(action.name)
+            validated = tool.param_model.model_validate(action.arguments)
+            normalized_args = validated.model_dump(mode="json")
+        except (ValueError, ValidationError) as exc:
+            return Decision(
+                type="reject",
+                message=f"Invalid staged action for {action.name}: {exc}",
+            )
+
+        event_id = self._run_context.event_id
+        if not event_id:
+            return Decision(type="reject", message="Event identity is required")
+
+        proposal = ActionProposal(
+            organization_id=self._run_context.organization_id,
+            user_id=self._run_context.user_id,
+            event_id=event_id,
+            origin_session_id=self._run_context.session_id,
+            origin_run_id=self._run_context.run_id,
+            tool=action.name,
+            args=normalized_args,
+            tool_schema_fingerprint=stable_fingerprint(
+                tool.param_model.model_json_schema()
+            ),
+            reason=(action.description or "Agent requested an external action.")[:4000],
+            impact=_proposal_impact(action.name),
+            risk="high",
+            routing="ask",
+            status="pending",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            safe_default={"decision": "reject"},
+        )
+        trail = EventTrailEntry(
+            organization_id=self._run_context.organization_id,
+            user_id=self._run_context.user_id,
+            event_id=event_id,
+            actor_id=self._run_context.agent_id,
+            kind="proposal_staged",
+            summary=f"Staged {action.name} for approval",
+            run_id=self._run_context.run_id,
+            proposal_id=proposal.id,
+            payload={
+                "tool": action.name,
+                "risk": proposal.risk,
+                "routing": proposal.routing,
+                "status": proposal.status,
+                "transitions": ["proposed", "routed", "pending"],
+            },
+        )
+
+        async with self._session_factory() as session:
+            event = await session.get(Event, event_id)
+            if (
+                event is None
+                or event.organization_id != self._run_context.organization_id
+                or event.user_id != self._run_context.user_id
+            ):
+                return Decision(type="reject", message="Event is unavailable")
+            session.add(proposal)
+            session.add(trail)
+            await session.commit()
+
+        result = {"status": "staged", "proposal_id": proposal.id}
+        if self._emit is not None:
+            event_payload = _to_event(
+                proposal.id,
+                request,
+                self._enrich,
+            )
+            event_payload.update(result)
+            self._emit(event_payload)
+        return Decision(type="defer", result=result)
+
+    async def request_approval(self, request: ApprovalRequest) -> ApprovalResponse:
+        decisions: List[Decision] = []
+        for index in range(len(request.action_requests)):
+            try:
+                decision = await self._on_owner_loop(self._stage(request, index))
+            except Exception:
+                logger.exception("Could not stage Proposal")
+                decision = Decision(
+                    type="reject",
+                    message="The external action could not be staged safely.",
+                )
+            decisions.append(decision)
+        return ApprovalResponse(decisions=decisions)
+
+
 class NonInteractiveDenyHandler(HITLHandler):
-    """The safety floor for runs with NO user to ask — the durable worker,
-    blocking calls, background jobs. A gated consequential tool is REJECTED, not
-    silently run: better to not-send than to send unapproved. The agent is told
-    it needs approval, so it surfaces that instead of acting. The real fix
-    (deferred approval / Notify routing — pause, ping, resume) is a later slice.
-    """
+    """Compatibility safety floor for non-Event kernel integrations."""
 
     REASON = (
         "This action needs your approval, but it ran in the background where I "
@@ -159,12 +286,35 @@ class NonInteractiveDenyHandler(HITLHandler):
 
 
 def non_interactive_write_gate() -> tuple[NonInteractiveDenyHandler, HITLConfig]:
-    """(handler, config) that DENIES the consequential write tools on any run
-    with no user attached. Wire into non-streaming execute_task calls (worker,
-    blocking) so a send can't slip through without approval."""
+    """Compatibility gate for callers that cannot persist Aloy Proposals."""
     from .tools import GOOGLE_WRITE_TOOLS  # local: keep this module tool-agnostic
 
     return NonInteractiveDenyHandler(), build_write_hitl_config(GOOGLE_WRITE_TOOLS)
+
+
+def proposal_write_gate(
+    *,
+    run_context: RunContext,
+    tools_registry: Any,
+    emit: Optional[Callable[[Dict[str, Any]], Any]] = None,
+    enrich: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+    session_factory: Any = async_session,
+    owner_loop: Optional[asyncio.AbstractEventLoop] = None,
+) -> tuple[ProposalStagingHandler, HITLConfig]:
+    """Build the unified staging gate for interactive and background runs."""
+    from .tools import GOOGLE_WRITE_TOOLS
+
+    return (
+        ProposalStagingHandler(
+            run_context=run_context,
+            tools_registry=tools_registry,
+            emit=emit,
+            enrich=enrich,
+            session_factory=session_factory,
+            owner_loop=owner_loop,
+        ),
+        build_write_hitl_config(GOOGLE_WRITE_TOOLS),
+    )
 
 
 def resolve_approval(

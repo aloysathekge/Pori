@@ -3,6 +3,7 @@ These are `Agent` methods, grouped here for readability and bound onto the
 class in `core` (they take `self`).
 """
 
+import re
 from typing import Optional, Tuple
 
 from pori.llm import SystemMessage, UserMessage
@@ -11,6 +12,43 @@ from ..utils.logging_config import ensure_logger_configured
 from .schemas import CompletionValidation
 
 logger = ensure_logger_configured("pori.agent")
+
+
+_COMMITTED_ACTION_CLAIM = re.compile(
+    r"\b(?:i|we)\s+(?:have\s+)?(?:sent|booked|published|scheduled|deleted|"
+    r"created|updated)\b|\b(?:email|message|booking|event|post|record)\s+"
+    r"(?:was\s+|has\s+been\s+)?(?:sent|booked|published|scheduled|deleted|"
+    r"created|updated)\b",
+    re.IGNORECASE,
+)
+
+
+def _staged_outcome_claim_error(self, answer_text: str) -> Optional[str]:
+    """Reject claims that a merely staged external consequence happened."""
+    staged = [
+        receipt
+        for receipt in self.execution_receipts
+        if receipt.status.value == "staged"
+    ]
+    if not staged or not _COMMITTED_ACTION_CLAIM.search(answer_text):
+        return None
+    lowered = answer_text.lower()
+    if any(
+        marker in lowered
+        for marker in (
+            "not sent",
+            "not been sent",
+            "not executed",
+            "awaiting approval",
+            "pending approval",
+            "staged for approval",
+        )
+    ):
+        return None
+    return (
+        "Cannot claim an external action completed when its receipt is only "
+        "staged. Say that it is awaiting approval and has not executed yet."
+    )
 
 
 def _current_task_status(self) -> str:

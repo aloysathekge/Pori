@@ -102,9 +102,10 @@ class EditedAction(BaseModel):
 class Decision(BaseModel):
     """A single human decision."""
 
-    type: Literal["approve", "edit", "reject"]
+    type: Literal["approve", "edit", "reject", "defer"]
     edited_action: Optional[EditedAction] = None
     message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
 
 
 class ApprovalResponse(BaseModel):

@@ -198,6 +198,7 @@ class ReceiptStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     REJECTED = "rejected"
+    STAGED = "staged"
     REUSED = "reused"
 
 

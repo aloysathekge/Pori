@@ -296,6 +296,36 @@ async def execute_actions(
                     response = await self.hitl_handler.request_approval(request)
                     decision = response.decisions[0]
 
+                    if decision.type == "defer":
+                        staged = decision.result or {"status": "staged"}
+                        self.memory.add_message(
+                            "system",
+                            f"{tool_name} was staged and has not executed: {staged}",
+                        )
+                        self.memory.add_tool_call(
+                            tool_name=tool_name,
+                            parameters=params,
+                            result=staged,
+                            success=False,
+                        )
+                        results.append(
+                            ActionResult(
+                                success=True,
+                                value=staged,
+                                include_in_memory=True,
+                            )
+                        )
+                        self._record_tool_receipt(
+                            tool_name,
+                            params,
+                            ReceiptStatus.STAGED,
+                            metadata={
+                                "proposal_id": staged.get("proposal_id"),
+                                "executed": False,
+                            },
+                        )
+                        continue
+
                     if decision.type == "reject":
                         msg = decision.message or "Action rejected by human."
                         logger.info(
@@ -424,6 +454,13 @@ async def execute_actions(
                         + "; ".join(artifact_reference_errors)
                     )
                     self._reject_action(tool_name, params, results, reject_msg)
+                    continue
+
+                staged_claim_error = self._staged_outcome_claim_error(answer_text)
+                if staged_claim_error:
+                    self._reject_action(
+                        tool_name, params, results, staged_claim_error, log_level="info"
+                    )
                     continue
 
                 # 2) Semantic (opt-in via validate_output): LLM judges adequacy,
