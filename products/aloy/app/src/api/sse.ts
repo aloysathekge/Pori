@@ -99,6 +99,9 @@ export async function attachLiveRun(
           watchdogSignal,
           'GET',
         );
+        if (res.status === 204) {
+          throw new ApiError(204, 'No live run');
+        }
         onAttached?.();
         return res;
       },
@@ -107,7 +110,9 @@ export async function attachLiveRun(
     );
     return true;
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return false; // no live run
+    if (err instanceof ApiError && (err.status === 204 || err.status === 404)) {
+      return false; // no live run (404 remains compatible with older backends)
+    }
     throw err;
   }
 }
