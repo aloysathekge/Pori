@@ -1,6 +1,25 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 Phase 4 Proposal commit rail)._
+_Last updated: 2026-07-15 (Aloy V1 Phase 5 Tasks + Surfaces)._
+
+## NEW: Aloy V1 Phase 5 — Tasks + Project Surface + Today (2026-07-15)
+
+Phase 4 is merged into `aloy-v1` as #167. Phase 5 is implemented on
+`aloy-v1-phase-5-surfaces`: manual Project Event creation; two-or-more Sessions
+sharing one Event; direct user and agent Task mutations with atomic Trail
+entries; a trusted templated Event Surface recomputed from Event/Task/Proposal/
+Trail/StoredFile rows; and a Life-first Today lens over pending decisions,
+recent committed/evidenced changes, recent Trail activity, and open Tasks.
+Today is now the signed-in app landing page. Pending Proposals can be approved
+or rejected from both Today and their Event Surface through the Phase 4 commit
+rail. `task_create`/`task_update` are Aloy product tools; the kernel gained a
+small generic async-tool execution seam so database-backed product tools do not
+block the agent loop. Verification: 601 kernel tests passed (1 skipped), all
+224 backend tests passed, kernel mypy is clean across 106 files, backend mypy
+is clean across 83 files, and the Aloy app build + lint are green. Phase 6 is
+the founder-account 60-second hero flow and deliberate crash-window drill; do
+not add Reality Objects, learned routing, cross-Event retrieval, or free-form
+model-composed Surfaces.
 
 ## NEW: Aloy V1 Phase 4 — Proposal executor + commit rail (2026-07-15)
 

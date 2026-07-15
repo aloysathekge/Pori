@@ -109,6 +109,7 @@ class RunResponse(BaseModel):
 class ConversationCreate(BaseModel):
     title: str | None = None
     agent_config_id: str | None = None
+    event_id: str | None = None
 
 
 class ConversationUpdate(BaseModel):

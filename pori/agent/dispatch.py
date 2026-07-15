@@ -538,7 +538,7 @@ async def execute_actions(
                     extra={"task_id": self.task_id},
                 )
 
-            tool_result = self.tool_executor.execute_tool(
+            tool_result = await self.tool_executor.execute_tool_async(
                 tool_name=tool_name,
                 params=params,
                 context=tool_context,

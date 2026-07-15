@@ -34,6 +34,7 @@ from .gmail import (
     gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
+from .tasks import TaskMutationHandler, register_task_tools
 
 # Every tool the 'google' connection unlocks, and the write subset a deployment
 # may want to HITL-gate (hitl.interrupt_on: {gmail_send: true, ...}).
@@ -145,4 +146,6 @@ __all__ = [
     "gmail_draft_preview",
     "register_google_tools",
     "register_library_tools",
+    "register_task_tools",
+    "TaskMutationHandler",
 ]

@@ -20,6 +20,7 @@ from .runs import router as runs_router
 from .skills import router as skills_router
 from .system import router as system_router
 from .teams import router as teams_router
+from .today import router as today_router
 from .traces import router as traces_router
 from .usage import router as usage_router
 from .users import router as users_router
@@ -33,6 +34,7 @@ router.include_router(teams_router)
 router.include_router(skills_router)
 router.include_router(evolution_router)
 router.include_router(events_router)
+router.include_router(today_router)
 router.include_router(usage_router)
 router.include_router(users_router)
 router.include_router(memory_router)

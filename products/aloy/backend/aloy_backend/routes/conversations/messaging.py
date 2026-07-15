@@ -59,6 +59,7 @@ from ...storage import safe_name
 from ...streaming import stream_agent_execution
 from ...team_execution import build_team_from_config
 from ...tenancy import OrganizationContext, Permission
+from ...tools import TaskMutationHandler
 from ._helpers import _load_conv, _maybe_generate_title, _render_file_block
 
 logger = logging.getLogger("aloy_backend")
@@ -684,11 +685,18 @@ async def _run_blocking(
             tools_registry=orchestrator.tools_registry,
             session_factory=async_session,
         )
+        tool_context = {
+            **surface.tool_context_extra,
+            "task_mutator": TaskMutationHandler(
+                run_context=run_context,
+                session_factory=async_session,
+            ),
+        }
         agent_result = await orchestrator.execute_task(
             task=task_content,
             agent_settings=agent_settings,
             run_context=run_context,
-            tool_context_extra=surface.tool_context_extra,
+            tool_context_extra=tool_context,
             mcp_servers=surface.mcp_servers,
             task_attachments=task_attachments,
             sandbox_base_dir=sandbox_base_dir(),

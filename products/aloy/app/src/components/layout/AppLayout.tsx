@@ -13,11 +13,13 @@ import {
   SettingsIcon,
   SkillsIcon,
   TeamsIcon,
+  TodayIcon,
   TracesIcon,
   UsageIcon,
 } from '@/components/icons';
 
 const navItems = [
+  { to: '/today', icon: TodayIcon, label: 'Today' },
   { to: '/chat', icon: ChatIcon, label: 'Chat' },
   { to: '/files', icon: FolderOpen, label: 'My Files' },
   { to: '/agents', icon: AgentsIcon, label: 'Agents' },

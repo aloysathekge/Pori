@@ -18,7 +18,7 @@ from sqlmodel import col, select
 
 from ...database import get_session
 from ...events import ensure_life_event
-from ...models import ContextArtifact, Conversation, Message
+from ...models import ContextArtifact, Conversation, Event, Message
 from ...schemas import (
     ConversationBranchRequest,
     ConversationCreate,
@@ -42,15 +42,25 @@ async def create_conversation(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
 ) -> ConversationResponse:
-    life = await ensure_life_event(
-        session,
-        organization_id=context.organization_id,
-        user_id=context.user_id,
-    )
+    if req.event_id:
+        event = await session.get(Event, req.event_id)
+        if (
+            event is None
+            or event.organization_id != context.organization_id
+            or event.user_id != context.user_id
+            or event.lifecycle == "archived"
+        ):
+            raise HTTPException(status_code=404, detail="Event not found")
+    else:
+        event = await ensure_life_event(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+        )
     conv = Conversation(
         organization_id=context.organization_id,
         user_id=context.user_id,
-        event_id=life.id,
+        event_id=event.id,
         title=req.title,
         agent_config_id=req.agent_config_id,
     )

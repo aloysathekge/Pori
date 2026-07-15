@@ -1,3 +1,4 @@
+import pytest
 from pydantic import BaseModel, Field
 
 from pori.evolution import EvolutionRepository
@@ -19,6 +20,30 @@ def test_tool_registry_register_and_execute(tool_registry):
 
     assert result["success"] is True
     assert "Test result: abc, 7" in result["result"]
+
+
+@pytest.mark.asyncio
+async def test_async_tool_execution_is_awaited(tool_registry):
+    """Product tools may own async resources without blocking dispatch."""
+    from pori.tools.registry import ToolExecutor
+
+    class Params(BaseModel):
+        value: int
+
+    async def async_tool(params, context):
+        return {"value": params.value, "tenant": context["tenant"]}
+
+    tool_registry.register_tool(
+        "async_tool",
+        Params,
+        async_tool,
+        "Exercise an asynchronous product tool.",
+    )
+    result = await ToolExecutor(tool_registry).execute_tool_async(
+        "async_tool", {"value": 7}, {"tenant": "one"}
+    )
+
+    assert result == {"success": True, "result": {"value": 7, "tenant": "one"}}
 
 
 def test_tool_registry_decorator_registration():
