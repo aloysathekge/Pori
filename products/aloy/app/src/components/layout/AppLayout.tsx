@@ -6,13 +6,11 @@ import {
   ChevronRight,
   FileText,
   Folder,
-  FolderPlus,
   LogOut,
   Menu,
   MessageSquare,
   MessageSquarePlus,
   PanelLeftClose,
-  Sparkles,
   Settings,
   X,
 } from 'lucide-react';
@@ -21,7 +19,7 @@ import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { AloyMark, MemoryIcon, TodayIcon } from '@/components/icons';
+import { AloyMark, EventIcon, MemoryIcon, TodayIcon } from '@/components/icons';
 
 const utilityItems = [
   { to: '/files', icon: FileText, label: 'Files' },
@@ -145,53 +143,59 @@ export function AppLayout() {
         </div>
 
         <div className={`flex-1 overflow-y-auto ${compact ? 'px-2' : 'px-3'} py-3`}>
-          <RailLink to="/chat" icon={MessageSquare} label="Chat" compact={compact} onClick={closeMobile} />
+          {compact ? (
+            <RailLink to="/chat" icon={MessageSquare} label="Chat" compact onClick={closeMobile} />
+          ) : (
+            <div className="group relative">
+              <NavLink
+                to="/chat"
+                onClick={closeMobile}
+                className={({ isActive }) =>
+                  `flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 pr-10 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
+                  }`
+                }
+              >
+                <MessageSquare size={17} className="shrink-0" />
+                <span>Chat</span>
+              </NavLink>
+              <button
+                type="button"
+                onClick={startConversation}
+                aria-label="Start a new conversation"
+                title="New conversation"
+                className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 opacity-70 transition-colors hover:bg-zinc-700 hover:text-zinc-200 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              >
+                <MessageSquarePlus size={15} />
+              </button>
+            </div>
+          )}
           <RailLink to="/today" icon={TodayIcon} label="Today" compact={compact} onClick={closeMobile} />
 
-          <div className="mt-3 space-y-2">
-            <Button
-              variant="ghost"
-              size={compact ? 'icon' : 'sm'}
-              className={
-                compact
-                  ? 'w-full text-zinc-500'
-                  : 'w-full justify-start rounded-lg px-2.5 text-zinc-400'
-              }
-              onClick={startConversation}
-              title="New conversation"
-            >
-              <MessageSquarePlus size={16} />
-              {!compact && <span>New chat</span>}
-            </Button>
+          <div className="mt-3">
             <button
               type="button"
               onClick={startEvent}
               title={compact ? 'Start a new Event workspace' : undefined}
-              className={`group relative w-full overflow-hidden border border-accent-500/30 bg-gradient-to-br from-accent-500/20 via-accent-600/10 to-zinc-900 text-left shadow-[0_12px_32px_-20px_rgba(22,145,118,0.9)] transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-400/60 hover:from-accent-500/25 hover:shadow-[0_16px_36px_-18px_rgba(22,145,118,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+              className={`group w-full border border-zinc-800 bg-zinc-900 text-left transition-colors hover:border-accent-500/45 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                 compact
-                  ? 'flex h-11 items-center justify-center rounded-xl'
-                  : 'rounded-2xl px-3 py-3'
+                  ? 'flex h-10 items-center justify-center rounded-xl text-accent-400'
+                  : 'flex h-11 items-center gap-2.5 rounded-xl px-2.5'
               }`}
             >
               {compact ? (
-                <FolderPlus size={18} className="text-accent-300" />
+                <EventIcon size={18} />
               ) : (
                 <>
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent-400/20 bg-accent-500/20 text-accent-200">
-                      <FolderPlus size={18} />
-                    </span>
-                    <span className="min-w-0 pt-0.5">
-                      <span className="block text-sm font-semibold text-zinc-50">Start an Event</span>
-                      <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">
-                        A durable workspace for real work
-                      </span>
-                    </span>
-                  </div>
-                  <Sparkles
-                    size={15}
-                    className="absolute right-3 top-3 text-accent-300/80 transition-transform group-hover:rotate-12 group-hover:scale-110"
-                  />
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-500/10 text-accent-300 transition-colors group-hover:bg-accent-500/15">
+                    <EventIcon size={17} />
+                  </span>
+                  <span className="text-sm font-semibold text-zinc-200">New Event</span>
+                  <span className="ml-auto text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-600 group-hover:text-zinc-500">
+                    Workspace
+                  </span>
                 </>
               )}
             </button>

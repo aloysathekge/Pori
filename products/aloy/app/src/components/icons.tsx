@@ -54,6 +54,17 @@ export function ChatIcon(props: IconProps) {
   );
 }
 
+/** Event: a bounded workspace holding a continuing trail of durable state. */
+export function EventIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M8 8h5.5M8 12h8M8 16h5" />
+      <circle cx="17" cy="8" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Agents: an orbiting presence around a core. */
 export function AgentsIcon(props: IconProps) {
   return (
