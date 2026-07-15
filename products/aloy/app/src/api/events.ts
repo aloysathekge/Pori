@@ -49,6 +49,17 @@ export interface EventTask {
   updated_at: string;
 }
 
+export interface TaskExecutionResponse {
+  task: EventTask;
+  run: {
+    id: string;
+    status: string;
+    conversation_id: string | null;
+    attempt_count: number;
+  } | null;
+  idempotent: boolean;
+}
+
 export interface EventProposal {
   id: string;
   event_id: string;
@@ -166,6 +177,31 @@ export function updateEventTask(
 export function deleteEventTask(eventId: string, taskId: string) {
   return apiFetch<void>(`/events/${eventId}/tasks/${taskId}`, {
     method: 'DELETE',
+  });
+}
+
+export function workOnEventTask(eventId: string, taskId: string) {
+  return apiFetch<TaskExecutionResponse>(`/events/${eventId}/tasks/${taskId}/work`, {
+    method: 'POST',
+  });
+}
+
+export function stopEventTask(eventId: string, taskId: string) {
+  return apiFetch<TaskExecutionResponse>(`/events/${eventId}/tasks/${taskId}/stop`, {
+    method: 'POST',
+  });
+}
+
+export function retryEventTask(eventId: string, taskId: string) {
+  return apiFetch<TaskExecutionResponse>(`/events/${eventId}/tasks/${taskId}/retry`, {
+    method: 'POST',
+  });
+}
+
+export function resumeEventTask(eventId: string, taskId: string, response?: string) {
+  return apiFetch<TaskExecutionResponse>(`/events/${eventId}/tasks/${taskId}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({ response: response || null }),
   });
 }
 

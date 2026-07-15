@@ -23,8 +23,14 @@ _RETIRE_AFTER_SECONDS = 120
 class LiveRun:
     """One in-flight run's frame buffer + live subscribers (serving-loop only)."""
 
-    def __init__(self, run_id: str, cancel: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        run_id: str,
+        cancel: Optional[Callable[[], None]] = None,
+        owner: tuple[str, str] | None = None,
+    ):
         self.run_id = run_id
+        self.owner = owner
         self.history: List[str] = []
         self.queues: Set[asyncio.Queue] = set()
         self.done = False
@@ -66,15 +72,22 @@ _LIVE: Dict[str, LiveRun] = {}  # conversation_id -> the conversation's live run
 
 
 def register(
-    conversation_id: str, run_id: str, cancel: Optional[Callable[[], None]] = None
+    conversation_id: str,
+    run_id: str,
+    cancel: Optional[Callable[[], None]] = None,
+    owner: tuple[str, str] | None = None,
 ) -> LiveRun:
-    live = LiveRun(run_id, cancel=cancel)
+    live = LiveRun(run_id, cancel=cancel, owner=owner)
     _LIVE[conversation_id] = live
     return live
 
 
 def get(conversation_id: str) -> Optional[LiveRun]:
     return _LIVE.get(conversation_id)
+
+
+def active_count(owner: tuple[str, str]) -> int:
+    return sum(1 for live in _LIVE.values() if live.owner == owner and not live.done)
 
 
 def retire_later(conversation_id: str, live: LiveRun) -> None:

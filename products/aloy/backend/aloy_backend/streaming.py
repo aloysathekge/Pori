@@ -185,7 +185,12 @@ async def stream_agent_execution(
             approval_bridge.cancel_pending()
 
     run_id = getattr(run_context, "run_id", "") or ""
-    live = live_runs.register(conversation_id or run_id, run_id, cancel=request_stop)
+    live = live_runs.register(
+        conversation_id or run_id,
+        run_id,
+        cancel=request_stop,
+        owner=owner,
+    )
 
     async def pump() -> None:
         try:

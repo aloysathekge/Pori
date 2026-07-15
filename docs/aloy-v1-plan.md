@@ -328,8 +328,8 @@ Gate:
 
 ## 8. Immediate next action
 
-Finish R2 on `aloy-v1-r2-task-model`: run draft-PR CI and verify the additive
-migration, provenance isolation, legal transitions, atomic claims, and
-Task/Trail consistency. Merge R2 into `aloy-v1` only when those checks pass.
-Then create `aloy-v1-r3-task-execution` from the updated integration branch;
-do not add **Work on this** or worker execution on the unmerged R2 branch.
+Finish R3 on `aloy-v1-r3-task-execution`: complete local running-stack QA of
+**Work on this**, queued Event work, Stop, Retry, checkpoint Resume, and correct
+Life/dedicated-Event Conversation routing. The automated R3 suite is green; push
+the focused phase commits, open a draft PR targeting `aloy-v1`, and merge only
+after CI. Do not add R4 live Event SSE or R5 research tooling to the R3 branch.
