@@ -19,6 +19,7 @@ from ..event_presenters import (
 from ..events import ensure_life_event
 from ..models import ActionProposal, Event, EventTrailEntry, Task
 from ..rate_limit import rate_limited_permission
+from ..task_state import ACTIVE_TASK_STATUSES
 from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/today", tags=["today"])
@@ -115,7 +116,7 @@ async def get_today(
                     col(Task.event_id).in_(event_ids),
                     Task.organization_id == context.organization_id,
                     Task.user_id == context.user_id,
-                    Task.status == "open",
+                    col(Task.status).in_(ACTIVE_TASK_STATUSES),
                 )
                 .order_by(col(Task.order), col(Task.created_at))
             )

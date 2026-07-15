@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
@@ -16,12 +16,30 @@ from pori import RunContext
 from ..database import async_session
 from ..event_presenters import task_payload
 from ..models import Event, EventTrailEntry, Task
+from ..task_state import (
+    TaskBudgetPolicy,
+    TaskExecutionMode,
+    TaskPriority,
+    TaskStateError,
+    TaskStatus,
+    mutate_task,
+    resolve_task_origin,
+    task_snapshot,
+)
 
 
 class TaskCreateParams(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     title: str = Field(min_length=1, max_length=1000)
+    instructions: str = Field(default="", max_length=50_000)
+    definition_of_done: str = Field(default="", max_length=10_000)
+    priority: TaskPriority = "normal"
+    due_at: datetime | None = None
+    execution_mode: TaskExecutionMode = "manual"
+    assigned_agent_id: str | None = Field(default=None, max_length=200)
+    origin_conversation_id: str | None = None
+    budget_policy: TaskBudgetPolicy = Field(default_factory=TaskBudgetPolicy)
     order: int | None = None
 
 
@@ -30,7 +48,17 @@ class TaskUpdateParams(BaseModel):
 
     task_id: str = Field(min_length=1)
     title: str | None = Field(default=None, min_length=1, max_length=1000)
-    status: Literal["open", "done"] | None = None
+    status: TaskStatus | None = None
+    instructions: str | None = Field(default=None, max_length=50_000)
+    definition_of_done: str | None = Field(default=None, max_length=10_000)
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+    execution_mode: TaskExecutionMode | None = None
+    assigned_agent_id: str | None = Field(default=None, max_length=200)
+    origin_conversation_id: str | None = None
+    result_summary: str | None = Field(default=None, max_length=50_000)
+    blocker: str | None = Field(default=None, max_length=10_000)
+    budget_policy: TaskBudgetPolicy | None = None
     order: int | None = None
 
 
@@ -88,7 +116,19 @@ class TaskMutationHandler:
                 organization_id=event.organization_id,
                 user_id=event.user_id,
                 event_id=event.id,
+                origin_conversation_id=await self._resolve_origin(
+                    session,
+                    event=event,
+                    explicit=params.origin_conversation_id,
+                ),
                 title=params.title,
+                instructions=params.instructions,
+                definition_of_done=params.definition_of_done,
+                priority=params.priority,
+                due_at=params.due_at,
+                execution_mode=params.execution_mode,
+                assigned_agent_id=params.assigned_agent_id,
+                budget_policy=params.budget_policy.model_dump(exclude_none=True),
                 order=order,
                 created_by=self._run_context.agent_id,
             )
@@ -105,7 +145,12 @@ class TaskMutationHandler:
                     summary=f"Created task {task.title}",
                     run_id=self._run_context.run_id,
                     task_id=task.id,
-                    payload={"action": "created", "status": "open", "order": order},
+                    evidence_refs=(
+                        [{"conversation_id": task.origin_conversation_id}]
+                        if task.origin_conversation_id
+                        else []
+                    ),
+                    payload={"action": "created", "after": task_snapshot(task)},
                 )
             )
             await session.commit()
@@ -115,10 +160,36 @@ class TaskMutationHandler:
     async def create(self, params: TaskCreateParams) -> dict[str, Any]:
         return await self._on_owner_loop(self._create(params))
 
+    async def _resolve_origin(
+        self,
+        session: AsyncSession,
+        *,
+        event: Event,
+        explicit: str | None,
+    ) -> str | None:
+        if explicit is not None:
+            return await resolve_task_origin(
+                session,
+                event=event,
+                preferred_conversation_id=explicit,
+            )
+        try:
+            return await resolve_task_origin(
+                session,
+                event=event,
+                preferred_conversation_id=self._run_context.session_id,
+            )
+        except TaskStateError:
+            return await resolve_task_origin(session, event=event)
+
     async def _update(self, params: TaskUpdateParams) -> dict[str, Any]:
-        changes = params.model_dump(
-            exclude={"task_id"}, exclude_unset=True, exclude_none=True
-        )
+        submitted = params.model_dump(exclude={"task_id"}, exclude_unset=True)
+        nullable_fields = {"due_at", "assigned_agent_id", "origin_conversation_id"}
+        changes = {
+            key: value
+            for key, value in submitted.items()
+            if value is not None or key in nullable_fields
+        }
         if not changes:
             raise ValueError("At least one Task change is required")
         async with self._session_factory() as session:
@@ -131,30 +202,15 @@ class TaskMutationHandler:
                 or task.user_id != event.user_id
             ):
                 raise ValueError("Task is unavailable")
-            before = {"title": task.title, "status": task.status, "order": task.order}
-            if "title" in changes:
-                task.title = str(changes["title"])
-            if "status" in changes:
-                task.status = str(changes["status"])
-            if "order" in changes:
-                task.order = int(changes["order"])
-            task.updated_at = datetime.now(timezone.utc)
-            event.updated_at = task.updated_at
-            after = {"title": task.title, "status": task.status, "order": task.order}
-            session.add(task)
-            session.add(event)
-            session.add(
-                EventTrailEntry(
-                    organization_id=event.organization_id,
-                    user_id=event.user_id,
-                    event_id=event.id,
-                    actor_id=self._run_context.agent_id,
-                    kind="task_changed",
-                    summary=f"Updated task {task.title}",
-                    run_id=self._run_context.run_id,
-                    task_id=task.id,
-                    payload={"action": "updated", "before": before, "after": after},
-                )
+            if "budget_policy" in changes:
+                changes["budget_policy"] = dict(changes["budget_policy"])
+            await mutate_task(
+                session,
+                event=event,
+                task=task,
+                changes=changes,
+                actor_id=self._run_context.agent_id,
+                source_run_id=self._run_context.run_id,
             )
             await session.commit()
             await session.refresh(task)
@@ -195,8 +251,8 @@ def register_task_tools(registry) -> None:
             param_model=TaskUpdateParams,
             function=task_update_tool,
             description=(
-                "Update, complete, reopen, rename, or reorder a task in the "
-                "current Event and record the change in the Trail."
+                "Update a task in the current Event through its legal state "
+                "machine and record the change in the Trail."
             ),
         )
 

@@ -22,6 +22,7 @@ import {
   getEventSurface,
   updateEventTask,
   type EventSurfaceResponse,
+  type EventTask,
 } from '@/api/events';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { Composer } from '@/components/chat/Composer';
@@ -45,6 +46,14 @@ function when(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function taskStatusLabel(status: EventTask['status']) {
+  return status.replaceAll('_', ' ');
+}
+
+function taskCanToggle(status: EventTask['status']) {
+  return status === 'open' || status === 'done';
 }
 
 export function EventPage() {
@@ -175,8 +184,8 @@ export function EventPage() {
     }
   }
 
-  async function toggleTask(taskId: string, status: 'open' | 'done') {
-    await updateEventTask(eventId, taskId, { status: status === 'open' ? 'done' : 'open' });
+  async function toggleTask(taskId: string, status: EventTask['status']) {
+    await updateEventTask(eventId, taskId, { status: status === 'done' ? 'open' : 'done' });
     await loadSurface();
   }
 
@@ -204,7 +213,9 @@ export function EventPage() {
   const tasks = tasksSection?.kind === 'tasks' ? tasksSection.tasks : [];
   const activity = activitySection?.kind === 'activity' ? activitySection.entries : [];
   const files = filesSection?.kind === 'files' ? filesSection.files : [];
-  const openTasks = tasks.filter((task) => task.status === 'open').length;
+  const openTasks = tasks.filter(
+    (task) => task.status !== 'done' && task.status !== 'cancelled',
+  ).length;
 
   const tabs: Array<{ id: ContextTab; icon: typeof ListTodo; label: string; count?: number }> = [
     { id: 'tasks', icon: ListTodo, label: 'Tasks', count: openTasks },
@@ -347,10 +358,15 @@ export function EventPage() {
                 <div className="mt-4 divide-y divide-zinc-800">
                   {tasks.map((task) => (
                     <div key={task.id} className="group flex items-start gap-2.5 py-3">
-                      <button type="button" onClick={() => void toggleTask(task.id, task.status)} className="mt-0.5 text-zinc-500 hover:text-accent-700" aria-label={task.status === 'open' ? 'Complete task' : 'Reopen task'}>
+                      <button type="button" onClick={() => void toggleTask(task.id, task.status)} disabled={!taskCanToggle(task.status)} className="mt-0.5 text-zinc-500 hover:text-accent-700 disabled:cursor-default disabled:hover:text-zinc-500" aria-label={task.status === 'open' ? 'Complete task' : task.status === 'done' ? 'Reopen task' : `Task is ${taskStatusLabel(task.status)}`}>
                         {task.status === 'done' ? <CheckCircle2 size={17} /> : <Circle size={17} />}
                       </button>
                       <span className={`min-w-0 flex-1 text-sm leading-5 ${task.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{task.title}</span>
+                      {task.status !== 'open' && task.status !== 'done' && (
+                        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium capitalize text-zinc-400">
+                          {taskStatusLabel(task.status)}
+                        </span>
+                      )}
                       <button type="button" onClick={() => void removeTask(task.id)} className="rounded p-1 text-zinc-600 opacity-0 hover:text-red-500 group-hover:opacity-100 focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
                     </div>
                   ))}
