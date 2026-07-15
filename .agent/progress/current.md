@@ -28,6 +28,15 @@ Surface/Trail updates, sourced research, the Gmail decision/receipt hero loop,
 and reliability/context release gates.
 Do not jump directly to the old "Building Aloy" hero-flow phase.
 
+R0 automated close-out update: commits `1cbd7a5` (migration formatting) and
+`98d1710` (vision v2.1 + R0–R7 plan) are pushed to PR #168. All seven GitHub
+checks are green. Local verification is also green: Black (`153 files`), all
+`225` backend tests using a workspace-local pytest temp root, backend mypy
+(`83 source files`), app ESLint/build, API `/v1/health`, Vite HTTP 200, and the
+worker process chain. The only remaining R0 gate is signed-in browser visual and
+interaction QA; the browser-control runtime was unavailable in this session,
+so the PR remains draft and must not merge yet.
+
 ## NEW: Aloy V1 Phase 5 — Tasks + Project Surface + Today (2026-07-15)
 
 Phase 4 is merged into `aloy-v1` as #167. Phase 5 is implemented on

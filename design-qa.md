@@ -38,17 +38,22 @@ collapsed context state.
 - Spacing and layout rhythm: three-region shell implemented; visual comparison blocked.
 - Colors and visual tokens: Aloy's existing warm neutral and teal tokens retained; visual comparison blocked.
 - Image quality and asset fidelity: no new raster assets; existing Aloy mark and Lucide icon system retained.
-- Copy and content: Event-first language and one continuous Session are implemented.
+- Copy and content: dedicated Event language and one canonical continuous Conversation are implemented.
 
 ## Primary interactions tested
 
 - Production TypeScript build and ESLint passed.
-- Backend canonical-conversation, Event, Task, and API tests passed.
+- All 225 backend tests passed with a workspace-local pytest temp root.
+- Backend mypy passed across 83 source files.
+- All seven GitHub checks passed after the migration formatting correction.
 - Local API and Vite servers respond through `make dev`.
 - Context tabs, collapse control, composer, and signed-in browser console could not be exercised through browser automation.
 
 ## Comparison history
 
 - Pass 1: blocked before implementation capture; no visual fixes claimed.
+- Pass 2: R0 automated code, build, runtime-health, and CI gates passed; signed-in
+  browser capture and interaction checks remain blocked because the required
+  browser-control runtime is unavailable in this session.
 
 final result: blocked

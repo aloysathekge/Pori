@@ -63,14 +63,18 @@ Do not create R1 from the current unmerged branch.
 
 ## Known state and blockers
 
-- PR #168 is draft and all observed CI checks pass except the backend format
-  check; Black reports only the migration file above.
+- PR #168 remains draft. The migration was formatted in `1cbd7a5`, the plan was
+  committed in `98d1710`, and all seven GitHub checks are green.
 - The previous visual QA report is blocked because in-app browser control was
   unavailable. R0 is not complete until signed-in visual and interaction QA
   passes.
 - The local stack was last healthy at API `http://127.0.0.1:8000` and web
   `http://localhost:5173`; recheck it before relying on that state.
-- No runtime implementation changed during this vision/replanning pass.
+- Local R0 verification is green: Black (`153 files`), `225` backend tests,
+  backend mypy (`83 source files`), app ESLint/build, API health, web health,
+  and the worker chain. The initial pytest attempt hit a Windows permission
+  error in the shared system temp directory; rerunning with a unique
+  workspace-local `--basetemp` passed all tests.
 
 ## Verification for this planning pass
 
