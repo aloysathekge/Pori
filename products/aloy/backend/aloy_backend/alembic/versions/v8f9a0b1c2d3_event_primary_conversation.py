@@ -20,7 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("events") as batch:
-        batch.add_column(sa.Column("primary_conversation_id", sa.String(), nullable=True))
+        batch.add_column(
+            sa.Column("primary_conversation_id", sa.String(), nullable=True)
+        )
         batch.create_index(
             "ix_events_primary_conversation_id", ["primary_conversation_id"]
         )
