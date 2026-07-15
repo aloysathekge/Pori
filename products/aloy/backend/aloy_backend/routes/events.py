@@ -20,7 +20,14 @@ from ..event_presenters import (
     trail_payload,
 )
 from ..events import ensure_event_conversation, ensure_life_event
-from ..models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
+from ..models import (
+    ActionProposal,
+    Conversation,
+    Event,
+    EventTrailEntry,
+    StoredFile,
+    Task,
+)
 from ..proposal_executor import (
     ProposalDecisionError,
     decide_proposal,
@@ -39,6 +46,7 @@ class EventCreateBody(BaseModel):
     summary: str = Field(default="", max_length=2000)
     phase: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=50_000)
+    origin_conversation_id: str | None = None
 
 
 class TaskCreateBody(BaseModel):
@@ -97,6 +105,21 @@ async def create_event(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a Project Event directly under the user's authority."""
+    origin: Conversation | None = None
+    if body.origin_conversation_id:
+        origin = await session.get(Conversation, body.origin_conversation_id)
+        if (
+            origin is None
+            or origin.organization_id != context.organization_id
+            or origin.user_id != context.user_id
+        ):
+            raise HTTPException(status_code=404, detail="Origin conversation not found")
+        origin_event = await session.get(Event, origin.event_id)
+        if origin_event is None or not origin_event.is_life:
+            raise HTTPException(
+                status_code=409,
+                detail="Only a Life conversation can seed a new Event",
+            )
     event = Event(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -105,7 +128,10 @@ async def create_event(
         lifecycle="active",
         phase=body.phase.strip(),
         summary=body.summary.strip(),
-        metadata_={"notes": body.notes},
+        metadata_={
+            "notes": body.notes,
+            **({"origin_conversation_id": origin.id} if origin is not None else {}),
+        },
     )
     session.add(event)
     await session.flush()
@@ -118,7 +144,14 @@ async def create_event(
             actor_id=context.user_id,
             kind="event_created",
             summary=f"Created Project Event {event.title}",
-            payload={"type": "project", "lifecycle": "active"},
+            evidence_refs=(
+                [{"conversation_id": origin.id}] if origin is not None else []
+            ),
+            payload={
+                "type": "project",
+                "lifecycle": "active",
+                **({"origin_conversation_id": origin.id} if origin is not None else {}),
+            },
         )
     )
     await session.commit()
@@ -138,7 +171,6 @@ async def list_events(
         organization_id=context.organization_id,
         user_id=context.user_id,
     )
-    await ensure_event_conversation(session, event=life)
     await session.commit()
     events = (
         (
@@ -168,7 +200,8 @@ async def get_event_surface(
 ) -> dict[str, Any]:
     """Recompute the trusted Event Surface from durable rows on every read."""
     event = await _load_event(session, context, event_id)
-    await ensure_event_conversation(session, event=event)
+    if not event.is_life:
+        await ensure_event_conversation(session, event=event)
     await session.commit()
     tasks = (
         (

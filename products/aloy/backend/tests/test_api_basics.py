@@ -30,10 +30,10 @@ async def test_conversation_crud_scopes_to_current_user(client):
     assert updated.json()["title"] == "Renamed"
 
     deleted = await client.delete(f"/v1/conversations/{conversation['id']}")
-    assert deleted.status_code == 409
+    assert deleted.status_code == 204
 
     retained = await client.get(f"/v1/conversations/{conversation['id']}")
-    assert retained.status_code == 200
+    assert retained.status_code == 404
 
 
 async def test_conversation_without_active_run_has_quiet_live_probe(client):

@@ -7,6 +7,17 @@ from sqlmodel import select
 from aloy_backend.models import ActionProposal, Event, EventTrailEntry, Task
 
 
+async def test_reading_life_does_not_create_an_empty_conversation(client):
+    events = await client.get("/v1/events")
+    life = next(row for row in events.json() if row["is_life"])
+    assert life["conversation_id"] is None
+
+    surface = await client.get(f"/v1/events/{life['id']}")
+    assert surface.status_code == 200
+    assert surface.json()["event"]["conversation_id"] is None
+    assert (await client.get("/v1/conversations")).json() == []
+
+
 async def test_sessions_and_direct_runs_share_the_users_life_event(
     client, db_session_maker
 ):
@@ -43,6 +54,89 @@ async def test_sessions_and_direct_runs_share_the_users_life_event(
         assert [(event.id, event.type, event.is_life) for event in events] == [
             (event_id, "life", True)
         ]
+
+
+async def test_chat_list_defaults_to_life_and_event_scope_is_explicit(client):
+    life = await client.post("/v1/conversations", json={"title": "Personal chat"})
+    project = await client.post("/v1/events", json={"title": "Career OS"})
+    project_id = project.json()["id"]
+    canonical_id = project.json()["conversation_id"]
+    provenance = await client.post(
+        "/v1/conversations",
+        json={"title": "Imported provenance", "event_id": project_id},
+    )
+
+    personal_list = await client.get("/v1/conversations")
+    assert [row["id"] for row in personal_list.json()] == [life.json()["id"]]
+
+    project_list = await client.get(
+        "/v1/conversations", params={"event_id": project_id}
+    )
+    assert {row["id"] for row in project_list.json()} == {
+        canonical_id,
+        provenance.json()["id"],
+    }
+
+
+async def test_life_conversation_delete_retargets_default_without_deleting_life(
+    client,
+):
+    first = await client.post("/v1/conversations", json={"title": "First"})
+    second = await client.post("/v1/conversations", json={"title": "Second"})
+    life_event_id = first.json()["event_id"]
+
+    events = await client.get("/v1/events")
+    life = next(row for row in events.json() if row["id"] == life_event_id)
+    assert life["conversation_id"] == second.json()["id"]
+
+    assert (
+        await client.delete(f"/v1/conversations/{second.json()['id']}")
+    ).status_code == 204
+    life = next(
+        row
+        for row in (await client.get("/v1/events")).json()
+        if row["id"] == life_event_id
+    )
+    assert life["conversation_id"] == first.json()["id"]
+
+    assert (
+        await client.delete(f"/v1/conversations/{first.json()['id']}")
+    ).status_code == 204
+    life = next(
+        row
+        for row in (await client.get("/v1/events")).json()
+        if row["id"] == life_event_id
+    )
+    assert life["conversation_id"] is None
+    assert (await client.get("/v1/conversations")).json() == []
+
+
+async def test_project_event_can_preserve_life_conversation_origin(client):
+    source = await client.post("/v1/conversations", json={"title": "Career direction"})
+    created = await client.post(
+        "/v1/events",
+        json={
+            "title": "Career OS",
+            "summary": "Find the next role",
+            "origin_conversation_id": source.json()["id"],
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["origin_conversation_id"] == source.json()["id"]
+    assert created.json()["conversation_id"] != source.json()["id"]
+
+    surface = await client.get(f"/v1/events/{created.json()['id']}")
+    event = surface.json()["event"]
+    trail = next(
+        section
+        for section in surface.json()["surface"]["sections"]
+        if section["kind"] == "activity"
+    )["entries"]
+    assert event["origin_conversation_id"] == source.json()["id"]
+    assert trail[-1]["payload"]["origin_conversation_id"] == source.json()["id"]
+    assert (
+        await client.get(f"/v1/conversations/{source.json()['id']}")
+    ).status_code == 200
 
 
 async def test_database_enforces_one_life_event_per_user(db_session_maker):

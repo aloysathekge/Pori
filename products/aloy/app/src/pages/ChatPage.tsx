@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, Send } from 'lucide-react';
+import { Plus, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
+import { EventIcon } from '@/components/icons';
 import { getConversation } from '@/api/conversations';
+import { createEvent } from '@/api/events';
 import { useConversations } from '@/hooks/useConversations';
 import { useAttachments } from '@/hooks/useAttachments';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
@@ -36,6 +38,11 @@ export function ChatPage() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [loadingConversation, setLoadingConversation] = useState(false);
+  const [creatingEvent, setCreatingEvent] = useState(false);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventSummary, setEventSummary] = useState('');
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [eventError, setEventError] = useState('');
 
   const {
     pendingImages,
@@ -145,6 +152,25 @@ export function ChatPage() {
     }
   }
 
+  async function handleCreateEvent() {
+    if (!activeId || !eventTitle.trim()) return;
+    setEventError('');
+    setSavingEvent(true);
+    try {
+      const event = await createEvent({
+        title: eventTitle.trim(),
+        summary: eventSummary.trim(),
+        phase: 'planning',
+        origin_conversation_id: activeId,
+      });
+      navigate(`/events/${event.id}`);
+    } catch (cause) {
+      setEventError(cause instanceof Error ? cause.message : 'Could not create the Event');
+    } finally {
+      setSavingEvent(false);
+    }
+  }
+
   async function handleSend() {
     if (
       (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) ||
@@ -181,15 +207,74 @@ export function ChatPage() {
           onCreate={handleCreate}
           onDelete={handleDelete}
         />
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleCreate}
-          title="New conversation"
-        >
-          <Plus size={16} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-accent-500/45 hover:bg-zinc-800 hover:text-accent-200"
+            onClick={() => setCreatingEvent((value) => !value)}
+            title="Create Event from this conversation"
+            disabled={!activeId}
+          >
+            <EventIcon size={16} />
+            <span className="hidden sm:inline">Create Event</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCreate}
+            title="New conversation"
+          >
+            <Plus size={16} />
+          </Button>
+        </div>
       </div>
+
+      {creatingEvent && activeId && (
+        <div className="border-b border-zinc-800 bg-zinc-900 px-4 py-4">
+          <div className="mx-auto max-w-4xl">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-300">
+                <EventIcon size={15} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-zinc-100">Turn this into an Event</p>
+                <p className="text-xs text-zinc-500">Give this work a durable workspace and continuous session.</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                value={eventTitle}
+                onChange={(event) => setEventTitle(event.target.value)}
+                placeholder="Event name"
+                autoFocus
+                className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none"
+              />
+              <input
+                value={eventSummary}
+                onChange={(event) => setEventSummary(event.target.value)}
+                placeholder="What does success look like?"
+                className="min-w-0 flex-[1.5] rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none"
+              />
+              <Button
+                disabled={savingEvent || !eventTitle.trim()}
+                onClick={handleCreateEvent}
+              >
+                {savingEvent ? 'Creating…' : 'Create Event'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setCreatingEvent(false)}
+                title="Cancel"
+              >
+                <X size={16} />
+              </Button>
+            </div>
+            {eventError && <p className="mt-2 text-xs text-red-400">{eventError}</p>}
+          </div>
+        </div>
+      )}
 
       {/* Chat area */}
       <div className="relative flex min-h-0 flex-1 flex-col">

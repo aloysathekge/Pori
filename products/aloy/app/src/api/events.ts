@@ -9,6 +9,7 @@ export interface EventSummary {
   summary: string;
   is_life: boolean;
   conversation_id: string | null;
+  origin_conversation_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -103,6 +104,7 @@ export function createEvent(data: {
   summary?: string;
   phase?: string;
   notes?: string;
+  origin_conversation_id?: string | null;
 }) {
   return apiFetch<EventSummary>('/events', {
     method: 'POST',

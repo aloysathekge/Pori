@@ -1,6 +1,38 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy vision v2 + V1 reset plan)._
+_Last updated: 2026-07-15 (Aloy V1 R1 implementation)._
+
+## NEW: Aloy V1 R1 - Life conversations and dedicated Event sessions (2026-07-15)
+
+R0 is merged into `aloy-v1` as PR #168 at squash merge
+`069f173ec59dad02b0f9bbb26cf3598b51c10c47`. R1 is implemented on
+`aloy-v1-r1-life-conversations` in draft PR #169. All seven PR checks are
+green; signed-in manual product QA is the remaining merge gate.
+
+The default Chat API and switcher now contain only the signed-in user's Life
+Conversations. **New chat** creates a fresh Life thread; **New event** creates a
+dedicated Event with its canonical continuous Conversation. The Event rail
+excludes Life. A Life Conversation can explicitly seed a new Event while
+retaining inspectable origin provenance and leaving the source thread intact.
+The entry actions now communicate that difference visually: Chat is one
+navigation row with an integrated create control, while New Event uses a
+restrained workspace treatment and a product-specific bounded-trail glyph
+across navigation, Today, and Chat.
+
+Life's newest Conversation is its resume target. Deleting that thread safely
+retargets Life to the most recent remaining Conversation or an empty state;
+dedicated Event canonical Conversation deletion remains `409` protected.
+Reading an empty Life Event does not manufacture a blank chat. Runtime context
+hydrates only the current transcript while indexing sibling Event/Life
+Conversations for explicit scoped history retrieval.
+
+Verification is green: a complete backend run passed `228` tests; the exact
+final Event/context regression set passed `14` tests; Black is clean across
+`153` backend files; backend mypy is clean across `83 source files`; app ESLint
+and the production build pass. The existing Vite bundle-size warning remains
+non-blocking. Before merging R1, complete signed-in manual QA for New chat, the
+Life-only switcher, New event, canonical Event reopen, Life deletion, and
+Create Event from conversation.
 
 ## NEW: Aloy vision v2 + V1 reset plan (2026-07-15)
 

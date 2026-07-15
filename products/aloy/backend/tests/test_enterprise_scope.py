@@ -87,7 +87,9 @@ async def test_member_can_share_org_resources_but_not_another_users_memory(clien
     memory = await client.get("/v1/me/memory/knowledge", headers=member_headers)
 
     assert [item["name"] for item in configs.json()] == ["Shared Agent"]
-    assert [item["title"] for item in conversations.json()] == ["Shared Conversation"]
+    # Life is personal even inside a shared organization. Shared resources do
+    # not turn Alice's personal Conversation into Bob's chat history.
+    assert conversations.json() == []
     assert memory.json() == []
 
 

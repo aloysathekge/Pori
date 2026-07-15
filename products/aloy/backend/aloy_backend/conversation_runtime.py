@@ -245,9 +245,16 @@ async def load_event_memory(
         ]
     )
 
+    # Sibling Conversations remain searchable as scoped Event history, but a
+    # fresh Life thread must not receive their transcript automatically.
+    current_rows = [
+        (message, body)
+        for message, body in rendered_rows
+        if message.conversation_id == current_session_id
+    ]
     selected: list[tuple[Message, str]] = []
     remaining_chars = 100_000
-    for message, body in reversed(rendered_rows):
+    for message, body in reversed(current_rows):
         if len(body) > remaining_chars and selected:
             break
         selected.append((message, body[-remaining_chars:]))

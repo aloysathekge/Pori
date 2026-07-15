@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
   CalendarClock,
@@ -8,15 +8,18 @@ import {
   Folder,
   LogOut,
   Menu,
+  MessageSquare,
+  MessageSquarePlus,
   PanelLeftClose,
   Settings,
   X,
 } from 'lucide-react';
 import { listEvents, type EventSummary } from '@/api/events';
+import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { AloyMark, MemoryIcon, TodayIcon } from '@/components/icons';
+import { AloyMark, EventIcon, MemoryIcon, TodayIcon } from '@/components/icons';
 
 const utilityItems = [
   { to: '/files', icon: FileText, label: 'Files' },
@@ -63,8 +66,10 @@ function RailLink({
 export function AppLayout() {
   const { signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [actionError, setActionError] = useState('');
   const [expanded, setExpanded] = useState(
     () => localStorage.getItem('aloy.nav') !== 'slim',
   );
@@ -90,6 +95,23 @@ export function AppLayout() {
 
   const compact = !expanded;
   const closeMobile = () => setSidebarOpen(false);
+  const dedicatedEvents = events.filter((event) => !event.is_life);
+
+  async function startConversation() {
+    setActionError('');
+    try {
+      const conversation = await createConversation({});
+      closeMobile();
+      navigate(`/chat/${conversation.id}`);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Could not start a conversation');
+    }
+  }
+
+  function startEvent() {
+    closeMobile();
+    navigate('/today?new=event');
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
@@ -121,7 +143,66 @@ export function AppLayout() {
         </div>
 
         <div className={`flex-1 overflow-y-auto ${compact ? 'px-2' : 'px-3'} py-3`}>
+          {compact ? (
+            <RailLink to="/chat" icon={MessageSquare} label="Chat" compact onClick={closeMobile} />
+          ) : (
+            <div className="group relative">
+              <NavLink
+                to="/chat"
+                onClick={closeMobile}
+                className={({ isActive }) =>
+                  `flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 pr-10 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
+                  }`
+                }
+              >
+                <MessageSquare size={17} className="shrink-0" />
+                <span>Chat</span>
+              </NavLink>
+              <button
+                type="button"
+                onClick={startConversation}
+                aria-label="Start a new conversation"
+                title="New conversation"
+                className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 opacity-70 transition-colors hover:bg-zinc-700 hover:text-zinc-200 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              >
+                <MessageSquarePlus size={15} />
+              </button>
+            </div>
+          )}
           <RailLink to="/today" icon={TodayIcon} label="Today" compact={compact} onClick={closeMobile} />
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={startEvent}
+              title={compact ? 'Start a new Event workspace' : undefined}
+              className={`group w-full border border-zinc-800 bg-zinc-900 text-left transition-colors hover:border-accent-500/45 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                compact
+                  ? 'flex h-10 items-center justify-center rounded-xl text-accent-400'
+                  : 'flex h-11 items-center gap-2.5 rounded-xl px-2.5'
+              }`}
+            >
+              {compact ? (
+                <EventIcon size={18} />
+              ) : (
+                <>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-500/10 text-accent-300 transition-colors group-hover:bg-accent-500/15">
+                    <EventIcon size={17} />
+                  </span>
+                  <span className="text-sm font-semibold text-zinc-200">New Event</span>
+                  <span className="ml-auto text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-600 group-hover:text-zinc-500">
+                    Workspace
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
+          {!compact && actionError && (
+            <p className="mt-2 px-2 text-xs text-red-400">{actionError}</p>
+          )}
 
           {!compact && (
             <p className="mb-1 mt-5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
@@ -129,7 +210,7 @@ export function AppLayout() {
             </p>
           )}
           <div className={compact ? 'mt-3 space-y-1' : 'space-y-0.5'}>
-            {events.map((event) => (
+            {dedicatedEvents.map((event) => (
               <RailLink
                 key={event.id}
                 to={`/events/${event.id}`}

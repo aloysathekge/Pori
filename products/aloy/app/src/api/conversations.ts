@@ -5,9 +5,14 @@ import type {
   MessageResponse,
 } from '@/types';
 
-export function listConversations(limit = 20, offset = 0) {
+export function listConversations(limit = 20, offset = 0, eventId?: string) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (eventId) params.set('event_id', eventId);
   return apiFetch<ConversationResponse[]>(
-    `/conversations?limit=${limit}&offset=${offset}`,
+    `/conversations?${params.toString()}`,
   );
 }
 
