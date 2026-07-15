@@ -1,6 +1,20 @@
 # Current State
 
-_Last updated: 2026-07-07 (Tier-1 + sandbox + app design session)._
+_Last updated: 2026-07-15 (Aloy V1 Phase 4 Proposal commit rail)._
+
+## NEW: Aloy V1 Phase 4 — Proposal executor + commit rail (2026-07-15)
+
+Phase 3 is merged into `aloy-v1` as #166. Phase 4 is implemented on
+`aloy-v1-phase-4-execution`: tenant-scoped approve/reject/edit decisions,
+same-tool edit validation, compare-and-set decision and execution claims, a
+standalone non-agent executor with current membership/policy/Event/tool/schema/
+credential checks, receipt-backed commit Trail entries, expiry reject defaults,
+and stale/crash-window `indeterminate` reconciliation without blind retries.
+The existing `/conversations/approve/{id}` UI route is a compatibility alias
+over durable Proposals; the worker also processes approved Proposals. Verification:
+219 full backend tests passed, the final 35 proposal/approval/worker tests passed,
+and mypy is clean across 80 backend source files. Phase 5 is Tasks + Project
+Surface + Today; do not add those surfaces to Phase 4.
 
 ## NEW: Backend package renamed pori_cloud -> aloy_backend (2026-07-07)
 

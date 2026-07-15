@@ -9,6 +9,7 @@ from .agent_configs import router as agent_configs_router
 from .connections import router as connections_router
 from .conversations import router as conversations_router
 from .cron import router as cron_router
+from .events import router as events_router
 from .evolution import router as evolution_router
 from .files import router as files_router
 from .gateway import router as gateway_router
@@ -31,6 +32,7 @@ router.include_router(agent_configs_router)
 router.include_router(teams_router)
 router.include_router(skills_router)
 router.include_router(evolution_router)
+router.include_router(events_router)
 router.include_router(usage_router)
 router.include_router(users_router)
 router.include_router(memory_router)

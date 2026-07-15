@@ -18,6 +18,11 @@ from .config import settings
 from .cron import tick_cron_jobs
 from .database import async_session
 from .models import Run
+from .proposal_executor import (
+    execute_next_approved_proposal,
+    expire_due_proposals,
+    reconcile_stale_executions,
+)
 
 logger = logging.getLogger("aloy_backend.worker")
 
@@ -65,6 +70,11 @@ async def claim_next_run(worker_id: str) -> str | None:
 
 async def run_once(worker_id: str | None = None) -> bool:
     resolved_worker_id = worker_id or default_worker_id()
+    await expire_due_proposals()
+    await reconcile_stale_executions()
+    proposal_result = await execute_next_approved_proposal()
+    if proposal_result is not None:
+        return True
     run_id = await claim_next_run(resolved_worker_id)
     if run_id is None:
         return False
