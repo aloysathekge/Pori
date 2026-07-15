@@ -41,7 +41,7 @@ from .approvals import (
     proposal_write_gate,
 )
 from .event_log import EventLogCollector
-from .tools import GOOGLE_WRITE_TOOLS, gmail_draft_preview
+from .tools import GOOGLE_WRITE_TOOLS, TaskMutationHandler, gmail_draft_preview
 
 logger = logging.getLogger("aloy_backend")
 
@@ -115,6 +115,11 @@ async def stream_agent_execution(
 
     merged_tool_context = dict(tool_context_extra or {})
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
+    if run_context is not None and run_context.event_id:
+        merged_tool_context["task_mutator"] = TaskMutationHandler(
+            run_context=run_context,
+            owner_loop=serving_loop,
+        )
 
     def emit_approval(event: dict) -> None:
         push(PoriEvent("approval_request", event, step=0))

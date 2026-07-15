@@ -40,6 +40,7 @@ from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
+from .tools import TaskMutationHandler
 
 logger = logging.getLogger("aloy_backend")
 
@@ -278,6 +279,13 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     ),
                     session_factory=async_session,
                 )
+                tool_context = {
+                    **surface.tool_context_extra,
+                    "task_mutator": TaskMutationHandler(
+                        run_context=run_context,
+                        session_factory=async_session,
+                    ),
+                }
                 result = await asyncio.wait_for(
                     orchestrator.execute_task(
                         task=run.task,
@@ -287,7 +295,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         resume_task_id=kernel_task_id,
                         on_step_end=checkpoint,
                         sandbox_base_dir=sandbox_base_dir(),
-                        tool_context_extra=surface.tool_context_extra,
+                        tool_context_extra=tool_context,
                         mcp_servers=surface.mcp_servers,
                         hitl_handler=proposal_handler,
                         hitl_config=proposal_config,

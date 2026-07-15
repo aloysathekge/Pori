@@ -3,6 +3,7 @@ export interface ConversationResponse {
   id: string;
   title: string | null;
   agent_config_id: string | null;
+  event_id: string;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -65,6 +66,7 @@ export interface ConversationDetail {
   id: string;
   title: string | null;
   agent_config_id: string | null;
+  event_id: string;
   created_at: string;
   updated_at: string;
   messages: MessageResponse[];

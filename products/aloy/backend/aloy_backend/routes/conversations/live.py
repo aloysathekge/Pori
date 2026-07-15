@@ -11,7 +11,7 @@ import logging
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,13 +39,16 @@ async def attach_live_run(
     conversation_id: str,
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
-) -> StreamingResponse:
+) -> Response:
     """Re-attach to this conversation's in-flight run: replays every frame so
     far, then continues live — so navigating away and back resumes streaming."""
     await _load_conv(session, context, conversation_id)
     live = live_runs.get(conversation_id)
     if live is None:
-        raise HTTPException(status_code=404, detail="No live run")
+        # Absence is the normal result of the app's reconnect probe, not a
+        # missing resource. A 204 keeps browser consoles quiet while letting
+        # the client distinguish "nothing active" from an SSE attachment.
+        return Response(status_code=204)
     return StreamingResponse(
         subscribe_frames(live),
         media_type="text/event-stream",

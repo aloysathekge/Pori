@@ -8,6 +8,7 @@ permanent context-budget tax — see the Footprint Ladder in CLAUDE.md.
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass
 from enum import Enum
@@ -417,6 +418,37 @@ class ToolExecutor:
         validated_params = tool.param_model(**params)
         try:
             result = tool.function(validated_params, context)
+            limit = (
+                self.registry.output_limit_for(tool_name) or DEFAULT_MAX_OUTPUT_CHARS
+            )
+            if limit is not None:
+                rendered = json.dumps(result, default=str, sort_keys=True)
+                if len(rendered) > limit:
+                    result = {
+                        "truncated": True,
+                        "max_output_chars": limit,
+                        "preview": rendered[:limit],
+                    }
+            return {"success": True, "result": result}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def execute_tool_async(
+        self, tool_name: str, params: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute sync or async tools without blocking the agent loop.
+
+        Existing synchronous tools keep the exact ``execute_tool`` path. Product
+        integrations that own async resources (for example an async database)
+        may register a coroutine function and are awaited here.
+        """
+        tool = self.registry.get_tool(tool_name)
+        if not inspect.iscoroutinefunction(tool.function):
+            return self.execute_tool(tool_name, params, context)
+
+        validated_params = tool.param_model(**params)
+        try:
+            result = await tool.function(validated_params, context)
             limit = (
                 self.registry.output_limit_for(tool_name) or DEFAULT_MAX_OUTPUT_CHARS
             )

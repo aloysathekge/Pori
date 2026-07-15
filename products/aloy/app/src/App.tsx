@@ -15,6 +15,8 @@ import { MemoryPage } from '@/pages/MemoryPage';
 import { UsagePage } from '@/pages/UsagePage';
 import { TracesPage } from '@/pages/TracesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { TodayPage } from '@/pages/TodayPage';
+import { EventPage } from '@/pages/EventPage';
 import { Spinner } from '@/components/ui/Spinner';
 import type { ReactNode } from 'react';
 
@@ -44,7 +46,7 @@ function PublicRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (session) return <Navigate to="/chat" replace />;
+  if (session) return <Navigate to="/today" replace />;
   return <>{children}</>;
 }
 
@@ -75,7 +77,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/chat" replace />} />
+        <Route index element={<Navigate to="/today" replace />} />
+        <Route path="today" element={<TodayPage />} />
+        <Route path="events/:eventId" element={<EventPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:conversationId" element={<ChatPage />} />
         <Route path="agents" element={<AgentConfigsPage />} />
@@ -89,7 +93,7 @@ function AppRoutes() {
         <Route path="traces" element={<TracesPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/chat" replace />} />
+      <Route path="*" element={<Navigate to="/today" replace />} />
     </Routes>
   );
 }

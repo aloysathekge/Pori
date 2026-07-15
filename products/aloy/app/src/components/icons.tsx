@@ -32,6 +32,17 @@ export function AloyMark({ size = 28, ...props }: IconProps) {
   );
 }
 
+/** Today: one horizon collecting the work that needs attention now. */
+export function TodayIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v12H3.5V7A1.5 1.5 0 0 1 5 5.5Z" />
+      <path d="M7.5 3.5v4M16.5 3.5v4M3.5 9.5h17" />
+      <circle cx="12" cy="14.3" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Chat: a soft speech shape, the dot mid-thought. */
 export function ChatIcon(props: IconProps) {
   return (

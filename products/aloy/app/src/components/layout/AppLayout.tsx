@@ -1,188 +1,194 @@
-import { NavLink, Outlet } from 'react-router-dom';
-import { FolderOpen, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import {
+  Bot,
+  CalendarClock,
+  ChevronRight,
+  FileText,
+  Folder,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  Settings,
+  X,
+} from 'lucide-react';
+import { listEvents, type EventSummary } from '@/api/events';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import {
-  AgentsIcon,
-  AloyMark,
-  ChatIcon,
-  MemoryIcon,
-  SchedulesIcon,
-  SettingsIcon,
-  SkillsIcon,
-  TeamsIcon,
-  TracesIcon,
-  UsageIcon,
-} from '@/components/icons';
+import { AloyMark, MemoryIcon, TodayIcon } from '@/components/icons';
 
-const navItems = [
-  { to: '/chat', icon: ChatIcon, label: 'Chat' },
-  { to: '/files', icon: FolderOpen, label: 'My Files' },
-  { to: '/agents', icon: AgentsIcon, label: 'Agents' },
-  { to: '/skills', icon: SkillsIcon, label: 'Skills' },
-  { to: '/schedules', icon: SchedulesIcon, label: 'Schedules' },
-  { to: '/connections', icon: Plug, label: 'Connections' },
-  { to: '/teams', icon: TeamsIcon, label: 'Teams' },
+const utilityItems = [
+  { to: '/files', icon: FileText, label: 'Files' },
   { to: '/memory', icon: MemoryIcon, label: 'Memory' },
-  { to: '/usage', icon: UsageIcon, label: 'Usage' },
-  { to: '/traces', icon: TracesIcon, label: 'Traces' },
-  { to: '/settings', icon: SettingsIcon, label: 'Settings' },
+  { to: '/schedules', icon: CalendarClock, label: 'Schedules' },
+  { to: '/agents', icon: Bot, label: 'Agents' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
+
+function RailLink({
+  to,
+  icon: Icon,
+  label,
+  compact = false,
+  onClick,
+}: {
+  to: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  compact?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      title={compact ? label : undefined}
+      className={({ isActive }) =>
+        `group flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm transition-colors ${
+          compact ? 'justify-center' : ''
+        } ${
+          isActive
+            ? 'bg-zinc-800 text-zinc-100'
+            : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
+        }`
+      }
+    >
+      <Icon size={17} className="shrink-0" />
+      {!compact && <span className="truncate">{label}</span>}
+    </NavLink>
+  );
+}
 
 export function AppLayout() {
   const { signOut } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
-  // Desktop: full rail (labels) vs slim icon rail — the icon rail leaves the
-  // content essentially screen-centered. Preference persists.
-  const [expanded, setExpanded] = useState<boolean>(
+  const location = useLocation();
+  const [events, setEvents] = useState<EventSummary[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expanded, setExpanded] = useState(
     () => localStorage.getItem('aloy.nav') !== 'slim',
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    listEvents()
+      .then((items) => {
+        if (!cancelled) setEvents(items);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
+
   function toggleExpanded() {
-    setExpanded((prev) => {
-      localStorage.setItem('aloy.nav', prev ? 'slim' : 'full');
-      return !prev;
+    setExpanded((value) => {
+      localStorage.setItem('aloy.nav', value ? 'slim' : 'full');
+      return !value;
     });
   }
 
+  const compact = !expanded;
+  const closeMobile = () => setSidebarOpen(false);
+
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100">
-      {/* Mobile overlay */}
+    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/30 backdrop-blur-sm lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="fixed inset-0 z-30 bg-black/25 backdrop-blur-sm lg:hidden"
+          onClick={closeMobile}
         />
       )}
 
-      {/* Sidebar: full drawer on mobile; full-or-icon rail on desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-zinc-800/80 bg-zinc-900/60 backdrop-blur transition-all duration-300 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width,transform] duration-200 lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${expanded ? 'lg:w-64' : 'lg:w-16'}`}
+        } ${expanded ? 'lg:w-72' : 'lg:w-[68px]'}`}
       >
-        <div
-          className={`flex h-16 items-center gap-3 border-b border-zinc-800/80 ${
-            expanded ? 'px-5' : 'px-5 lg:justify-center lg:px-0'
-          }`}
-        >
-          <AloyMark size={30} />
-          <span
-            className={`font-display text-xl font-semibold tracking-tight ${
-              expanded ? '' : 'lg:hidden'
-            }`}
-          >
-            Aloy
-          </span>
+        <div className={`flex h-14 shrink-0 items-center border-b border-zinc-800 ${compact ? 'justify-center px-2' : 'px-4'}`}>
+          <AloyMark size={25} />
+          {!compact && <span className="ml-2.5 font-display text-lg font-semibold">Aloy</span>}
           <button
-            className="ml-auto rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 lg:hidden"
+            type="button"
+            onClick={closeMobile}
             aria-label="Close menu"
-            onClick={() => setSidebarOpen(false)}
+            className="ml-auto rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 lg:hidden"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        <nav
-          className={`flex-1 space-y-0.5 overflow-y-auto py-4 ${
-            expanded ? 'px-3' : 'px-3 lg:px-2.5'
-          }`}
-        >
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={() => setSidebarOpen(false)}
-              title={expanded ? undefined : item.label}
-              className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-                  expanded ? '' : 'lg:justify-center lg:px-0'
-                } ${
-                  isActive
-                    ? 'bg-accent-600/15 text-accent-700'
-                    : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-500" />
-                  )}
-                  <item.icon
-                    size={19}
-                    className={
-                      isActive
-                        ? 'text-accent-600'
-                        : 'text-zinc-500 transition-colors group-hover:text-zinc-300'
-                    }
-                  />
-                  <span className={expanded ? '' : 'lg:hidden'}>
-                    {item.label}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
+        <div className={`flex-1 overflow-y-auto ${compact ? 'px-2' : 'px-3'} py-3`}>
+          <RailLink to="/today" icon={TodayIcon} label="Today" compact={compact} onClick={closeMobile} />
 
-        <div
-          className={`space-y-1 border-t border-zinc-800/80 p-3 ${
-            expanded ? '' : 'lg:p-2.5'
-          }`}
-        >
-          {/* Desktop rail toggle */}
+          {!compact && (
+            <p className="mb-1 mt-5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Events
+            </p>
+          )}
+          <div className={compact ? 'mt-3 space-y-1' : 'space-y-0.5'}>
+            {events.map((event) => (
+              <RailLink
+                key={event.id}
+                to={`/events/${event.id}`}
+                icon={Folder}
+                label={event.title}
+                compact={compact}
+                onClick={closeMobile}
+              />
+            ))}
+          </div>
+
+          {!compact && (
+            <p className="mb-1 mt-5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Workspace
+            </p>
+          )}
+          <div className={compact ? 'mt-3 space-y-1 border-t border-zinc-800 pt-3' : 'space-y-0.5'}>
+            {utilityItems.map((item) => (
+              <RailLink key={item.to} {...item} compact={compact} onClick={closeMobile} />
+            ))}
+          </div>
+        </div>
+
+        <div className={`shrink-0 border-t border-zinc-800 p-2.5 ${compact ? 'space-y-1' : 'space-y-0.5'}`}>
           <button
             type="button"
             onClick={toggleExpanded}
+            className={`hidden min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 lg:flex ${compact ? 'justify-center' : ''}`}
             title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
-            className={`hidden w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 lg:flex ${
-              expanded ? '' : 'lg:justify-center lg:px-0'
-            }`}
           >
-            {expanded ? (
-              <>
-                <PanelLeftClose size={18} className="text-zinc-500" />
-                Collapse
-              </>
-            ) : (
-              <PanelLeftOpen size={18} className="text-zinc-500" />
-            )}
+            {expanded ? <PanelLeftClose size={17} /> : <ChevronRight size={17} />}
+            {!compact && <span>Collapse</span>}
           </button>
           <ThemeToggle expanded={expanded} />
           <Button
             variant="ghost"
-            size="md"
-            className={`w-full gap-3 text-zinc-400 ${
-              expanded ? 'justify-start' : 'justify-start lg:justify-center'
-            }`}
+            className={`w-full gap-2.5 text-zinc-400 ${compact ? 'justify-center' : 'justify-start'}`}
             onClick={signOut}
-            title={expanded ? undefined : 'Sign Out'}
+            title={compact ? 'Sign out' : undefined}
           >
-            <LogOut size={18} />
-            <span className={expanded ? '' : 'lg:hidden'}>Sign Out</span>
+            <LogOut size={17} />
+            {!compact && <span>Sign out</span>}
           </Button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center border-b border-zinc-800/80 px-4 lg:hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-12 shrink-0 items-center border-b border-zinc-800 px-3 lg:hidden">
           <button
-            className="rounded-lg p-1.5 text-zinc-300 hover:bg-zinc-800"
+            type="button"
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800"
             aria-label="Open menu"
             onClick={() => setSidebarOpen(true)}
           >
-            <Menu size={22} />
+            <Menu size={20} />
           </button>
-          <span className="ml-3 flex items-center gap-2">
-            <AloyMark size={22} />
-            <span className="font-display font-semibold">Aloy</span>
-          </span>
+          <span className="ml-3 font-display font-semibold">Aloy</span>
         </header>
-        <main className="flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </main>
       </div>

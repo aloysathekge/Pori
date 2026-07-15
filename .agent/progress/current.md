@@ -1,6 +1,66 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 Phase 4 Proposal commit rail)._
+_Last updated: 2026-07-15 (Aloy vision v2 + V1 reset plan)._
+
+## NEW: Aloy vision v2 + V1 reset plan (2026-07-15)
+
+The product model was re-audited after the Phase 5 workspace exposed a core
+gap: the shipped Task is durable checklist state, but it does not itself prompt
+Aloy to perform work. `docs/aloy-vision.md` is now version 2.1 and makes the
+operating loop explicit: intention → Event → executable Task → bounded Run →
+trusted state, with Proposal → decision → receipt for protected consequences.
+It also separates Conversation, Event, and bounded Run; defines the trusted
+Surface and semantic Trail; and selects Career OS research as the V1 hero flow.
+The follow-up product clarification is now explicit: Life is the permanent
+user–Aloy personal Event and may contain many fresh Conversations, while each
+dedicated Event retains one canonical continuous Conversation.
+
+`docs/aloy-v1-plan.md` is the active implementation plan and supersedes the old
+remaining phase order in `docs/aloy-wedge-spec.md`. The immediate phase is R0:
+close the current `aloy-v1-phase-5-surfaces` branch by applying its formatting-
+only migration correction, completing signed-in visual/streaming/reopen QA,
+making CI green, and merging it into `aloy-v1`. Only then create
+`aloy-v1-r1-life-conversations`. R1 establishes New Conversation versus New
+Event semantics, Life-only chat history, transcript isolation, safe Life chat
+deletion, and explicit Event creation from a Life chat. R2–R7 then add the
+executable Task state model, durable **Work on this** execution, live
+Surface/Trail updates, sourced research, the Gmail decision/receipt hero loop,
+and reliability/context release gates.
+Do not jump directly to the old "Building Aloy" hero-flow phase.
+
+R0 automated close-out update: commits `1cbd7a5` (migration formatting) and
+`98d1710` (vision v2.1 + R0–R7 plan) are pushed to PR #168. All seven GitHub
+checks are green. Local verification is also green: Black (`153 files`), all
+`225` backend tests using a workspace-local pytest temp root, backend mypy
+(`83 source files`), app ESLint/build, API `/v1/health`, Vite HTTP 200, and the
+worker process chain. The founder then completed the requested signed-in local
+workspace pass and confirmed it is working. `design-qa.md` now records manual
+acceptance, with automated captured comparison explicitly deferred to R7.
+R0 is clear to mark PR #168 ready and merge into `aloy-v1`; after merge, the
+next branch is `aloy-v1-r1-life-conversations` from the updated integration
+branch.
+
+## NEW: Aloy V1 Phase 5 — Tasks + Project Surface + Today (2026-07-15)
+
+Phase 4 is merged into `aloy-v1` as #167. Phase 5 is implemented on
+`aloy-v1-phase-5-surfaces`: manual Project Event creation; one canonical,
+continuous working Session per Event (legacy rows retained as provenance);
+direct user and agent Task mutations with atomic Trail
+entries; a trusted templated Event Surface recomputed from Event/Task/Proposal/
+Trail/StoredFile rows; and a Life-first Today lens over pending decisions,
+recent committed/evidenced changes, recent Trail activity, and open Tasks.
+Today is now the signed-in app landing page. The Event view is a flexible
+workspace with the lifetime conversation at center and Tasks, decisions,
+files, and Trail in a collapsible context pane. Pending Proposals can be approved
+or rejected from both Today and their Event workspace through the Phase 4 commit
+rail. `task_create`/`task_update` are Aloy product tools; the kernel gained a
+small generic async-tool execution seam so database-backed product tools do not
+block the agent loop. Verification: 601 kernel tests passed (1 skipped), all
+225 backend tests passed, kernel mypy is clean across 106 files, backend mypy
+is clean across 83 files, and the Aloy app build + lint are green. The active
+next step is R0 in `docs/aloy-v1-plan.md`; the former Phase 6 sequence is
+superseded. Do not add Reality Objects, learned routing, cross-Event retrieval,
+or free-form model-composed Surfaces.
 
 ## NEW: Aloy V1 Phase 4 — Proposal executor + commit rail (2026-07-15)
 
