@@ -33,9 +33,12 @@ R0 automated close-out update: commits `1cbd7a5` (migration formatting) and
 checks are green. Local verification is also green: Black (`153 files`), all
 `225` backend tests using a workspace-local pytest temp root, backend mypy
 (`83 source files`), app ESLint/build, API `/v1/health`, Vite HTTP 200, and the
-worker process chain. The only remaining R0 gate is signed-in browser visual and
-interaction QA; the browser-control runtime was unavailable in this session,
-so the PR remains draft and must not merge yet.
+worker process chain. The founder then completed the requested signed-in local
+workspace pass and confirmed it is working. `design-qa.md` now records manual
+acceptance, with automated captured comparison explicitly deferred to R7.
+R0 is clear to mark PR #168 ready and merge into `aloy-v1`; after merge, the
+next branch is `aloy-v1-r1-life-conversations` from the updated integration
+branch.
 
 ## NEW: Aloy V1 Phase 5 — Tasks + Project Surface + Today (2026-07-15)
 

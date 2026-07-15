@@ -17,20 +17,18 @@ not be produced.
 
 ## Focused region comparison evidence
 
-Blocked with the full-view capture. The intended focused checks are the Event
-rail density, conversation/composer proportions, context-pane tabs, and the
-collapsed context state.
+Automated capture remained unavailable. The founder completed the requested
+signed-in local pass and confirmed the Event workspace is working, including
+the conversation, context pane, navigation/reopen flow, and responsive window
+behavior.
 
 ## Findings
 
-- [P1] Browser-rendered visual verification is missing.
-  - Location: signed-in Event workspace.
-  - Evidence: the source is available, but there is no browser-rendered
-    implementation screenshot or combined comparison input.
-  - Impact: typography, exact spacing, responsive behavior, and visual drift
-    cannot be certified from code and build output alone.
-  - Fix: capture the signed-in Event route at 1920 × 1080 in the in-app browser,
-    combine it with the source screenshot, and run the visual comparison loop.
+- No blocking visual or interaction issue was reported in the founder's
+  signed-in acceptance pass.
+- Automated same-viewport screenshot comparison remains unavailable. This is
+  accepted for the R0 foundation close-out because the founder exercised the
+  working local UI directly; captured comparison remains part of R7 release QA.
 
 ## Required fidelity surfaces
 
@@ -48,6 +46,8 @@ collapsed context state.
 - All seven GitHub checks passed after the migration formatting correction.
 - Local API and Vite servers respond through `make dev`.
 - Context tabs, collapse control, composer, and signed-in browser console could not be exercised through browser automation.
+- The founder subsequently confirmed the requested signed-in Event workspace
+  flow is working locally.
 
 ## Comparison history
 
@@ -55,5 +55,7 @@ collapsed context state.
 - Pass 2: R0 automated code, build, runtime-health, and CI gates passed; signed-in
   browser capture and interaction checks remain blocked because the required
   browser-control runtime is unavailable in this session.
+- Pass 3: founder completed the signed-in local acceptance pass and confirmed
+  the requested workspace flow is working. No blocking issue was reported.
 
-final result: blocked
+final result: passed — manual founder acceptance; automated captured comparison deferred to R7

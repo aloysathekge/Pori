@@ -65,9 +65,10 @@ Do not create R1 from the current unmerged branch.
 
 - PR #168 remains draft. The migration was formatted in `1cbd7a5`, the plan was
   committed in `98d1710`, and all seven GitHub checks are green.
-- The previous visual QA report is blocked because in-app browser control was
-  unavailable. R0 is not complete until signed-in visual and interaction QA
-  passes.
+- In-app browser control remained unavailable. The founder subsequently
+  completed the requested signed-in local workspace pass and confirmed it is
+  working, so R0 has manual acceptance. Automated captured comparison remains
+  deferred to R7 release QA.
 - The local stack was last healthy at API `http://127.0.0.1:8000` and web
   `http://localhost:5173`; recheck it before relying on that state.
 - Local R0 verification is green: Black (`153 files`), `225` backend tests,
