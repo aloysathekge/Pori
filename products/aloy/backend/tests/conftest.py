@@ -8,8 +8,17 @@ from sqlmodel import SQLModel
 from aloy_backend.api import app
 from aloy_backend.auth import get_current_user
 from aloy_backend.database import get_session
+from aloy_backend.rate_limit import _limiter
 
 TEST_USER_ID = "test-user"
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter_between_tests():
+    """Keep the process-global production limiter from coupling test cases."""
+    _limiter._windows.clear()
+    yield
+    _limiter._windows.clear()
 
 
 @pytest_asyncio.fixture
