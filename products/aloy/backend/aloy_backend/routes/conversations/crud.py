@@ -65,6 +65,10 @@ async def create_conversation(
         agent_config_id=req.agent_config_id,
     )
     session.add(conv)
+    await session.flush()
+    if event.primary_conversation_id is None:
+        event.primary_conversation_id = conv.id
+        session.add(event)
     await session.commit()
     await session.refresh(conv)
     logger.info("Conversation %s created", conv.id)
@@ -291,6 +295,13 @@ async def delete_conversation(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     conv = await _load_conv(session, context, conversation_id)
+
+    event = await session.get(Event, conv.event_id)
+    if event is not None and event.primary_conversation_id == conv.id:
+        raise HTTPException(
+            status_code=409,
+            detail="An Event's continuous conversation cannot be deleted",
+        )
 
     # A Session owns only its messages. Event-owned history, files, and
     # workspace data retain this session id as provenance.

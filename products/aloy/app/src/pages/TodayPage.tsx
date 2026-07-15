@@ -105,7 +105,7 @@ export function TodayPage() {
         <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <h2 className="font-medium text-zinc-100">Start a Project Event</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Sessions, tasks, files, decisions, and evidence will share this durable home.
+            One continuous conversation, plus its tasks, files, decisions, and evidence.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1.5fr_auto]">
             <input

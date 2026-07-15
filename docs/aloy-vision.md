@@ -91,7 +91,11 @@ to San Francisco. Building Aloy Studio. Applying for a job. Weekly review.
 Health journey.* It owns: identity, goals, state, timeline, tasks, projects,
 documents, memory references, connected services, agent context. An Event is
 not a page, a conversation, or a task list — it is the reality Aloy manages.
-Events are permanent; **Sessions** (interaction periods) are temporary.
+Events are permanent and each Event carries one **continuous working Session**
+for its lifetime. Opening an Event always resumes that same conversation — as
+opening a coding project resumes its working thread. Runs are temporary;
+background transports and imported legacy conversations may retain separate
+provenance rows, but they are not separate user-facing Sessions.
 
 **Event lifecycle (Machine 2 — deliberately thin, substrate-owned):**
 

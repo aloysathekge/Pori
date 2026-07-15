@@ -1,6 +1,6 @@
 # Aloy Wedge — Implementation Spec (V1)
 
-_Status: **DRAFT for build (architecture-hardened)**, 2026-07-14. Builds directly on
+_Status: **DRAFT for build (architecture-hardened)**, revised 2026-07-15. Builds directly on
 `docs/aloy-vision.md` (canonical product definition) — read that first; this
 spec turns its §6 wedge into a buildable plan. The four foundational decisions
 below are **settled** (founder ideation, closed 2026-07-14) and are premises,
@@ -24,13 +24,14 @@ Proposal system (async object + sync fast-path), Tasks, and the Today lens.
 
 The four locked decisions (from `aloy.txt`, do not reopen):
 
-1. **Event ↔ Session ↔ Conversation.** A Conversation *becomes* a **Session**;
-   a Session belongs to exactly one **Event**; there is always a default
-   **Life** Event. All durable state (memory, files, artifacts, Tasks,
-   Proposals, and Trail) belongs to the **Event**. The Session is a
-   **stateless lens** — a grouping of messages, nothing more. A Session may
-   introduce a file and a Run may create one, but those links are provenance,
-   not ownership.
+1. **Event ↔ Session ↔ Conversation.** Every Event owns one canonical,
+   continuous user-facing **Session** (physically a Conversation) that lasts
+   for the Event's lifetime. Opening an Event always resumes it; the product
+   never asks the user to create or choose another Session inside that Event.
+   All durable state (memory, files, artifacts, Tasks, Proposals, and Trail)
+   belongs to the **Event**. The Session owns only its messages. Legacy,
+   branched, gateway, or background Conversation rows may remain for
+   provenance and compatibility, but are not parallel product Sessions.
 2. **Proposals are persistent async objects.** A gated tool call is **never
    executed inline** — it is intercepted, converted into a Proposal (storing
    the exact tool plus normalized, validated args), and executed **later by a
@@ -56,13 +57,13 @@ Four identities coexist deliberately:
 | identity | meaning | owns |
 |---|---|---|
 | `event_id` | durable product aggregate | memory, Tasks, Proposals, Trail, durable files/artifacts |
-| `session_id` | one conversational lens (physical `conversation.id`) | messages only |
+| `session_id` | the Event's canonical conversation (physical `conversation.id`) | messages only |
 | `run_id` | one agent execution | execution record, trace, receipts, temporary outputs |
 | `workspace_id` | persistent sandbox lane | equals `event_id` in the wedge |
 
-Do **not** redefine `session_id` to mean Event. Existing resume, live-stream,
-branching, and conversation semantics remain session-scoped. Event scope is
-added orthogonally. Run scratch is per-run; persistent workspace state is
+Do **not** redefine `session_id` to mean Event. Resume and live-stream
+semantics remain conversation-scoped, while the Event stores the canonical
+conversation identity. Run scratch is per-run; persistent workspace state is
 per-Event.
 
 ---
@@ -86,6 +87,7 @@ of the backend (`organization_id` on every row; personal accounts are
 | `phase` | str | free, model-defined; empty in wedge |
 | `summary` | str | model-maintained one-liner (Surface header) |
 | `is_life` | bool | exactly one `true` per organization + user; the default root |
+| `primary_conversation_id` | str \| null, index | canonical lifetime Session; nullable only during migration/repair |
 | `metadata` | JSON | extensibility |
 | `created_at`/`updated_at` | datetime | |
 
@@ -96,24 +98,26 @@ with a database partial unique index over `(organization_id, user_id)` where
 first requests. Event creation is a **direct user action, never a Proposal**
 (vision §3.1, invariant #1).
 
-### 1.2 Session = the existing `conversations` table + `event_id`
+### 1.2 Continuous Session = `events.primary_conversation_id` + `conversations.event_id`
 
 **Decision (pragmatic, stated so no one "fixes" it):** we do **not** physically
 rename the `conversations` table. Renaming a table that `messages`, `runs`,
 `stored_files`, memory, and the sandbox all key into is a high-blast-radius
 change for zero functional gain. Instead:
 
-- **Add `event_id` (FK → `events.id`, NOT NULL, index)** to `conversations`.
-- The **domain term is Session**; the API and UI say "session"/"event"; the
-  physical table stays `conversations`. A Session *is* a conversation row.
+- **Add `event_id` (FK → `events.id`, NOT NULL, index)** to `conversations`
+  and `primary_conversation_id` to `events`.
+- The physical table stays `conversations`, but the user-facing product does
+  not expose a Session picker. The canonical row is the Event's conversation.
 - `messages` keep `conversation_id` (= session id) and reach the Event through
   the Session.
 - `runs` keep `conversation_id` for provenance **and gain direct `event_id`**.
   Event agents/background work need an Event identity even when no Session is
   present. `run_event_logs`, traces, and context artifacts should likewise
   carry `event_id` when they are queried as Event activity.
-- A branched Session inherits its parent's `event_id`; gateway-created and
-  cron-created Sessions are assigned explicitly to Life or a chosen Event.
+- A legacy branch inherits its parent's `event_id`; gateway and cron rows are
+  assigned explicitly to Life or a chosen Event. These rows retain provenance
+  without becoming competing user-facing Sessions.
 
 ### 1.3 `proposals` (new — the execution primitive)
 
@@ -239,15 +243,17 @@ keys remain valid opaque storage locators.
    moved into the owning Life Event workspace best-effort. The sandbox is a
    cache; object storage is authoritative. **Do not move existing object-store
    blobs solely to make their key contain `event_id`.**
-8. **Change deletion semantics.** Deleting a Session removes its messages and
-   session-scoped runtime records, not Event-owned files/workspace. Event
-   deletion/archival owns durable cleanup and must preserve global-library
-   files according to existing library policy.
+8. **Change deletion semantics.** The canonical lifetime Session cannot be
+   deleted independently from its Event. Deleting an eligible legacy or
+   provenance Conversation removes its messages and session-scoped runtime
+   records, not Event-owned files/workspace. Event deletion/archival owns
+   durable cleanup and must preserve global-library files according to existing
+   library policy.
 9. **`conversation_search` → event history.** The tool (kernel
    `core_tools.py`) searches the messages loaded into the run's `AgentMemory`.
-   The change is **what a run loads**: the run loads its **Event's** recent
-   messages (across all the Event's Sessions), windowed to the context budget —
-   not one Session's. The tool then searches/pages the Event's full history and
+   The change is **what a run loads**: the run loads its canonical Session's
+   recent messages, windowed to the context budget, plus eligible legacy
+   Event-conversation provenance. The tool then searches/pages the Event's full history and
    becomes the **context page-fault** (vision §5). Rename to
    `search_event_history` (alias the old name one release for safety).
 
@@ -484,8 +490,8 @@ gateway, and cron runs. For a run in Event E it loads:
 2. Global + Event-E knowledge (never Event B).
 3. Event state needed for the task (summary, Tasks, pending Proposals, file
    manifest), compactly rendered.
-4. A token-bounded recent message window across Event-E Sessions, ordered by
-   timestamp with Session provenance.
+4. A token-bounded recent message window from Event E's canonical Session;
+   legacy Event-E Conversation rows may be searched as provenance.
 5. `search_event_history` as the page fault for older Event-E messages.
 
 **Cross-event retrieval is deferred** (§7). The acceptance contract is
@@ -518,8 +524,8 @@ until the earlier gate passes.
    `load_event_memory()`, keep Event/Session/Run identities separate, provision
    the Event workspace, and promote run outputs through the single finalizer.
    Gate: **leakage=0** — an Event-A run loads global + A memory/messages/files
-   and never B; two Sessions share A's durable artifacts while concurrent run
-   scratch cannot collide; deleting one Session preserves them.
+   and never B; the canonical Session and legacy provenance share A's durable
+   artifacts while concurrent run scratch cannot collide.
 3. **Proposal object + staged kernel outcome** (§3.1–3.3). Validate before
    persistence, return a first-class staged result, and append Trail entries.
    Gate: invalid calls stage nothing; valid calls execute zero side effects;
@@ -529,10 +535,11 @@ until the earlier gate passes.
    and `Indeterminate` reconciliation. Gate: every §3.6 safety test passes; a
    live `gmail_send` stages → approves → sends → commits with provider evidence
    and zero inline execution.
-5. **Tasks + Project Surface + Today** (§1.4–1.6, §4–5). Gate: create a Project
-   Event, work across two Sessions, add/complete Tasks, see Event files and the
-   complete Trail, and resolve a pending Proposal from both its Surface and
-   Today.
+5. **Tasks + Event workspace + Today** (§1.4–1.6, §4–5). Gate: create a
+   Project Event, leave and reopen its one continuous Session without losing
+   the thread, add/complete Tasks, see Event files and the complete Trail
+   beside the conversation, and resolve a pending Proposal from both its
+   workspace and Today.
 6. **The loop, end-to-end** (hero flow, vision §6): in the "Building Aloy"
    Event — agent works → Trail explains → Proposal appears → user decides →
    reality changes (email sent, receipt) → Surface + Today update. Gate: the

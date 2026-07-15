@@ -8,6 +8,7 @@ export interface EventSummary {
   phase: string;
   summary: string;
   is_life: boolean;
+  conversation_id: string | null;
   created_at: string;
   updated_at: string;
 }

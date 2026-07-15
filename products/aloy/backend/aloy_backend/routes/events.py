@@ -19,7 +19,7 @@ from ..event_presenters import (
     task_payload,
     trail_payload,
 )
-from ..events import ensure_life_event
+from ..events import ensure_event_conversation, ensure_life_event
 from ..models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
 from ..proposal_executor import (
     ProposalDecisionError,
@@ -108,6 +108,8 @@ async def create_event(
         metadata_={"notes": body.notes},
     )
     session.add(event)
+    await session.flush()
+    await ensure_event_conversation(session, event=event)
     session.add(
         EventTrailEntry(
             organization_id=context.organization_id,
@@ -131,11 +133,13 @@ async def list_events(
     ),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    await ensure_life_event(
+    life = await ensure_life_event(
         session,
         organization_id=context.organization_id,
         user_id=context.user_id,
     )
+    await ensure_event_conversation(session, event=life)
+    await session.commit()
     events = (
         (
             await session.execute(
@@ -164,6 +168,8 @@ async def get_event_surface(
 ) -> dict[str, Any]:
     """Recompute the trusted Event Surface from durable rows on every read."""
     event = await _load_event(session, context, event_id)
+    await ensure_event_conversation(session, event=event)
+    await session.commit()
     tasks = (
         (
             await session.execute(

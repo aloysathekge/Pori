@@ -7,7 +7,6 @@ from sqlmodel import select
 
 from aloy_backend.models import (
     ActionProposal,
-    Event,
     EventTrailEntry,
     StoredFile,
     Task,
@@ -33,20 +32,23 @@ async def _create_project(client, title: str = "Building Aloy") -> dict:
     return response.json()
 
 
-async def test_project_event_two_sessions_and_task_mutations_share_one_surface(
+async def test_project_event_keeps_one_canonical_session_and_task_surface(
     client, db_session_maker
 ):
     event = await _create_project(client)
-    first = await client.post(
+    canonical_id = event["conversation_id"]
+    assert canonical_id
+
+    # Compatibility paths may still create provenance conversations, but they
+    # never replace the Event's lifetime working Session.
+    legacy = await client.post(
         "/v1/conversations",
-        json={"title": "Plan", "event_id": event["id"]},
+        json={"title": "Legacy branch", "event_id": event["id"]},
     )
-    second = await client.post(
-        "/v1/conversations",
-        json={"title": "Build", "event_id": event["id"]},
-    )
-    assert first.status_code == second.status_code == 201
-    assert first.json()["event_id"] == second.json()["event_id"] == event["id"]
+    assert legacy.status_code == 201
+    assert legacy.json()["id"] != canonical_id
+    protected = await client.delete(f"/v1/conversations/{canonical_id}")
+    assert protected.status_code == 409
 
     created = await client.post(
         f"/v1/events/{event['id']}/tasks",
@@ -64,6 +66,7 @@ async def test_project_event_two_sessions_and_task_mutations_share_one_surface(
     surface = await client.get(f"/v1/events/{event['id']}")
     assert surface.status_code == 200
     payload = surface.json()
+    assert payload["event"]["conversation_id"] == canonical_id
     assert payload["event"]["type"] == "project"
     assert payload["surface"]["type"] == "project"
     sections = {section["kind"]: section for section in payload["surface"]["sections"]}

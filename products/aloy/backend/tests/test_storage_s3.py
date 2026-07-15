@@ -104,7 +104,11 @@ class TestRetentionOnConversationDelete:
 
     async def test_event_files_survive_session_deletion(self, client):
         created = await client.post("/v1/conversations", json={"title": "r"})
-        conv_id = created.json()["id"]
+        branched = await client.post(
+            f"/v1/conversations/{created.json()['id']}/branch",
+            json={"title": "deletable provenance"},
+        )
+        conv_id = branched.json()["id"]
         plain_id = await self._upload(client, conv_id, "scratch.txt")
         saved_id = await self._upload(client, conv_id, "cv.txt")
         await client.post(f"/v1/files/{saved_id}/library")

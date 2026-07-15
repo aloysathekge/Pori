@@ -82,6 +82,11 @@ class Event(SQLModel, table=True):
     phase: str = ""
     summary: str = ""
     is_life: bool = Field(default=False, index=True)
+    # The durable conversation Aloy reopens whenever this Event is opened.
+    # Other conversation rows may exist for legacy imports, branches, or
+    # background transports, but product surfaces never make the user choose
+    # between them.
+    primary_conversation_id: str | None = Field(default=None, index=True)
     metadata_: dict = Field(
         default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
     )
