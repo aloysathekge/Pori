@@ -1,18 +1,21 @@
 # Aloy Wedge — Implementation Spec (V1)
 
-_Status: **DRAFT for build (architecture-hardened)**, revised 2026-07-15. Builds directly on
-`docs/aloy-vision.md` (canonical product definition) — read that first; this
-spec turns its §6 wedge into a buildable plan. The four foundational decisions
-below are **settled** (founder ideation, closed 2026-07-14) and are premises,
-not open questions. Related: `CLAUDE.md` (kernel map),
-`aloy_backend_api.md` (backend architecture), `docs/adr/` (ADRs)._
+_Status: **FOUNDATION IMPLEMENTED THROUGH PHASE 5**, revised 2026-07-15.
+This remains the architecture contract for the Event, Session, Proposal,
+workspace, and initial Surface foundation. The canonical product definition is
+`docs/aloy-vision.md`; the active remaining delivery sequence is
+`docs/aloy-v1-plan.md`. The foundation decisions below are retained, with the
+Life multi-Conversation clarification added by vision v2 on 2026-07-15. Related:
+`CLAUDE.md` (kernel map), `aloy_backend_api.md` (backend architecture), and
+`docs/adr/` (ADRs)._
 
-**How to read this if you are a coding agent:** §0 is the settled premises —
-do not relitigate them. §1 is the data model (the tables you create/alter).
+**How to read this if you are a coding agent:** §0 records the foundation
+premises as clarified by vision v2. §1 is the implemented foundation data model.
 §2 is the migration. §3 is the Proposal system — the deepest part; read it
 twice. §4–5 are the visible surfaces. §6 is memory. §7 is what NOT to build.
-§8 is the build order + acceptance gates. Use the vision's primitive names
-exactly (Event, Session, Proposal, Task, Surface, Trail).
+§8 records the delivered foundation and points to the reset plan for remaining
+work. Use the vision's primitive names exactly (Event, Session, Run, Proposal,
+Task, Surface, Trail).
 
 ---
 
@@ -22,23 +25,26 @@ The wedge proves the **Event loop end-to-end on one thin slice**: a Life Event
 + one **Project** Event, with a templated Surface, the Agent Trail, the
 Proposal system (async object + sync fast-path), Tasks, and the Today lens.
 
-The four locked decisions (from `aloy.txt`, do not reopen):
+The four foundation decisions, with the current Conversation clarification:
 
-1. **Event ↔ Session ↔ Conversation.** Every Event owns one canonical,
+1. **Event ↔ Session ↔ Conversation.** Every dedicated Event owns one canonical,
    continuous user-facing **Session** (physically a Conversation) that lasts
-   for the Event's lifetime. Opening an Event always resumes it; the product
-   never asks the user to create or choose another Session inside that Event.
-   All durable state (memory, files, artifacts, Tasks, Proposals, and Trail)
-   belongs to the **Event**. The Session owns only its messages. Legacy,
-   branched, gateway, or background Conversation rows may remain for
-   provenance and compatibility, but are not parallel product Sessions.
+   for the Event's lifetime. Opening a dedicated Event always resumes it; the
+   product never asks the user to choose another Session inside that Event.
+   Life is the deliberate exception: the singleton Life Event may own many
+   user-started Conversations. All durable state (memory, files, artifacts,
+   Tasks, Proposals, and Trail) belongs to the owning **Event**. A Conversation
+   owns only its messages and provenance. Legacy, branched, gateway, or
+   background rows inside a dedicated Event are not parallel product Sessions.
 2. **Proposals are persistent async objects.** A gated tool call is **never
    executed inline** — it is intercepted, converted into a Proposal (storing
    the exact tool plus normalized, validated args), and executed **later by a
    dumb executor** on approval. The synchronous HITL flow we already shipped
    becomes a *fast-path view* over this object, not a separate mechanism.
-3. **The wedge Event type is Project** (dogfood: "Building Aloy"). Its Surface
-   is **templated** (Status · Tasks · Activity · Notes), not model-composed.
+3. **The foundation wedge Event type is Project** (dogfood: "Building Aloy").
+   Its Surface is **templated** (Status · Tasks · Activity · Notes), not
+   model-composed. The active V1 proof has since moved to the Career OS hero
+   flow defined in `docs/aloy-vision.md`.
 4. **Cuts:** no Reality Objects, no auto/emergent event detection, no
    model-composed UI, no cross-event memory retrieval. Keep: manual event
    creation, Today, event Surfaces, the Proposal system.
@@ -57,7 +63,7 @@ Four identities coexist deliberately:
 | identity | meaning | owns |
 |---|---|---|
 | `event_id` | durable product aggregate | memory, Tasks, Proposals, Trail, durable files/artifacts |
-| `session_id` | the Event's canonical conversation (physical `conversation.id`) | messages only |
+| `session_id` | the active physical `conversation.id`; canonical for a dedicated Event, one of many in Life | messages only |
 | `run_id` | one agent execution | execution record, trace, receipts, temporary outputs |
 | `workspace_id` | persistent sandbox lane | equals `event_id` in the wedge |
 
@@ -87,7 +93,7 @@ of the backend (`organization_id` on every row; personal accounts are
 | `phase` | str | free, model-defined; empty in wedge |
 | `summary` | str | model-maintained one-liner (Surface header) |
 | `is_life` | bool | exactly one `true` per organization + user; the default root |
-| `primary_conversation_id` | str \| null, index | canonical lifetime Session; nullable only during migration/repair |
+| `primary_conversation_id` | str \| null, index | canonical lifetime Conversation for a dedicated Event; default/resume pointer for Life |
 | `metadata` | JSON | extensibility |
 | `created_at`/`updated_at` | datetime | |
 
@@ -98,7 +104,7 @@ with a database partial unique index over `(organization_id, user_id)` where
 first requests. Event creation is a **direct user action, never a Proposal**
 (vision §3.1, invariant #1).
 
-### 1.2 Continuous Session = `events.primary_conversation_id` + `conversations.event_id`
+### 1.2 Conversation ownership and dedicated Event Session
 
 **Decision (pragmatic, stated so no one "fixes" it):** we do **not** physically
 rename the `conversations` table. Renaming a table that `messages`, `runs`,
@@ -107,8 +113,9 @@ change for zero functional gain. Instead:
 
 - **Add `event_id` (FK → `events.id`, NOT NULL, index)** to `conversations`
   and `primary_conversation_id` to `events`.
-- The physical table stays `conversations`, but the user-facing product does
-  not expose a Session picker. The canonical row is the Event's conversation.
+- The physical table stays `conversations`. A dedicated Event does not expose a
+  Session picker; its primary row is canonical. Life exposes its own scoped
+  Conversation history and may contain many user-started rows.
 - `messages` keep `conversation_id` (= session id) and reach the Event through
   the Session.
 - `runs` keep `conversation_id` for provenance **and gain direct `event_id`**.
@@ -161,6 +168,11 @@ Creating/completing a Task is **Working state** — reversible, internal, cheap 
 so it does **not** go through the Proposal system (vision §3.7, §3.8). Both the
 user (UI) and the agent (a `task_create`/`task_update` tool) mutate tasks
 directly. Every mutation appends a Trail entry in the **same transaction**.
+
+This is the **foundation Task model already implemented**, not the final V1
+contract. Vision v2 promotes Task from checklist state to executable work. R1
+in `docs/aloy-v1-plan.md` evolves this schema and state machine additively while
+preserving existing rows and the atomic Task + Trail invariant.
 
 ### 1.5 `event_trail_entries` (new — append-only activity truth)
 
@@ -243,18 +255,23 @@ keys remain valid opaque storage locators.
    moved into the owning Life Event workspace best-effort. The sandbox is a
    cache; object storage is authoritative. **Do not move existing object-store
    blobs solely to make their key contain `event_id`.**
-8. **Change deletion semantics.** The canonical lifetime Session cannot be
-   deleted independently from its Event. Deleting an eligible legacy or
-   provenance Conversation removes its messages and session-scoped runtime
-   records, not Event-owned files/workspace. Event deletion/archival owns
+8. **Change deletion semantics.** A dedicated Event's canonical lifetime
+   Conversation cannot be deleted independently from its Event. A Life
+   Conversation may be deleted; if it is Life's stored default pointer, choose
+   another recent row or leave a safe empty state in the same transaction.
+   Deleting an eligible Life, legacy, or provenance Conversation removes its
+   messages and conversation-scoped runtime records, not Event-owned Tasks,
+   files, memory, receipts, Trail, or workspace. Event deletion/archival owns
    durable cleanup and must preserve global-library files according to existing
    library policy.
 9. **`conversation_search` → event history.** The tool (kernel
    `core_tools.py`) searches the messages loaded into the run's `AgentMemory`.
-   The change is **what a run loads**: the run loads its canonical Session's
-   recent messages, windowed to the context budget, plus eligible legacy
-   Event-conversation provenance. The tool then searches/pages the Event's full history and
-   becomes the **context page-fault** (vision §5). Rename to
+   The change is **what a run loads**: the run loads its current Conversation's
+   recent messages, windowed to the context budget, plus compact accepted
+   owning-Event state. It does not hydrate every sibling Life transcript.
+   Eligible older Event Conversations remain available through scoped search.
+   The tool then searches/pages the Event's full history and becomes the
+   **context page-fault** (vision §5). Rename to
    `search_event_history` (alias the old name one release for safety).
 
 **Rollback:** before any Event contains state that did not originate in exactly
@@ -490,8 +507,9 @@ gateway, and cron runs. For a run in Event E it loads:
 2. Global + Event-E knowledge (never Event B).
 3. Event state needed for the task (summary, Tasks, pending Proposals, file
    manifest), compactly rendered.
-4. A token-bounded recent message window from Event E's canonical Session;
-   legacy Event-E Conversation rows may be searched as provenance.
+4. A token-bounded recent message window from the current Conversation. For a
+   dedicated Event this is normally its canonical Conversation; Life sibling
+   transcripts are not automatically injected.
 5. `search_event_history` as the page fault for older Event-E messages.
 
 **Cross-event retrieval is deferred** (§7). The acceptance contract is
@@ -510,41 +528,30 @@ gateway, and cron runs. For a run in Event E it loads:
   the wedge hard-codes `ask` for the write set.
 - **Time/incoming-data triggers** beyond manual + the existing cron chassis.
 
-## 8. Build sequence and acceptance gates
+## 8. Delivery status and continuation
 
-Each phase is independently shippable and CI-green; later phases don't start
-until the earlier gate passes.
+The original foundation sequence was delivered through phase 5:
 
-1. **Aggregate + migration** (§1–2). Create Event/Task/Proposal/Trail schema,
-   perform the nullable→backfill→constrain migration, and update every Session
-   creation path. Gate: exactly one Life Event per org+user under concurrent
-   creation; every existing Session/Run/file has valid Event ownership; branch,
-   gateway, cron, and deletion semantics pass.
-2. **Event context + workspace/files** (§0.1, §1.6, §2, §6). Land the unified
-   `load_event_memory()`, keep Event/Session/Run identities separate, provision
-   the Event workspace, and promote run outputs through the single finalizer.
-   Gate: **leakage=0** — an Event-A run loads global + A memory/messages/files
-   and never B; the canonical Session and legacy provenance share A's durable
-   artifacts while concurrent run scratch cannot collide.
-3. **Proposal object + staged kernel outcome** (§3.1–3.3). Validate before
-   persistence, return a first-class staged result, and append Trail entries.
-   Gate: invalid calls stage nothing; valid calls execute zero side effects;
-   the model cannot represent staged as committed.
-4. **Executor + commit rail** (§3.4–3.6). Add execution-time authorization,
-   allowlisting, fingerprint checks, single-claim locking, expiry, receipts,
-   and `Indeterminate` reconciliation. Gate: every §3.6 safety test passes; a
-   live `gmail_send` stages → approves → sends → commits with provider evidence
-   and zero inline execution.
-5. **Tasks + Event workspace + Today** (§1.4–1.6, §4–5). Gate: create a
-   Project Event, leave and reopen its one continuous Session without losing
-   the thread, add/complete Tasks, see Event files and the complete Trail
-   beside the conversation, and resolve a pending Proposal from both its
-   workspace and Today.
-6. **The loop, end-to-end** (hero flow, vision §6): in the "Building Aloy"
-   Event — agent works → Trail explains → Proposal appears → user decides →
-   reality changes (email sent, receipt) → Surface + Today update. Gate: the
-   60-second demo runs on the founder's own account, plus a deliberate crash-
-   window drill proves no blind duplicate send.
+1. Event aggregate, ownership migration, Tasks, Proposals, and Trail schema;
+2. Event context, persistent workspace, files, and artifact promotion;
+3. durable Proposal staging and first-class staged kernel outcomes;
+4. executor, authorization, decisions, receipts, and reconciliation;
+5. initial Tasks, continuous Event workspace, trusted Surface, and Today.
+
+The current Phase 5 branch still needs its close-out gate: green CI, signed-in
+visual QA, visible streaming, canonical Session reopen/delete verification,
+and responsive Surface checks. That close-out is **R0**.
+
+Vision v2 exposed the missing bridge in the original sequence: the initial Task
+model stores checklist state but cannot durably initiate agent work. A second
+review clarified that Life owns many user-started Conversations while a
+dedicated Event owns one canonical Conversation. Therefore the old phase 6 is
+superseded. The active sequence is **R0–R7** in
+[`aloy-v1-plan.md`](./aloy-v1-plan.md), beginning with close-out, then the Life
+Conversation boundary, executable Tasks, durable Task Runs, live Surfaces and
+semantic Trail, sourced research, the Career OS decision/receipt loop, and the
+reliability release gate. No remaining phase should be started from this
+historical section.
 
 ## 9. What's reused vs new (map)
 
@@ -562,5 +569,6 @@ until the earlier gate passes.
 
 ---
 
-_Open the build against §8 phase 1. The founder decides the "Building Aloy"
-Event's exact task seed and Surface copy at phase 5._
+_For remaining work, open `docs/aloy-v1-plan.md` and execute only its current
+phase. This document remains the architecture reference for the delivered
+foundation._
