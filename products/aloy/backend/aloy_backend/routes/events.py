@@ -34,6 +34,11 @@ from ..proposal_executor import (
     execute_proposal,
 )
 from ..rate_limit import rate_limited_permission
+from ..task_execution import (
+    TaskExecutionError,
+    queue_task_run,
+    stop_task_run,
+)
 from ..task_state import (
     TaskBudgetPolicy,
     TaskExecutionMode,
@@ -90,6 +95,12 @@ class TaskUpdateBody(BaseModel):
     blocker: str | None = Field(default=None, max_length=10_000)
     budget_policy: TaskBudgetPolicy | None = None
     order: int | None = None
+
+
+class TaskResumeBody(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    response: str | None = Field(default=None, max_length=50_000)
 
 
 async def _load_event(
@@ -433,6 +444,123 @@ async def update_task(
     return task_payload(task)
 
 
+def _task_execution_payload(result) -> dict[str, Any]:
+    return {
+        "task": task_payload(result.task),
+        "run": {
+            "id": result.run.id,
+            "status": result.run.status,
+            "conversation_id": result.run.conversation_id,
+            "attempt_count": result.run.attempt_count,
+        },
+        "idempotent": result.idempotent,
+    }
+
+
+@router.post("/{event_id}/tasks/{task_id}/work", status_code=202)
+async def work_on_task(
+    event_id: str,
+    task_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Queue explicit Task work on the durable worker."""
+    event = await _load_event(session, context, event_id)
+    task = await _load_task(session, context, event_id, task_id)
+    try:
+        result = await queue_task_run(
+            session,
+            event=event,
+            task=task,
+            context=context,
+            control="work",
+        )
+    except (TaskExecutionError, TaskStateError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _task_execution_payload(result)
+
+
+@router.post("/{event_id}/tasks/{task_id}/retry", status_code=202)
+async def retry_task(
+    event_id: str,
+    task_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    event = await _load_event(session, context, event_id)
+    task = await _load_task(session, context, event_id, task_id)
+    try:
+        result = await queue_task_run(
+            session,
+            event=event,
+            task=task,
+            context=context,
+            control="retry",
+        )
+    except (TaskExecutionError, TaskStateError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _task_execution_payload(result)
+
+
+@router.post("/{event_id}/tasks/{task_id}/resume", status_code=202)
+async def resume_task(
+    event_id: str,
+    task_id: str,
+    body: TaskResumeBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    event = await _load_event(session, context, event_id)
+    task = await _load_task(session, context, event_id, task_id)
+    try:
+        result = await queue_task_run(
+            session,
+            event=event,
+            task=task,
+            context=context,
+            control="resume",
+            response=body.response,
+        )
+    except (TaskExecutionError, TaskStateError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _task_execution_payload(result)
+
+
+@router.post("/{event_id}/tasks/{task_id}/stop")
+async def stop_task(
+    event_id: str,
+    task_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CANCEL)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    event = await _load_event(session, context, event_id)
+    task = await _load_task(session, context, event_id, task_id)
+    try:
+        result = await stop_task_run(
+            session,
+            event=event,
+            task=task,
+            actor_id=context.user_id,
+        )
+    except (TaskExecutionError, TaskStateError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        return {"task": task_payload(task), "run": None, "idempotent": True}
+    return _task_execution_payload(result)
+
+
 @router.delete("/{event_id}/tasks/{task_id}", status_code=204)
 async def delete_task(
     event_id: str,
@@ -446,6 +574,11 @@ async def delete_task(
     if event.lifecycle == "archived":
         raise HTTPException(status_code=409, detail="Event is archived")
     task = await _load_task(session, context, event_id, task_id)
+    if task.status in {"queued", "in_progress", "blocked", "waiting_approval"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop active Task work before deleting it",
+        )
     session.add(
         EventTrailEntry(
             organization_id=context.organization_id,

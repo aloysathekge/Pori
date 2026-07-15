@@ -29,8 +29,9 @@ from sqlmodel import col, select
 
 from pori import AgentMemory, AgentSettings, DocumentBlock, ImageBlock
 
-from ... import resumable_runs
+from ... import live_runs, resumable_runs
 from ...approvals import proposal_write_gate
+from ...config import settings
 from ...conversation_runtime import load_event_memory
 from ...database import async_session, get_session
 from ...doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
@@ -766,6 +767,49 @@ async def send_message(
     """Dispatcher: prepare the turn, assemble the task, then hand off to one
     of the four execution modes (see module docstring)."""
     conv_for_refs = await _load_conv(session, context, conversation_id)
+    live = live_runs.get(conversation_id)
+    if live is not None and not live.done:
+        raise HTTPException(
+            status_code=409,
+            detail="This Conversation already has an active Run",
+        )
+    durable_active = (
+        await session.execute(
+            select(func.count())
+            .select_from(Run)
+            .where(
+                Run.organization_id == context.organization_id,
+                Run.conversation_id == conversation_id,
+                col(Run.status).in_(["pending", "running"]),
+            )
+        )
+    ).scalar_one()
+    if durable_active:
+        raise HTTPException(
+            status_code=409,
+            detail="This Conversation already has queued or active work",
+        )
+    owner = (context.organization_id, context.user_id)
+    running_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(Run)
+            .where(
+                Run.organization_id == context.organization_id,
+                Run.user_id == context.user_id,
+                Run.status == "running",
+            )
+        )
+    ).scalar_one()
+    account_cap = min(
+        context.policy.max_concurrent_runs,
+        max(1, settings.max_concurrent_runs),
+    )
+    if running_count + live_runs.active_count(owner) >= account_cap:
+        raise HTTPException(
+            status_code=429,
+            detail="Account Run limit reached; wait for active work to finish",
+        )
     # Durable upload refs for this turn (already in the store; validate they
     # are THIS org+conversation's uploads — a foreign id is dropped, not an
     # oracle).

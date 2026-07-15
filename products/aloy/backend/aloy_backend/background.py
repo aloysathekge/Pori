@@ -21,10 +21,12 @@ from .database import async_session
 from .models import (
     AgentConfig,
     Conversation,
+    EventTrailEntry,
     Message,
     Organization,
     OrganizationMembership,
     Run,
+    Task,
     TeamConfig,
 )
 from .orchestrator import build_orchestrator, sandbox_base_dir
@@ -38,6 +40,13 @@ from .run_outcome import (
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
+from .task_execution import (
+    DurableClarificationRecorder,
+    add_task_lifecycle_message,
+    synchronize_task_after_run,
+    task_has_pending_proposal,
+)
+from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import TaskMutationHandler
@@ -75,6 +84,7 @@ def _make_progress_checkpointer(
                 run = await beat_session.get(Run, run_id)
                 if run is None or run.lease_owner != worker_id:
                     return
+                previous_steps = int((run.progress or {}).get("n_steps") or 0)
                 run.progress = {
                     "kernel_task_id": kernel_task_id,
                     "n_steps": agent.state.n_steps,
@@ -93,6 +103,33 @@ def _make_progress_checkpointer(
                     )
                 )
                 beat_session.add(run)
+                if run.task_id and agent.state.n_steps > previous_steps:
+                    task = await beat_session.get(Task, run.task_id)
+                    if (
+                        task is not None
+                        and task.status == "in_progress"
+                        and task.current_run_id == run.id
+                    ):
+                        beat_session.add(
+                            EventTrailEntry(
+                                organization_id=run.organization_id,
+                                user_id=run.user_id,
+                                event_id=run.event_id,
+                                actor_id="worker:task-execution",
+                                kind="task_progress",
+                                summary=(
+                                    agent.state.current_activity
+                                    or f"Advanced {task.title}"
+                                )[:1000],
+                                run_id=run.id,
+                                task_id=task.id,
+                                payload={
+                                    "step": agent.state.n_steps,
+                                    "activity": agent.state.current_activity,
+                                    "plan": agent._plan_snapshot(),
+                                },
+                            )
+                        )
                 await beat_session.commit()
         except Exception:  # pragma: no cover - heartbeat must never kill a run
             logger.warning(
@@ -143,6 +180,58 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             logger.error("Background run %s not found", run_id)
             return
 
+        task: Task | None = None
+        task_started = False
+        if run.task_id:
+            task = await session.get(Task, run.task_id)
+            if (
+                task is not None
+                and task.status == "queued"
+                and task.current_run_id == run.id
+            ):
+                task = await claim_task(
+                    session,
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    event_id=run.event_id,
+                    task_id=run.task_id,
+                    run_id=run.id,
+                    actor_id="worker:task-execution",
+                )
+                task_started = task is not None
+                if task is None:
+                    # Another Run won the compare-and-set claim. This stale
+                    # queue row must terminate without touching tools.
+                    run = await session.get(Run, run_id, populate_existing=True)
+                    if run is not None and run.lease_owner == worker_id:
+                        run.status = "cancelled"
+                        run.success = False
+                        run.cancel_requested = True
+                        run.completed_at = datetime.now(timezone.utc)
+                        run.lease_owner = None
+                        run.lease_expires_at = None
+                        session.add(run)
+                        await session.commit()
+                    return
+            elif not (
+                task is not None
+                and task.status == "in_progress"
+                and task.current_run_id == run.id
+            ):
+                # A stopped/replaced Task must never let its stale queue row run.
+                run.status = "cancelled"
+                run.success = False
+                run.cancel_requested = True
+                run.completed_at = datetime.now(timezone.utc)
+                run.lease_owner = None
+                run.lease_expires_at = None
+                session.add(run)
+                await session.commit()
+                return
+
+        clarification_recorder = DurableClarificationRecorder() if run.task_id else None
+        conversation: Conversation | None = None
+
         try:
             membership_result = await session.execute(
                 select(OrganizationMembership).where(
@@ -175,7 +264,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 permissions=(permission.value for permission in permissions),
                 isolation_profile="worker-process",
             )
-            conversation = None
             agent_config = None
             agent = None
             if run.conversation_id:
@@ -194,6 +282,18 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         or agent_config.organization_id != run.organization_id
                     ):
                         raise ValueError("Agent config is unavailable")
+            if task_started and conversation is not None and task is not None:
+                add_task_lifecycle_message(
+                    session,
+                    conversation_id=conversation.id,
+                    task=task,
+                    run_id=run.id,
+                    status="in_progress",
+                    content=f"Started **{task.title}**.",
+                )
+                conversation.updated_at = datetime.now(timezone.utc)
+                session.add(conversation)
+                await session.commit()
             memory = await load_event_memory(
                 session,
                 organization_id=run.organization_id,
@@ -286,6 +386,8 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         session_factory=async_session,
                     ),
                 }
+                if clarification_recorder is not None:
+                    tool_context["clarify_handler"] = clarification_recorder
                 result = await asyncio.wait_for(
                     orchestrator.execute_task(
                         task=run.task,
@@ -317,6 +419,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         ),
                     }
 
+            # Stop is written by the API through a different session while the
+            # agent is running. Refresh the cancellation bit before deciding
+            # the terminal Run/Task state.
+            await session.refresh(run, attribute_names=["cancel_requested"])
             if run.cancel_requested:
                 run.status = "cancelled"
                 run.success = False
@@ -378,24 +484,96 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             if trace_record is not None:
                 session.add(trace_record)
 
+            pending_proposal = False
+            if run.task_id:
+                # Proposal staging commits through its own short session while
+                # this execution session is open. Read through a fresh session
+                # so SQLite and Postgres both see the committed Proposal.
+                async with async_session() as proposal_session:
+                    pending_proposal = await task_has_pending_proposal(
+                        proposal_session, run_id=run.id
+                    )
+                task = await synchronize_task_after_run(
+                    session,
+                    run=run,
+                    clarification=(
+                        clarification_recorder.request
+                        if clarification_recorder is not None
+                        else None
+                    ),
+                    pending_proposal=pending_proposal,
+                )
+
             if conversation is not None and run.status == "completed":
                 answer = (final or {}).get("final_answer") or ""
-                session.add(
-                    Message(
-                        conversation_id=conversation.id,
-                        role="assistant",
-                        content=answer,
-                        metadata_={
-                            "run_id": run.id,
-                            "reasoning": (final or {}).get("reasoning"),
-                            "steps_taken": run.steps_taken,
-                            "metrics": run.metrics,
-                            "selected_skills": run.selected_skills,
-                            "artifacts": run.artifacts,
-                            "plan": run.plan,
-                        },
+                if task is not None and task.status == "blocked":
+                    request = (
+                        clarification_recorder.request
+                        if clarification_recorder is not None
+                        else None
                     )
-                )
+                    question = str((request or {}).get("question") or task.blocker)
+                    options = list((request or {}).get("options") or [])
+                    choices = "\n\nOptions: " + ", ".join(options) if options else ""
+                    add_task_lifecycle_message(
+                        session,
+                        conversation_id=conversation.id,
+                        task=task,
+                        run_id=run.id,
+                        status="blocked",
+                        content=f"**{task.title}** needs your input: {question}{choices}",
+                    )
+                elif task is not None and task.status == "waiting_approval":
+                    add_task_lifecycle_message(
+                        session,
+                        conversation_id=conversation.id,
+                        task=task,
+                        run_id=run.id,
+                        status="waiting_approval",
+                        content=(
+                            f"**{task.title}** is waiting for your approval. "
+                            "Review the pending decision in this Event."
+                        ),
+                    )
+                elif task is not None and task.status == "failed":
+                    add_task_lifecycle_message(
+                        session,
+                        conversation_id=conversation.id,
+                        task=task,
+                        run_id=run.id,
+                        status="failed",
+                        content=(
+                            answer
+                            or f"**{task.title}** did not satisfy its definition "
+                            "of done. You can retry it."
+                        ),
+                    )
+                else:
+                    session.add(
+                        Message(
+                            conversation_id=conversation.id,
+                            role="assistant",
+                            content=answer,
+                            metadata_={
+                                "run_id": run.id,
+                                "reasoning": (final or {}).get("reasoning"),
+                                "steps_taken": run.steps_taken,
+                                "metrics": run.metrics,
+                                "selected_skills": run.selected_skills,
+                                "artifacts": run.artifacts,
+                                "plan": run.plan,
+                                **(
+                                    {
+                                        "kind": "task_result",
+                                        "task_id": task.id,
+                                        "task_status": task.status,
+                                    }
+                                    if task is not None
+                                    else {}
+                                ),
+                            },
+                        )
+                    )
                 conversation.updated_at = datetime.now(timezone.utc)
                 session.add(conversation)
                 if memory is not None:
@@ -430,6 +608,24 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 return
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
+            if run.status == "failed" and run.task_id:
+                task = await synchronize_task_after_run(session, run=run)
+                if task is not None and run.conversation_id:
+                    conversation = await session.get(Conversation, run.conversation_id)
+                    if conversation is not None:
+                        add_task_lifecycle_message(
+                            session,
+                            conversation_id=conversation.id,
+                            task=task,
+                            run_id=run.id,
+                            status="failed",
+                            content=(
+                                f"**{task.title}** could not finish after its safe "
+                                "retry attempts. You can retry it."
+                            ),
+                        )
+                        conversation.updated_at = datetime.now(timezone.utc)
+                        session.add(conversation)
 
         try:
             current = await session.get(Run, run_id)
