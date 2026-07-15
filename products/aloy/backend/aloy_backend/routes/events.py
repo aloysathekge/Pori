@@ -34,6 +34,16 @@ from ..proposal_executor import (
     execute_proposal,
 )
 from ..rate_limit import rate_limited_permission
+from ..task_state import (
+    TaskBudgetPolicy,
+    TaskExecutionMode,
+    TaskPriority,
+    TaskStateError,
+    TaskStatus,
+    mutate_task,
+    resolve_task_origin,
+    task_snapshot,
+)
 from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -53,6 +63,14 @@ class TaskCreateBody(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     title: str = Field(min_length=1, max_length=1000)
+    instructions: str = Field(default="", max_length=50_000)
+    definition_of_done: str = Field(default="", max_length=10_000)
+    priority: TaskPriority = "normal"
+    due_at: datetime | None = None
+    execution_mode: TaskExecutionMode = "manual"
+    assigned_agent_id: str | None = Field(default=None, max_length=200)
+    origin_conversation_id: str | None = None
+    budget_policy: TaskBudgetPolicy = Field(default_factory=TaskBudgetPolicy)
     order: int | None = None
 
 
@@ -60,7 +78,17 @@ class TaskUpdateBody(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     title: str | None = Field(default=None, min_length=1, max_length=1000)
-    status: Literal["open", "done"] | None = None
+    status: TaskStatus | None = None
+    instructions: str | None = Field(default=None, max_length=50_000)
+    definition_of_done: str | None = Field(default=None, max_length=10_000)
+    priority: TaskPriority | None = None
+    due_at: datetime | None = None
+    execution_mode: TaskExecutionMode | None = None
+    assigned_agent_id: str | None = Field(default=None, max_length=200)
+    origin_conversation_id: str | None = None
+    result_summary: str | None = Field(default=None, max_length=50_000)
+    blocker: str | None = Field(default=None, max_length=10_000)
+    budget_policy: TaskBudgetPolicy | None = None
     order: int | None = None
 
 
@@ -316,11 +344,27 @@ async def create_task(
                 )
             )
         ).scalar_one() + 1
+    try:
+        origin_conversation_id = await resolve_task_origin(
+            session,
+            event=event,
+            preferred_conversation_id=body.origin_conversation_id,
+        )
+    except TaskStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     task = Task(
         organization_id=context.organization_id,
         user_id=context.user_id,
         event_id=event.id,
+        origin_conversation_id=origin_conversation_id,
         title=body.title.strip(),
+        instructions=body.instructions,
+        definition_of_done=body.definition_of_done,
+        priority=body.priority,
+        due_at=body.due_at,
+        execution_mode=body.execution_mode,
+        assigned_agent_id=body.assigned_agent_id,
+        budget_policy=body.budget_policy.model_dump(exclude_none=True),
         order=order,
         created_by="user",
     )
@@ -336,7 +380,12 @@ async def create_task(
             kind="task_changed",
             summary=f"Created task {task.title}",
             task_id=task.id,
-            payload={"action": "created", "status": "open", "order": task.order},
+            evidence_refs=(
+                [{"conversation_id": task.origin_conversation_id}]
+                if task.origin_conversation_id
+                else []
+            ),
+            payload={"action": "created", "after": task_snapshot(task)},
         )
     )
     await session.commit()
@@ -358,33 +407,27 @@ async def update_task(
     if event.lifecycle == "archived":
         raise HTTPException(status_code=409, detail="Event is archived")
     task = await _load_task(session, context, event_id, task_id)
-    changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    submitted = body.model_dump(exclude_unset=True)
+    nullable_fields = {"due_at", "assigned_agent_id", "origin_conversation_id"}
+    changes = {
+        key: value
+        for key, value in submitted.items()
+        if value is not None or key in nullable_fields
+    }
     if not changes:
         raise HTTPException(status_code=422, detail="No Task changes provided")
-    before = {"title": task.title, "status": task.status, "order": task.order}
-    if "title" in changes:
-        task.title = str(changes["title"]).strip()
-    if "status" in changes:
-        task.status = str(changes["status"])
-    if "order" in changes:
-        task.order = int(changes["order"])
-    task.updated_at = datetime.now(timezone.utc)
-    event.updated_at = task.updated_at
-    after = {"title": task.title, "status": task.status, "order": task.order}
-    session.add(task)
-    session.add(event)
-    session.add(
-        EventTrailEntry(
-            organization_id=context.organization_id,
-            user_id=context.user_id,
-            event_id=event_id,
+    if "budget_policy" in changes:
+        changes["budget_policy"] = dict(changes["budget_policy"])
+    try:
+        await mutate_task(
+            session,
+            event=event,
+            task=task,
+            changes=changes,
             actor_id=context.user_id,
-            kind="task_changed",
-            summary=f"Updated task {task.title}",
-            task_id=task.id,
-            payload={"action": "updated", "before": before, "after": after},
         )
-    )
+    except TaskStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     await session.commit()
     await session.refresh(task)
     return task_payload(task)

@@ -7,9 +7,18 @@ Proposal rows and committed reality carries receipt/provider evidence.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from .models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
+
+
+def _utc_payload(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def event_payload(event: Event) -> dict[str, Any]:
@@ -31,8 +40,20 @@ def event_payload(event: Event) -> dict[str, Any]:
 def task_payload(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
+        "event_id": task.event_id,
+        "origin_conversation_id": task.origin_conversation_id,
         "title": task.title,
         "status": task.status,
+        "instructions": task.instructions,
+        "definition_of_done": task.definition_of_done,
+        "priority": task.priority,
+        "due_at": _utc_payload(task.due_at),
+        "execution_mode": task.execution_mode,
+        "assigned_agent_id": task.assigned_agent_id,
+        "current_run_id": task.current_run_id,
+        "result_summary": task.result_summary,
+        "blocker": task.blocker,
+        "budget_policy": task.budget_policy,
         "order": task.order,
         "created_by": task.created_by,
         "created_at": task.created_at,

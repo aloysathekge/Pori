@@ -317,12 +317,25 @@ async def test_agent_task_tools_mutate_working_state_and_trail_atomically(
 
     created = await executor.execute_tool_async(
         "task_create",
-        {"title": "Agent-created work"},
+        {
+            "title": "Agent-created work",
+            "instructions": "Produce the implementation notes.",
+            "definition_of_done": "Notes are attached to the Event.",
+            "priority": "high",
+            "budget_policy": {"max_steps": 8},
+        },
         {"task_mutator": handler},
     )
     assert created["success"] is True
     task_id = created["result"]["id"]
     assert created["result"]["created_by"] == "planner-agent"
+    assert created["result"]["origin_conversation_id"] == event["conversation_id"]
+    assert created["result"]["instructions"] == "Produce the implementation notes."
+    assert created["result"]["definition_of_done"] == (
+        "Notes are attached to the Event."
+    )
+    assert created["result"]["priority"] == "high"
+    assert created["result"]["budget_policy"] == {"max_steps": 8}
 
     completed = await executor.execute_tool_async(
         "task_update",
@@ -330,6 +343,16 @@ async def test_agent_task_tools_mutate_working_state_and_trail_atomically(
         {"task_mutator": handler},
     )
     assert completed["result"]["status"] == "done"
+
+    illegal = await executor.execute_tool_async(
+        "task_update",
+        {"task_id": task_id, "status": "queued"},
+        {"task_mutator": handler},
+    )
+    assert illegal == {
+        "success": False,
+        "error": "Illegal Task transition: done -> queued",
+    }
 
     async with db_session_maker() as session:
         task = await session.get(Task, task_id)

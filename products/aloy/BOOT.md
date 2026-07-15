@@ -42,7 +42,7 @@ Then install, migrate, run:
 
 ```bash
 uv sync                                            # deps + the Pori kernel (editable, from ../../..)
-uv run alembic upgrade head                        # create tables (writes aloy.db on SQLite)
+uv run python -m alembic -c alembic.example.ini upgrade head  # create/update tables
 uv run uvicorn aloy_backend.api:app --reload --port 8000
 ```
 

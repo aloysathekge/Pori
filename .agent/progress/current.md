@@ -1,6 +1,33 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 R1 implementation)._
+_Last updated: 2026-07-15 (Aloy V1 R2 implementation)._
+
+## NEW: Aloy V1 R2 - executable Task model (2026-07-15)
+
+R1 is merged into `aloy-v1` as PR #169 at squash merge
+`7889bc2e12560b2b9c36434a1065367cf0199af5`. R2 is implemented on
+`aloy-v1-r2-task-model` in draft PR #170. All seven PR checks are green; R2 is
+ready to mark for review and merge into `aloy-v1`.
+
+Task now carries the durable execution contract: eight legal statuses,
+instructions, definition of done, priority, due date, manual execution mode,
+assigned agent, origin Conversation, current Run, result summary, blocker, and
+bounded budget policy. Run has a nullable Task link, inherited by child Runs.
+Life Tasks may originate from any Conversation in Life; a dedicated Event Task
+may reference only its owning Event's Conversation.
+
+`task_state.py` is the single transition/provenance/claim boundary for user and
+agent mutations. Illegal transitions roll back without a Trail entry. A queued
+Task claim is a compare-and-set update tied to a matching Run; concurrent
+claimers yield one winner and one semantic Trail entry. R3 will add **Work on
+this** and durable queue execution; R2 deliberately does not start work.
+
+Migration `w9a0b1c2d3e4` adds the Task/Run fields, preserves existing
+`open|done` rows, and backfills a valid origin from the Event's resume target
+when available. A URL-free backend `alembic.example.ini` restores the documented
+local migration workflow. Verification is green: `246` backend tests, Black across
+`156` files, mypy across `84 source files`, app ESLint/build, focused R2 tests,
+and a clean-database upgrade through every migration to the new head.
 
 ## NEW: Aloy V1 R1 - Life conversations and dedicated Event sessions (2026-07-15)
 

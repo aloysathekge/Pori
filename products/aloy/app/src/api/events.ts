@@ -16,8 +16,33 @@ export interface EventSummary {
 
 export interface EventTask {
   id: string;
+  event_id: string;
+  origin_conversation_id: string | null;
   title: string;
-  status: 'open' | 'done';
+  status:
+    | 'open'
+    | 'queued'
+    | 'in_progress'
+    | 'blocked'
+    | 'waiting_approval'
+    | 'done'
+    | 'failed'
+    | 'cancelled';
+  instructions: string;
+  definition_of_done: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  due_at: string | null;
+  execution_mode: 'manual';
+  assigned_agent_id: string | null;
+  current_run_id: string | null;
+  result_summary: string;
+  blocker: string;
+  budget_policy: {
+    max_steps?: number;
+    timeout_seconds?: number;
+    max_tool_calls?: number;
+    max_cost_usd?: number;
+  };
   order: number;
   created_by: string;
   created_at: string;

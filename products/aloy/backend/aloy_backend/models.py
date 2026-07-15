@@ -82,10 +82,8 @@ class Event(SQLModel, table=True):
     phase: str = ""
     summary: str = ""
     is_life: bool = Field(default=False, index=True)
-    # The durable conversation Aloy reopens whenever this Event is opened.
-    # Other conversation rows may exist for legacy imports, branches, or
-    # background transports, but product surfaces never make the user choose
-    # between them.
+    # A dedicated Event's canonical conversation. For Life, this is the most
+    # recent resume target among its intentionally many conversations.
     primary_conversation_id: str | None = Field(default=None, index=True)
     metadata_: dict = Field(
         default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
@@ -101,7 +99,7 @@ class Event(SQLModel, table=True):
 
 
 class Task(SQLModel, table=True):
-    """Reversible working state owned by an Event."""
+    """Durable executable work owned by an Event."""
 
     __tablename__ = "tasks"
 
@@ -111,8 +109,23 @@ class Task(SQLModel, table=True):
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
     event_id: str = Field(foreign_key="events.id", index=True)
+    origin_conversation_id: str | None = Field(default=None, index=True)
     title: str
     status: str = Field(default="open", index=True)
+    instructions: str = ""
+    definition_of_done: str = ""
+    priority: str = Field(default="normal", index=True)
+    due_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    execution_mode: str = Field(default="manual", index=True)
+    assigned_agent_id: str | None = Field(default=None, index=True)
+    current_run_id: str | None = Field(default=None, index=True)
+    result_summary: str = ""
+    blocker: str = ""
+    budget_policy: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
     order: int = 0
     created_by: str
     created_at: datetime = Field(
@@ -595,6 +608,7 @@ class Run(SQLModel, table=True):
     user_id: str = Field(index=True)
     organization_id: str = Field(index=True)
     event_id: str = Field(foreign_key="events.id", index=True)
+    task_id: str | None = Field(default=None, index=True)
     agent_id: str = Field(index=True)
     session_id: str = Field(index=True)
     conversation_id: str | None = Field(default=None, index=True)
