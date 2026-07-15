@@ -4,8 +4,8 @@ import asyncio
 import importlib
 from datetime import datetime, timezone
 
-import sqlalchemy as sa
 import pytest
+import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
