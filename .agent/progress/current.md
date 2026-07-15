@@ -6,7 +6,8 @@ _Last updated: 2026-07-15 (Aloy V1 R2 implementation)._
 
 R1 is merged into `aloy-v1` as PR #169 at squash merge
 `7889bc2e12560b2b9c36434a1065367cf0199af5`. R2 is implemented on
-`aloy-v1-r2-task-model` and is ready for draft-PR CI.
+`aloy-v1-r2-task-model` in draft PR #170. All seven PR checks are green; R2 is
+ready to mark for review and merge into `aloy-v1`.
 
 Task now carries the durable execution contract: eight legal statuses,
 instructions, definition of done, priority, due date, manual execution mode,

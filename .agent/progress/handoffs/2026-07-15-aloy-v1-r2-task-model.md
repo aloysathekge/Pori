@@ -6,8 +6,9 @@
   `7889bc2e12560b2b9c36434a1065367cf0199af5` (#169).
 - Phase branch: `aloy-v1-r2-task-model`.
 - Scope: R2 in `docs/aloy-v1-plan.md`.
-- Status: implementation and local verification complete; draft-PR CI remains
-  before merge.
+- Draft PR: #170, targeting `aloy-v1`.
+- Status: implementation, local verification, and all seven PR checks are
+  green; R2 is ready to mark for review and merge.
 
 ## Implemented
 
@@ -44,6 +45,9 @@
 - Aloy app ESLint and production TypeScript/Vite build: passed.
 - Clean SQLite database upgraded through every Alembic revision to
   `w9a0b1c2d3e4 (head)` using the checked-in configuration.
+- PR CI: all seven checks passed after an import-order-only correction,
+  including Python 3.10-3.12, Aloy backend, Aloy app, dependency bounds, and
+  import boundaries.
 - Migration backfill, cross-Event origin rejection, illegal-transition
   rollback, and concurrent one-winner claims have direct regression tests.
 
