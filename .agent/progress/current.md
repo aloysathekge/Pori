@@ -6,8 +6,8 @@ _Last updated: 2026-07-15 (Aloy V1 R1 implementation)._
 
 R0 is merged into `aloy-v1` as PR #168 at squash merge
 `069f173ec59dad02b0f9bbb26cf3598b51c10c47`. R1 is implemented on
-`aloy-v1-r1-life-conversations` and is ready for draft-PR CI and manual product
-QA.
+`aloy-v1-r1-life-conversations` in draft PR #169. All seven PR checks are
+green; signed-in manual product QA is the remaining merge gate.
 
 The default Chat API and switcher now contain only the signed-in user's Life
 Conversations. **New chat** creates a fresh Life thread; **New event** creates a
@@ -28,7 +28,7 @@ final Event/context regression set passed `14` tests; Black is clean across
 and the production build pass. The existing Vite bundle-size warning remains
 non-blocking. Before merging R1, complete signed-in manual QA for New chat, the
 Life-only switcher, New event, canonical Event reopen, Life deletion, and
-Create Event from conversation; then require PR CI to be green.
+Create Event from conversation.
 
 ## NEW: Aloy vision v2 + V1 reset plan (2026-07-15)
 

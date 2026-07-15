@@ -6,8 +6,9 @@
   `069f173ec59dad02b0f9bbb26cf3598b51c10c47` (#168).
 - Phase branch: `aloy-v1-r1-life-conversations`.
 - Scope: R1 in `docs/aloy-v1-plan.md`.
-- Status: implementation and local automated verification complete; draft-PR
-  CI and signed-in manual QA remain before merge.
+- Draft PR: #169, targeting `aloy-v1`.
+- Status: implementation, local verification, and all seven PR checks are
+  green; signed-in manual QA remains before merge.
 
 ## Implemented
 
@@ -40,6 +41,8 @@
 - Backend mypy: clean across `83 source files`.
 - Aloy app ESLint: passed.
 - Aloy app production TypeScript/Vite build: passed.
+- PR CI: all seven checks passed, including Python 3.10-3.12, Aloy backend,
+  Aloy app, dependency bounds, and import boundaries.
 - `git diff --check`: passed before documentation finalization.
 - Non-blocking known warning: the existing Vite main chunk exceeds 500 kB.
 
