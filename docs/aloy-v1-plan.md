@@ -328,7 +328,9 @@ Gate:
 
 ## 8. Immediate next action
 
-Finish R0 only. Do not redesign Life on the unmerged Phase 5 branch and do not
-begin executable Tasks yet. After PR #168 is green, visually verified, and
-merged into `aloy-v1`, create `aloy-v1-r1-life-conversations` from the updated
-integration branch.
+Finish R1 on `aloy-v1-r1-life-conversations`: run draft-PR CI and the signed-in
+manual gate for Life-only chat history, transcript isolation, safe Life chat
+deletion, dedicated Event continuity, and explicit Event creation from a Life
+conversation. Merge R1 into `aloy-v1` only when those checks pass. Then create
+`aloy-v1-r2-task-model` from the updated integration branch; do not begin the
+executable Task schema on the unmerged R1 branch.
