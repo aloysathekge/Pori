@@ -30,6 +30,8 @@
 - The app shell now separates **Chat**, **New chat**, **New event**, and the
   dedicated Event rail. Today opens Life through Chat and dedicated Events
   through their workspace.
+- New chat has lightweight utility styling; Event creation has an elevated
+  durable-workspace treatment across the rail, Today, and Chat promotion flow.
 - Chat can explicitly create an Event from the active Life Conversation and
   displays creation failures inline.
 

@@ -14,6 +14,9 @@ Conversations. **New chat** creates a fresh Life thread; **New event** creates a
 dedicated Event with its canonical continuous Conversation. The Event rail
 excludes Life. A Life Conversation can explicitly seed a new Event while
 retaining inspectable origin provenance and leaving the source thread intact.
+The entry actions now communicate that difference visually: New chat is a
+quiet utility, while Start an Event is an elevated durable-workspace action in
+the navigation, Today, and Create Event from conversation flow.
 
 Life's newest Conversation is its resume target. Deleting that thread safely
 retargets Life to the most recent remaining Conversation or an empty state;
