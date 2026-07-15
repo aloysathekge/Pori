@@ -7,9 +7,12 @@ import {
   ListTodo,
   PanelRightClose,
   PanelRightOpen,
+  Play,
   Plus,
+  RotateCcw,
   Send,
   ShieldCheck,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -20,7 +23,11 @@ import {
   decideEventProposal,
   deleteEventTask,
   getEventSurface,
+  resumeEventTask,
+  retryEventTask,
+  stopEventTask,
   updateEventTask,
+  workOnEventTask,
   type EventSurfaceResponse,
   type EventTask,
 } from '@/api/events';
@@ -67,6 +74,9 @@ export function EventPage() {
   const [contextOpen, setContextOpen] = useState(true);
   const [contextTab, setContextTab] = useState<ContextTab>('tasks');
   const [error, setError] = useState('');
+  const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [resumeTaskId, setResumeTaskId] = useState<string | null>(null);
+  const [resumeResponse, setResumeResponse] = useState('');
   const previousSending = useRef(false);
 
   const conversationId = data?.event.conversation_id ?? null;
@@ -156,6 +166,23 @@ export function EventPage() {
     previousSending.current = sending;
   }, [sending, loadSurface]);
 
+  useEffect(() => {
+    const section = data?.surface.sections.find((item) => item.kind === 'tasks');
+    const hasRunningTask =
+      section?.kind === 'tasks' &&
+      section.tasks.some((task) => task.status === 'queued' || task.status === 'in_progress');
+    if (!hasRunningTask) return;
+    const interval = window.setInterval(() => {
+      void loadSurface();
+      if (conversationId) {
+        void getConversation(conversationId).then((conversation) => {
+          setMessages(conversation.messages);
+        });
+      }
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [conversationId, data, loadSurface]);
+
   async function handleSend() {
     if (!conversationId || uploadsInFlight) return;
     if (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) return;
@@ -192,6 +219,32 @@ export function EventPage() {
   async function removeTask(taskId: string) {
     await deleteEventTask(eventId, taskId);
     await loadSurface();
+  }
+
+  async function runTaskControl(
+    task: EventTask,
+    control: 'work' | 'stop' | 'retry' | 'resume',
+    response?: string,
+  ) {
+    setTaskActionId(task.id);
+    try {
+      if (control === 'work') await workOnEventTask(eventId, task.id);
+      if (control === 'stop') await stopEventTask(eventId, task.id);
+      if (control === 'retry') await retryEventTask(eventId, task.id);
+      if (control === 'resume') await resumeEventTask(eventId, task.id, response);
+      setResumeTaskId(null);
+      setResumeResponse('');
+      setError('');
+      await loadSurface();
+      if (conversationId) {
+        const conversation = await getConversation(conversationId);
+        setMessages(conversation.messages);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setTaskActionId(null);
+    }
   }
 
   async function decide(proposalId: string, decision: 'approve' | 'reject') {
@@ -356,20 +409,59 @@ export function EventPage() {
                   <Button size="icon" onClick={addTask} disabled={!taskTitle.trim()} aria-label="Add task"><Plus size={16} /></Button>
                 </div>
                 <div className="mt-4 divide-y divide-zinc-800">
-                  {tasks.map((task) => (
-                    <div key={task.id} className="group flex items-start gap-2.5 py-3">
-                      <button type="button" onClick={() => void toggleTask(task.id, task.status)} disabled={!taskCanToggle(task.status)} className="mt-0.5 text-zinc-500 hover:text-accent-700 disabled:cursor-default disabled:hover:text-zinc-500" aria-label={task.status === 'open' ? 'Complete task' : task.status === 'done' ? 'Reopen task' : `Task is ${taskStatusLabel(task.status)}`}>
-                        {task.status === 'done' ? <CheckCircle2 size={17} /> : <Circle size={17} />}
-                      </button>
-                      <span className={`min-w-0 flex-1 text-sm leading-5 ${task.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{task.title}</span>
-                      {task.status !== 'open' && task.status !== 'done' && (
-                        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium capitalize text-zinc-400">
-                          {taskStatusLabel(task.status)}
-                        </span>
-                      )}
-                      <button type="button" onClick={() => void removeTask(task.id)} className="rounded p-1 text-zinc-600 opacity-0 hover:text-red-500 group-hover:opacity-100 focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
-                    </div>
-                  ))}
+                  {tasks.map((task) => {
+                    const active = task.status === 'queued' || task.status === 'in_progress';
+                    const recoverable = task.status === 'failed' || task.status === 'cancelled';
+                    const canResume = task.status === 'blocked' || task.status === 'waiting_approval';
+                    return (
+                      <div key={task.id} className="group py-3">
+                        <div className="flex items-start gap-2.5">
+                          <button type="button" onClick={() => void toggleTask(task.id, task.status)} disabled={!taskCanToggle(task.status)} className="mt-0.5 text-zinc-500 hover:text-accent-700 disabled:cursor-default disabled:hover:text-zinc-500" aria-label={task.status === 'open' ? 'Complete task' : task.status === 'done' ? 'Reopen task' : `Task is ${taskStatusLabel(task.status)}`}>
+                            {task.status === 'done' ? <CheckCircle2 size={17} /> : <Circle size={17} />}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-sm leading-5 ${task.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{task.title}</p>
+                            {task.status === 'queued' && <p className="mt-1 text-xs text-zinc-500">Waiting for this Event&apos;s work slot. You can leave Aloy open or closed.</p>}
+                            {task.status === 'in_progress' && <p className="mt-1 text-xs text-accent-700">Aloy is working durably in the background.</p>}
+                            {task.status === 'blocked' && <p className="mt-1 text-xs text-amber-700">Needs your input: {task.blocker || 'more information is required'}</p>}
+                            {task.status === 'waiting_approval' && <p className="mt-1 text-xs text-amber-700">Waiting for a decision or committed receipt.</p>}
+                            {task.status === 'failed' && <p className="mt-1 text-xs text-red-600">The Run failed safely. Retry starts a fresh Run.</p>}
+                          </div>
+                          {task.status !== 'open' && task.status !== 'done' && (
+                            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium capitalize text-zinc-400">
+                              {taskStatusLabel(task.status)}
+                            </span>
+                          )}
+                          {!active && !canResume && (
+                            <button type="button" onClick={() => void removeTask(task.id)} className="rounded p-1 text-zinc-600 opacity-0 hover:text-red-500 group-hover:opacity-100 focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
+                          )}
+                        </div>
+                        <div className="ml-7 mt-2 flex flex-wrap gap-2">
+                          {task.status === 'open' && (
+                            <Button size="sm" onClick={() => void runTaskControl(task, 'work')} disabled={taskActionId === task.id}><Play size={13} />Work on this</Button>
+                          )}
+                          {(active || canResume) && (
+                            <Button size="sm" variant="ghost" onClick={() => void runTaskControl(task, 'stop')} disabled={taskActionId === task.id}><Square size={12} />Stop</Button>
+                          )}
+                          {recoverable && (
+                            <Button size="sm" variant="outline" onClick={() => void runTaskControl(task, 'retry')} disabled={taskActionId === task.id}><RotateCcw size={13} />Retry</Button>
+                          )}
+                          {canResume && (
+                            <Button size="sm" variant="outline" onClick={() => {
+                              if (task.status === 'blocked') setResumeTaskId(task.id);
+                              else void runTaskControl(task, 'resume');
+                            }} disabled={taskActionId === task.id}><Play size={13} />Resume</Button>
+                          )}
+                        </div>
+                        {resumeTaskId === task.id && (
+                          <div className="ml-7 mt-2 flex gap-2">
+                            <input className={INPUT} value={resumeResponse} onChange={(event) => setResumeResponse(event.target.value)} placeholder="Answer Aloy&apos;s question" autoFocus />
+                            <Button size="sm" onClick={() => void runTaskControl(task, 'resume', resumeResponse)} disabled={!resumeResponse.trim() || taskActionId === task.id}>Continue</Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {tasks.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No tasks yet.</p>}
                 </div>
               </div>
