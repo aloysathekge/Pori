@@ -22,6 +22,7 @@ def event_payload(event: Event) -> dict[str, Any]:
         "summary": event.summary,
         "is_life": event.is_life,
         "conversation_id": event.primary_conversation_id,
+        "origin_conversation_id": (event.metadata_ or {}).get("origin_conversation_id"),
         "created_at": event.created_at,
         "updated_at": event.updated_at,
     }

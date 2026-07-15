@@ -44,12 +44,12 @@ async def ensure_life_event(
 async def ensure_event_conversation(
     session: AsyncSession, *, event: Event
 ) -> Conversation:
-    """Return the one user-facing conversation that lives with an Event.
+    """Return the one user-facing conversation for a dedicated Event.
 
-    Older databases can contain several conversations for an Event. We adopt
-    the most recently active one once, persist that choice on the Event, and
-    keep every other row as provenance. New Events receive their conversation
-    immediately.
+    Older databases can contain several conversations for a dedicated Event.
+    We adopt the most recently active one once, persist that choice on the
+    Event, and keep every other row as provenance. Life uses explicit chat
+    creation instead because it intentionally owns multiple conversations.
     """
     if event.primary_conversation_id:
         primary = await session.get(Conversation, event.primary_conversation_id)

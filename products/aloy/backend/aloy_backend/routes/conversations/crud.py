@@ -66,7 +66,9 @@ async def create_conversation(
     )
     session.add(conv)
     await session.flush()
-    if event.primary_conversation_id is None:
+    # Life is a multi-conversation personal space: the newest explicit chat is
+    # its default resume target. Dedicated Events keep their canonical row.
+    if event.is_life or event.primary_conversation_id is None:
         event.primary_conversation_id = conv.id
         session.add(event)
     await session.commit()
@@ -91,14 +93,36 @@ async def list_conversations(
     session: AsyncSession = Depends(get_session),
     limit: int = 20,
     offset: int = 0,
+    event_id: str | None = None,
 ) -> list[ConversationResponse]:
+    if event_id is None:
+        target_event = await ensure_life_event(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+        )
+        await session.commit()
+    else:
+        event = await session.get(Event, event_id)
+        if (
+            event is None
+            or event.organization_id != context.organization_id
+            or event.user_id != context.user_id
+        ):
+            raise HTTPException(status_code=404, detail="Event not found")
+        target_event = event
+
     stmt = (
         select(
             Conversation,
             func.count(col(Message.id)).label("message_count"),
         )
         .outerjoin(Message, col(Message.conversation_id) == col(Conversation.id))
-        .where(Conversation.organization_id == context.organization_id)
+        .where(
+            Conversation.organization_id == context.organization_id,
+            Conversation.user_id == context.user_id,
+            Conversation.event_id == target_event.id,
+        )
         .group_by(Conversation.id)
         .order_by(col(Conversation.updated_at).desc())
         .offset(offset)
@@ -297,11 +321,38 @@ async def delete_conversation(
     conv = await _load_conv(session, context, conversation_id)
 
     event = await session.get(Event, conv.event_id)
-    if event is not None and event.primary_conversation_id == conv.id:
+    if (
+        event is not None
+        and not event.is_life
+        and event.primary_conversation_id == conv.id
+    ):
         raise HTTPException(
             status_code=409,
-            detail="An Event's continuous conversation cannot be deleted",
+            detail="A dedicated Event's continuous conversation cannot be deleted",
         )
+
+    if event is not None and event.is_life and event.primary_conversation_id == conv.id:
+        replacement = (
+            (
+                await session.execute(
+                    select(Conversation)
+                    .where(
+                        Conversation.event_id == event.id,
+                        Conversation.organization_id == context.organization_id,
+                        Conversation.user_id == context.user_id,
+                        Conversation.id != conv.id,
+                    )
+                    .order_by(
+                        col(Conversation.updated_at).desc(),
+                        col(Conversation.created_at).desc(),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        event.primary_conversation_id = replacement.id if replacement else None
+        session.add(event)
 
     # A Session owns only its messages. Event-owned history, files, and
     # workspace data retain this session id as provenance.
