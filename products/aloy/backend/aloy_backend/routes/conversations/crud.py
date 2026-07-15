@@ -11,14 +11,15 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from ...database import get_session
 from ...events import ensure_life_event
 from ...models import ContextArtifact, Conversation, Event, Message
+from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...schemas import (
     ConversationBranchRequest,
     ConversationCreate,
@@ -26,6 +27,7 @@ from ...schemas import (
     ConversationExportResponse,
     ConversationResponse,
     ConversationUpdate,
+    MessagePage,
     MessageResponse,
 )
 from ...tenancy import OrganizationContext, Permission, require_permission
@@ -34,6 +36,63 @@ from ._helpers import _load_conv
 logger = logging.getLogger("aloy_backend")
 
 router = APIRouter()
+
+DEFAULT_MESSAGE_PAGE = 100
+
+
+def _message_payload(message: Message) -> MessageResponse:
+    return MessageResponse(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        metadata=message.metadata_,
+        created_at=message.created_at,
+    )
+
+
+async def _message_page(
+    session: AsyncSession,
+    conversation_id: str,
+    *,
+    cursor: str | None,
+    limit: int,
+) -> MessagePage:
+    stmt = select(Message).where(Message.conversation_id == conversation_id)
+    if cursor:
+        try:
+            decoded = decode_cursor(cursor)
+        except CursorError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        stmt = stmt.where(
+            or_(
+                col(Message.created_at) < decoded.created_at,
+                and_(
+                    col(Message.created_at) == decoded.created_at,
+                    col(Message.id) < decoded.row_id,
+                ),
+            )
+        )
+    rows = list(
+        (
+            await session.execute(
+                stmt.order_by(
+                    col(Message.created_at).desc(), col(Message.id).desc()
+                ).limit(limit + 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = (
+        encode_cursor(rows[-1].created_at, rows[-1].id) if has_more and rows else None
+    )
+    rows.reverse()
+    return MessagePage(
+        messages=[_message_payload(message) for message in rows],
+        next_cursor=next_cursor,
+    )
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
@@ -155,12 +214,9 @@ async def get_conversation(
 ) -> ConversationDetail:
     conv = await _load_conv(session, context, conversation_id)
 
-    result = await session.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(col(Message.created_at))
+    page = await _message_page(
+        session, conversation_id, cursor=None, limit=DEFAULT_MESSAGE_PAGE
     )
-    messages = result.scalars().all()
 
     return ConversationDetail(
         id=conv.id,
@@ -171,17 +227,21 @@ async def get_conversation(
         branched_from_message_id=conv.branched_from_message_id,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
-        messages=[
-            MessageResponse(
-                id=m.id,
-                role=m.role,
-                content=m.content,
-                metadata=m.metadata_,
-                created_at=m.created_at,
-            )
-            for m in messages
-        ],
+        messages=page.messages,
+        messages_next_cursor=page.next_cursor,
     )
+
+
+@router.get("/{conversation_id}/messages", response_model=MessagePage)
+async def get_conversation_messages(
+    conversation_id: str,
+    cursor: str | None = None,
+    limit: int = Query(DEFAULT_MESSAGE_PAGE, ge=1, le=200),
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    session: AsyncSession = Depends(get_session),
+) -> MessagePage:
+    await _load_conv(session, context, conversation_id)
+    return await _message_page(session, conversation_id, cursor=cursor, limit=limit)
 
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
@@ -226,6 +286,14 @@ async def export_conversation(
     session: AsyncSession = Depends(get_session),
 ) -> ConversationExportResponse:
     detail = await get_conversation(conversation_id, context, session)
+    messages_result = await session.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(col(Message.created_at), col(Message.id))
+    )
+    all_messages = [
+        _message_payload(message) for message in messages_result.scalars().all()
+    ]
     artifacts = await session.execute(
         select(ContextArtifact)
         .where(
@@ -244,9 +312,9 @@ async def export_conversation(
             branched_from_message_id=detail.branched_from_message_id,
             created_at=detail.created_at,
             updated_at=detail.updated_at,
-            message_count=len(detail.messages),
+            message_count=len(all_messages),
         ),
-        messages=detail.messages,
+        messages=all_messages,
         context_artifacts=[
             {
                 "id": artifact.id,

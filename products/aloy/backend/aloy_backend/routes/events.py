@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import time
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import col, select
+from starlette.responses import StreamingResponse
 
 from ..database import get_session
 from ..event_presenters import (
@@ -25,9 +31,11 @@ from ..models import (
     Conversation,
     Event,
     EventTrailEntry,
+    Run,
     StoredFile,
     Task,
 )
+from ..pagination import CursorError, HistoryCursor, decode_cursor, encode_cursor
 from ..proposal_executor import (
     ProposalDecisionError,
     decide_proposal,
@@ -52,6 +60,8 @@ from ..task_state import (
 from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+DEFAULT_TRAIL_PAGE = 50
 
 
 class EventCreateBody(BaseModel):
@@ -133,6 +143,115 @@ async def _load_task(
     ):
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+def _older_than(model, cursor: HistoryCursor):
+    return or_(
+        model.created_at < cursor.created_at,
+        and_(model.created_at == cursor.created_at, model.id < cursor.row_id),
+    )
+
+
+def _newer_than(model, cursor: HistoryCursor):
+    return or_(
+        model.created_at > cursor.created_at,
+        and_(model.created_at == cursor.created_at, model.id > cursor.row_id),
+    )
+
+
+async def _trail_page(
+    session: AsyncSession,
+    context: OrganizationContext,
+    event_id: str,
+    *,
+    cursor: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    stmt = select(EventTrailEntry).where(
+        EventTrailEntry.event_id == event_id,
+        EventTrailEntry.organization_id == context.organization_id,
+        EventTrailEntry.user_id == context.user_id,
+    )
+    if cursor:
+        try:
+            stmt = stmt.where(_older_than(EventTrailEntry, decode_cursor(cursor)))
+        except CursorError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    rows = list(
+        (
+            await session.execute(
+                stmt.order_by(
+                    col(EventTrailEntry.created_at).desc(),
+                    col(EventTrailEntry.id).desc(),
+                ).limit(limit + 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    return {
+        "entries": [trail_payload(entry) for entry in rows],
+        "next_cursor": (
+            encode_cursor(rows[-1].created_at, rows[-1].id)
+            if has_more and rows
+            else None
+        ),
+    }
+
+
+def _execution_groups(
+    tasks: Sequence[Task],
+    runs: Sequence[Run],
+    entries: Sequence[EventTrailEntry],
+    proposals: Sequence[ActionProposal],
+    files: Sequence[StoredFile],
+) -> list[dict[str, Any]]:
+    task_by_id = {task.id: task for task in tasks}
+    entries_by_run: dict[str, list[EventTrailEntry]] = {}
+    for entry in entries:
+        if entry.run_id:
+            entries_by_run.setdefault(entry.run_id, []).append(entry)
+    proposals_by_run: dict[str, list[ActionProposal]] = {}
+    for proposal in proposals:
+        if proposal.origin_run_id:
+            proposals_by_run.setdefault(proposal.origin_run_id, []).append(proposal)
+    files_by_run: dict[str, list[StoredFile]] = {}
+    for file in files:
+        if file.run_id:
+            files_by_run.setdefault(file.run_id, []).append(file)
+
+    groups: list[dict[str, Any]] = []
+    for run in runs:
+        task = task_by_id.get(run.task_id or "")
+        if task is None:
+            continue
+        run_proposals = proposals_by_run.get(run.id, [])
+        groups.append(
+            {
+                "id": f"{task.id}:{run.id}",
+                "task_id": task.id,
+                "task_title": task.title,
+                "task_status": task.status,
+                "run_id": run.id,
+                "run_status": run.status,
+                "conversation_id": run.conversation_id or task.origin_conversation_id,
+                "created_at": run.created_at,
+                "completed_at": run.completed_at,
+                "entries": [
+                    trail_payload(entry) for entry in entries_by_run.get(run.id, [])
+                ],
+                "artifacts": [
+                    file_payload(file) for file in files_by_run.get(run.id, [])
+                ],
+                "proposals": [proposal_payload(item) for item in run_proposals],
+                "receipts": [
+                    item.receipt for item in run_proposals if item.receipt is not None
+                ],
+            }
+        )
+    return groups
 
 
 @router.post("", status_code=201)
@@ -257,7 +376,7 @@ async def get_event_surface(
         .scalars()
         .all()
     )
-    entries = (
+    entries = list(
         (
             await session.execute(
                 select(EventTrailEntry)
@@ -266,12 +385,18 @@ async def get_event_surface(
                     EventTrailEntry.organization_id == context.organization_id,
                     EventTrailEntry.user_id == context.user_id,
                 )
-                .order_by(col(EventTrailEntry.created_at).desc())
+                .order_by(
+                    col(EventTrailEntry.created_at).desc(),
+                    col(EventTrailEntry.id).desc(),
+                )
+                .limit(DEFAULT_TRAIL_PAGE + 1)
             )
         )
         .scalars()
         .all()
     )
+    trail_has_more = len(entries) > DEFAULT_TRAIL_PAGE
+    entries = entries[:DEFAULT_TRAIL_PAGE]
     files = (
         (
             await session.execute(
@@ -287,7 +412,7 @@ async def get_event_surface(
         .scalars()
         .all()
     )
-    proposals = (
+    all_proposals = (
         (
             await session.execute(
                 select(ActionProposal)
@@ -295,9 +420,26 @@ async def get_event_surface(
                     ActionProposal.event_id == event.id,
                     ActionProposal.organization_id == context.organization_id,
                     ActionProposal.user_id == context.user_id,
-                    ActionProposal.status == "pending",
                 )
                 .order_by(col(ActionProposal.created_at).desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    proposals = [proposal for proposal in all_proposals if proposal.status == "pending"]
+    runs = list(
+        (
+            await session.execute(
+                select(Run)
+                .where(
+                    Run.event_id == event.id,
+                    Run.organization_id == context.organization_id,
+                    Run.user_id == context.user_id,
+                    col(Run.task_id).is_not(None),
+                )
+                .order_by(col(Run.created_at).desc())
+                .limit(50)
             )
         )
         .scalars()
@@ -317,6 +459,11 @@ async def get_event_surface(
                 {
                     "kind": "activity",
                     "entries": [trail_payload(entry) for entry in entries],
+                    "next_cursor": (
+                        encode_cursor(entries[-1].created_at, entries[-1].id)
+                        if trail_has_more and entries
+                        else None
+                    ),
                 },
                 {
                     "kind": "notes",
@@ -328,8 +475,172 @@ async def get_event_surface(
                 },
             ],
             "proposals": [proposal_payload(proposal) for proposal in proposals],
+            "execution_groups": _execution_groups(
+                tasks, runs, entries, all_proposals, files
+            ),
         },
     }
+
+
+@router.get("/{event_id}/trail")
+async def get_event_trail(
+    event_id: str,
+    cursor: str | None = None,
+    limit: int = Query(DEFAULT_TRAIL_PAGE, ge=1, le=200),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    await _load_event(session, context, event_id)
+    return await _trail_page(session, context, event_id, cursor=cursor, limit=limit)
+
+
+def _sse(event: str, data: dict[str, Any], *, event_id: str | None = None) -> str:
+    lines = []
+    if event_id:
+        lines.append(f"id: {event_id}")
+    lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(jsonable_encoder(data), separators=(',', ':'))}")
+    return "\n".join(lines) + "\n\n"
+
+
+@router.get("/{event_id}/live")
+async def stream_event_changes(
+    event_id: str,
+    request: Request,
+    cursor: str | None = None,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> StreamingResponse:
+    """Replay durable Event changes, then follow new Trail rows over SSE."""
+    await _load_event(session, context, event_id)
+    supplied_cursor = cursor or request.headers.get("last-event-id")
+    decoded: HistoryCursor | None = None
+    if supplied_cursor:
+        try:
+            decoded = decode_cursor(supplied_cursor)
+        except CursorError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if decoded is None:
+        latest = (
+            (
+                await session.execute(
+                    select(EventTrailEntry)
+                    .where(
+                        EventTrailEntry.event_id == event_id,
+                        EventTrailEntry.organization_id == context.organization_id,
+                        EventTrailEntry.user_id == context.user_id,
+                    )
+                    .order_by(
+                        col(EventTrailEntry.created_at).desc(),
+                        col(EventTrailEntry.id).desc(),
+                    )
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if latest is not None:
+            decoded = HistoryCursor(latest.created_at, latest.id)
+            supplied_cursor = encode_cursor(latest.created_at, latest.id)
+    bind = session.bind
+    await session.rollback()
+    session_factory = async_sessionmaker(
+        bind, class_=AsyncSession, expire_on_commit=False
+    )
+    organization_id = context.organization_id
+    user_id = context.user_id
+
+    async def generate():
+        nonlocal decoded, supplied_cursor
+        yield _sse("ready", {"cursor": supplied_cursor, "event_id": event_id})
+        last_heartbeat = time.monotonic()
+        while not await request.is_disconnected():
+            async with session_factory() as live_session:
+                stmt = select(EventTrailEntry).where(
+                    EventTrailEntry.event_id == event_id,
+                    EventTrailEntry.organization_id == organization_id,
+                    EventTrailEntry.user_id == user_id,
+                )
+                if decoded is not None:
+                    stmt = stmt.where(_newer_than(EventTrailEntry, decoded))
+                rows = list(
+                    (
+                        await live_session.execute(
+                            stmt.order_by(
+                                col(EventTrailEntry.created_at),
+                                col(EventTrailEntry.id),
+                            ).limit(200)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                run_ids = {entry.run_id for entry in rows if entry.run_id}
+                task_ids = {entry.task_id for entry in rows if entry.task_id}
+                run_rows = (
+                    list(
+                        (
+                            await live_session.execute(
+                                select(Run).where(col(Run.id).in_(run_ids))
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if run_ids
+                    else []
+                )
+                task_rows = (
+                    list(
+                        (
+                            await live_session.execute(
+                                select(Task).where(col(Task.id).in_(task_ids))
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if task_ids
+                    else []
+                )
+                conversations = {run.id: run.conversation_id for run in run_rows}
+                task_conversations = {
+                    task.id: task.origin_conversation_id for task in task_rows
+                }
+            for entry in rows:
+                frame_id = encode_cursor(entry.created_at, entry.id)
+                conversation_id = conversations.get(entry.run_id or "") or (
+                    task_conversations.get(entry.task_id or "")
+                )
+                yield _sse(
+                    "event_change",
+                    {
+                        "event_id": event_id,
+                        "conversation_id": conversation_id,
+                        "entry": trail_payload(entry),
+                    },
+                    event_id=frame_id,
+                )
+                decoded = HistoryCursor(entry.created_at, entry.id)
+                supplied_cursor = frame_id
+            if time.monotonic() - last_heartbeat >= 15:
+                yield _sse("heartbeat", {"cursor": supplied_cursor})
+                last_heartbeat = time.monotonic()
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{event_id}/tasks", status_code=201)

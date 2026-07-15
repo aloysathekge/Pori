@@ -70,6 +70,12 @@ export interface ConversationDetail {
   created_at: string;
   updated_at: string;
   messages: MessageResponse[];
+  messages_next_cursor: string | null;
+}
+
+export interface MessagePage {
+  messages: MessageResponse[];
+  next_cursor: string | null;
 }
 
 export interface SendMessageRequest {

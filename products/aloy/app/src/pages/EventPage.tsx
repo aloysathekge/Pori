@@ -14,26 +14,32 @@ import {
   ShieldCheck,
   Square,
   Trash2,
+  Wifi,
+  WifiOff,
   X,
 } from 'lucide-react';
-import { useParams } from 'react-router-dom';
-import { getConversation } from '@/api/conversations';
+import { Link, useParams } from 'react-router-dom';
+import { getConversation, getConversationMessages } from '@/api/conversations';
 import {
   createEventTask,
   decideEventProposal,
   deleteEventTask,
   getEventSurface,
+  getEventTrail,
   resumeEventTask,
   retryEventTask,
   stopEventTask,
+  streamEventChanges,
   updateEventTask,
   workOnEventTask,
   type EventSurfaceResponse,
   type EventTask,
+  type EventTrailEntry,
 } from '@/api/events';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
+import { RunReplay } from '@/components/chat/RunReplay';
 import { ProposalCard } from '@/components/events/ProposalCard';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -67,6 +73,13 @@ export function EventPage() {
   const { eventId = '' } = useParams();
   const [data, setData] = useState<EventSurfaceResponse | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
+  const [messageCursor, setMessageCursor] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [trailEntries, setTrailEntries] = useState<EventTrailEntry[]>([]);
+  const [trailCursor, setTrailCursor] = useState<string | null | undefined>(undefined);
+  const [loadingOlderTrail, setLoadingOlderTrail] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'reconnecting' | 'stale' | 'offline'>('connecting');
+  const [replayRunId, setReplayRunId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
@@ -78,13 +91,32 @@ export function EventPage() {
   const [resumeTaskId, setResumeTaskId] = useState<string | null>(null);
   const [resumeResponse, setResumeResponse] = useState('');
   const previousSending = useRef(false);
+  const trailEventId = useRef<string | null>(null);
 
   const conversationId = data?.event.conversation_id ?? null;
 
   const loadSurface = useCallback(async () => {
     if (!eventId) return;
     try {
-      setData(await getEventSurface(eventId));
+      const next = await getEventSurface(eventId);
+      setData(next);
+      const activity = next.surface.sections.find((section) => section.kind === 'activity');
+      if (activity?.kind === 'activity') {
+        if (trailEventId.current !== eventId) {
+          trailEventId.current = eventId;
+          setTrailEntries(activity.entries);
+          setTrailCursor(activity.next_cursor);
+        } else {
+          setTrailEntries((current) => {
+            const merged = new Map(current.map((entry) => [entry.id, entry]));
+            for (const entry of activity.entries) merged.set(entry.id, entry);
+            return [...merged.values()].sort((a, b) =>
+              b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id),
+            );
+          });
+          setTrailCursor((current) => current === undefined ? activity.next_cursor : current);
+        }
+      }
       setError('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -145,6 +177,7 @@ export function EventPage() {
       .then((conversation) => {
         if (cancelled) return;
         setMessages(conversation.messages);
+        setMessageCursor(conversation.messages_next_cursor);
         void tryReattach(conversationId);
       })
       .catch((cause) => {
@@ -167,21 +200,108 @@ export function EventPage() {
   }, [sending, loadSurface]);
 
   useEffect(() => {
-    const section = data?.surface.sections.find((item) => item.kind === 'tasks');
-    const hasRunningTask =
-      section?.kind === 'tasks' &&
-      section.tasks.some((task) => task.status === 'queued' || task.status === 'in_progress');
-    if (!hasRunningTask) return;
-    const interval = window.setInterval(() => {
-      void loadSurface();
-      if (conversationId) {
-        void getConversation(conversationId).then((conversation) => {
-          setMessages(conversation.messages);
-        });
+    const controller = new AbortController();
+    let cursor: string | null = null;
+    let stopped = false;
+    let attempts = 0;
+    let lastFrame = Date.now();
+    let refreshTimer: number | undefined;
+
+    const refresh = (targetConversationId: string | null) => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void loadSurface();
+        if (targetConversationId && targetConversationId === conversationId) {
+          void getConversation(targetConversationId).then((conversation) => {
+            setMessages(conversation.messages);
+            setMessageCursor(conversation.messages_next_cursor);
+          });
+        }
+      }, 120);
+    };
+
+    const follow = async () => {
+      while (!stopped) {
+        setLiveStatus(attempts ? 'reconnecting' : 'connecting');
+        try {
+          await streamEventChanges(
+            eventId,
+            cursor,
+            {
+              onCursor: (next) => {
+                cursor = next;
+                attempts = 0;
+                lastFrame = Date.now();
+                setLiveStatus('live');
+              },
+              onChange: (change) => {
+                lastFrame = Date.now();
+                setLiveStatus('live');
+                setTrailEntries((current) => [
+                  change.entry,
+                  ...current.filter((entry) => entry.id !== change.entry.id),
+                ]);
+                refresh(change.conversation_id);
+              },
+              onHeartbeat: () => {
+                lastFrame = Date.now();
+                setLiveStatus('live');
+              },
+            },
+            controller.signal,
+          );
+          if (!stopped) throw new Error('Event stream closed');
+        } catch {
+          if (stopped || controller.signal.aborted) return;
+          attempts += 1;
+          setLiveStatus(navigator.onLine ? 'reconnecting' : 'offline');
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, Math.min(1000 * 2 ** attempts, 10_000)),
+          );
+        }
       }
-    }, 2000);
-    return () => window.clearInterval(interval);
-  }, [conversationId, data, loadSurface]);
+    };
+    void follow();
+    const staleCheck = window.setInterval(() => {
+      if (!navigator.onLine) setLiveStatus('offline');
+      else if (Date.now() - lastFrame > 35_000) setLiveStatus('stale');
+    }, 5_000);
+    return () => {
+      stopped = true;
+      controller.abort();
+      window.clearInterval(staleCheck);
+      window.clearTimeout(refreshTimer);
+    };
+  }, [conversationId, eventId, loadSurface]);
+
+  async function loadOlderMessages() {
+    if (!conversationId || !messageCursor || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
+    try {
+      const page = await getConversationMessages(conversationId, messageCursor);
+      setMessages((current) => [...page.messages, ...current]);
+      setMessageCursor(page.next_cursor);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }
+
+  async function loadOlderTrail() {
+    if (!trailCursor || loadingOlderTrail) return;
+    setLoadingOlderTrail(true);
+    try {
+      const page = await getEventTrail(eventId, trailCursor);
+      setTrailEntries((current) => [
+        ...current,
+        ...page.entries.filter(
+          (entry) => !current.some((existing) => existing.id === entry.id),
+        ),
+      ]);
+      setTrailCursor(page.next_cursor);
+    } finally {
+      setLoadingOlderTrail(false);
+    }
+  }
 
   async function handleSend() {
     if (!conversationId || uploadsInFlight) return;
@@ -261,10 +381,9 @@ export function EventPage() {
   }
 
   const tasksSection = data.surface.sections.find((section) => section.kind === 'tasks');
-  const activitySection = data.surface.sections.find((section) => section.kind === 'activity');
   const filesSection = data.surface.sections.find((section) => section.kind === 'files');
   const tasks = tasksSection?.kind === 'tasks' ? tasksSection.tasks : [];
-  const activity = activitySection?.kind === 'activity' ? activitySection.entries : [];
+  const activity = trailEntries;
   const files = filesSection?.kind === 'files' ? filesSection.files : [];
   const openTasks = tasks.filter(
     (task) => task.status !== 'done' && task.status !== 'cancelled',
@@ -288,6 +407,13 @@ export function EventPage() {
               </h1>
               <span className="shrink-0 rounded-full bg-accent-600/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700">
                 {data.event.is_life ? 'Life' : data.event.phase || 'Active'}
+              </span>
+              <span
+                className={`flex shrink-0 items-center gap-1 text-[10px] font-medium ${liveStatus === 'live' ? 'text-emerald-500' : liveStatus === 'offline' ? 'text-red-500' : 'text-amber-500'}`}
+                title={`Event updates: ${liveStatus}`}
+              >
+                {liveStatus === 'live' ? <Wifi size={11} /> : <WifiOff size={11} />}
+                {liveStatus}
               </span>
             </div>
             {data.event.summary && (
@@ -342,6 +468,9 @@ export function EventPage() {
                 onOpenArtifact={setArtifactPath}
                 onResend={sending ? undefined : resend}
                 onContinue={sending ? undefined : continueRun}
+                hasOlder={!!messageCursor}
+                loadingOlder={loadingOlderMessages}
+                onLoadOlder={() => void loadOlderMessages()}
               />
             )}
           </div>
@@ -488,6 +617,37 @@ export function EventPage() {
 
             {contextTab === 'trail' && (
               <div className="space-y-4">
+                {data.surface.execution_groups.map((group) => (
+                  <details key={group.id} className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-zinc-200">{group.task_title}</p>
+                          <p className="mt-1 text-xs text-zinc-500">Run {group.run_status} · {when(group.created_at)}</p>
+                        </div>
+                        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">{group.entries.length} updates</span>
+                      </div>
+                    </summary>
+                    <div className="mt-3 space-y-3 border-t border-zinc-800 pt-3">
+                      {group.entries.map((entry) => (
+                        <div key={entry.id} className="border-l border-zinc-700 pl-3">
+                          <p className="text-xs text-zinc-300">{entry.summary}</p>
+                          <p className="mt-1 text-[11px] text-zinc-600">{when(entry.created_at)}</p>
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        <button type="button" onClick={() => setReplayRunId(group.run_id)} className="text-accent-700 hover:text-accent-600">Open Run replay</button>
+                        {group.conversation_id && <Link to={`/chat/${group.conversation_id}`} className="text-zinc-400 hover:text-zinc-200">Origin conversation</Link>}
+                        {!!group.artifacts.length && <span className="text-zinc-500">{group.artifacts.length} artifact{group.artifacts.length === 1 ? '' : 's'}</span>}
+                        {!!group.proposals.length && <span className="text-zinc-500">{group.proposals.length} proposal{group.proposals.length === 1 ? '' : 's'}</span>}
+                        {!!group.receipts.length && <span className="text-emerald-600">{group.receipts.length} receipt{group.receipts.length === 1 ? '' : 's'}</span>}
+                      </div>
+                    </div>
+                  </details>
+                ))}
+                {data.surface.execution_groups.length > 0 && activity.length > 0 && (
+                  <p className="pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">All Event activity</p>
+                )}
                 {activity.map((entry) => (
                   <div key={entry.id} className="relative border-l border-zinc-700 pl-4">
                     <span className="absolute -left-1 top-1 h-2 w-2 rounded-full bg-zinc-600" />
@@ -496,6 +656,11 @@ export function EventPage() {
                   </div>
                 ))}
                 {activity.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No activity yet.</p>}
+                {trailCursor && (
+                  <Button variant="ghost" className="w-full" onClick={() => void loadOlderTrail()} disabled={loadingOlderTrail}>
+                    {loadingOlderTrail ? 'Loading…' : 'Load older activity'}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -503,6 +668,7 @@ export function EventPage() {
       )}
 
       {artifactPath && conversationId && <ArtifactDrawer conversationId={conversationId} openPath={artifactPath} onClose={() => setArtifactPath(null)} />}
+      {replayRunId && <RunReplay runId={replayRunId} onClose={() => setReplayRunId(null)} />}
     </div>
   );
 }

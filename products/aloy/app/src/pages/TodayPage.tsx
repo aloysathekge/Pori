@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle2, Circle, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Circle, Clock3, Sparkles } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createEvent,
@@ -88,6 +88,11 @@ export function TodayPage() {
     today?.events.reduce((total, group) => total + group.needs_decision.length, 0) ?? 0;
   const taskCount =
     today?.events.reduce((total, group) => total + group.upcoming.length, 0) ?? 0;
+  const attentionCount =
+    today?.events.reduce(
+      (total, group) => total + group.blocked.length + group.stale.length,
+      0,
+    ) ?? 0;
 
   return (
     <div className="mx-auto min-h-full max-w-6xl px-5 py-8 lg:px-10">
@@ -100,7 +105,7 @@ export function TodayPage() {
             Today
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            {decisionCount} decisions need you · {taskCount} open tasks across your life and projects
+            {decisionCount} decisions need you · {taskCount} open tasks · {attentionCount} need attention
           </p>
         </div>
         <Button
@@ -208,6 +213,22 @@ export function TodayPage() {
                   <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Open work
                   </h3>
+                  {(group.blocked.length > 0 || group.stale.length > 0) && (
+                    <div className="mb-4 space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                      {group.blocked.map((task) => (
+                        <div key={`blocked-${task.id}`} className="flex items-start gap-2 text-sm text-amber-500">
+                          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                          <span><strong className="font-medium">Blocked:</strong> {task.title}</span>
+                        </div>
+                      ))}
+                      {group.stale.map((task) => (
+                        <div key={`stale-${task.id}`} className="flex items-start gap-2 text-sm text-zinc-400">
+                          <Clock3 size={14} className="mt-0.5 shrink-0 text-amber-600" />
+                          <span><strong className="font-medium text-zinc-300">Stale:</strong> {task.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {group.upcoming.slice(0, 5).map((task) => (
                       <div key={task.id} className="flex items-start gap-2 text-sm text-zinc-300">

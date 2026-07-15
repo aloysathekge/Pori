@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiFetch, apiStreamFetch } from './client';
 
 export interface EventSummary {
   id: string;
@@ -92,6 +92,22 @@ export interface EventTrailEntry {
   created_at: string;
 }
 
+export interface EventExecutionGroup {
+  id: string;
+  task_id: string;
+  task_title: string;
+  task_status: EventTask['status'];
+  run_id: string;
+  run_status: string;
+  conversation_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+  entries: EventTrailEntry[];
+  artifacts: EventFile[];
+  proposals: EventProposal[];
+  receipts: Array<Record<string, unknown>>;
+}
+
 export interface EventFile {
   id: string;
   name: string;
@@ -110,11 +126,12 @@ export interface EventSurfaceResponse {
     sections: Array<
       | { kind: 'status'; summary: string; phase: string }
       | { kind: 'tasks'; tasks: EventTask[] }
-      | { kind: 'activity'; entries: EventTrailEntry[] }
+      | { kind: 'activity'; entries: EventTrailEntry[]; next_cursor: string | null }
       | { kind: 'notes'; notes: string }
       | { kind: 'files'; files: EventFile[] }
     >;
     proposals: EventProposal[];
+    execution_groups: EventExecutionGroup[];
   };
 }
 
@@ -124,6 +141,8 @@ export interface TodayEventGroup {
   changed_proposals: EventProposal[];
   activity: EventTrailEntry[];
   upcoming: EventTask[];
+  blocked: EventTask[];
+  stale: EventTask[];
 }
 
 export interface TodayResponse {
@@ -150,6 +169,70 @@ export function createEvent(data: {
 
 export function getEventSurface(eventId: string) {
   return apiFetch<EventSurfaceResponse>(`/events/${eventId}`);
+}
+
+export function getEventTrail(eventId: string, cursor: string, limit = 50) {
+  const params = new URLSearchParams({ cursor, limit: String(limit) });
+  return apiFetch<{ entries: EventTrailEntry[]; next_cursor: string | null }>(
+    `/events/${eventId}/trail?${params.toString()}`,
+  );
+}
+
+export interface EventLiveChange {
+  event_id: string;
+  conversation_id: string | null;
+  entry: EventTrailEntry;
+}
+
+export async function streamEventChanges(
+  eventId: string,
+  cursor: string | null,
+  callbacks: {
+    onCursor: (cursor: string | null) => void;
+    onChange: (change: EventLiveChange) => void;
+    onHeartbeat: () => void;
+  },
+  signal: AbortSignal,
+) {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const response = await apiStreamFetch(
+    `/events/${eventId}/live${query}`,
+    undefined,
+    signal,
+    'GET',
+  );
+  if (!response.body) throw new Error('Event stream has no response body');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = 'message';
+      let id: string | null = null;
+      const data: string[] = [];
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        if (line.startsWith('id:')) id = line.slice(3).trim();
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+      }
+      if (data.length) {
+        const payload = JSON.parse(data.join('\n')) as Record<string, unknown>;
+        if (event === 'ready') callbacks.onCursor((payload.cursor as string | null) ?? null);
+        if (event === 'event_change') {
+          if (id) callbacks.onCursor(id);
+          callbacks.onChange(payload as unknown as EventLiveChange);
+        }
+        if (event === 'heartbeat') callbacks.onHeartbeat();
+      }
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
 }
 
 export function getToday() {

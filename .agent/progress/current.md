@@ -1,6 +1,37 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 R3 implementation)._
+_Last updated: 2026-07-15 (Aloy V1 R4 implementation)._
+
+## NEW: Aloy V1 R4 - live Surface and semantic Trail (2026-07-15)
+
+R3 is merged into `aloy-v1` as PR #171 at squash merge
+`e2587e64e67c8857c1025f48786f0d6ffd96f46f`. R4 is implemented on
+`aloy-v1-r4-live-surface-trail`; do not add R5 research providers to this
+branch.
+
+Each Event now exposes a tenant-scoped, database-backed SSE stream. The API
+replays Trail rows after an opaque reconnect cursor and follows worker writes
+across process boundaries, including the Task or Run's origin Conversation.
+The Event workspace no longer polls every two seconds: it reports live,
+reconnecting, stale, or offline state; invalidates the trusted Surface on
+durable changes; and refreshes transcript state only when the live frame names
+the currently displayed Conversation. A regression uses two sibling Life
+Conversations to prove terminal Task replay returns to the origin rather than
+the sibling.
+
+Event Trail and Conversation messages use stable `(created_at, id)` keyset
+pagination. Initial reads are bounded to 50 Trail entries and 100 messages;
+older pages load explicitly without duplicates, while Conversation export
+still returns the complete transcript. Recent Task Runs appear as expandable
+execution narratives linked to their origin Conversation, Run Replay,
+artifacts, Proposals, and committed receipts. Today calls out blocked Tasks and
+non-blocked active Tasks unchanged for more than 24 hours.
+
+Automated verification is green: all backend tests, the focused R4 reconnect/
+pagination/provenance suite, backend Black/isort/mypy, and app lint + production
+build. The local API, web app, and worker boot successfully. Complete a short
+signed-in interaction pass for the live indicator, Task execution refresh,
+reconnect, Trail expansion, and load-older controls before merging R4.
 
 ## NEW: Aloy V1 R3 - durable Task execution (2026-07-15)
 

@@ -139,6 +139,12 @@ class ConversationDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: list[MessageResponse]
+    messages_next_cursor: str | None = None
+
+
+class MessagePage(BaseModel):
+    messages: list[MessageResponse]
+    next_cursor: str | None = None
 
 
 class ConversationBranchRequest(BaseModel):
