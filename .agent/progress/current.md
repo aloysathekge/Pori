@@ -1,6 +1,33 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 R2 implementation)._
+_Last updated: 2026-07-15 (Aloy V1 R3 implementation)._
+
+## NEW: Aloy V1 R3 - durable Task execution (2026-07-15)
+
+R2 is merged into `aloy-v1` as PR #170 at squash merge
+`b47f0fd41a027c3a51024be0c329b1ab74d11428`. R3 is implemented on
+`aloy-v1-r3-task-execution`; do not add R4 Event SSE or R5 research providers
+to this branch.
+
+Event Tasks now have explicit **Work on this**, Stop, Retry, and Resume command
+routes. Work creates one idempotent durable Run, assembles the bounded work
+order from the Event and Task, and reports to the Task's selected Conversation.
+Blocked Resume reuses the same checkpointed Run; Retry creates one fresh Run.
+Compact queued, started, blocked, approval, failed, stopped, and result messages
+return to the selected Conversation.
+
+The worker atomically claims the queued Task, records per-step Trail milestones,
+survives process/app closure through the existing lease + checkpoint system, and
+synchronizes clarification, Proposal, cancellation, success, and failure back to
+Task state. Admission permits one active Task Run per Event, one active Run per
+Conversation, and a bounded account-wide number of running Runs while leaving
+additional Task work queued. The Event UI explains each state and uses bounded
+refresh until R4 replaces it with Event SSE.
+
+Automated verification is green: all `253` backend tests, the focused `60`-test
+R3/worker integration set, backend mypy across `85 source files`, and app lint +
+production build. Complete local running-stack product QA, then commit, push,
+open the R3 draft PR, and let CI gate the merge.
 
 ## NEW: Aloy V1 R2 - executable Task model (2026-07-15)
 
