@@ -74,6 +74,7 @@ class RunResponse(BaseModel):
     id: str
     organization_id: str
     event_id: str
+    task_id: str | None = None
     agent_id: str
     session_id: str
     status: str
