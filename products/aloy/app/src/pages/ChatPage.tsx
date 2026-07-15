@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FolderPlus, Plus, Send, X } from 'lucide-react';
+import { FolderPlus, Plus, Send, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConversationSwitcher } from '@/components/chat/ConversationSwitcher';
@@ -208,13 +208,16 @@ export function ChatPage() {
         />
         <div className="flex items-center gap-1">
           <Button
-            variant="ghost"
-            size="icon"
+            variant="outline"
+            size="sm"
+            className="border-accent-500/30 bg-accent-500/10 text-accent-100 shadow-sm shadow-accent-950/20 hover:border-accent-400/60 hover:bg-accent-500/20 hover:text-white"
             onClick={() => setCreatingEvent((value) => !value)}
             title="Create Event from this conversation"
             disabled={!activeId}
           >
             <FolderPlus size={16} />
+            <span className="hidden sm:inline">Create Event</span>
+            <Sparkles size={13} className="hidden text-accent-300 sm:block" />
           </Button>
           <Button
             variant="ghost"
@@ -228,8 +231,17 @@ export function ChatPage() {
       </div>
 
       {creatingEvent && activeId && (
-        <div className="border-b border-zinc-800 bg-zinc-900 px-4 py-3">
+        <div className="border-b border-accent-500/20 bg-gradient-to-r from-accent-500/10 via-zinc-900 to-zinc-900 px-4 py-4">
           <div className="mx-auto max-w-4xl">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/15 text-accent-300">
+                <Sparkles size={14} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-zinc-100">Turn this into an Event</p>
+                <p className="text-xs text-zinc-500">Give this work a durable workspace and continuous session.</p>
+              </div>
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 value={eventTitle}

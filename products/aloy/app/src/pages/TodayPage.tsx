@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle2, Circle, Plus, Sparkles } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Circle, Sparkles } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createEvent,
@@ -102,8 +102,11 @@ export function TodayPage() {
             {decisionCount} decisions need you · {taskCount} open tasks across your life and projects
           </p>
         </div>
-        <Button onClick={toggleEventCreator}>
-          <Plus size={16} /> New event
+        <Button
+          onClick={toggleEventCreator}
+          className="border border-accent-400/20 bg-gradient-to-r from-accent-600 to-accent-500 px-5 shadow-lg shadow-accent-950/30 hover:from-accent-500 hover:to-accent-400"
+        >
+          <Sparkles size={15} /> Start an Event
         </Button>
       </header>
 
@@ -114,8 +117,12 @@ export function TodayPage() {
       )}
 
       {showEventCreator && (
-        <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <h2 className="font-medium text-zinc-100">Start a dedicated Event</h2>
+        <section className="relative mt-6 overflow-hidden rounded-2xl border border-accent-500/25 bg-gradient-to-br from-accent-500/10 via-zinc-900 to-zinc-900 p-6 shadow-xl shadow-black/20">
+          <div className="absolute right-0 top-0 h-32 w-32 -translate-y-1/2 translate-x-1/2 rounded-full bg-accent-500/15 blur-3xl" />
+          <p className="relative mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-accent-300">
+            <Sparkles size={14} /> Dedicated workspace
+          </p>
+          <h2 className="relative font-display text-xl font-semibold text-zinc-100">Start a new Event</h2>
           <p className="mt-1 text-sm text-zinc-500">
             One continuous conversation, plus its tasks, files, decisions, and evidence.
           </p>

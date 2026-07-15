@@ -12,6 +12,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   PanelLeftClose,
+  Sparkles,
   Settings,
   X,
 } from 'lucide-react';
@@ -109,6 +110,11 @@ export function AppLayout() {
     }
   }
 
+  function startEvent() {
+    closeMobile();
+    navigate('/today?new=event');
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       {sidebarOpen && (
@@ -142,30 +148,53 @@ export function AppLayout() {
           <RailLink to="/chat" icon={MessageSquare} label="Chat" compact={compact} onClick={closeMobile} />
           <RailLink to="/today" icon={TodayIcon} label="Today" compact={compact} onClick={closeMobile} />
 
-          <div className={`mt-3 grid gap-1 ${compact ? '' : 'grid-cols-2'}`}>
+          <div className="mt-3 space-y-2">
             <Button
               variant="ghost"
-              size={compact ? 'icon' : undefined}
-              className={compact ? 'w-full' : 'justify-start px-2 text-xs'}
+              size={compact ? 'icon' : 'sm'}
+              className={
+                compact
+                  ? 'w-full text-zinc-500'
+                  : 'w-full justify-start rounded-lg px-2.5 text-zinc-400'
+              }
               onClick={startConversation}
               title="New conversation"
             >
               <MessageSquarePlus size={16} />
               {!compact && <span>New chat</span>}
             </Button>
-            <Button
-              variant="ghost"
-              size={compact ? 'icon' : undefined}
-              className={compact ? 'w-full' : 'justify-start px-2 text-xs'}
-              onClick={() => {
-                closeMobile();
-                navigate('/today?new=event');
-              }}
-              title="New event"
+            <button
+              type="button"
+              onClick={startEvent}
+              title={compact ? 'Start a new Event workspace' : undefined}
+              className={`group relative w-full overflow-hidden border border-accent-500/30 bg-gradient-to-br from-accent-500/20 via-accent-600/10 to-zinc-900 text-left shadow-[0_12px_32px_-20px_rgba(22,145,118,0.9)] transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-400/60 hover:from-accent-500/25 hover:shadow-[0_16px_36px_-18px_rgba(22,145,118,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                compact
+                  ? 'flex h-11 items-center justify-center rounded-xl'
+                  : 'rounded-2xl px-3 py-3'
+              }`}
             >
-              <FolderPlus size={16} />
-              {!compact && <span>New event</span>}
-            </Button>
+              {compact ? (
+                <FolderPlus size={18} className="text-accent-300" />
+              ) : (
+                <>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent-400/20 bg-accent-500/20 text-accent-200">
+                      <FolderPlus size={18} />
+                    </span>
+                    <span className="min-w-0 pt-0.5">
+                      <span className="block text-sm font-semibold text-zinc-50">Start an Event</span>
+                      <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">
+                        A durable workspace for real work
+                      </span>
+                    </span>
+                  </div>
+                  <Sparkles
+                    size={15}
+                    className="absolute right-3 top-3 text-accent-300/80 transition-transform group-hover:rotate-12 group-hover:scale-110"
+                  />
+                </>
+              )}
+            </button>
           </div>
           {!compact && actionError && (
             <p className="mt-2 px-2 text-xs text-red-400">{actionError}</p>
