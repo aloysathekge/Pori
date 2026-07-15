@@ -328,9 +328,8 @@ Gate:
 
 ## 8. Immediate next action
 
-Finish R1 on `aloy-v1-r1-life-conversations`: run draft-PR CI and the signed-in
-manual gate for Life-only chat history, transcript isolation, safe Life chat
-deletion, dedicated Event continuity, and explicit Event creation from a Life
-conversation. Merge R1 into `aloy-v1` only when those checks pass. Then create
-`aloy-v1-r2-task-model` from the updated integration branch; do not begin the
-executable Task schema on the unmerged R1 branch.
+Finish R2 on `aloy-v1-r2-task-model`: run draft-PR CI and verify the additive
+migration, provenance isolation, legal transitions, atomic claims, and
+Task/Trail consistency. Merge R2 into `aloy-v1` only when those checks pass.
+Then create `aloy-v1-r3-task-execution` from the updated integration branch;
+do not add **Work on this** or worker execution on the unmerged R2 branch.
