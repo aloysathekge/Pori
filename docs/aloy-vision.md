@@ -1,7 +1,7 @@
 # Aloy — product vision
 
-_Canonical product definition, version 2.1. Revised 2026-07-15 after the
-Event-workspace, Task-execution, and Life-Conversation reviews. Product specs
+_Canonical product definition, version 2.2. Revised 2026-07-15 after the
+Event-workspace, Task-execution, Life-Conversation, and Surface-composition reviews. Product specs
 and implementation plans must agree with this document. The active V1 delivery
 sequence lives in
 [`aloy-v1-plan.md`](./aloy-v1-plan.md)._
@@ -231,25 +231,44 @@ than logging every token.
 Sub-agents may help, but the parent Run owns validation, synthesis, budget, and
 the final Task outcome.
 
-### 3.6 Surface — trusted state beside the conversation
+### 3.6 Event Surface — trusted, composable workspace
 
-The Surface is the living, interactive representation of an Event. In the
-desktop workspace it is the collapsible, resizable context pane beside the
-continuous Session. It is always available; it does not suddenly replace the
-conversation.
+The Event Surface is the living, interactive representation of an Event. It is
+not the webapp itself and it is not merely a fixed sidebar. Conversation and
+Surface are peers in the Event workspace. The user may choose conversation
+focus, a resizable split, or Surface focus; on narrow screens they become
+explicit tabs or full-screen sheets. Aloy may update data live but never steals
+focus or rearranges the workspace while the user is interacting.
 
-The V1 component vocabulary is trusted and finite:
+The Surface is a versioned document composed from allowlisted typed blocks and
+rendered by trusted React components. It has two block families:
 
-- Status
-- Tasks
-- Decisions
-- Files
-- Trail
-- Notes
+- **system blocks:** Status, Tasks, Decisions, Files, Trail, and Notes,
+  deterministically projected from canonical Event records;
+- **domain blocks:** Document, Table, Card collection, Timeline, and Map,
+  populated by the user or Aloy through validated schemas and evidence links.
 
-The Surface is recomputed from durable rows and updated live through the same
-REST + SSE boundary used by the conversation. New data updates badges without
-unexpectedly changing the selected tab.
+This lets Career OS show a sourced company comparison and report, while a Trip
+to San Francisco Event can show a map and itinerary, without creating a custom
+page for either Event.
+
+The backend validates and persists the typed document; the app owns the React
+renderer registry. Aloy may select and populate registered blocks, but it never
+returns arbitrary HTML, React, CSS, JavaScript, or an iframe. Unknown types and
+versions fail visibly and safely. Actions inside blocks call normal APIs;
+external consequences still require Proposal → decision → executor → receipt.
+
+Canonical records remain authoritative. A Task block projects Task and Run
+rows, a Decision block projects Proposals and receipts, a File block projects
+StoredFile, and Trail remains append-only. Domain blocks may contain bounded
+working data, but assertions retain posture and evidence; a map marker is not a
+booking and a draft itinerary is not committed reality.
+
+The Surface document carries a monotonic revision and is updated live through
+REST + SSE. Semantic block mutations produce Trail entries. Personal view
+preferences—split ratio, selected block, positions, collapse state—do not create
+Trail noise. New data updates without unexpectedly changing the selected block,
+scroll position, focus, or layout.
 
 Every displayed assertion has a visible posture:
 
@@ -260,9 +279,8 @@ Every displayed assertion has a visible posture:
 - **Failed:** a definite unsuccessful attempt;
 - **Indeterminate:** an external outcome that must be reconciled.
 
-V1 uses one Project template. Model-composed Surface layouts may come later,
-but only through an allowlisted schema vocabulary—never arbitrary UI code as
-trusted product state.
+The complete block, validation, persistence, rendering, and acceptance contract
+is defined in [`aloy-surface-spec.md`](./aloy-surface-spec.md).
 
 ### 3.7 Trail — the durable narrative
 
@@ -394,21 +412,24 @@ These invariants override feature convenience:
 ## 5. Product experience
 
 Desktop is the primary Aloy experience; web remains a complete fallback. The
-main shell has three flexible regions:
+main shell has navigation plus one flexible Event workspace:
 
 ```text
-navigation | current conversation | owning Life/Event Surface
+navigation | Event workspace
+             ├── current Conversation
+             └── owning Life/Event Surface canvas
 ```
 
 - **New conversation** opens a fresh Life thread.
 - **New Event** creates a dedicated workspace and canonical Conversation.
 - Life Conversation history is separate from the dedicated Event rail.
 - The Event rail shows dedicated Events, not Life chats or every Task.
-- The conversation is the place to instruct, think, clarify, and review.
-- The Surface shows trusted current state and controls.
-- Task detail and files open in the context pane or drawer; rich artifacts may
-  expand into the main canvas.
-- On mobile, the Surface becomes a full-screen sheet.
+- The Conversation is the place to instruct, think, clarify, and review.
+- The Surface shows trusted current state, domain views, and controls.
+- The user chooses Conversation focus, a resizable split, or Surface focus;
+  maps, comparisons, timelines, and documents can occupy the main canvas.
+- Task detail and files open as blocks, drawers, or focused artifact views.
+- On mobile, Conversation and Surface become explicit full-screen tabs/sheets.
 - Admin capabilities—Agents, Skills, Connections, Memory, Usage, Settings—are
   secondary to the Event workspace.
 
@@ -459,7 +480,7 @@ V1 includes:
 - one continuous canonical Conversation per dedicated Event;
 - executable Tasks with explicit initiation;
 - durable worker execution, stop/retry/resume, and bounded budgets;
-- trusted templated Surface with live updates;
+- trusted composable Event Surface with live typed blocks;
 - complete semantic Trail plus Run Replay;
 - Event files, artifacts, and scoped memory;
 - sourced web research;
@@ -474,7 +495,8 @@ V1 deliberately excludes:
 - learned Auto/Notify autonomy;
 - push-notification and interruption-budget learning;
 - Calendar/Money/People Reality Objects and object guardians;
-- arbitrary model-generated application UI;
+- arbitrary model-generated HTML, React, CSS, JavaScript, iframes, or
+  unregistered runtime components;
 - cross-user shared Events and multi-agent negotiation;
 - unrestricted concurrent Runs inside one Event;
 - local-folder desktop access and full mobile-native clients.
@@ -485,19 +507,19 @@ V1 deliberately excludes:
 |---|---|---|
 | Agent execution | Pori loop, tools, teams, streaming, stop/resume | built foundation |
 | Event aggregate | Event ownership on Runs/files/memory/audit | built foundation |
-| Life Conversations | singleton Life assignment + Conversation CRUD | substrate built; scoped UI/context/deletion is R1 |
-| Dedicated Event Session | `Event.primary_conversation_id` | built foundation; R1 locks product boundary |
-| Task working state | Task CRUD + agent mutation tools | built foundation; executable model is R2 |
-| Durable execution | worker leases, checkpoints, cron chassis | built foundation; Task claim/link is R2–R3 |
-| Surface | Event workspace + trusted Task/Proposal/File/Trail reads | built foundation; live Task progress is R4 |
-| Trail | Event entries, receipts, traces, run replay | partial; semantic Task grouping next |
+| Life Conversations | singleton Life assignment + Conversation CRUD | R1 built |
+| Dedicated Event Session | `Event.primary_conversation_id` | R1 built |
+| Task working state | Task CRUD + agent mutation tools | R2 built |
+| Durable execution | worker leases, checkpoints, cron chassis | R3 built |
+| Event Surface | static Event context + live projection transport | R4 transport; typed composition runtime is R5 |
+| Trail | Event entries, receipts, traces, run replay | R4 live grouping/pagination built |
 | Proposals | durable staging, decisions, executor, receipts | built foundation |
 | Files/artifacts | object storage, finalizer, library pointers | built foundation |
-| Event memory | scoped loader and history-search seams | Life transcript isolation R1; compaction R7 |
+| Event memory | scoped loader and history-search seams | Life transcript isolation R1; compaction R8 |
 | Web research | tool ecosystem/MCP seams | provider-neutral product tools needed |
 | Gmail proof | connection + Proposal-safe execution rail | integration drill needed |
-| Today | Event aggregation of decisions/activity/open Tasks | built foundation; blockers/staleness R4 |
-| Desktop | shell + web workspace | responsive QA R0/R7; native packaging later |
+| Today | Event aggregation of decisions/activity/open Tasks | R4 blockers/staleness built |
+| Desktop | shell + web workspace | responsive QA R0/R8; native packaging later |
 
 ## 9. Delivery rule
 
@@ -518,6 +540,7 @@ through REST + SSE. Product state and policy remain in `products/aloy`.
 Related documents:
 
 - [`aloy-v1-plan.md`](./aloy-v1-plan.md) — active execution plan
+- [`aloy-surface-spec.md`](./aloy-surface-spec.md) — typed Event Surface contract
 - [`aloy-wedge-spec.md`](./aloy-wedge-spec.md) — implemented Event/Proposal foundation
 - [`Aloy.md`](./Aloy.md) — monorepo/product architecture
 - [`engineering-excellence-spec.md`](./engineering-excellence-spec.md) — quality bar
