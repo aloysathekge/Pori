@@ -1,7 +1,8 @@
 # Aloy V1 — reset delivery plan
 
-_Active plan, 2026-07-15. This plan begins from the Event, Proposal, workspace,
-and initial Surface foundation already built on `aloy-v1`. It supersedes the
+_Active plan, revised 2026-07-15 after the Surface-composition review. This
+plan begins from the Event, Proposal, workspace, and initial Surface foundation
+already built on `aloy-v1`. It supersedes the
 remaining phase order in `aloy-wedge-spec.md`. Product decisions come from
 `aloy-vision.md`._
 
@@ -43,6 +44,13 @@ duplicating the action after a crash.
    **Work on this**.
 10. External consequences still require Proposal → decision → executor →
     receipt.
+11. An Event Surface is a versioned composition of allowlisted typed blocks,
+    not a fixed sidebar and not arbitrary model-generated UI.
+12. Conversation and Surface are peer workspace regions with user-controlled
+    conversation-focus, split, and Surface-focus modes.
+13. System blocks project canonical Event records; domain blocks carry bounded
+    working data and evidence without replacing Tasks, Proposals, receipts,
+    files, Runs, or Trail as sources of truth.
 
 ## 3. Branch and merge policy
 
@@ -51,7 +59,7 @@ duplicating the action after a crash.
 - Each reset phase uses its own branch based on the latest `aloy-v1`.
 - Each phase is independently reviewed, tested, and merged into `aloy-v1`.
 - No phase begins from an unmerged sibling branch.
-- No V1 merge to `main` until R7 passes.
+- No V1 merge to `main` until R8 passes.
 - Branch names never use an agent or tool prefix.
 
 ## 4. Baseline already built
@@ -63,12 +71,16 @@ The following foundation is retained:
   explicit Event;
 - `Conversation.event_id` and `Event.primary_conversation_id`;
 - canonical Conversation provisioning for dedicated Events;
-- Event workspace with conversation and context pane;
+- Event workspace with conversation and initial fixed context pane;
 - initial Task CRUD and agent Task mutation tools;
 - Event files/artifacts and persistent workspace;
 - durable Proposal staging, decisions, executor, receipts, and reconciliation;
 - Today aggregation;
 - durable worker, Run checkpoints, streaming, stop/resume, traces, and replay.
+
+The fixed pane and R4 live invalidation are foundations, not the completed
+Surface architecture. R5 replaces the one-template assumption with the typed
+composition runtime in [`aloy-surface-spec.md`](./aloy-surface-spec.md).
 
 The substrate already permits several Conversation rows in Life, but the app,
 deletion rules, context loader, and product contract do not yet handle that
@@ -210,6 +222,10 @@ Scope:
 - add reconnect/refetch behavior and explicit stale/offline states;
 - update Today with blocked and stale Life and Event Tasks.
 
+R4 supplies the durable live projection transport and preserves the initial
+system panels. It does not claim that the fixed right pane is the final Surface
+composition model.
+
 Gate:
 
 - Task progress appears live in the correct Conversation and Surface;
@@ -218,9 +234,50 @@ Gate:
 - no duplicate or missing semantic Trail transitions occur;
 - long histories do not require loading the full transcript or Trail.
 
-### R5 — sourced web research and artifacts
+### R5 — composable Event Surface runtime
 
-**Branch:** `aloy-v1-r5-research-tools`
+**Branch:** `aloy-v1-r5-composable-surfaces`
+
+Scope:
+
+- implement the versioned `SurfaceDocument` and typed block envelope from
+  [`aloy-surface-spec.md`](./aloy-surface-spec.md);
+- persist validated domain blocks and per-user layout preferences separately;
+- project Status, Tasks, Decisions, Files, Trail, and Notes as system blocks;
+- add the V1 domain registry: Document, Table, Card collection, Timeline, Map;
+- choose and document the Map renderer adapter, tiles/geocoding boundary,
+  attribution, privacy posture, and non-network fallback without placing
+  provider credentials in block data;
+- add a server-side schema registry and tenant/Event reference validation;
+- add an authenticated, idempotent `surface_upsert_block` product tool for
+  bounded internal working state;
+- add conversation-focus, resizable split, and Surface-focus workspace modes;
+- render blocks through an explicit React registry with loading, empty, stale,
+  error, unsupported-version, keyboard, and narrow-screen states;
+- carry Surface revision invalidation over the R4 Event SSE connection without
+  moving focus, selected block, scroll, or layout;
+- append semantic Trail entries for block create/update/remove, excluding
+  personal view-preference noise;
+- keep the existing Event surface response compatible during migration.
+
+Gate:
+
+- a deterministic Career OS fixture renders a sourced company table and report
+  without a bespoke Career-OS React page;
+- a deterministic Trip to San Francisco fixture renders a map and itinerary
+  from the same Surface API;
+- Tasks, decisions, files, receipts, and Trail remain projections of canonical
+  durable records;
+- unknown types/versions, HTML/script/CSS, invalid URLs or coordinates, and
+  cross-Event references fail visibly and safely;
+- repeated identical agent writes create neither duplicate revisions nor
+  duplicate Trail entries;
+- live updates preserve the user's focus and layout in all three workspace
+  modes and at narrow widths.
+
+### R6 — sourced web research and artifacts
+
+**Branch:** `aloy-v1-r6-research-tools`
 
 Scope:
 
@@ -230,7 +287,9 @@ Scope:
 - build a Career OS research instruction profile without coupling it to one
   search vendor;
 - generate a cited report as a durable Event artifact;
-- index the result in Event memory with links to evidence and the Task.
+- index the result in Event memory with links to evidence and the Task;
+- populate generic Table/Card collection and Document blocks through the R5
+  Surface service, not through a Career-OS-specific page or opaque HTML.
 
 Gate:
 
@@ -238,11 +297,13 @@ Gate:
 - every reported company has inspectable source evidence;
 - unsupported or inaccessible claims are marked rather than invented;
 - the report survives app and worker restarts and appears under Event Files;
+- the same sourced companies appear in inspectable Surface blocks without
+  changing canonical artifact or evidence truth;
 - cross-Event retrieval leakage remains zero.
 
-### R6 — Career OS decision and receipt loop
+### R7 — Career OS decision and receipt loop
 
-**Branch:** `aloy-v1-r6-career-os-loop`
+**Branch:** `aloy-v1-r7-career-os-loop`
 
 Scope:
 
@@ -261,16 +322,16 @@ Gate:
 - Task completion cannot precede receipt persistence;
 - the complete Career OS loop works on the founder account.
 
-### R7 — reliability, context longevity, and release
+### R8 — reliability, context longevity, and release
 
-**Branch:** `aloy-v1-r7-release-gate`
+**Branch:** `aloy-v1-r8-release-gate`
 
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;
 - add Task/Run watchdogs for expired leases and stuck work;
 - verify time, step, tool-call, cost, and account-concurrency budgets;
-- paginate Conversation history and add summary compaction thresholds;
+- add summary compaction thresholds over the R4-paginated Conversation history;
 - verify Life retrieval, dedicated Event history page faults, and isolation;
 - finish responsive and accessibility QA at required viewports;
 - update boot, operator, architecture, and demo documentation;
@@ -284,6 +345,8 @@ Gate:
 - a fresh Life Conversation stays transcript-clean while retaining accepted
   personal memory;
 - required viewports pass visual and interaction QA;
+- composable Surface blocks pass schema, renderer, keyboard, and responsive
+  safety checks;
 - kernel tests, backend tests, mypy, app build/lint, import boundaries, and CI
   are green;
 - both entry flows and the 60-second Career OS demonstration are repeatable.
@@ -309,6 +372,9 @@ Gate:
     ceilings.
 12. **UX continuity:** reopening a dedicated Event preserves its Conversation;
     reopening a Life Conversation preserves that thread.
+13. **Surface composition:** registered blocks render from validated data;
+    unknown/executable/cross-Event payloads fail closed, and live revisions do
+    not steal focus or rearrange the user's workspace.
 
 ## 7. Explicitly deferred until after V1
 
@@ -320,7 +386,8 @@ Gate:
 - emergent Event detection;
 - Auto/Notify routing;
 - push notifications and learned attention budgets;
-- free-form model-composed Surfaces;
+- arbitrary model-generated HTML, React, CSS, JavaScript, iframes, and runtime
+  plugin blocks outside the versioned allowlisted Surface registry;
 - Reality Objects beyond Documents/Accounts/Preferences;
 - shared cross-user Events;
 - unrestricted concurrent Runs per Event or account;
@@ -328,8 +395,12 @@ Gate:
 
 ## 8. Immediate next action
 
-Finish R3 on `aloy-v1-r3-task-execution`: complete local running-stack QA of
-**Work on this**, queued Event work, Stop, Retry, checkpoint Resume, and correct
-Life/dedicated-Event Conversation routing. The automated R3 suite is green; push
-the focused phase commits, open a draft PR targeting `aloy-v1`, and merge only
-after CI. Do not add R4 live Event SSE or R5 research tooling to the R3 branch.
+R4 is implemented in draft PR #172 on
+`aloy-v1-r4-live-surface-trail`, with all seven CI checks green. Complete the
+short signed-in pass for live Task state, reconnect, Trail grouping, and
+pagination, then merge R4 into `aloy-v1`.
+
+Next create `aloy-v1-r5-composable-surfaces` from the updated integration
+branch. Implement the typed Surface runtime and its Career OS + Trip fixtures
+before starting sourced research. Do not put provider-specific research tools
+or Gmail behavior into R5.

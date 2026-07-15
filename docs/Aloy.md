@@ -2,7 +2,7 @@
 
 **Status:** Draft v0.1
 **Date:** 2026-07-03
-**Scope:** Aloy as the flagship **product** on the Pori kernel — its four surfaces (**API/backend**, **webapp**, **desktop/Electron**, **website**) and the cross-cutting planes (auth/tenancy, knowledge, streaming, receipts) that bind them.
+**Scope:** Aloy as the flagship **product** on the Pori kernel — its four delivery clients (**API/backend**, **webapp**, **desktop/Electron**, **website**) and the cross-cutting planes (auth/tenancy, knowledge, streaming, receipts) that bind them.
 **Companion:** [`Pori.md`](./Pori.md) — the kernel PRD. Aloy *consumes* Pori; Pori never depends on Aloy.
 
 > This plans the surfaces and the glue. It does **not** re-specify the kernel (that's `Pori.md`). Genuinely undecided points are marked **⚠ OPEN** and collected in §11.
@@ -62,7 +62,17 @@ The differentiator and the enterprise requirement are the *same thing*: audit, g
 
 ---
 
-## 3a. Surface strategy — copy Hermes, then make it Aloy
+### Terminology
+
+- **Client surface** means a delivery client such as the webapp, desktop shell,
+  website, or API.
+- **Event Surface** means the typed, composable Event workspace defined in
+  [`aloy-surface-spec.md`](./aloy-surface-spec.md).
+
+These are different architectural concepts. Product specifications use
+“Surface” unqualified only for the Event Surface.
+
+## 3a. Client-surface strategy — copy Hermes, then make it Aloy
 
 Hermes's web, desktop, shared-transport, and gateway are **MIT-licensed**, so for the **surfaces** we **copy the actual code, then make it ours** — not a clean-room rewrite. Every surface starts as a Hermes copy:
 
@@ -93,7 +103,7 @@ Hermes's web, desktop, shared-transport, and gateway are **MIT-licensed**, so fo
 - **Receipts / audit / cost** — persist the receipt chain per tenant → audit log + per-tenant/per-user **cost attribution** dashboards.
 - **Gateway** — messaging adapters (Slack for org, Telegram for personal) as a thin adapter ABC over `PoriEvent` (later; harvest Hermes *architecture*, not its 19K-line `run.py`).
 
-### 4.3 Surface (illustrative REST + SSE)
+### 4.3 API endpoints (illustrative REST + SSE)
 ```
 POST   /v1/auth/token                         # exchange creds → session
 GET    /v1/conversations                      # list (scoped to identity)
@@ -181,7 +191,7 @@ Layered inheritance **org → team → personal**; on collision, **personal wins
 
 - **Kernel** owns the block model, recall→inject, write lifecycle, `MemoryStore` interface.
 - **Backend (`extensions/pori-*` + aloy)** owns the **scope resolver**, RBAC on writes, concrete Postgres stores, and the learning-loop curator.
-- **Surfaces** just render scoped memory and let users edit what their role allows.
+- **Client surfaces** just render scoped memory and let users edit what their role allows.
 
 **Milestone rule (already decided):** build the scope resolver *now*, populate only the **personal** layer first; org/team slot in later with **no refactor**.
 
@@ -228,12 +238,12 @@ Website can be built anytime (it's decoupled); it's sequenced late only because 
 3. **Backend auth for org.** API-key + session now; OAuth/SSO (Google/Microsoft) for org — when.
 4. **Desktop v1 mode.** Thin (hosted) vs. local-first backend — recommend thin-first, local-first fast-follow (§7.3).
 5. **Website stack.** Astro vs. Next vs. reuse `pori_website`.
-6. **✓ RESOLVED — TS workspace.** Bun workspace over `packages/*` + `products/*/{web,desktop,website}`; the shared client is `@pori/client` (`packages/pori-client`), linked via `workspace:*`. Surfaces live under their product; only product-neutral libs sit in `packages/`. See [`MONOREPO.md`](../MONOREPO.md).
+6. **✓ RESOLVED — TS workspace.** Bun workspace over `packages/*` + `products/*/{web,desktop,website}`; the shared client is `@pori/client` (`packages/pori-client`), linked via `workspace:*`. Client surfaces live under their product; only product-neutral libs sit in `packages/`. See [`MONOREPO.md`](../MONOREPO.md).
 7. **Hosting/deploy.** Backend (Fly/Render/K8s?), Postgres, SSE at scale (keep-alive, proxies).
 8. **Real-server SSE e2e** for the clarify-button flow (noted follow-up from the kernel API work).
 
 **Risks:**
-- **Surface/backend coupling drift** → mitigated by the REST+SSE-only rule and `packages/pori-client` as the single client.
+- **Client/backend coupling drift** → mitigated by the REST+SSE-only rule and `packages/pori-client` as the single client.
 - **Kernel rot** (backend logic leaking into `pori`) → mitigated by the CI-enforced one-way dependency.
 - **Org retrofit** → mitigated by tenancy-aware-from-day-1 + the scope resolver built before it's needed.
 - **Harvest Frankenstein** (web/desktop from Hermes) → keep the shells + components, strip the PTY bridge, retarget to `PoriEvent`; log in `HARVEST.md`.
@@ -242,7 +252,10 @@ Website can be built anytime (it's decoupled); it's sequenced late only because 
 
 ## 12. Glossary
 
-- **Surface** — a client (webapp, desktop, website) that talks to the backend over REST + SSE only.
+- **Event Surface** — an Event-owned, versioned composition of allowlisted
+  typed blocks rendered by trusted React components; never arbitrary UI code.
+- **Client surface** — a delivery client (webapp, desktop, website) that talks
+  to the backend over REST + SSE only.
 - **`packages/pori-client`** — the one TS transport package (REST + SSE `PoriEvent` decoder + clarify bridge) both shells consume.
 - **Scope resolver** — backend component merging org→team→personal knowledge at prompt-build time (personal wins).
 - **Knowledge plane** — the layered-inheritance memory that is Aloy's moat.

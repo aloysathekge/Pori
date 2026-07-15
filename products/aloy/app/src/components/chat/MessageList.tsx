@@ -23,6 +23,9 @@ interface Props {
   /** Omit while sending — the bubbles hide their resend/continue actions. */
   onResend?: (content: string) => void;
   onContinue?: (message: MessageResponse) => void;
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
 }
 
 /**
@@ -45,6 +48,9 @@ export function MessageList({
   onOpenArtifact,
   onResend,
   onContinue,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
 }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +64,18 @@ export function MessageList({
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
+      {hasOlder && onLoadOlder && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadOlder}
+            disabled={loadingOlder}
+            className="rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-60"
+          >
+            {loadingOlder ? 'Loading earlier messages…' : 'Load earlier messages'}
+          </button>
+        </div>
+      )}
       {messages.map((msg) => (
         <MessageBubble
           key={msg.id}

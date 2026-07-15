@@ -3,6 +3,7 @@ import type {
   ConversationResponse,
   ConversationDetail,
   MessageResponse,
+  MessagePage,
 } from '@/types';
 
 export function listConversations(limit = 20, offset = 0, eventId?: string) {
@@ -18,6 +19,13 @@ export function listConversations(limit = 20, offset = 0, eventId?: string) {
 
 export function getConversation(id: string) {
   return apiFetch<ConversationDetail>(`/conversations/${id}`);
+}
+
+export function getConversationMessages(id: string, cursor: string, limit = 100) {
+  const params = new URLSearchParams({ cursor, limit: String(limit) });
+  return apiFetch<MessagePage>(
+    `/conversations/${id}/messages?${params.toString()}`,
+  );
 }
 
 export function createConversation(data: {

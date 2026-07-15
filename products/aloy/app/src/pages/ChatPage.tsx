@@ -8,7 +8,7 @@ import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
 import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { EventIcon } from '@/components/icons';
-import { getConversation } from '@/api/conversations';
+import { getConversation, getConversationMessages } from '@/api/conversations';
 import { createEvent } from '@/api/events';
 import { useConversations } from '@/hooks/useConversations';
 import { useAttachments } from '@/hooks/useAttachments';
@@ -35,6 +35,8 @@ export function ChatPage() {
   } = useConversations();
 
   const [messages, setMessages] = useState<MessageResponse[]>([]);
+  const [messageCursor, setMessageCursor] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [loadingConversation, setLoadingConversation] = useState(false);
@@ -101,6 +103,7 @@ export function ChatPage() {
         .then((detail) => {
           if (cancelled) return;
           setMessages(detail.messages);
+          setMessageCursor(detail.messages_next_cursor);
           // Resume live streaming if this conversation has an in-flight run.
           void tryReattach(routeConversationId);
         })
@@ -113,6 +116,7 @@ export function ChatPage() {
     } else {
       setActiveId(null);
       setMessages([]);
+      setMessageCursor(null);
     }
     return () => {
       cancelled = true;
@@ -138,6 +142,18 @@ export function ChatPage() {
 
   function openConversation(id: string) {
     navigate(`/chat/${id}`);
+  }
+
+  async function loadOlderMessages() {
+    if (!activeId || !messageCursor || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
+    try {
+      const page = await getConversationMessages(activeId, messageCursor);
+      setMessages((current) => [...page.messages, ...current]);
+      setMessageCursor(page.next_cursor);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
   }
 
   async function handleCreate() {
@@ -315,6 +331,9 @@ export function ChatPage() {
                   onOpenArtifact={setArtifactPath}
                   onResend={sending ? undefined : resend}
                   onContinue={sending ? undefined : continueRun}
+                  hasOlder={!!messageCursor}
+                  loadingOlder={loadingOlderMessages}
+                  onLoadOlder={() => void loadOlderMessages()}
                 />
               )}
             </div>

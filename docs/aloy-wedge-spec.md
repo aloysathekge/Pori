@@ -9,6 +9,12 @@ Life multi-Conversation clarification added by vision v2 on 2026-07-15. Related:
 `CLAUDE.md` (kernel map), `aloy_backend_api.md` (backend architecture), and
 `docs/adr/` (ADRs)._
 
+**Surface supersession:** this document specifies the implemented fixed
+foundation only. [`aloy-surface-spec.md`](./aloy-surface-spec.md) supersedes
+§4 and the Surface non-goal in §7 for remaining V1 work. The templated endpoint
+stays as a compatibility projection while R5 adds typed composition; arbitrary
+HTML/React/JavaScript remains out of scope.
+
 **How to read this if you are a coding agent:** §0 records the foundation
 premises as clarified by vision v2. §1 is the implemented foundation data model.
 §2 is the migration. §3 is the Proposal system — the deepest part; read it
@@ -45,9 +51,9 @@ The four foundation decisions, with the current Conversation clarification:
    Its Surface is **templated** (Status · Tasks · Activity · Notes), not
    model-composed. The active V1 proof has since moved to the Career OS hero
    flow defined in `docs/aloy-vision.md`.
-4. **Cuts:** no Reality Objects, no auto/emergent event detection, no
-   model-composed UI, no cross-event memory retrieval. Keep: manual event
-   creation, Today, event Surfaces, the Proposal system.
+4. **Foundation cuts:** no Reality Objects, no auto/emergent event detection,
+   no model-composed UI, no cross-event memory retrieval. The active plan now
+   adds allowlisted typed Surface composition without arbitrary UI code.
 
 **Invariant that governs the whole spec (vision §4.1, §3.8):**
 > No agent reality change without a **durably persisted and authorized**
@@ -429,7 +435,7 @@ the fingerprint, and requires approval again when material.
 
 ---
 
-## 4. The Project Event Surface (templated)
+## 4. The Project Event Surface (implemented foundation)
 
 A **schema payload** (typed JSON, vision §3.3 / ADR 0010) the app renders with
 trusted components — for the wedge it is **hand-authored per the Project type**,
@@ -456,8 +462,9 @@ Rendering rules (Verifiable Reality, invariant #2): the Surface shows
 **committed state + relevant working state + pending Proposals** — **never an
 unsupported claim**. The `activity` section renders **receipts/Trail entries**,
 not agent prose. Tasks are directly interactive (toggle done, add) and mutate
-Working state without Proposals. The Surface is **recomputed from Event state on
-read** (no separate stored surface artifact in V1).
+Working state without Proposals. This compatibility Surface is **recomputed from
+Event state on read**. R5 adds separately persisted, validated domain blocks;
+canonical Task/Proposal/File/Trail projections remain computed truth.
 
 Every rendered assertion carries an explicit state/evidence posture:
 
@@ -522,7 +529,9 @@ gateway, and cron runs. For a run in Event E it loads:
   Reality-Object infra in the wedge.
 - **Auto / emergent event detection** (soft clusters, worthiness, "Aloy
   proposes an Event"). Manual creation only.
-- **Model-composed / free-form Surfaces.** Templated Project Surface only.
+- **Arbitrary model-composed / free-form UI.** The wedge shipped only the
+  templated Project Surface. Remaining V1 permits the versioned allowlisted
+  block registry in `aloy-surface-spec.md`, never executable UI code.
 - **Cross-event memory retrieval** and the Life graph-coordinator.
 - **Learned routing** (`auto`/`notify` earned autonomy) — the model exists;
   the wedge hard-codes `ask` for the write set.

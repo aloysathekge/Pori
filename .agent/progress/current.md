@@ -1,6 +1,54 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 R3 implementation)._
+_Last updated: 2026-07-15 (Aloy V1 R4 implementation)._
+
+## NEW: Event Surface architecture correction (2026-07-15)
+
+The post-R4 review exposed that the vision still defined Surface too narrowly
+as the fixed Event context pane. The corrected contract is now canonical in
+`docs/aloy-surface-spec.md`: Conversation and Event Surface are peer workspace
+regions, and the Surface is a versioned composition of allowlisted typed blocks
+rendered by trusted React components. System blocks project canonical records;
+domain blocks add Document, Table, Card collection, Timeline, and Map without
+per-Event pages or arbitrary model-generated UI.
+
+R4 remains the durable live projection transport and is draft PR #172 with all
+seven CI checks green. A new R5, `aloy-v1-r5-composable-surfaces`, must build the
+typed block/persistence/renderer runtime before provider research begins. The
+former research, Career OS, and release phases move to R6, R7, and R8. R5 must
+prove both a Career OS company/report composition and a Trip-to-San-Francisco
+map/itinerary composition through the same API.
+
+## NEW: Aloy V1 R4 - live Surface and semantic Trail (2026-07-15)
+
+R3 is merged into `aloy-v1` as PR #171 at squash merge
+`e2587e64e67c8857c1025f48786f0d6ffd96f46f`. R4 is implemented on
+`aloy-v1-r4-live-surface-trail`; do not implement the R5 composition runtime
+or R6 research providers on this branch.
+
+Each Event now exposes a tenant-scoped, database-backed SSE stream. The API
+replays Trail rows after an opaque reconnect cursor and follows worker writes
+across process boundaries, including the Task or Run's origin Conversation.
+The Event workspace no longer polls every two seconds: it reports live,
+reconnecting, stale, or offline state; invalidates the trusted Surface on
+durable changes; and refreshes transcript state only when the live frame names
+the currently displayed Conversation. A regression uses two sibling Life
+Conversations to prove terminal Task replay returns to the origin rather than
+the sibling.
+
+Event Trail and Conversation messages use stable `(created_at, id)` keyset
+pagination. Initial reads are bounded to 50 Trail entries and 100 messages;
+older pages load explicitly without duplicates, while Conversation export
+still returns the complete transcript. Recent Task Runs appear as expandable
+execution narratives linked to their origin Conversation, Run Replay,
+artifacts, Proposals, and committed receipts. Today calls out blocked Tasks and
+non-blocked active Tasks unchanged for more than 24 hours.
+
+Automated verification is green: all backend tests, the focused R4 reconnect/
+pagination/provenance suite, backend Black/isort/mypy, and app lint + production
+build. The local API, web app, and worker boot successfully. Complete a short
+signed-in interaction pass for the live indicator, Task execution refresh,
+reconnect, Trail expansion, and load-older controls before merging R4.
 
 ## NEW: Aloy V1 R3 - durable Task execution (2026-07-15)
 

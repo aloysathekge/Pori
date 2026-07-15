@@ -128,6 +128,12 @@ async def get_today(
     def for_event(rows, event_id: str) -> list:
         return [row for row in rows if row.event_id == event_id]
 
+    def is_stale(task: Task) -> bool:
+        updated_at = task.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        return updated_at < cutoff
+
     return {
         "generated_at": now,
         "events": [
@@ -145,6 +151,17 @@ async def get_today(
                     trail_payload(entry) for entry in for_event(activity, event.id)
                 ],
                 "upcoming": [task_payload(task) for task in for_event(tasks, event.id)],
+                "blocked": [
+                    task_payload(task)
+                    for task in for_event(tasks, event.id)
+                    if task.status in {"blocked", "waiting_approval"}
+                ],
+                "stale": [
+                    task_payload(task)
+                    for task in for_event(tasks, event.id)
+                    if task.status not in {"blocked", "waiting_approval"}
+                    and is_stale(task)
+                ],
             }
             for event in events
         ],
