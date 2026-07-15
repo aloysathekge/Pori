@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, CheckCircle2, Circle, Plus, Sparkles } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createEvent,
   decideEventProposal,
@@ -23,6 +23,7 @@ function when(value: string) {
 
 export function TodayPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [today, setToday] = useState<TodayResponse | null>(null);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
@@ -42,6 +43,17 @@ export function TodayPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
+
+  const showEventCreator = creating || searchParams.get('new') === 'event';
+
+  function toggleEventCreator() {
+    if (searchParams.get('new') === 'event') {
+      setSearchParams({});
+      setCreating(false);
+      return;
+    }
+    setCreating((value) => !value);
+  }
 
   async function saveEvent() {
     if (!title.trim()) return;
@@ -90,8 +102,8 @@ export function TodayPage() {
             {decisionCount} decisions need you · {taskCount} open tasks across your life and projects
           </p>
         </div>
-        <Button onClick={() => setCreating((value) => !value)}>
-          <Plus size={16} /> New project
+        <Button onClick={toggleEventCreator}>
+          <Plus size={16} /> New event
         </Button>
       </header>
 
@@ -101,9 +113,9 @@ export function TodayPage() {
         </div>
       )}
 
-      {creating && (
+      {showEventCreator && (
         <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <h2 className="font-medium text-zinc-100">Start a Project Event</h2>
+          <h2 className="font-medium text-zinc-100">Start a dedicated Event</h2>
           <p className="mt-1 text-sm text-zinc-500">
             One continuous conversation, plus its tasks, files, decisions, and evidence.
           </p>
@@ -112,7 +124,7 @@ export function TodayPage() {
               className={INPUT}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Project name"
+              placeholder="Event name"
               autoFocus
             />
             <input
@@ -122,7 +134,7 @@ export function TodayPage() {
               placeholder="What does success look like?"
             />
             <Button disabled={saving || !title.trim()} onClick={saveEvent}>
-              {saving ? 'Creating…' : 'Create project'}
+              {saving ? 'Creating…' : 'Create event'}
             </Button>
           </div>
         </section>
@@ -151,7 +163,13 @@ export function TodayPage() {
                   )}
                 </div>
                 <Link
-                  to={`/events/${group.event.id}`}
+                  to={
+                    group.event.is_life
+                      ? group.event.conversation_id
+                        ? `/chat/${group.event.conversation_id}`
+                        : '/chat'
+                      : `/events/${group.event.id}`
+                  }
                   className="ml-4 flex shrink-0 items-center gap-1 text-sm font-medium text-accent-700 hover:text-accent-600"
                 >
                   Open <ArrowRight size={15} />

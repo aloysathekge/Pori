@@ -1,18 +1,22 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
   CalendarClock,
   ChevronRight,
   FileText,
   Folder,
+  FolderPlus,
   LogOut,
   Menu,
+  MessageSquare,
+  MessageSquarePlus,
   PanelLeftClose,
   Settings,
   X,
 } from 'lucide-react';
 import { listEvents, type EventSummary } from '@/api/events';
+import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -63,8 +67,10 @@ function RailLink({
 export function AppLayout() {
   const { signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [actionError, setActionError] = useState('');
   const [expanded, setExpanded] = useState(
     () => localStorage.getItem('aloy.nav') !== 'slim',
   );
@@ -90,6 +96,18 @@ export function AppLayout() {
 
   const compact = !expanded;
   const closeMobile = () => setSidebarOpen(false);
+  const dedicatedEvents = events.filter((event) => !event.is_life);
+
+  async function startConversation() {
+    setActionError('');
+    try {
+      const conversation = await createConversation({});
+      closeMobile();
+      navigate(`/chat/${conversation.id}`);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Could not start a conversation');
+    }
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
@@ -121,7 +139,37 @@ export function AppLayout() {
         </div>
 
         <div className={`flex-1 overflow-y-auto ${compact ? 'px-2' : 'px-3'} py-3`}>
+          <RailLink to="/chat" icon={MessageSquare} label="Chat" compact={compact} onClick={closeMobile} />
           <RailLink to="/today" icon={TodayIcon} label="Today" compact={compact} onClick={closeMobile} />
+
+          <div className={`mt-3 grid gap-1 ${compact ? '' : 'grid-cols-2'}`}>
+            <Button
+              variant="ghost"
+              size={compact ? 'icon' : undefined}
+              className={compact ? 'w-full' : 'justify-start px-2 text-xs'}
+              onClick={startConversation}
+              title="New conversation"
+            >
+              <MessageSquarePlus size={16} />
+              {!compact && <span>New chat</span>}
+            </Button>
+            <Button
+              variant="ghost"
+              size={compact ? 'icon' : undefined}
+              className={compact ? 'w-full' : 'justify-start px-2 text-xs'}
+              onClick={() => {
+                closeMobile();
+                navigate('/today?new=event');
+              }}
+              title="New event"
+            >
+              <FolderPlus size={16} />
+              {!compact && <span>New event</span>}
+            </Button>
+          </div>
+          {!compact && actionError && (
+            <p className="mt-2 px-2 text-xs text-red-400">{actionError}</p>
+          )}
 
           {!compact && (
             <p className="mb-1 mt-5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
@@ -129,7 +177,7 @@ export function AppLayout() {
             </p>
           )}
           <div className={compact ? 'mt-3 space-y-1' : 'space-y-0.5'}>
-            {events.map((event) => (
+            {dedicatedEvents.map((event) => (
               <RailLink
                 key={event.id}
                 to={`/events/${event.id}`}
