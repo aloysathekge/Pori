@@ -127,6 +127,7 @@ from .observability import (
     TraceStore,
 )
 from .orchestrator import Orchestrator
+from .profiles import RunProfile, RunProfileResolutionError
 from .providers import (
     PROVIDER_PROFILES,
     ProviderDiagnostic,
@@ -273,6 +274,8 @@ __all__ = [
     "diagnose_provider",
     "get_provider_profile",
     "provider_profiles",
+    "RunProfile",
+    "RunProfileResolutionError",
     "RetrievalEvidence",
     "fuse_retrieval",
     "SQLiteSessionRepository",

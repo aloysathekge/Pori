@@ -80,6 +80,9 @@ known_first_party = ["aloy_backend", "pori"]
 [tool.setuptools.packages.find]
 include = ["aloy_backend*"]
 
+[tool.setuptools.package-data]
+aloy_backend = ["product_skills/**/*.md", "product_skills/**/*.yaml"]
+
 [tool.mypy]
 # The backend's type gate (CI runs `mypy aloy_backend/`). Same posture as the
 # kernel: untyped bodies are checked; strictness ratchets per-module.

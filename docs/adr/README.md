@@ -1,7 +1,6 @@
 # Architecture Decision Records
 
-Load-bearing decisions, recorded once, dated, immutable (supersede with a
-new ADR rather than editing). If you're an agent about to "improve"
+Architecture decisions and their current status. If you're an agent about to "improve"
 something that looks odd, check here first — odd is often deliberate.
 
 | # | Decision |
@@ -15,4 +14,4 @@ something that looks odd, check here first — odd is often deliberate.
 | [0007](./0007-single-finalizer.md) | One finalizer persists a run's outcome |
 | [0008](./0008-front-door-only.md) | Products import only the kernel front door |
 | [0009](./0009-single-api-worker.md) | One API worker process (in-process run registries) |
-| [0010](./0010-schema-driven-surfaces.md) | Surfaces are schema-composed, not generated code |
+| [0010](./0010-schema-driven-surfaces.md) | **Superseded:** schema-composed Surfaces; see the canonical Surface spec |

@@ -6,8 +6,11 @@ product. Complete index — if you add a doc, add it here.
 ## Start here
 
 - [`aloy-vision.md`](./aloy-vision.md) — **the canonical Aloy product
-  definition** (living doc: decided truths + open question clusters). Specs
-  cite this.
+  definition**. Its active children are
+  [`aloy-v1-plan.md`](./aloy-v1-plan.md) for delivery and
+  [`aloy-surface-spec.md`](./aloy-surface-spec.md) for the model-authored
+  Surface, including its quality gate. Start there; older Aloy records do not
+  override this hierarchy.
 - [`architecture-primer.md`](./architecture-primer.md) — hosted-agent
   fundamentals: tenancy, storage tiers, the compute ladder, file→LLM paths.
   Read for any "where does X belong" question.
@@ -16,10 +19,10 @@ product. Complete index — if you add a doc, add it here.
 
 ## Decisions
 
-- [`adr/`](./adr/README.md) — **Architecture Decision Records**: the ten
+- [`adr/`](./adr/README.md) — **Architecture Decision Records**: dated
   load-bearing decisions (no-LangChain, loop-stays-whole, fail-open,
   footprint ladder, memory-as-index, single-finalizer, front-door-only,
-  single-API-worker, schema-driven surfaces…). If something looks odd,
+  single-API-worker, and recorded supersessions). If something looks odd,
   check here before changing it.
 
 ## Kernel (Pori)
@@ -36,8 +39,11 @@ product. Complete index — if you add a doc, add it here.
 
 ## Aloy product specs (built arcs; kept as design records)
 
-- [`Aloy.md`](./Aloy.md) — the original Aloy plan (surfaces, gateway,
-  copy-then-rebrand rules).
+- [`Aloy.md`](./Aloy.md) — **historical** original Aloy plan; retained for
+  architecture provenance and superseded by `aloy-vision.md`.
+- [`aloy-wedge-spec.md`](./aloy-wedge-spec.md) — implemented Event, Session,
+  Proposal, and initial workspace foundation; newer Surface work is superseded
+  by `aloy-surface-spec.md`.
 - [`aloy-connections-spec.md`](./aloy-connections-spec.md) — connect-engine +
   Gmail (OAuth token custody).
 - [`aloy-multitenant-connections-mcp-spec.md`](./aloy-multitenant-connections-mcp-spec.md)

@@ -15,10 +15,12 @@ from pori import (
     AgentMemory,
     LLMConfig,
     Orchestrator,
+    RunProfile,
     SkillCatalog,
     create_llm,
     create_sandbox_provider,
     get_configured_llm,
+    get_provider_profile,
     register_all_tools,
     set_prompts_dir,
     set_sandbox_provider,
@@ -64,6 +66,7 @@ def build_orchestrator(
     allowed_provider_profiles: Optional[tuple[str, ...]] = None,
     allowed_models: Optional[tuple[str, ...]] = None,
     skill_catalog: Optional[SkillCatalog] = None,
+    run_profile: Optional[RunProfile] = None,
 ) -> Orchestrator:
     """
     Create an Orchestrator.
@@ -92,8 +95,12 @@ def build_orchestrator(
             temperature=agent_config.temperature,
         )
         llm = create_llm(llm_config)
+        provider = agent_config.provider
     else:
-        llm, _cfg = get_configured_llm()
+        llm, config = get_configured_llm()
+        provider = config.llm.provider
+
+    model_capabilities = get_provider_profile(provider).capabilities
 
     # Build tool registry, optionally filtered
     registry = tool_registry()
@@ -130,4 +137,7 @@ def build_orchestrator(
         tools_registry=registry,
         shared_memory=shared_memory,
         skill_catalog=skill_catalog,
+        system_prompt=agent_config.system_prompt if agent_config else None,
+        model_capabilities=model_capabilities,
+        run_profile=run_profile,
     )

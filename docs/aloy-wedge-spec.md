@@ -12,8 +12,9 @@ Life multi-Conversation clarification added by vision v2 on 2026-07-15. Related:
 **Surface supersession:** this document specifies the implemented fixed
 foundation only. [`aloy-surface-spec.md`](./aloy-surface-spec.md) supersedes
 §4 and the Surface non-goal in §7 for remaining V1 work. The templated endpoint
-stays as a compatibility projection while R5 adds typed composition; arbitrary
-HTML/React/JavaScript remains out of scope.
+stays as a compatibility projection while R5 adds the sandboxed model-authored
+runtime. Generated React is in scope only through that isolated runtime and its
+capability-scoped SDK.
 
 **How to read this if you are a coding agent:** §0 records the foundation
 premises as clarified by vision v2. §1 is the implemented foundation data model.
@@ -53,7 +54,7 @@ The four foundation decisions, with the current Conversation clarification:
    flow defined in `docs/aloy-vision.md`.
 4. **Foundation cuts:** no Reality Objects, no auto/emergent event detection,
    no model-composed UI, no cross-event memory retrieval. The active plan now
-   adds allowlisted typed Surface composition without arbitrary UI code.
+   supersedes the UI cut with the isolated model-authored Surface runtime.
 
 **Invariant that governs the whole spec (vision §4.1, §3.8):**
 > No agent reality change without a **durably persisted and authorized**

@@ -1,23 +1,45 @@
 # Current State
 
-_Last updated: 2026-07-15 (Aloy V1 R4 implementation)._
+_Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
-## NEW: Event Surface architecture correction (2026-07-15)
+## NEW: Model-authored Event Surface architecture (2026-07-16)
 
-The post-R4 review exposed that the vision still defined Surface too narrowly
-as the fixed Event context pane. The corrected contract is now canonical in
-`docs/aloy-surface-spec.md`: Conversation and Event Surface are peer workspace
-regions, and the Surface is a versioned composition of allowlisted typed blocks
-rendered by trusted React components. System blocks project canonical records;
-domain blocks add Document, Table, Card collection, Timeline, and Map without
-per-Event pages or arbitrary model-generated UI.
+The University and Madrid product walkthroughs superseded the uncommitted
+typed-block R5 direction. The canonical contract in
+`docs/aloy-surface-spec.md` now defines a Surface as a model-authored React
+application for one Event: generated source is built in isolation, published
+as immutable last-good revisions, executed in a sandboxed iframe, and connected
+to tenant/Event data and the permanent Session only through a capability-scoped
+SDK and validated interaction bridge.
 
-R4 remains the durable live projection transport and is draft PR #172 with all
-seven CI checks green. A new R5, `aloy-v1-r5-composable-surfaces`, must build the
-typed block/persistence/renderer runtime before provider research begins. The
-former research, Career OS, and release phases move to R6, R7, and R8. R5 must
-prove both a Career OS company/report composition and a Trip-to-San-Francisco
-map/itinerary composition through the same API.
+The two north-star images are preserved in `docs/assets/`. They are behavioral
+proofs, not templates: University demonstrates timetable/course/assessment
+truth plus a study-help interaction; Madrid demonstrates map/travel choices,
+visa readiness, estimates, provenance, uncertainty, and safe action intent.
+R5 must produce both independently through the same runtime without hardcoding
+either page. Tasks, Proposals, receipts, files, evidence, and Trail remain
+canonical whether or not generated code displays them.
+
+R4 is merged into `aloy-v1` as PR #172. R5 is active on
+`aloy-v1-r5-composable-surfaces`; the branch name is retained and the superseded
+typed-block experiment has been removed. The first authoring-harness foundation
+is now in the worktree: Pori has immutable, fingerprinted run profiles that
+bind prompts, tools, explicit skills, and model capabilities with fail-fast
+validation; Aloy forwards configured prompts/provider capabilities and bundles
+an explicit-only Surface Builder skill plus its product run profile. This was
+adapted from the MIT Deep Agents harness-profile pattern without adding a
+Deep Agents/LangGraph dependency (see `HARVEST.md`). Next implement Surface
+persistence + authoring tools, isolated build + iframe host, SDK + interaction
+transport, the independent Critic, and the two proofs. §13 of the Surface spec
+also locks the design brief,
+design system, screenshot states, deterministic audit, independent Critic,
+user-job simulation, bounded repair, user control, scorecard, and last-good
+publish gate. Do not add R6 research providers or R7 Gmail behavior.
+
+Verification for the authoring-harness foundation: 605 kernel tests passed
+(1 skipped), 259 Aloy backend tests passed, kernel mypy is clean across 107
+source files, backend mypy is clean across 87 source files, the Surface Builder
+skill validator passed, and a built Aloy wheel contains the bundled skill.
 
 ## NEW: Aloy V1 R4 - live Surface and semantic Trail (2026-07-15)
 
@@ -407,7 +429,8 @@ products/
     BOOT.md               how to boot the whole stack locally
 package.json + bun.lock   root TS workspace (packages/* + products/*/{app,desktop,website})
 MONOREPO.md               ← canonical layout + one-way-dep rule + EXTRACTION PLAYBOOK
-docs/Aloy.md              ← the Aloy product plan (surfaces, moat, streaming)
+docs/aloy-vision.md       ← canonical Aloy product definition
+docs/aloy-v1-plan.md      ← active delivery sequence
 ```
 
 **Naming trap that already bit us:** `products/aloy/app` = the product SPA (needs
@@ -490,6 +513,7 @@ sandbox + secrets blocklist + execution-status UI (#106).
 
 ## Canonical docs (read these, don't re-derive)
 
-`MONOREPO.md` (layout + extraction), `docs/Aloy.md` (product plan),
+`MONOREPO.md` (layout + extraction), `docs/aloy-vision.md` (product parent),
+`docs/aloy-v1-plan.md` (active delivery),
 `products/aloy/BOOT.md` (run it), `docs/Pori.md` (kernel PRD),
 `docs/ALIGNMENT.md` (Hermes-alignment tracker), `HARVEST.md` (donor provenance).

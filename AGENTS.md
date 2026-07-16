@@ -18,7 +18,8 @@ product built on it (`products/aloy/`).
   config, or production-impacting settings without approval. **No Claude/AI
   attribution on commits or PRs.**
 - **Current active work + next steps: [`.agent/progress/current.md`](./.agent/progress/current.md)**
-  (read this first). Product plan: [`docs/Aloy.md`](./docs/Aloy.md); boot guide:
+  (read this first). Product parent: [`docs/aloy-vision.md`](./docs/aloy-vision.md);
+  active delivery: [`docs/aloy-v1-plan.md`](./docs/aloy-v1-plan.md); boot guide:
   [`products/aloy/BOOT.md`](./products/aloy/BOOT.md).
 
 ## Aloy Agent Layer
