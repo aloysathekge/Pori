@@ -34,6 +34,11 @@ from .gmail import (
     gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
+from .surfaces import (
+    SURFACE_AUTHORING_CONTEXT_KEY,
+    SURFACE_AUTHORING_TOOL_NAMES,
+    register_surface_authoring_tools,
+)
 from .tasks import TaskMutationHandler, register_task_tools
 
 # Every tool the 'google' connection unlocks, and the write subset a deployment
@@ -143,9 +148,12 @@ __all__ = [
     "GOOGLE_TOOL_NAMES",
     "GOOGLE_WRITE_TOOLS",
     "LIBRARY_TOOL_NAMES",
+    "SURFACE_AUTHORING_CONTEXT_KEY",
+    "SURFACE_AUTHORING_TOOL_NAMES",
     "gmail_draft_preview",
     "register_google_tools",
     "register_library_tools",
+    "register_surface_authoring_tools",
     "register_task_tools",
     "TaskMutationHandler",
 ]

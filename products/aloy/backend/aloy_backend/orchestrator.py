@@ -13,6 +13,7 @@ from typing import Optional
 
 from pori import (
     AgentMemory,
+    FileBackend,
     LLMConfig,
     Orchestrator,
     RunProfile,
@@ -67,6 +68,7 @@ def build_orchestrator(
     allowed_models: Optional[tuple[str, ...]] = None,
     skill_catalog: Optional[SkillCatalog] = None,
     run_profile: Optional[RunProfile] = None,
+    file_backend: Optional[FileBackend] = None,
 ) -> Orchestrator:
     """
     Create an Orchestrator.
@@ -111,12 +113,15 @@ def build_orchestrator(
     from .tools import (
         register_google_tools,
         register_library_tools,
+        register_surface_authoring_tools,
         register_task_tools,
     )
 
     register_google_tools(registry)
     register_library_tools(registry)
     register_task_tools(registry)
+    if run_profile and run_profile.profile_id == "aloy.surface-builder":
+        register_surface_authoring_tools(registry)
 
     configured_tools = set(agent_config.tools or ()) if agent_config else set()
     requested_tools = configured_tools or None
@@ -140,4 +145,5 @@ def build_orchestrator(
         system_prompt=agent_config.system_prompt if agent_config else None,
         model_capabilities=model_capabilities,
         run_profile=run_profile,
+        file_backend=file_backend,
     )
