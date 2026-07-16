@@ -13,6 +13,46 @@ export interface SurfaceBuild {
   completed_at: string | null;
 }
 
+export interface SurfaceRuntimeContext {
+  protocol_version: '1';
+  sdk_version: '1';
+  event_id: string;
+  project_id: string;
+  build_id: string;
+  code_revision_id: string;
+  data_revision: number;
+  capabilities: string[];
+  widgets: string[];
+  data: Record<string, unknown>;
+}
+
+export type SurfaceInteractionMethod = 'dispatch' | 'ask_aloy' | 'request_action';
+
+export interface SurfaceInteractionRequest {
+  build_id: string;
+  code_revision_id: string;
+  data_revision: number;
+  method: SurfaceInteractionMethod;
+  name: string;
+  component_id: string;
+  payload: Record<string, unknown>;
+  message?: string;
+  reason?: string;
+  idempotency_key: string;
+}
+
+export interface SurfaceInteractionResponse {
+  id: string;
+  status: string;
+  name: string;
+  interaction_class: string;
+  data_revision: number | null;
+  handling_run_id: string | null;
+  proposal_id: string | null;
+  result: Record<string, unknown>;
+  replayed: boolean;
+}
+
 export function listSurfaceBuilds(eventId: string) {
   return apiFetch<SurfaceBuild[]>(`/events/${eventId}/surface/builds`);
 }
@@ -20,6 +60,22 @@ export function listSurfaceBuilds(eventId: string) {
 export function getSurfaceRuntimeDocument(eventId: string, buildId: string) {
   return apiTextFetch(
     `/events/${eventId}/surface/builds/${buildId}/runtime-document`,
+  );
+}
+
+export function getSurfaceRuntimeContext(eventId: string, buildId: string) {
+  return apiFetch<SurfaceRuntimeContext>(
+    `/events/${eventId}/surface/context?build_id=${encodeURIComponent(buildId)}`,
+  );
+}
+
+export function createSurfaceInteraction(
+  eventId: string,
+  request: SurfaceInteractionRequest,
+) {
+  return apiFetch<SurfaceInteractionResponse>(
+    `/events/${eventId}/surface/interactions`,
+    { method: 'POST', body: JSON.stringify(request) },
   );
 }
 

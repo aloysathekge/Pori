@@ -1,0 +1,27 @@
+{
+  "name": "@aloy/surface",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Capability-scoped runtime SDK for model-authored Aloy Event Surfaces",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "react": "^19.2.4",
+    "typescript": "~5.9.3"
+  }
+}

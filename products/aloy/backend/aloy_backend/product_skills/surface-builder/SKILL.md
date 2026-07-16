@@ -40,6 +40,51 @@ all use the same runtime and safety contract.
 10. Publish only through the revision service after required checks pass.
    Preserve the immutable last-good revision on every failure.
 
+## SDK contract
+
+Write `/workspace/surface.json` whenever the Surface needs host data or a
+meaningful interaction. The host rejects undeclared capabilities, intents,
+payload fields, data namespaces, and tools. A minimal durable-selection
+manifest is:
+
+```json
+{
+  "format": "aloy-react-surface",
+  "entrypoint": "/src/App.tsx",
+  "sdk_version": "1",
+  "capabilities": ["event", "tasks", "data:academic", "ask_aloy"],
+  "intents": {
+    "academic.course_selected": {
+      "class": "durable_selection",
+      "schema": {
+        "type": "object",
+        "properties": {"courseId": {"type": "string", "maxLength": 100}},
+        "required": ["courseId"],
+        "additionalProperties": false
+      },
+      "write": {
+        "namespace": "academic",
+        "key_field": "courseId",
+        "posture": "user_reported"
+      }
+    }
+  },
+  "widgets": []
+}
+```
+
+Use `useEvent`, `useTasks`, and `useSurfaceData(namespace)` for reactive reads.
+Use `dispatch(name, payload)` only for declared durable selections,
+`askAloy(message, context)` for an explicit reasoning turn, and
+`requestAction({name, payload, reason})` only for a declared external action
+whose manifest entry names the exact host tool. Local sorting, filtering,
+tabs, disclosure, and temporary form state stay local and require no intent.
+
+SDK writes are revision-bound and idempotent. Reuse an idempotency key only
+when retrying the exact same user action. A user-originated Surface write may
+record `user_reported`; generated code cannot claim `committed`, `verified`, or
+receipt-backed posture.
+
 ## Quality bar
 
 - Make the Event's next useful decision obvious without flattening the whole

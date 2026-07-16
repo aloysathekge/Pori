@@ -11,6 +11,8 @@ from typing import Any, Literal, Protocol
 
 from pori import LocalSandboxProvider, SandboxProvider, get_sandbox_provider
 
+from .surface_manifest import SurfaceManifest
+
 SURFACE_TOOLCHAIN_VERSION = "aloy-surface-toolchain@1"
 MAX_SURFACE_BUNDLE_BYTES = 2 * 1024 * 1024
 MAX_SURFACE_BUILD_LOG_CHARS = 100_000
@@ -103,6 +105,12 @@ def validate_surface_source(
 ) -> list[dict[str, Any]]:
     """Return deterministic diagnostics without executing generated source."""
     diagnostics: list[dict[str, Any]] = []
+    try:
+        SurfaceManifest.model_validate(manifest)
+    except ValueError as exc:
+        diagnostics.append(
+            _diagnostic("invalid_manifest", f"Invalid Surface manifest: {exc}")
+        )
     entrypoint = str(manifest.get("entrypoint") or "")
     if entrypoint != "/src/App.tsx":
         diagnostics.append(

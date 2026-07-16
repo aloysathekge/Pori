@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -18,10 +18,20 @@ from ..rate_limit import rate_limited_permission
 from ..storage import get_object_store
 from ..surface_authoring import surface_project_snapshot
 from ..surface_builds import surface_build_payload
+from ..surface_interactions import (
+    SurfaceInteractionError,
+    SurfaceInteractionRequest,
+    handle_surface_interaction,
+    surface_runtime_context,
+)
 from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
+
+
+def _surface_error(exc: SurfaceInteractionError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 async def _owned_event(
@@ -173,6 +183,49 @@ async def get_surface_runtime_document(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/context")
+async def get_surface_runtime_context(
+    event_id: str,
+    build_id: str = Query(min_length=1, max_length=200),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Return only the capabilities declared by one immutable build."""
+    try:
+        return await surface_runtime_context(
+            session,
+            context=context,
+            event_id=event_id,
+            build_id=build_id,
+        )
+    except SurfaceInteractionError as exc:
+        raise _surface_error(exc) from exc
+
+
+@router.post("/interactions", status_code=202)
+async def create_surface_interaction(
+    event_id: str,
+    body: SurfaceInteractionRequest,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Validate and persist a request from the bound iframe bridge."""
+    try:
+        return await handle_surface_interaction(
+            session,
+            context=context,
+            event_id=event_id,
+            request=body,
+        )
+    except SurfaceInteractionError as exc:
+        await session.rollback()
+        raise _surface_error(exc) from exc
 
 
 __all__ = ["router"]

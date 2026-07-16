@@ -23,12 +23,11 @@ from pori import RunContext, normalize_virtual_path
 
 from .database import async_session
 from .models import Event, EventTrailEntry, SurfaceProject, SurfaceRevision
+from .surface_manifest import SURFACE_SDK_VERSION, parse_surface_manifest
 
 MAX_SURFACE_FILES = 200
 MAX_SURFACE_FILE_BYTES = 256 * 1024
 MAX_SURFACE_SOURCE_BYTES = 5 * 1024 * 1024
-SURFACE_SDK_VERSION = "1"
-
 _ALLOWED_SOURCE_EXTENSIONS = {
     ".css",
     ".js",
@@ -262,6 +261,7 @@ async def surface_project_snapshot(
             "draft_revision_id": project.draft_revision_id,
             "published_revision_id": project.published_revision_id,
             "sdk_version": project.sdk_version,
+            "data_revision": project.data_revision,
             "lifecycle": project.lifecycle,
             "user_lock_state": project.user_lock_state,
             "created_at": project.created_at,
@@ -425,11 +425,12 @@ class SurfaceAuthoringHandler:
                 raise SurfaceAuthoringError(
                     f"Surface source exceeds {MAX_SURFACE_SOURCE_BYTES} bytes"
                 )
-            manifest = {
-                "format": "aloy-react-surface",
-                "entrypoint": "/src/App.tsx",
-                "sdk_version": project.sdk_version,
-            }
+            try:
+                manifest = parse_surface_manifest(
+                    files, sdk_version=project.sdk_version
+                ).model_dump(mode="json", by_alias=True)
+            except ValueError as exc:
+                raise SurfaceAuthoringError(str(exc)) from exc
             revision = SurfaceRevision(
                 organization_id=event.organization_id,
                 user_id=event.user_id,

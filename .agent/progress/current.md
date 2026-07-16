@@ -2,6 +2,41 @@
 
 _Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
+## NEW: Surface SDK and interaction bridge foundation (2026-07-16)
+
+The active branch is `aloy-v1-r5-surface-sdk-bridge`, based on the merged Event
+Workbench PR #178. The first bound-SDK slice is implemented. A new private
+`@aloy/surface` workspace package provides reactive Event/data hooks plus
+`dispatch`, `askAloy`, and `requestAction`. Generated code receives its context
+only through a host-created `MessageChannel`; the opaque-origin iframe still
+receives no bearer token, REST access, cookies, storage, direct network, or
+Electron authority.
+
+`surface.json` is now a versioned, fail-closed manifest that declares read
+capabilities, typed intents, namespaced data writes, host action tools, and
+reviewed widgets. The backend persists independent Surface data revisions,
+provenance/posture-bearing data records, and exactly-once revision/build-bound
+interactions. Capability-scoped context reads expose only declared Event data.
+Durable selection dispatches validate the declared schema and atomically update
+one namespaced record plus semantic Trail; `askAloy` appends one structured turn
+to the Event's canonical Conversation and queues one durable Run; external
+actions validate the exact live tool schema and stage a Proposal without
+execution. User-originated Surface writes can claim only `user_reported`, never
+committed or receipt-backed posture.
+
+Event SSE invalidation now refreshes the bound context without remounting the
+iframe when the successful build is unchanged, preserving Surface-local UI
+state. A newly successful build still replaces the runtime document. The
+Surface Builder skill includes the exact SDK/manifest contract.
+
+Verification is green: all 280 Aloy backend tests pass; backend Black/isort are
+clean across 178 files; backend mypy is clean across 97 source files; the Aloy
+app passes ESLint and its production TypeScript/Vite build; and the standalone
+`@aloy/surface` package compiles with declarations. Remaining SDK work before
+the R5 gate: interaction completion reconciliation from Run/Proposal outcomes,
+heartbeat/runtime watchdogs, privileged host widget transport (Map first),
+publication/last-good selection, Critic, and University/Madrid proof Surfaces.
+
 ## NEW: Event Workbench shell (2026-07-16)
 
 The active branch is `aloy-v1-r5-event-workbench`, based on the merged iframe
