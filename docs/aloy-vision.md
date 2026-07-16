@@ -414,25 +414,56 @@ These invariants override feature convenience:
 
 ## 5. Product experience
 
-Desktop is the primary Aloy experience; web remains a complete fallback. The
-main shell has navigation plus one flexible Event workspace:
+Desktop is the primary Aloy experience; web remains a complete fallback. Its
+flexibility is inspired by modern desktop workspaces such as ChatGPT Desktop,
+but the information architecture is Aloy's own. The shell has four peer
+regions:
 
 ```text
-navigation | Event workspace
-             ├── current Conversation
-             └── owning Life/Event Surface canvas
+global Aloy sidebar | Conversation | Workbench | Event context
 ```
+
+- **Global Aloy sidebar:** app navigation, Life Conversations, and dedicated
+  Events. It remains independent of Event content and may auto-hide or reveal
+  from the left edge without permanently consuming workspace width.
+- **Conversation:** the Event's continuous canonical Session. It remains the
+  place to instruct Aloy, think, clarify, review progress, and receive compact
+  results for the lifetime of the Event.
+- **Workbench:** a first-class flexible pane for the model-authored Surface,
+  opened files and artifacts, and Run replay. Multiple opened documents become
+  tabs inside a host-owned viewer rather than being cramped into a drawer.
+- **Event context:** trusted Aloy chrome for Tasks, Trail, approvals, receipts,
+  and relevant file navigation. It collapses to a compact rail when the
+  Conversation or Workbench needs more room. Generated Surface code never owns
+  this region.
+
+Conversation and Workbench are composable peers. The user may choose
+Conversation focus, a draggable split, or focus the active Workbench item. On
+wide screens Aloy may show Conversation + Surface + an opened file when useful.
+On medium screens the active Workbench tab replaces the less important pane;
+on narrow screens Conversation, Surface, and files become explicit full-screen
+tabs or sheets. Pane sizes, selected tabs, open files, and layout mode persist
+per user and Event. Live updates never steal focus, move scroll, or rearrange
+the workspace.
+
+Opening a PDF, report, image, code file, spreadsheet, or Run artifact creates a
+host-owned Workbench tab. **Ask Aloy about this file** opens or reveals the
+Conversation beside it and attaches a trusted file reference to the next turn;
+generated Surface code never receives unrestricted file access.
+
+When Aloy has produced a new successful Surface revision and the Surface is not
+visible, the trusted Conversation host places a compact **Surface ready** card
+after Aloy's completed response. It is driven by build metadata rather than
+assistant prose, appears once for each unseen revision, and opens Split on a
+wide screen or Surface focus on a narrow screen. Opening it is a presentation
+action: it does not start a Run or create a Trail entry.
 
 - **New conversation** opens a fresh Life thread.
 - **New Event** creates a dedicated workspace and canonical Conversation.
 - Life Conversation history is separate from the dedicated Event rail.
 - The Event rail shows dedicated Events, not Life chats or every Task.
-- The Conversation is the place to instruct, think, clarify, and review.
-- The Surface is a model-authored Event application over trusted current state.
-- The user chooses Conversation focus, a resizable split, or Surface focus;
-  maps, comparisons, timelines, and documents can occupy the main canvas.
-- Task detail and files open through host capabilities, drawers, or generated views.
-- On mobile, Conversation and Surface become explicit full-screen tabs/sheets.
+- The Surface is a model-authored Event application over trusted current state,
+  hosted inside the Workbench rather than treated as the entire Event screen.
 - Admin capabilities—Agents, Skills, Connections, Memory, Usage, Settings—are
   secondary to the Event workspace.
 
