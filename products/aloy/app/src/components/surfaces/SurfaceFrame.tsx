@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, ShieldCheck } from 'lucide-react';
+import { RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
 import {
   getSurfaceRuntimeDocument,
   listSurfaceBuilds,
@@ -21,22 +21,41 @@ type FrameState =
   | { kind: 'error'; message: string; build: SurfaceBuild | null }
   | { kind: 'ready'; url: string; build: SurfaceBuild };
 
+type RuntimeState = {
+  status: 'idle' | 'connecting' | 'healthy' | 'reconnecting' | 'degraded';
+  message?: string;
+  attempt?: number;
+};
+
+const RECONNECT_DELAYS = [1_000, 2_000, 4_000] as const;
+
 export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFrameProps) {
   const [state, setState] = useState<FrameState>({ kind: 'loading' });
+  const [runtime, setRuntime] = useState<RuntimeState>({ status: 'idle' });
   const [reload, setReload] = useState(0);
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeRef = useRef<SurfaceBridgeHost | null>(null);
   const currentBuildId = useRef<string | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempt = useRef(0);
+
+  const clearReconnect = useCallback(() => {
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    reconnectTimer.current = null;
+  }, []);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
-    bridgeRef.current?.disconnect();
+    clearReconnect();
+    reconnectAttempt.current = 0;
+    bridgeRef.current?.disconnect(false);
     bridgeRef.current = null;
     currentBuildId.current = null;
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     objectUrl.current = null;
+    setRuntime({ status: 'idle' });
     setState({ kind: 'loading' });
     try {
       const builds = await listSurfaceBuilds(eventId);
@@ -66,7 +85,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
         build: null,
       });
     }
-  }, [eventId]);
+  }, [clearReconnect, eventId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- build identity drives an authenticated runtime reload
@@ -100,28 +119,66 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   useEffect(() => {
     return () => {
       requestId.current += 1;
-      bridgeRef.current?.disconnect();
+      clearReconnect();
+      bridgeRef.current?.disconnect(false);
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
-  }, []);
+  }, [clearReconnect]);
 
-  async function connectBridge(build: SurfaceBuild) {
+  function scheduleReconnect(build: SurfaceBuild, message?: string) {
+    if (reconnectTimer.current) return;
+    const index = reconnectAttempt.current;
+    if (index >= RECONNECT_DELAYS.length) {
+      setRuntime({ status: 'degraded', message });
+      return;
+    }
+    const attempt = index + 1;
+    reconnectAttempt.current = attempt;
+    setRuntime({ status: 'reconnecting', message, attempt });
+    reconnectTimer.current = setTimeout(() => {
+      reconnectTimer.current = null;
+      void connectBridge(build, attempt);
+    }, RECONNECT_DELAYS[index]);
+  }
+
+  async function connectBridge(build: SurfaceBuild, attempt = 0) {
     const frame = iframeRef.current;
     if (!frame) return;
-    bridgeRef.current?.disconnect();
-    const bridge = new SurfaceBridgeHost(eventId, build.id);
+    clearReconnect();
+    bridgeRef.current?.disconnect(false);
+    const bridge = new SurfaceBridgeHost(eventId, build.id, {
+      onStatus(update) {
+        if (bridgeRef.current !== bridge) return;
+        if (update.status === 'healthy') {
+          reconnectAttempt.current = 0;
+          setRuntime({ status: 'healthy' });
+        } else if (update.status === 'connecting') {
+          setRuntime({
+            status: attempt > 0 ? 'reconnecting' : 'connecting',
+            attempt: attempt || undefined,
+          });
+        } else if (update.status === 'degraded') {
+          scheduleReconnect(build, update.message);
+        }
+      },
+    });
     bridgeRef.current = bridge;
     try {
       await bridge.connect(frame);
     } catch (cause) {
       if (bridgeRef.current !== bridge) return;
-      bridge.disconnect();
-      setState({
-        kind: 'error',
-        message: cause instanceof Error ? cause.message : 'Surface bridge unavailable',
+      scheduleReconnect(
         build,
-      });
+        cause instanceof Error ? cause.message : 'Surface bridge unavailable',
+      );
     }
+  }
+
+  function reconnectNow() {
+    if (state.kind !== 'ready') return;
+    clearReconnect();
+    reconnectAttempt.current = 0;
+    void connectBridge(state.build);
   }
 
   const buildLabel = useMemo(() => {
@@ -139,6 +196,18 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           </span>
           {buildLabel && (
             <span className="truncate font-mono text-[10px] text-zinc-600">{buildLabel}</span>
+          )}
+          {state.kind === 'ready' && (
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                runtime.status === 'healthy'
+                  ? 'bg-emerald-500'
+                  : runtime.status === 'degraded'
+                    ? 'bg-red-500'
+                    : 'animate-pulse bg-amber-500'
+              }`}
+              title={`Surface runtime: ${runtime.status}`}
+            />
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -188,16 +257,46 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           </div>
         )}
         {state.kind === 'ready' && (
-          <iframe
-            key={state.url}
-            ref={iframeRef}
-            src={state.url}
-            onLoad={() => void connectBridge(state.build)}
-            sandbox="allow-scripts"
-            referrerPolicy="no-referrer"
-            title={`${eventTitle} Surface preview`}
-            className="h-full w-full border-0 bg-white"
-          />
+          <>
+            <iframe
+              key={state.url}
+              ref={iframeRef}
+              src={state.url}
+              onLoad={() => void connectBridge(state.build)}
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+              title={`${eventTitle} Surface preview`}
+              className="h-full w-full border-0 bg-white"
+            />
+            {(runtime.status === 'reconnecting' || runtime.status === 'degraded') && (
+              <div
+                className="absolute inset-x-3 bottom-3 flex items-center gap-3 rounded-xl border border-zinc-700/80 bg-zinc-950/95 px-3 py-2.5 shadow-2xl backdrop-blur"
+                role="status"
+                aria-live="polite"
+              >
+                <WifiOff size={15} className="shrink-0 text-amber-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-zinc-200">
+                    {runtime.status === 'reconnecting'
+                      ? `Reconnecting to Aloy${runtime.attempt ? ` · attempt ${runtime.attempt}` : ''}`
+                      : 'This Surface is temporarily offline'}
+                  </p>
+                  {runtime.message && (
+                    <p className="mt-0.5 truncate text-[10px] text-zinc-500">{runtime.message}</p>
+                  )}
+                </div>
+                {runtime.status === 'degraded' && (
+                  <button
+                    type="button"
+                    onClick={reconnectNow}
+                    className="shrink-0 rounded-md border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                  >
+                    Reconnect
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>

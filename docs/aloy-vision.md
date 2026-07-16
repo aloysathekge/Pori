@@ -730,8 +730,20 @@ current provider data, a chosen hotel from a booking, and user-reported payment
 from receipt-backed payment. Booking or payment must pass through Proposal,
 decision, executor, and receipt.
 
-University and Madrid are behavioral north stars, not templates hardcoded into
-the Aloy app. Their complete acceptance jobs live in the Surface specification.
+University and Madrid are Aloy's first polished **showcase templates**. A new
+user can open either seeded Event to understand the product through a complete,
+useful experience instead of an empty onboarding tour. They are also live
+marketing demonstrations: University shows long-lived context and study work;
+Madrid shows rich planning, evidence, choice, and protected action.
+
+A showcase template is portable Event content, Surface source, manifest,
+sample data, and guided jobs instantiated through Aloy's normal Event and
+Surface pipelines. It is not University or travel logic compiled into the app,
+backend, SDK, or host shell. The same runtime must build, publish, execute,
+modify, and remove these templates exactly as it would any model-authored
+Surface. Demo facts are visibly identified as sample data, and creating from a
+template produces an independent Event the user can replace or evolve with
+Aloy.
 
 ## 7. V1 scope
 

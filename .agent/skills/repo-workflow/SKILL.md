@@ -29,4 +29,13 @@ env/credential changes, package publishing, production-impacting framework chang
 
 ## Output
 
-Report files changed, verification commands run, skipped checks, and assumptions.
+Lead every implementation handoff with a plain-language product explanation:
+
+1. **What changed** — the concrete behavior or capability introduced.
+2. **What it does** — walk through the real user/system flow after the change.
+3. **How it makes the system better** — name the reliability, safety, speed,
+   usability, or product capability gained, including what remains unchanged.
+
+Then report files changed, verification commands run, skipped checks,
+assumptions, and the recommended next step. Do this automatically at the end of
+every implementation phase; do not wait for the user to ask.

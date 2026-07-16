@@ -269,6 +269,9 @@ Scope:
   [`aloy-surface-spec.md`](./aloy-surface-spec.md);
 - choose and document the privileged Map widget adapter, tiles/geocoding
   boundary, attribution, privacy posture, credential isolation, and fallback;
+- package University first and Madrid second as installable showcase templates
+  for onboarding and live marketing, using only the ordinary Event/Surface
+  authoring, build, SDK, interaction, and publication paths;
 - add conversation-focus, resizable split, and Surface-focus workspace modes;
 - carry code/data revision and interaction status over the R4 Event SSE
   connection without moving focus, scroll, or local presentation state;
@@ -278,11 +281,14 @@ Scope:
 
 Gate:
 
-- a model-authored University proof renders timetable, courses, assessments,
-  provenance, live work, and a study-help interaction from Event data;
-- an independently authored Madrid proof renders a map, flight/hotel choices,
-  Schengen readiness, budget, itinerary, uncertainty, and comparison intent;
-- neither proof is hardcoded into Aloy's app or selected from a fixed template;
+- the University showcase template renders navigation, timetable, courses,
+  assessments, provenance, live work, and study actions from Event data;
+- after the dedicated widget phase, the Madrid showcase template renders a
+  map, flight/hotel choices, Schengen readiness, budget, itinerary,
+  uncertainty, comparison intent, and protected payment intent;
+- installing either template creates normal tenant-owned Event data and
+  Surface revisions; no University/travel conditional exists in the app,
+  backend, host runtime, or SDK;
 - meaningful interactions reach the canonical Session exactly once while
   filters, sorting, and navigation remain local;
 - Tasks, decisions, files, receipts, evidence, and Trail remain canonical

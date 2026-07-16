@@ -65,19 +65,25 @@ export function getSurfaceRuntimeDocument(eventId: string, buildId: string) {
   );
 }
 
-export function getSurfaceRuntimeContext(eventId: string, buildId: string) {
+export function getSurfaceRuntimeContext(
+  eventId: string,
+  buildId: string,
+  signal?: AbortSignal,
+) {
   return apiFetch<SurfaceRuntimeContext>(
     `/events/${eventId}/surface/context?build_id=${encodeURIComponent(buildId)}`,
+    { signal },
   );
 }
 
 export function createSurfaceInteraction(
   eventId: string,
   request: SurfaceInteractionRequest,
+  signal?: AbortSignal,
 ) {
   return apiFetch<SurfaceInteractionResponse>(
     `/events/${eventId}/surface/interactions`,
-    { method: 'POST', body: JSON.stringify(request) },
+    { method: 'POST', body: JSON.stringify(request), signal },
   );
 }
 
