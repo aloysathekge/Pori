@@ -172,6 +172,60 @@ class SurfaceRevision(SQLModel, table=True):
     )
 
 
+class SurfaceBuild(SQLModel, table=True):
+    """Durable diagnostics and artifact pointer for one isolated build."""
+
+    __tablename__ = "surface_builds"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "idempotency_key",
+            name="uq_surface_build_idempotency",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"sbuild_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    creator_run_id: str | None = Field(default=None, index=True)
+    idempotency_key: str
+    request_fingerprint: str
+    status: str = Field(default="queued", index=True)
+    source_checksum: str = Field(index=True)
+    toolchain_version: str
+    validation_result: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    diagnostics: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    build_log: str = ""
+    bundle_key: str | None = None
+    bundle_sha256: str | None = Field(default=None, index=True)
+    bundle_size_bytes: int = 0
+    preview_artifacts: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    resource_metrics: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    started_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    completed_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
 class Task(SQLModel, table=True):
     """Durable executable work owned by an Event."""
 

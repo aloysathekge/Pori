@@ -170,8 +170,11 @@ from .runtime import (
 # thread-dir resolution (a product maps artifact paths back to real files).
 from .sandbox import (
     VIRTUAL_PREFIX,
+    LocalSandboxProvider,
+    SandboxProvider,
     ThreadData,
     create_sandbox_provider,
+    get_sandbox_provider,
     get_thread_data,
     get_workspace_data,
     replace_virtual_path,
@@ -359,7 +362,10 @@ __all__ = [
     "STEP_START",
     "TEXT_DELTA",
     "create_sandbox_provider",
+    "get_sandbox_provider",
     "set_sandbox_provider",
+    "SandboxProvider",
+    "LocalSandboxProvider",
     "ThreadData",
     "VIRTUAL_PREFIX",
     "get_thread_data",

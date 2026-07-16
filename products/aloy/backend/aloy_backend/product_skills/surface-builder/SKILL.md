@@ -18,20 +18,26 @@ all use the same runtime and safety contract.
 3. Generate or patch the React source using only the provided Surface SDK and
    approved dependencies. Do not access host APIs, ambient credentials,
    arbitrary network endpoints, or parent-frame internals.
-4. Bind displayed facts to canonical Event data. Label each important value as
+4. Call `surface_build` for the immutable revision with a fresh idempotency
+   key. Treat `failed` diagnostics as source/toolchain problems to repair and
+   `blocked` as unavailable isolation—not permission to execute locally.
+5. Call `surface_preview` to inspect the retained build log and preview
+   artifact metadata. A successful build is not permission to publish or to
+   claim that the application has passed visual review.
+6. Bind displayed facts to canonical Event data. Label each important value as
    user-reported, verified, estimated, pending, or indeterminate; never present
    a plan or estimate as completed reality.
-5. Declare every interaction intent and classify it:
+7. Declare every interaction intent and classify it:
    - local UI state can execute inside the Surface;
    - durable data changes go through validated Aloy commands;
    - reasoning requests return to the permanent Event Session;
    - consequential actions create a Proposal and require the applicable rail;
    - source-changing actions create a new Surface revision.
-6. Preview loading, empty, populated, partial, stale, error, and permission-
+8. Preview loading, empty, populated, partial, stale, error, and permission-
    denied states at the required desktop and compact viewports.
-7. Repair deterministic build, SDK, accessibility, responsiveness, and intent
+9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics before responding to visual or usefulness critique.
-8. Publish only through the revision service after required checks pass.
+10. Publish only through the revision service after required checks pass.
    Preserve the immutable last-good revision on every failure.
 
 ## Quality bar

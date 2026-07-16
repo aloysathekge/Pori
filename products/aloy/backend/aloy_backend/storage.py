@@ -58,6 +58,19 @@ def upload_key(
     )
 
 
+def surface_bundle_key(
+    organization_id: str,
+    event_id: str,
+    build_id: str,
+    checksum: str,
+) -> str:
+    """Tenant-contained key for an immutable, untrusted Surface bundle."""
+    return (
+        f"org/{_segment(organization_id)}/events/{_segment(event_id)}"
+        f"/surface-builds/{_segment(build_id)}/{_segment(checksum)}.zip"
+    )
+
+
 class ObjectStore(Protocol):
     def put(self, key: str, data: BinaryIO, *, content_type: str) -> int:
         """Store the stream under key; returns bytes written."""

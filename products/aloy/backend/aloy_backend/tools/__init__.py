@@ -34,6 +34,11 @@ from .gmail import (
     gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
+from .surface_builds import (
+    SURFACE_BUILD_CONTEXT_KEY,
+    SURFACE_BUILD_TOOL_NAMES,
+    register_surface_build_tools,
+)
 from .surfaces import (
     SURFACE_AUTHORING_CONTEXT_KEY,
     SURFACE_AUTHORING_TOOL_NAMES,
@@ -150,10 +155,13 @@ __all__ = [
     "LIBRARY_TOOL_NAMES",
     "SURFACE_AUTHORING_CONTEXT_KEY",
     "SURFACE_AUTHORING_TOOL_NAMES",
+    "SURFACE_BUILD_CONTEXT_KEY",
+    "SURFACE_BUILD_TOOL_NAMES",
     "gmail_draft_preview",
     "register_google_tools",
     "register_library_tools",
     "register_surface_authoring_tools",
+    "register_surface_build_tools",
     "register_task_tools",
     "TaskMutationHandler",
 ]

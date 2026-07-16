@@ -21,6 +21,10 @@ from aloy_backend.surface_authoring import (
     SurfaceWriteFilesParams,
 )
 from aloy_backend.surface_workspace import resolve_surface_authoring_runtime
+from aloy_backend.tools.surface_builds import (
+    SURFACE_BUILD_CONTEXT_KEY,
+    SURFACE_BUILD_TOOL_NAMES,
+)
 from aloy_backend.tools.surfaces import (
     SURFACE_AUTHORING_CONTEXT_KEY,
     SURFACE_AUTHORING_TOOL_NAMES,
@@ -305,6 +309,9 @@ async def test_surface_workspace_projects_event_truth_and_current_draft(
         runtime.tool_context_extra[SURFACE_AUTHORING_CONTEXT_KEY]
         is runtime.authoring_handler
     )
+    assert (
+        runtime.tool_context_extra[SURFACE_BUILD_CONTEXT_KEY] is runtime.build_handler
+    )
 
     async with db_session_maker() as session:
         with pytest.raises(ValueError, match="unavailable"):
@@ -341,11 +348,10 @@ def test_surface_source_schema_guards_toolchain_and_workspace_paths():
         )
 
 
-def test_surface_builder_profile_explicitly_requires_authoring_tools():
-    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == SURFACE_AUTHORING_TOOL_NAMES
-    assert SURFACE_AUTHORING_TOOL_NAMES.issubset(
-        SURFACE_BUILDER_RUN_PROFILE.allowed_tools or frozenset()
-    )
+def test_surface_builder_profile_explicitly_requires_surface_tools():
+    required = SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES
+    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == required
+    assert required.issubset(SURFACE_BUILDER_RUN_PROFILE.allowed_tools or frozenset())
 
 
 def test_surface_migration_creates_and_removes_revision_tables(tmp_path):

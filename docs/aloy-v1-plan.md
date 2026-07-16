@@ -417,13 +417,12 @@ Gate:
 
 ## 8. Immediate next action
 
-R4 is merged into `aloy-v1` as PR #172. The R5 branch
-`aloy-v1-r5-composable-surfaces` exists from that exact integration point; its
-name is retained even though this review replaced typed composition with the
-model-authored runtime.
+R4 is merged into `aloy-v1` as PR #172. The authoring-harness, virtual
+filesystem, and Surface persistence slices are merged through PR #175. The
+isolated build + diagnostics + preview-metadata slice is implemented on
+`aloy-v1-r5-surface-build-preview`.
 
-First remove the uncommitted typed-block experiment. Then implement R5 in
-security-first slices: persistence and authoring tools, isolated build and
-iframe host, SDK/interaction transport, Surface Builder skill, and the
-University + Madrid north-star proofs. Do not add provider-specific research
-or Gmail behavior to R5.
+Continue R5 in security-first slices: sandboxed iframe host and immutable
+bundle delivery, SDK/interaction transport, independent Critic and publication
+gate, then the University + Madrid north-star proofs. Do not add provider-
+specific research or Gmail behavior to R5.

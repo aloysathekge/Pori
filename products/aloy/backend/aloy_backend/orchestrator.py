@@ -114,6 +114,7 @@ def build_orchestrator(
         register_google_tools,
         register_library_tools,
         register_surface_authoring_tools,
+        register_surface_build_tools,
         register_task_tools,
     )
 
@@ -122,6 +123,7 @@ def build_orchestrator(
     register_task_tools(registry)
     if run_profile and run_profile.profile_id == "aloy.surface-builder":
         register_surface_authoring_tools(registry)
+        register_surface_build_tools(registry)
 
     configured_tools = set(agent_config.tools or ()) if agent_config else set()
     requested_tools = configured_tools or None

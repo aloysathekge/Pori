@@ -28,7 +28,11 @@ from .event_presenters import (
     trail_payload,
 )
 from .models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
+from .storage import ObjectStore
 from .surface_authoring import SurfaceAuthoringHandler, surface_project_snapshot
+from .surface_build_runner import SurfaceBuildRunner
+from .surface_builds import SurfaceBuildHandler
+from .tools.surface_builds import SURFACE_BUILD_CONTEXT_KEY
 from .tools.surfaces import SURFACE_AUTHORING_CONTEXT_KEY
 
 
@@ -48,11 +52,15 @@ class SurfaceAuthoringRuntime:
 
     file_backend: CompositeFileBackend
     authoring_handler: SurfaceAuthoringHandler
+    build_handler: SurfaceBuildHandler
     project_snapshot: dict[str, Any]
 
     @property
     def tool_context_extra(self) -> dict[str, Any]:
-        return {SURFACE_AUTHORING_CONTEXT_KEY: self.authoring_handler}
+        return {
+            SURFACE_AUTHORING_CONTEXT_KEY: self.authoring_handler,
+            SURFACE_BUILD_CONTEXT_KEY: self.build_handler,
+        }
 
 
 async def resolve_surface_authoring_runtime(
@@ -61,6 +69,8 @@ async def resolve_surface_authoring_runtime(
     run_context: RunContext,
     session_factory: Any = async_session,
     owner_loop: asyncio.AbstractEventLoop | None = None,
+    build_runner: SurfaceBuildRunner | None = None,
+    object_store: ObjectStore | None = None,
 ) -> SurfaceAuthoringRuntime:
     """Project canonical Event truth and the current draft into virtual mounts."""
     event_id = run_context.event_id
@@ -179,6 +189,13 @@ async def resolve_surface_authoring_runtime(
         file_backend=file_backend,
         authoring_handler=SurfaceAuthoringHandler(
             run_context=run_context,
+            session_factory=session_factory,
+            owner_loop=owner_loop,
+        ),
+        build_handler=SurfaceBuildHandler(
+            run_context=run_context,
+            runner=build_runner,
+            object_store=object_store,
             session_factory=session_factory,
             owner_loop=owner_loop,
         ),
