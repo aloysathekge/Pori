@@ -9,6 +9,7 @@ export interface ArtifactInfo {
 
 export interface ArtifactContent {
   path: string;
+  file_id: string;
   content: string;
   language: string;
   truncated: boolean;

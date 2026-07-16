@@ -1,61 +1,47 @@
-# Aloy Event workspace design QA
+# Aloy Event Workbench design QA
 
-- source visual truth path: `C:\Users\sathe\OneDrive\Pictures\Screenshots\Screenshot (2).png`
+- source visual truth: `C:\Users\sathe\OneDrive\Pictures\Screenshots\Screenshot (7).png`
 - implementation URL: `http://localhost:5173/events/<event-id>`
-- implementation screenshot path: unavailable
-- viewport: target 1920 × 1080 desktop
-- state: signed-in Event workspace with its continuous conversation and context pane
+- target viewport: 1920 × 1080 desktop
+- state: signed-in Event with Conversation, Workbench, and Event context
 
-## Full-view comparison evidence
+## Intended comparison
 
-The source screenshot was opened at original resolution. It establishes the
-target composition: a project/event rail, a persistent conversation canvas,
-and a flexible adjacent work area. The implementation could not be captured
-through the required in-app browser because its browser-control runtime was not
-available in this thread, so a valid same-viewport combined comparison could
-not be produced.
+The source was inspected at original resolution. It establishes the behavior,
+not a literal theme clone: a persistent app sidebar, a central first-class
+workspace, an adjacent utility/context region, and flexible panes that do not
+reduce documents or generated UI to modal drawers. Aloy retains its own visual
+tokens, type, mark, and icon system.
 
-## Focused region comparison evidence
+## Implemented fidelity surfaces
 
-Automated capture remained unavailable. The founder completed the requested
-signed-in local pass and confirmed the Event workspace is working, including
-the conversation, context pane, navigation/reopen flow, and responsive window
-behavior.
+- Conversation, Split, and Workbench focus modes.
+- Draggable Conversation/Workbench and Surface/resource dividers.
+- Persistent Workbench tabs for Surface, message artifacts, Event files, and
+  Run replay.
+- A collapsible Event context rail grouping Tasks, Approvals, Receipts, Files,
+  and Trail.
+- A full global sidebar that can stay open or auto-hide and reveal from the
+  left edge.
+- Per-Event persistence for layout mode, ratios, open tabs, active tab,
+  context visibility, and the optional Surface/resource split.
+- Narrow-screen focus behavior and existing Surface-ready conversation card.
+- Host-owned file viewers and an Ask Aloy action that attaches the trusted
+  stored-file reference to the Event composer.
 
-## Findings
+## Verification completed
 
-- No blocking visual or interaction issue was reported in the founder's
-  signed-in acceptance pass.
-- Automated same-viewport screenshot comparison remains unavailable. This is
-  accepted for the R0 foundation close-out because the founder exercised the
-  working local UI directly; captured comparison remains part of R7 release QA.
+- ESLint passed.
+- TypeScript and the production Vite build passed.
+- The existing Vite large-chunk warning remains non-blocking.
+- No backend code changed in this phase.
 
-## Required fidelity surfaces
+## Visual comparison blocker
 
-- Fonts and typography: implemented with Aloy's existing Inter/Bricolage tokens; visual comparison blocked.
-- Spacing and layout rhythm: three-region shell implemented; visual comparison blocked.
-- Colors and visual tokens: Aloy's existing warm neutral and teal tokens retained; visual comparison blocked.
-- Image quality and asset fidelity: no new raster assets; existing Aloy mark and Lucide icon system retained.
-- Copy and content: dedicated Event language and one canonical continuous Conversation are implemented.
+The required in-app browser connection fails while initializing, before Aloy
+can be opened or captured. Therefore no same-viewport implementation screenshot,
+combined reference comparison, or signed-in interaction pass can be claimed in
+this run. The founder must inspect the already-running local URL before this PR
+is treated as visually accepted.
 
-## Primary interactions tested
-
-- Production TypeScript build and ESLint passed.
-- All 225 backend tests passed with a workspace-local pytest temp root.
-- Backend mypy passed across 83 source files.
-- All seven GitHub checks passed after the migration formatting correction.
-- Local API and Vite servers respond through `make dev`.
-- Context tabs, collapse control, composer, and signed-in browser console could not be exercised through browser automation.
-- The founder subsequently confirmed the requested signed-in Event workspace
-  flow is working locally.
-
-## Comparison history
-
-- Pass 1: blocked before implementation capture; no visual fixes claimed.
-- Pass 2: R0 automated code, build, runtime-health, and CI gates passed; signed-in
-  browser capture and interaction checks remain blocked because the required
-  browser-control runtime is unavailable in this session.
-- Pass 3: founder completed the signed-in local acceptance pass and confirmed
-  the requested workspace flow is working. No blocking issue was reported.
-
-final result: passed — manual founder acceptance; automated captured comparison deferred to R7
+final result: blocked — automated signed-in capture and comparison unavailable

@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { apiBlobFetch, apiFetch } from './client';
 
 /** A durable stored file (object storage pointer). */
 export interface StoredFileView {
@@ -25,4 +25,8 @@ export function saveToLibrary(fileId: string) {
 
 export function removeFromLibrary(fileId: string) {
   return apiFetch<StoredFileView>(`/files/${fileId}/library`, { method: 'DELETE' });
+}
+
+export function getStoredFileBlob(fileId: string) {
+  return apiBlobFetch(`/files/${fileId}`);
 }

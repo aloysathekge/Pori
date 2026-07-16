@@ -2,6 +2,27 @@
 
 _Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
+## NEW: Event Workbench shell (2026-07-16)
+
+The active branch is `aloy-v1-r5-event-workbench`, based on the merged iframe
+host. The Event screen now treats generated Surface UI, message artifacts,
+Event files, and Run replay as first-class persistent Workbench tabs rather
+than modal drawers. Conversation / Split / Workbench modes and both pane ratios
+persist per Event; wide layouts may keep Surface beside another active resource.
+Event context is grouped into Tasks, Approvals, Receipts, Files, and Trail and
+collapses to a compact trusted rail. The global Aloy sidebar can remain open or
+auto-hide and reveal from the left edge.
+
+Host-owned artifact and stored-file viewers support safe preview, copy/download,
+and **Ask Aloy**, which attaches the existing durable file reference to the
+Event composer without re-uploading it. Run replay supports an embedded pane
+while preserving its existing modal use in ordinary chat.
+
+App ESLint and the production TypeScript/Vite build pass. Automated visual QA
+is blocked because the in-app browser connection cannot initialize; complete a
+signed-in manual pass at the running local Event URL before merging. This shell
+does not add the Surface capability SDK, independent Critic, or publish gate.
+
 ## NEW: Model-authored Event Surface architecture (2026-07-16)
 
 The University and Madrid product walkthroughs superseded the uncommitted

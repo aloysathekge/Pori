@@ -92,9 +92,11 @@ function Row({ event }: { event: RunEvent }) {
 export function RunReplay({
   runId,
   onClose,
+  embedded = false,
 }: {
   runId: string;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }) {
   const [events, setEvents] = useState<RunEvent[] | null>(null);
   const [error, setError] = useState('');
@@ -125,12 +127,13 @@ export function RunReplay({
   }, [playing, cursor, events]);
 
   useEffect(() => {
+    if (embedded || !onClose) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [embedded, onClose]);
 
   const total = events?.length ?? 0;
   const shown = events?.slice(0, cursor) ?? [];
@@ -140,10 +143,8 @@ export function RunReplay({
     setPlaying(true);
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative z-50 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+  const replay = (
+      <div className={embedded ? 'flex h-full min-h-0 w-full flex-col bg-zinc-950' : 'relative z-50 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl'}>
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
           <div>
             <h2 className="text-base font-semibold text-zinc-100">Replay</h2>
@@ -151,13 +152,15 @@ export function RunReplay({
               What the agent did, step by step
             </p>
           </div>
-          <button
-            aria-label="Close replay"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-          >
-            <X size={18} />
-          </button>
+          {!embedded && onClose && (
+            <button
+              aria-label="Close replay"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -217,6 +220,14 @@ export function RunReplay({
           </div>
         )}
       </div>
+  );
+
+  if (embedded) return replay;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/30" onClick={onClose} />
+      {replay}
     </div>
   );
 }
