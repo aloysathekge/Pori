@@ -25,6 +25,21 @@ from ..tenancy import OrganizationContext, Permission
 router = APIRouter(prefix="/today", tags=["today"])
 
 
+def _notification_title(kind: str) -> str:
+    labels = {
+        "task_completed": "Task completed",
+        "task_failed": "Task failed",
+        "task_blocked": "Task blocked",
+        "task_resumed": "Task resumed",
+        "task_started": "Work started",
+        "proposal_committed": "Action completed",
+        "proposal_failed": "Action failed",
+        "surface_published": "Surface updated",
+        "surface_rolled_back": "Surface restored",
+    }
+    return labels.get(kind, "Event updated")
+
+
 @router.get("")
 async def get_today(
     context: OrganizationContext = Depends(
@@ -57,7 +72,7 @@ async def get_today(
     )
     event_ids = [event.id for event in events]
     if not event_ids:
-        return {"generated_at": now, "events": []}
+        return {"generated_at": now, "notifications": [], "events": []}
 
     pending = (
         (
@@ -134,8 +149,98 @@ async def get_today(
             updated_at = updated_at.replace(tzinfo=timezone.utc)
         return updated_at < cutoff
 
+    event_by_id = {event.id: event for event in events}
+    stale_tasks = [
+        task
+        for task in tasks
+        if task.status not in {"blocked", "waiting_approval"} and is_stale(task)
+    ]
+    represented_proposals = {proposal.id for proposal in [*pending, *committed]}
+    represented_tasks = {task.id for task in stale_tasks}
+
+    notifications: list[dict[str, Any]] = []
+    for proposal in pending:
+        event = event_by_id[proposal.event_id]
+        notifications.append(
+            {
+                "id": f"proposal:{proposal.id}:pending",
+                "kind": "approval_required",
+                "title": "Approval requested",
+                "summary": proposal.reason or proposal.impact or proposal.tool,
+                "event_id": event.id,
+                "event_title": event.title,
+                "event_is_life": event.is_life,
+                "proposal_id": proposal.id,
+                "task_id": None,
+                "run_id": None,
+                "status": proposal.status,
+                "created_at": proposal.created_at,
+            }
+        )
+    for proposal in committed:
+        event = event_by_id[proposal.event_id]
+        notifications.append(
+            {
+                "id": f"proposal:{proposal.id}:{proposal.status}",
+                "kind": "action_completed",
+                "title": "Action completed",
+                "summary": proposal.impact or proposal.reason or proposal.tool,
+                "event_id": event.id,
+                "event_title": event.title,
+                "event_is_life": event.is_life,
+                "proposal_id": proposal.id,
+                "task_id": None,
+                "run_id": None,
+                "status": proposal.status,
+                "created_at": proposal.updated_at,
+            }
+        )
+    for task in stale_tasks:
+        event = event_by_id[task.event_id]
+        notifications.append(
+            {
+                "id": f"task:{task.id}:stale",
+                "kind": "task_stale",
+                "title": "Task needs attention",
+                "summary": task.title,
+                "event_id": event.id,
+                "event_title": event.title,
+                "event_is_life": event.is_life,
+                "proposal_id": None,
+                "task_id": task.id,
+                "run_id": task.current_run_id,
+                "status": task.status,
+                "created_at": task.updated_at,
+            }
+        )
+    for entry in activity:
+        if (
+            entry.proposal_id in represented_proposals
+            or entry.task_id in represented_tasks
+        ):
+            continue
+        event = event_by_id[entry.event_id]
+        notifications.append(
+            {
+                "id": f"trail:{entry.id}",
+                "kind": entry.kind,
+                "title": _notification_title(entry.kind),
+                "summary": entry.summary,
+                "event_id": event.id,
+                "event_title": event.title,
+                "event_is_life": event.is_life,
+                "proposal_id": entry.proposal_id,
+                "task_id": entry.task_id,
+                "run_id": entry.run_id,
+                "status": None,
+                "created_at": entry.created_at,
+            }
+        )
+    notifications.sort(key=lambda item: item["created_at"], reverse=True)
+
     return {
         "generated_at": now,
+        "notifications": notifications[:20],
         "events": [
             {
                 "event": event_payload(event),

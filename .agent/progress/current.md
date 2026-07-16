@@ -1,6 +1,21 @@
 # Current State
 
-_Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
+_Last updated: 2026-07-16 (Today and Life reimagination)._
+
+## NEW: Today and Life product experience (2026-07-16)
+
+The `aloy-v1-today-life-reimagination` branch replaces equal-size Event cards
+with a user-centred attention workspace: a profile-name greeting, distinct New
+conversation and New Event actions, a permanent Life band, deterministic
+priority groups, active work, upcoming work, quiet Event rows, and a host-owned
+notification rail. Notifications are derived from durable Proposal, Task, and
+Trail state; the user's read cursor lives in persisted profile preferences.
+
+Life is now named explicitly in global navigation instead of being hidden
+behind “Chat.” It remains the permanent personal Event with many clean
+Conversation threads and durable shared state, while dedicated Events retain
+their single lifetime Conversation. This phase does not yet create a fixed Life
+Surface or proactive push-notification system.
 
 ## NEW: Atomic Surface publication and last-good rollback (2026-07-16)
 

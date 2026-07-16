@@ -246,7 +246,18 @@ async def test_today_groups_life_first_and_resolves_proposal_from_both_lenses(
 
     today = await client.get("/v1/today")
     assert today.status_code == 200
-    groups = today.json()["events"]
+    today_payload = today.json()
+    groups = today_payload["events"]
+    notifications = {item["id"]: item for item in today_payload["notifications"]}
+    assert notifications[f"proposal:{pending.id}:pending"]["title"] == (
+        "Approval requested"
+    )
+    assert notifications[f"proposal:{committed.id}:committed"]["title"] == (
+        "Action completed"
+    )
+    assert notifications[f"proposal:{pending.id}:pending"]["event_title"] == (
+        "Today Project"
+    )
     assert groups[0]["event"]["id"] == life_event_id
     project_group = next(
         group for group in groups if group["event"]["id"] == project["id"]
