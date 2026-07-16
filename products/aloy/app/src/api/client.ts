@@ -35,6 +35,22 @@ export async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
+export async function apiTextFetch(
+  path: string,
+  options: RequestInit = {},
+): Promise<string> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: { ...headers, ...(options.headers as Record<string, string>) },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, body.detail || 'Unknown error');
+  }
+  return res.text();
+}
+
 export async function apiStreamFetch(
   path: string,
   body?: unknown,

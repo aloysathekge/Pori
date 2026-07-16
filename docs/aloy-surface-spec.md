@@ -75,6 +75,15 @@ The user controls three presentation modes:
 2. **Split** — Conversation and Surface are visible and resizable;
 3. **Surface focus** — the generated application receives the main workspace.
 
+When Aloy has produced a new successful Surface revision while the user is in
+Conversation focus, the trusted conversation host may place a compact
+**Surface ready** card immediately after Aloy's completed response. The card is
+not authored by generated code and does not infer availability from assistant
+prose. It is driven by successful build metadata, appears at most once per
+unseen build revision, and opens Split on a suitable wide screen or Surface
+focus on a narrow screen. Opening the Surface does not start a model turn or
+add a semantic Trail entry.
+
 On narrow screens they become explicit full-screen tabs or sheets. Live
 updates must not steal focus, reset local interaction state, move scroll, or
 silently replace the currently published application.
@@ -259,6 +268,14 @@ Generated code must never execute in Aloy's trusted React tree.
 - do not expose backend or provider secrets to the build;
 - publish immutable bundles only after validation succeeds.
 
+The V1 runtime bundle contract is intentionally smaller than a general web
+archive. A successful fixed-toolchain build emits a ZIP containing exactly a
+self-contained `surface.js` and, optionally, `surface.css`. It cannot provide
+its own HTML shell, CSP, external assets, nested paths, or runtime dependencies.
+The host rejects duplicate, encrypted, unknown, non-UTF-8, and oversized
+entries before constructing a runtime document. This keeps the security
+boundary owned by Aloy even when generated source contains hostile strings.
+
 ### 9.2 Browser boundary
 
 - serve the bundle in a sandboxed iframe on a separate/opaque origin;
@@ -270,6 +287,16 @@ Generated code must never execute in Aloy's trusted React tree.
   Aloy authentication, approvals, or credential collection;
 - isolate failures and apply heartbeat, render-time, and resource watchdogs;
 - keep a visible recovery action and the last-good revision.
+
+During pre-publication preview, the authenticated app fetches the selected
+immutable build as a host-constructed document and navigates a Blob URL inside
+an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`. The
+document repeats the strict CSP in a leading meta element because fetch-time
+response headers do not carry over to Blob navigation. No bearer token,
+object-store reference, source tree, or build log enters the iframe. This
+preview path is not publication: last-good selection, the bound
+`MessageChannel`, heartbeat/runtime watchdogs, and capability SDK remain
+separate gates.
 
 Privileged widgets remain host-reviewed. For example, a `Map` SDK component may
 use a configured map adapter or controlled proxy with attribution, privacy

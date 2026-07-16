@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import io
+import zipfile
 
 import pytest
 import sqlalchemy as sa
@@ -30,6 +31,10 @@ from aloy_backend.surface_builds import (
     SurfaceBuildHandler,
     SurfaceBuildParams,
     SurfacePreviewParams,
+)
+from aloy_backend.surface_runtime import (
+    InvalidSurfaceBundle,
+    build_surface_runtime_document,
 )
 from pori import LocalSandboxProvider
 
@@ -65,6 +70,18 @@ class MemoryObjectStore:
     def url(self, key, *, expires_s=300):
         del key, expires_s
         return None
+
+
+def _runtime_bundle(
+    script: str = 'document.getElementById("root").textContent = "University";',
+    style: str | None = "body { margin: 0; }",
+) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("surface.js", script)
+        if style is not None:
+            archive.writestr("surface.css", style)
+    return output.getvalue()
 
 
 async def _create_event(client, title: str = "University") -> dict:
@@ -146,6 +163,7 @@ def test_surface_source_validation_is_deterministic_and_sdk_scoped():
 async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
     client,
     db_session_maker,
+    monkeypatch,
 ):
     event = await _create_event(client)
     revision_id = await _author_revision(
@@ -153,7 +171,10 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
         db_session_maker,
         content='import React from "react"; export default () => <main>Courses</main>',
     )
-    bundle = b"surface-bundle"
+    bundle = _runtime_bundle(
+        'document.getElementById("root").textContent = "</ScRiPt>University";',
+        'body::after { content: "</StYlE>"; }',
+    )
     runner = FakeBuildRunner(
         SurfaceBuildRunnerResult(
             status="succeeded",
@@ -239,6 +260,50 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
     for payload in [listed.json()[0], fetched.json()]:
         assert "bundle_key" not in payload
         assert "build_log" not in payload
+
+    monkeypatch.setattr("aloy_backend.routes.surfaces.get_object_store", lambda: store)
+    runtime = await client.get(
+        f"/v1/events/{event['id']}/surface/builds/{built['id']}/runtime-document"
+    )
+    denied_runtime = await client.get(
+        f"/v1/events/{event['id']}/surface/builds/{built['id']}/runtime-document",
+        headers={"X-Test-User": "other-user"},
+    )
+    assert runtime.status_code == 200
+    assert runtime.headers["cache-control"] == "private, no-store"
+    assert runtime.headers["referrer-policy"] == "no-referrer"
+    assert runtime.headers["x-content-type-options"] == "nosniff"
+    assert "default-src 'none'" in runtime.headers["content-security-policy"]
+    assert "connect-src 'none'" in runtime.headers["content-security-policy"]
+    assert "<\\/script>University" in runtime.text
+    assert "<\\/style>" in runtime.text
+    assert "bundle_key" not in runtime.text
+    assert denied_runtime.status_code == 404
+
+    async with db_session_maker() as session:
+        persisted = await session.get(SurfaceBuild, built["id"])
+        assert persisted is not None and persisted.bundle_key
+        store.values[persisted.bundle_key] = b"not-a-zip"
+    invalid_runtime = await client.get(
+        f"/v1/events/{event['id']}/surface/builds/{built['id']}/runtime-document"
+    )
+    assert invalid_runtime.status_code == 409
+    assert "valid ZIP" in invalid_runtime.json()["detail"]
+
+
+def test_surface_runtime_rejects_non_contract_entries_and_missing_script():
+    missing = io.BytesIO()
+    with zipfile.ZipFile(missing, "w") as archive:
+        archive.writestr("surface.css", "body {}")
+    with pytest.raises(InvalidSurfaceBundle, match="missing surface.js"):
+        build_surface_runtime_document(missing.getvalue())
+
+    unknown = io.BytesIO()
+    with zipfile.ZipFile(unknown, "w") as archive:
+        archive.writestr("surface.js", "void 0")
+        archive.writestr("index.html", "<h1>untrusted shell</h1>")
+    with pytest.raises(InvalidSurfaceBundle, match="unsupported entries"):
+        build_surface_runtime_document(unknown.getvalue())
 
 
 async def test_surface_build_rejects_source_before_runner_execution(
