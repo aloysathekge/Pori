@@ -127,6 +127,7 @@ from .observability import (
     TraceStore,
 )
 from .orchestrator import Orchestrator
+from .profiles import RunProfile, RunProfileResolutionError
 from .providers import (
     PROVIDER_PROFILES,
     ProviderDiagnostic,
@@ -135,7 +136,6 @@ from .providers import (
     get_provider_profile,
     provider_profiles,
 )
-from .profiles import RunProfile, RunProfileResolutionError
 from .retrieval import RetrievalEvidence, fuse_retrieval
 from .runtime import (
     BudgetExceeded,
