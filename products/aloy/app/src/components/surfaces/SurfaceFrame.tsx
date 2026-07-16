@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
+import { History, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
 import {
+  getPublishedSurfaceRuntime,
   getSurfaceRuntimeDocument,
+  listSurfacePublications,
   listSurfaceBuilds,
+  rollbackSurface,
   surfaceSeenKey,
   type SurfaceBuild,
+  type SurfacePublication,
 } from '@/api/surfaces';
 import { Spinner } from '@/components/ui/Spinner';
 import { SurfaceBridgeHost } from './surfaceBridge';
@@ -33,6 +37,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   const [state, setState] = useState<FrameState>({ kind: 'loading' });
   const [runtime, setRuntime] = useState<RuntimeState>({ status: 'idle' });
   const [reload, setReload] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<SurfacePublication[] | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [restoringBuildId, setRestoringBuildId] = useState<string | null>(null);
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -55,15 +63,18 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     currentBuildId.current = null;
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     objectUrl.current = null;
+    setHistoryOpen(false);
+    setHistory(null);
+    setHistoryError(null);
     setRuntime({ status: 'idle' });
     setState({ kind: 'loading' });
     try {
-      const builds = await listSurfaceBuilds(eventId);
+      const published = await getPublishedSurfaceRuntime(eventId);
       if (currentRequest !== requestId.current) return;
-      const build = builds.find(
-        (candidate) => candidate.status === 'succeeded' && candidate.bundle_available,
-      );
+      const build = published.build;
       if (!build) {
+        const builds = await listSurfaceBuilds(eventId);
+        if (currentRequest !== requestId.current) return;
         setState({ kind: 'empty', latest: builds[0] ?? null });
         return;
       }
@@ -97,11 +108,9 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     let cancelled = false;
     const refresh = async () => {
       try {
-        const builds = await listSurfaceBuilds(eventId);
+        const published = await getPublishedSurfaceRuntime(eventId);
         if (cancelled) return;
-        const build = builds.find(
-          (candidate) => candidate.status === 'succeeded' && candidate.bundle_available,
-        );
+        const build = published.build;
         if (build && build.id !== currentBuildId.current) {
           await load();
           return;
@@ -181,18 +190,60 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     void connectBridge(state.build);
   }
 
+  async function toggleHistory() {
+    const opening = !historyOpen;
+    setHistoryOpen(opening);
+    if (!opening || history) return;
+    setHistoryError(null);
+    try {
+      setHistory(await listSurfacePublications(eventId));
+    } catch (cause) {
+      setHistoryError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function restore(buildId: string) {
+    if (state.kind !== 'ready') return;
+    setRestoringBuildId(buildId);
+    setHistoryError(null);
+    try {
+      await rollbackSurface(eventId, {
+        build_id: buildId,
+        expected_published_revision_id: state.build.revision_id,
+        expected_published_build_id: state.build.id,
+        idempotency_key: crypto.randomUUID(),
+      });
+      setHistory(null);
+      setHistoryOpen(false);
+      await load();
+    } catch (cause) {
+      setHistoryError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRestoringBuildId(null);
+    }
+  }
+
   const buildLabel = useMemo(() => {
     if (state.kind !== 'ready') return null;
     return state.build.bundle_sha256?.slice(0, 8) ?? state.build.id.slice(0, 8);
   }, [state]);
+  const rollbackTargets = useMemo(() => {
+    if (state.kind !== 'ready' || !history) return [];
+    const seen = new Set<string>([state.build.id]);
+    return history.filter((publication) => {
+      if (seen.has(publication.build_id)) return false;
+      seen.add(publication.build_id);
+      return true;
+    });
+  }, [history, state]);
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
+      <div className="relative z-20 flex h-11 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-xs font-semibold text-zinc-200">Surface</span>
-          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-500">
-            Preview
+          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-500">
+            Live
           </span>
           {buildLabel && (
             <span className="truncate font-mono text-[10px] text-zinc-600">{buildLabel}</span>
@@ -214,15 +265,67 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           <span className="hidden items-center gap-1 text-[10px] text-zinc-600 sm:flex" title="Generated code runs without host access or network access">
             <ShieldCheck size={12} /> Isolated
           </span>
+          {state.kind === 'ready' && (
+            <button
+              type="button"
+              onClick={() => void toggleHistory()}
+              className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+              aria-label="Surface version history"
+              title="Surface version history"
+            >
+              <History size={14} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setReload((value) => value + 1)}
             className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
-            aria-label="Reload Surface preview"
-            title="Reload Surface preview"
+            aria-label="Reload live Surface"
+            title="Reload live Surface"
           >
             <RefreshCw size={14} />
           </button>
+          {historyOpen && state.kind === 'ready' && (
+            <div className="absolute right-3 top-10 w-72 rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl">
+              <div className="px-2 pb-2 pt-1">
+                <p className="text-xs font-semibold text-zinc-200">Published versions</p>
+                <p className="mt-0.5 text-[10px] text-zinc-500">
+                  Restore a previous last-good Surface without changing Event data.
+                </p>
+              </div>
+              {historyError && (
+                <p className="rounded-md bg-red-500/10 px-2 py-1.5 text-[10px] text-red-400">
+                  {historyError}
+                </p>
+              )}
+              {!history && !historyError && (
+                <div className="flex justify-center py-4"><Spinner className="h-4 w-4" /></div>
+              )}
+              {history && rollbackTargets.length === 0 && (
+                <p className="px-2 py-3 text-xs text-zinc-500">No earlier published version yet.</p>
+              )}
+              {rollbackTargets.slice(0, 6).map((publication) => (
+                <div key={publication.id} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-zinc-900">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-zinc-300">
+                      Revision {publication.revision_number}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-zinc-600">
+                      {new Date(publication.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={restoringBuildId !== null}
+                    onClick={() => void restore(publication.build_id)}
+                    className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {restoringBuildId === publication.build_id ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -241,8 +344,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
               </h2>
               <p className="mt-2 text-sm leading-6 text-zinc-500">
                 {state.latest
-                  ? `The latest build is ${state.latest.status}. The last successful preview will appear here automatically.`
-                  : 'When Aloy creates and successfully builds a useful interface for this Event, it will appear here.'}
+                  ? state.latest.status === 'succeeded'
+                    ? 'Aloy has a successful draft. It will appear here after it passes publication.'
+                    : `The latest build is ${state.latest.status}. The live Surface remains unchanged until a successful publication.`
+                  : 'When Aloy creates, validates, and publishes a useful interface for this Event, it will appear here.'}
               </p>
             </div>
           </div>
@@ -250,7 +355,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
         {state.kind === 'error' && (
           <div className="flex h-full items-center justify-center px-8 text-center">
             <div className="max-w-sm">
-              <h2 className="font-display text-base font-semibold text-zinc-200">Surface preview unavailable</h2>
+              <h2 className="font-display text-base font-semibold text-zinc-200">Live Surface unavailable</h2>
               <p className="mt-2 text-sm leading-6 text-zinc-500">{state.message}</p>
               <button type="button" onClick={() => setReload((value) => value + 1)} className="mt-4 text-sm font-medium text-accent-700 hover:text-accent-600">Try again</button>
             </div>
@@ -265,7 +370,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
               onLoad={() => void connectBridge(state.build)}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
-              title={`${eventTitle} Surface preview`}
+              title={`${eventTitle} live Surface`}
               className="h-full w-full border-0 bg-white"
             />
             {(runtime.status === 'reconnecting' || runtime.status === 'degraded') && (

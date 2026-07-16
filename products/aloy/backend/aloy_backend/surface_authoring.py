@@ -260,6 +260,7 @@ async def surface_project_snapshot(
             "event_id": project.event_id,
             "draft_revision_id": project.draft_revision_id,
             "published_revision_id": project.published_revision_id,
+            "published_build_id": project.published_build_id,
             "sdk_version": project.sdk_version,
             "data_revision": project.data_revision,
             "lifecycle": project.lifecycle,

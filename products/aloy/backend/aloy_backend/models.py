@@ -119,6 +119,7 @@ class SurfaceProject(SQLModel, table=True):
     event_id: str = Field(foreign_key="events.id", index=True)
     draft_revision_id: str | None = Field(default=None, index=True)
     published_revision_id: str | None = Field(default=None, index=True)
+    published_build_id: str | None = Field(default=None, index=True)
     sdk_version: str = "1"
     data_revision: int = 0
     lifecycle: str = Field(default="draft", index=True)
@@ -224,6 +225,41 @@ class SurfaceBuild(SQLModel, table=True):
     )
     completed_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class SurfacePublication(SQLModel, table=True):
+    """Append-only, idempotent publication or rollback of one exact build."""
+
+    __tablename__ = "surface_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "idempotency_key",
+            name="uq_surface_publication_idempotency",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"spub_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    revision_number: int
+    build_id: str = Field(foreign_key="surface_builds.id", index=True)
+    previous_revision_id: str | None = Field(default=None, index=True)
+    previous_build_id: str | None = Field(default=None, index=True)
+    action: str = Field(index=True)
+    actor_id: str = Field(index=True)
+    run_id: str | None = Field(default=None, index=True)
+    idempotency_key: str
+    request_fingerprint: str
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
     )
 
 

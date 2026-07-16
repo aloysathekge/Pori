@@ -2,6 +2,28 @@
 
 _Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
+## NEW: Atomic Surface publication and last-good rollback (2026-07-16)
+
+The active `aloy-v1-r5-surface-publication-recovery` branch separates a
+successful draft build from the live Event Surface. `surface_projects` now
+points to both the published immutable revision and the exact published build;
+an append-only, idempotent publication ledger records publish and rollback
+transitions with their previous pointers, actor, Run, and semantic Trail.
+
+Publication accepts only the current draft's successful deterministic build,
+reopens the retained artifact, verifies its checksum and runtime bundle, then
+advances both live pointers with compare-and-set protection. Artifact failure,
+a stale writer, or a failed draft leaves the current live Surface untouched.
+Rollback can target only a build that was previously published and never
+rewrites canonical Event data or revision history.
+
+The Workbench now resolves only the explicit published build rather than the
+newest successful draft, labels it Live, and provides trusted version history
+with Restore controls. Runtime context and meaningful interactions are granted
+only to the current published build. The complete Aloy backend suite passes
+with 285 tests; focused publication/SDK tests, backend formatting and typing,
+the Surface SDK build, and app tests/lint/build are also green.
+
 ## NEW: University and Madrid are showcase templates (2026-07-16)
 
 Product direction is now explicit: University ships first and Madrid second as

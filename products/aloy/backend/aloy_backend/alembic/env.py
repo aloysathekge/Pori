@@ -30,6 +30,7 @@ from aloy_backend.models import (  # noqa: F401
     SkillGrant,
     SurfaceBuild,
     SurfaceProject,
+    SurfacePublication,
     SurfaceRevision,
     TeamConfig,
     TraceRecord,

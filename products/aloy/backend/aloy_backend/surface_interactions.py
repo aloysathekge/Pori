@@ -164,6 +164,8 @@ async def _runtime_scope(
             SurfaceProject.organization_id == context.organization_id,
             SurfaceProject.user_id == context.user_id,
             SurfaceProject.event_id == event.id,
+            SurfaceProject.published_build_id == SurfaceBuild.id,
+            SurfaceProject.published_revision_id == SurfaceRevision.id,
             SurfaceRevision.organization_id == context.organization_id,
             SurfaceRevision.user_id == context.user_id,
             SurfaceRevision.event_id == event.id,

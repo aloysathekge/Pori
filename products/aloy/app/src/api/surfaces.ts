@@ -55,8 +55,56 @@ export interface SurfaceInteractionResponse {
   replayed: boolean;
 }
 
+export interface PublishedSurfaceRuntime {
+  project_id: string | null;
+  published_revision_id: string | null;
+  published_build_id: string | null;
+  build: SurfaceBuild | null;
+}
+
+export interface SurfacePublication {
+  id: string;
+  event_id: string;
+  project_id: string;
+  revision_id: string;
+  revision_number: number;
+  build_id: string;
+  previous_revision_id: string | null;
+  previous_build_id: string | null;
+  action: 'publish' | 'rollback';
+  actor_id: string;
+  run_id: string | null;
+  created_at: string;
+  replayed: boolean;
+}
+
 export function listSurfaceBuilds(eventId: string) {
   return apiFetch<SurfaceBuild[]>(`/events/${eventId}/surface/builds`);
+}
+
+export function getPublishedSurfaceRuntime(eventId: string) {
+  return apiFetch<PublishedSurfaceRuntime>(`/events/${eventId}/surface/runtime`);
+}
+
+export function listSurfacePublications(eventId: string) {
+  return apiFetch<SurfacePublication[]>(
+    `/events/${eventId}/surface/publications`,
+  );
+}
+
+export function rollbackSurface(
+  eventId: string,
+  request: {
+    build_id: string;
+    expected_published_revision_id: string | null;
+    expected_published_build_id: string | null;
+    idempotency_key: string;
+  },
+) {
+  return apiFetch<SurfacePublication>(`/events/${eventId}/surface/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
 }
 
 export function getSurfaceRuntimeDocument(eventId: string, buildId: string) {
