@@ -11,11 +11,12 @@ import mimetypes
 import os
 import shutil
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, validator
 
+from ...file_backends import FILE_BACKEND_CONTEXT_KEY, FileBackend
 from ..registry import SideEffect, tool_registry
 
 # Optional: resolve sandbox virtual paths when context has thread_id + sandbox_base_dir
@@ -117,14 +118,31 @@ class FilesystemConfig:
 # Global config instance
 fs_config = FilesystemConfig()
 
+
+def _context_file_backend(context: Optional[Dict[str, Any]]) -> Optional[FileBackend]:
+    backend = (context or {}).get(FILE_BACKEND_CONTEXT_KEY)
+    return backend if isinstance(backend, FileBackend) else None
+
+
+def file_backend_operation(func):
+    """Mark a file tool as safe to dispatch through a virtual backend."""
+    setattr(func, "_pori_file_backend_operation", True)
+    return func
+
+
 # ============= Parameter Models =============
 
 
 class ReadFileParams(BaseModel):
     file_path: str = Field(..., description="Path to the file to read")
     encoding: str = Field("utf-8", description="File encoding (default: utf-8)")
+    offset: int = Field(
+        0,
+        ge=0,
+        description="Zero-based line offset used to continue a paginated read",
+    )
     max_lines: Optional[int] = Field(
-        None, description="Maximum number of lines to read"
+        None, ge=1, description="Maximum number of lines to read"
     )
 
 
@@ -141,7 +159,7 @@ class ListDirectoryParams(BaseModel):
     )
     show_hidden: bool = Field(False, description="Show hidden files and directories")
     recursive: bool = Field(False, description="List recursively")
-    max_depth: int = Field(3, description="Maximum recursion depth")
+    max_depth: int = Field(3, ge=0, description="Maximum recursion depth")
 
 
 class FileInfoParams(BaseModel):
@@ -228,6 +246,29 @@ def safe_path_operation(func):
 
     def wrapper(params, context: Dict[str, Any]):
         try:
+            # A product-scoped virtual backend owns absolute virtual paths for
+            # marked tools. Never let an unmatched virtual path fall through
+            # into host filesystem handling.
+            backend = _context_file_backend(context)
+            path_value = next(
+                (
+                    str(getattr(params, name))
+                    for name in ("file_path", "directory_path", "path")
+                    if hasattr(params, name)
+                ),
+                "",
+            )
+            if backend is not None and path_value.startswith("/"):
+                if getattr(func, "_pori_file_backend_operation", False):
+                    return func(params, context)
+                return {
+                    "success": False,
+                    "error": (
+                        "This operation is not supported for product-scoped "
+                        f"virtual paths: {path_value}"
+                    ),
+                }
+
             # Extract path(s) from params and resolve sandbox virtual paths
             extra_bases: Optional[List[Path]] = None
             if hasattr(params, "file_path"):
@@ -335,9 +376,38 @@ def format_bytes(bytes_count: int) -> str:
     description="Read the contents of a text file",
 )
 @safe_path_operation
+@file_backend_operation
 def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
     """Read file contents with safety checks."""
     try:
+        backend = _context_file_backend(context)
+        if backend is not None and params.file_path.startswith("/"):
+            read = backend.read(
+                params.file_path,
+                offset=params.offset,
+                limit=params.max_lines,
+            )
+            if not read.success:
+                return {
+                    "success": False,
+                    "error": read.error,
+                    "error_code": read.error_code,
+                    "path": read.path,
+                }
+            content = read.content or ""
+            return {
+                "success": True,
+                "content": content,
+                "file_info": {
+                    "path": read.path,
+                    "size": len(content.encode(read.encoding)),
+                    "type": "file",
+                },
+                "truncated": read.next_offset is not None,
+                "next_offset": read.next_offset,
+                "total_lines": read.total_lines,
+            }
+
         path = Path(params.file_path)
 
         if not path.exists():
@@ -361,22 +431,27 @@ def read_file_tool(params: ReadFileParams, context: Dict[str, Any]):
 
         # Read file
         with open(path, "r", encoding=params.encoding) as f:
-            if params.max_lines:
-                lines = []
-                for i, line in enumerate(f):
-                    if i >= params.max_lines:
-                        break
-                    lines.append(line.rstrip("\n\r"))
-                content = "\n".join(lines)
-                truncated = i >= params.max_lines - 1
-            else:
-                content = f.read()
-                truncated = False
+            full_content = f.read()
+        total_lines = len(full_content.splitlines())
+        next_offset = None
+        if params.offset or params.max_lines is not None:
+            lines = full_content.splitlines()
+            end = None if params.max_lines is None else params.offset + params.max_lines
+            selected = lines[params.offset : end]
+            content = "\n".join(selected)
+            consumed = params.offset + len(selected)
+            next_offset = consumed if consumed < total_lines else None
+            truncated = next_offset is not None
+        else:
+            content = full_content
+            truncated = False
 
         result = {
             "content": content,
             "file_info": get_file_info(path),
             "truncated": truncated,
+            "next_offset": next_offset,
+            "total_lines": total_lines,
         }
 
         if truncated:
@@ -458,6 +533,7 @@ def is_sensitive_write_target(path: Union[str, Path]) -> bool:
     side_effects=(SideEffect.FILESYSTEM_WRITE,),
 )
 @safe_path_operation
+@file_backend_operation
 def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
     """Write content to a file with safety checks."""
     try:
@@ -471,6 +547,36 @@ def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
                     "config.yaml, .env, and .pori/ state are guarded so the agent "
                     "cannot disable its own safety settings."
                 ),
+            }
+
+        backend = _context_file_backend(context)
+        if backend is not None and params.file_path.startswith("/"):
+            content_size = len(params.content.encode("utf-8"))
+            if content_size > fs_config.max_file_size:
+                return {
+                    "success": False,
+                    "error": (
+                        "File too large "
+                        f"(max {format_bytes(fs_config.max_file_size)})"
+                    ),
+                }
+            written = backend.write(
+                params.file_path,
+                params.content,
+                append=params.append,
+            )
+            if not written.success:
+                return {
+                    "success": False,
+                    "error": written.error,
+                    "error_code": written.error_code,
+                    "path": written.path,
+                }
+            return {
+                "success": True,
+                "message": "Wrote virtual file successfully",
+                "file_info": {"path": written.path, "type": "file"},
+                "bytes_written": written.bytes_written,
             }
 
         if not fs_config.is_extension_allowed(path):
@@ -510,9 +616,53 @@ def write_file_tool(params: WriteFileParams, context: Dict[str, Any]):
     description="List files and directories",
 )
 @safe_path_operation
+@file_backend_operation
 def list_directory_tool(params: ListDirectoryParams, context: Dict[str, Any]):
     """List directory contents."""
     try:
+        backend = _context_file_backend(context)
+        if backend is not None and params.directory_path.startswith("/"):
+            listed = backend.list(
+                params.directory_path,
+                recursive=params.recursive,
+                max_depth=params.max_depth,
+            )
+            if not listed.success:
+                return {
+                    "success": False,
+                    "error": listed.error,
+                    "error_code": listed.error_code,
+                    "path": listed.path,
+                }
+            virtual_items = [
+                {
+                    "path": entry.path,
+                    "relative_path": entry.path.removeprefix(
+                        listed.path.rstrip("/") + "/"
+                    ),
+                    "type": "directory" if entry.is_dir else "file",
+                    "size": entry.size or 0,
+                }
+                for entry in listed.entries
+                if params.show_hidden
+                or not PurePosixPath(entry.path).name.startswith(".")
+            ]
+            virtual_files = [item for item in virtual_items if item["type"] == "file"]
+            virtual_directories = [
+                item for item in virtual_items if item["type"] == "directory"
+            ]
+            return {
+                "success": True,
+                "directory": listed.path,
+                "items": virtual_items,
+                "summary": {
+                    "total_items": len(virtual_items),
+                    "files": len(virtual_files),
+                    "directories": len(virtual_directories),
+                    "total_size": sum(int(item["size"]) for item in virtual_files),
+                },
+            }
+
         path = Path(params.directory_path)
 
         if not path.exists():
@@ -906,6 +1056,7 @@ class EditFileParams(BaseModel):
     side_effects=(SideEffect.FILESYSTEM_WRITE,),
 )
 @safe_path_operation
+@file_backend_operation
 def edit_file_tool(params: EditFileParams, context: Dict[str, Any]):
     """Replace exact text in a file, with a uniqueness check and read-before-edit
     staleness warning (ported from Hermes' patch semantics)."""
@@ -920,8 +1071,6 @@ def edit_file_tool(params: EditFileParams, context: Dict[str, Any]):
                     "config.yaml, .env, and .pori/ state are guarded."
                 ),
             }
-        if not path.is_file():
-            return {"success": False, "error": f"File not found: {path}"}
         if params.old_string == "":
             return {
                 "success": False,
@@ -932,6 +1081,31 @@ def edit_file_tool(params: EditFileParams, context: Dict[str, Any]):
                 "success": False,
                 "error": "old_string and new_string are identical",
             }
+
+        backend = _context_file_backend(context)
+        if backend is not None and params.file_path.startswith("/"):
+            edited = backend.edit(
+                params.file_path,
+                params.old_string,
+                params.new_string,
+                replace_all=params.replace_all,
+            )
+            if not edited.success:
+                return {
+                    "success": False,
+                    "error": edited.error,
+                    "error_code": edited.error_code,
+                    "path": edited.path,
+                }
+            return {
+                "success": True,
+                "message": f"Edited {edited.path}",
+                "path": edited.path,
+                "replacements": edited.replacements,
+            }
+
+        if not path.is_file():
+            return {"success": False, "error": f"File not found: {path}"}
 
         content = path.read_text(encoding="utf-8")
         occurrences = content.count(params.old_string)

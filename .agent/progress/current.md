@@ -20,17 +20,25 @@ R5 must produce both independently through the same runtime without hardcoding
 either page. Tasks, Proposals, receipts, files, evidence, and Trail remain
 canonical whether or not generated code displays them.
 
-R4 is merged into `aloy-v1` as PR #172. R5 is active on
-`aloy-v1-r5-composable-surfaces`; the branch name is retained and the superseded
-typed-block experiment has been removed. The first authoring-harness foundation
-is now in the worktree: Pori has immutable, fingerprinted run profiles that
-bind prompts, tools, explicit skills, and model capabilities with fail-fast
-validation; Aloy forwards configured prompts/provider capabilities and bundles
-an explicit-only Surface Builder skill plus its product run profile. This was
-adapted from the MIT Deep Agents harness-profile pattern without adding a
-Deep Agents/LangGraph dependency (see `HARVEST.md`). Next implement Surface
-persistence + authoring tools, isolated build + iframe host, SDK + interaction
-transport, the independent Critic, and the two proofs. §13 of the Surface spec
+R4 is merged into `aloy-v1` as PR #172. The first authoring-harness foundation
+was merged into `aloy-v1` as PR #173 at merge commit
+`81572b7a16743ad2bf18c5ceda85a3d67483be48`. Pori now has immutable,
+fingerprinted run profiles that bind prompts, tools, explicit skills, and model
+capabilities with fail-fast validation; Aloy forwards configured prompts and
+provider capabilities and bundles an explicit-only Surface Builder skill.
+
+R5 is active on `aloy-v1-r5-filesystem-harvest`. It adds Pori-native typed file
+results, virtual mount routing, read-only mounts, ephemeral memory storage, and
+a file-only adapter over the existing Sandbox. Product runs can receive a
+read-only `/event` projection and an isolated writable `/workspace` without
+granting host filesystem or shell access. Unmounted paths are denied, standard
+file tools route only mounted virtual paths, and child agents inherit the same
+product-owned backend. This adapts the MIT Deep Agents backend pattern without
+adding Deep Agents or LangGraph; its host-filesystem and local-shell backends
+were deliberately rejected (see `HARVEST.md`). Next wire these mounts to
+Surface persistence + authoring tools, then implement isolated build + iframe
+host, SDK + interaction transport, the independent Critic, and the two proofs.
+§13 of the Surface spec
 also locks the design brief,
 design system, screenshot states, deterministic audit, independent Critic,
 user-job simulation, bounded repair, user control, scorecard, and last-good
@@ -40,6 +48,13 @@ Verification for the authoring-harness foundation: 605 kernel tests passed
 (1 skipped), 259 Aloy backend tests passed, kernel mypy is clean across 107
 source files, backend mypy is clean across 87 source files, the Surface Builder
 skill validator passed, and a built Aloy wheel contains the bundled skill.
+
+Verification for the active filesystem harvest: 612 kernel tests passed
+(1 skipped), 259 Aloy backend tests passed, kernel mypy is clean across 108
+source files, backend mypy is clean across 87 source files, and kernel/backend
+Black and isort checks pass. The boundary script could not run because the
+optional `import-linter` executable is not installed in the local environment;
+no dependency was changed merely to satisfy that local check.
 
 ## NEW: Aloy V1 R4 - live Surface and semantic Trail (2026-07-15)
 
