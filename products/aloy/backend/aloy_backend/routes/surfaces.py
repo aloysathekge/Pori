@@ -16,13 +16,23 @@ from ..database import get_session
 from ..models import Event, SurfaceBuild, SurfaceProject
 from ..rate_limit import rate_limited_permission
 from ..storage import get_object_store
-from ..surface_authoring import surface_project_snapshot
+from ..surface_authoring import (
+    SurfaceAuthoringError,
+    SurfaceConflictError,
+    surface_project_snapshot,
+)
 from ..surface_builds import surface_build_payload
 from ..surface_interactions import (
     SurfaceInteractionError,
     SurfaceInteractionRequest,
     handle_surface_interaction,
     surface_runtime_context,
+)
+from ..surface_publication import (
+    SurfacePublicationParams,
+    change_surface_publication,
+    list_surface_publications,
+    published_surface_snapshot,
 )
 from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 from ..tenancy import OrganizationContext, Permission
@@ -93,6 +103,99 @@ async def list_surface_builds(
         .all()
     )
     return [surface_build_payload(build, include_log=False) for build in rows]
+
+
+@router.get("/runtime")
+async def get_published_surface_runtime(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    try:
+        snapshot = await published_surface_snapshot(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+        )
+    except SurfaceAuthoringError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    build = snapshot.get("build")
+    return {
+        "project_id": snapshot.get("project_id"),
+        "published_revision_id": snapshot.get("published_revision_id"),
+        "published_build_id": snapshot.get("published_build_id"),
+        "build": (
+            surface_build_payload(build, include_log=False)
+            if build is not None
+            else None
+        ),
+    }
+
+
+@router.get("/publications")
+async def get_surface_publications(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    event = await _owned_event(session, context, event_id)
+    return await list_surface_publications(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+    )
+
+
+async def _rollback_from_route(
+    *,
+    event: Event,
+    body: SurfacePublicationParams,
+    context: OrganizationContext,
+    session: AsyncSession,
+) -> dict:
+    try:
+        return await change_surface_publication(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+            actor_id=context.user_id,
+            run_id=None,
+            params=body,
+            action="rollback",
+            object_store=get_object_store(),
+        )
+    except SurfaceConflictError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SurfaceAuthoringError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/rollback")
+async def rollback_surface(
+    event_id: str,
+    body: SurfacePublicationParams,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    return await _rollback_from_route(
+        event=event,
+        body=body,
+        context=context,
+        session=session,
+    )
 
 
 @router.get("/builds/{build_id}")

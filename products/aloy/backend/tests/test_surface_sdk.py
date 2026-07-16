@@ -82,12 +82,15 @@ async def _seed_runtime(
             status="succeeded",
             source_checksum=revision.checksum,
             toolchain_version="aloy-surface-toolchain@1",
-            validation_result={"valid": True},
+            validation_result={"passed": True},
             diagnostics=[],
             bundle_key="test/surface.zip",
             bundle_sha256="abc123",
             bundle_size_bytes=100,
         )
+        project.published_revision_id = revision.id
+        project.published_build_id = build.id
+        project.lifecycle = "published"
         session.add(project)
         session.add(build)
         await session.commit()

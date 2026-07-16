@@ -22,8 +22,8 @@ all use the same runtime and safety contract.
    key. Treat `failed` diagnostics as source/toolchain problems to repair and
    `blocked` as unavailable isolation—not permission to execute locally.
 5. Call `surface_preview` to inspect the retained build log and preview
-   artifact metadata. A successful build is not permission to publish or to
-   claim that the application has passed visual review.
+   artifact metadata. A successful build is not automatically live and is not
+   permission to claim that the application has passed visual review.
 6. Bind displayed facts to canonical Event data. Label each important value as
    user-reported, verified, estimated, pending, or indeterminate; never present
    a plan or estimate as completed reality.
@@ -37,8 +37,14 @@ all use the same runtime and safety contract.
    denied states at the required desktop and compact viewports.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics before responding to visual or usefulness critique.
-10. Publish only through the revision service after required checks pass.
-   Preserve the immutable last-good revision on every failure.
+10. Publish only through `surface_publish` after required checks pass. Supply
+    the successful build id, both current published pointers returned by
+    `surface_read_project`, and a fresh idempotency key. Publication verifies
+    the retained artifact and atomically changes the exact live build.
+11. Use `surface_rollback` only when restoring a previously published
+    last-good build. Rollback changes Surface code, never canonical Event data.
+    Preserve the current live build on every build, validation, artifact, or
+    publication failure.
 
 ## SDK contract
 
@@ -112,3 +118,5 @@ host remains responsible for reconnect and recovery controls.
 - Never mutate durable Event truth by editing generated source.
 - Never bypass proposal, approval, receipt, validation, or publication rails.
 - Never overwrite the last-good revision in place.
+- Never describe a successful draft build as live before `surface_publish`
+  returns it as the current published build.

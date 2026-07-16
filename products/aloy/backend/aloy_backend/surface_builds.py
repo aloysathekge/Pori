@@ -7,7 +7,7 @@ import hashlib
 import io
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +33,10 @@ from .surface_build_runner import (
     SurfaceBuildRunnerResult,
     configured_surface_build_runner,
     validate_surface_source,
+)
+from .surface_publication import (
+    SurfacePublicationParams,
+    change_surface_publication,
 )
 
 
@@ -483,10 +487,43 @@ class SurfaceBuildHandler:
     async def preview(self, params: SurfacePreviewParams) -> dict[str, Any]:
         return await self._on_owner_loop(self._preview(params))
 
+    async def _change_publication(
+        self,
+        params: SurfacePublicationParams,
+        *,
+        action: Literal["publish", "rollback"],
+    ) -> dict[str, Any]:
+        event_id = self._run_context.event_id
+        if not event_id:
+            raise SurfaceAuthoringError("Event identity is required")
+        async with self._session_factory() as session:
+            return await change_surface_publication(
+                session,
+                organization_id=self._run_context.organization_id,
+                user_id=self._run_context.user_id,
+                event_id=event_id,
+                actor_id=self._run_context.agent_id,
+                run_id=self._run_context.run_id,
+                params=params,
+                action=action,
+                object_store=self._object_store or get_object_store(),
+            )
+
+    async def publish(self, params: SurfacePublicationParams) -> dict[str, Any]:
+        return await self._on_owner_loop(
+            self._change_publication(params, action="publish")
+        )
+
+    async def rollback(self, params: SurfacePublicationParams) -> dict[str, Any]:
+        return await self._on_owner_loop(
+            self._change_publication(params, action="rollback")
+        )
+
 
 __all__ = [
     "SurfaceBuildHandler",
     "SurfaceBuildParams",
     "SurfacePreviewParams",
+    "SurfacePublicationParams",
     "surface_build_payload",
 ]

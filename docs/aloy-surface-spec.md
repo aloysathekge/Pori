@@ -339,6 +339,9 @@ Illustrative host endpoints:
 GET  /v1/events/{event_id}/surface/project
 GET  /v1/events/{event_id}/surface/bundle
 GET  /v1/events/{event_id}/surface/data
+GET  /v1/events/{event_id}/surface/runtime
+GET  /v1/events/{event_id}/surface/publications
+POST /v1/events/{event_id}/surface/rollback
 POST /v1/events/{event_id}/surface/interactions
 GET  /v1/events/{event_id}/surface/interactions/{interaction_id}
 PATCH /v1/events/{event_id}/surface/preferences
@@ -440,6 +443,16 @@ The publish service—not the Builder or Critic—atomically publishes only when
 - the weighted quality score meets its calibrated threshold;
 - the candidate still descends from the expected current revision;
 - last-good recovery is available.
+
+The live pointer identifies both the immutable source revision and the exact
+validated build artifact. A merely successful draft build never replaces the
+live Surface. Publication reopens and verifies the retained bundle and checksum
+before one compare-and-set transaction advances the pointer, appends an
+idempotent publication record, and writes semantic Trail. Rollback is another
+append-only publication event targeting a build that was previously live; it
+does not rewrite revision history or Event data. The Workbench resolves only
+this published pointer and keeps the current iframe mounted when a draft build,
+publication, or recovery attempt fails.
 
 Scores cover user-job success, interaction/state quality, hierarchy and
 legibility, Event specificity, accessibility/responsiveness, truth/provenance,

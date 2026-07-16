@@ -8,10 +8,13 @@ from ..surface_builds import (
     SurfaceBuildHandler,
     SurfaceBuildParams,
     SurfacePreviewParams,
+    SurfacePublicationParams,
 )
 
 SURFACE_BUILD_CONTEXT_KEY = "surface_builds"
-SURFACE_BUILD_TOOL_NAMES = frozenset({"surface_build", "surface_preview"})
+SURFACE_BUILD_TOOL_NAMES = frozenset(
+    {"surface_build", "surface_preview", "surface_publish", "surface_rollback"}
+)
 
 
 def _handler(context: dict) -> SurfaceBuildHandler:
@@ -35,6 +38,20 @@ async def surface_preview_tool(
     return await _handler(context).preview(params)
 
 
+async def surface_publish_tool(
+    params: SurfacePublicationParams,
+    context: dict,
+) -> dict[str, Any]:
+    return await _handler(context).publish(params)
+
+
+async def surface_rollback_tool(
+    params: SurfacePublicationParams,
+    context: dict,
+) -> dict[str, Any]:
+    return await _handler(context).rollback(params)
+
+
 def register_surface_build_tools(registry) -> None:
     if "surface_build" not in registry.tools:
         registry.register_tool(
@@ -56,6 +73,27 @@ def register_surface_build_tools(registry) -> None:
                 "a Surface build. This does not execute the generated app."
             ),
         )
+    if "surface_publish" not in registry.tools:
+        registry.register_tool(
+            name="surface_publish",
+            param_model=SurfacePublicationParams,
+            function=surface_publish_tool,
+            description=(
+                "Atomically publish one successful validated Surface build as "
+                "the Event's live last-good revision. Requires the current "
+                "published pointers and a unique idempotency key."
+            ),
+        )
+    if "surface_rollback" not in registry.tools:
+        registry.register_tool(
+            name="surface_rollback",
+            param_model=SurfacePublicationParams,
+            function=surface_rollback_tool,
+            description=(
+                "Restore a previously published last-good Surface build without "
+                "changing Event data. Requires the current published pointers."
+            ),
+        )
 
 
 __all__ = [
@@ -63,5 +101,7 @@ __all__ = [
     "SURFACE_BUILD_TOOL_NAMES",
     "register_surface_build_tools",
     "surface_build_tool",
+    "surface_publish_tool",
     "surface_preview_tool",
+    "surface_rollback_tool",
 ]

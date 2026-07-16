@@ -254,6 +254,10 @@ Scope:
   patching, building, previewing, publishing, and rolling back Surface source;
 - build generated source in an isolated fixed toolchain with limits,
   diagnostics, immutable bundles, and last-good recovery;
+- require an explicit atomic publication record and exact revision/build
+  pointer so successful drafts cannot silently replace the live Surface;
+- expose host-owned publication history and rollback to a previously published
+  last-good build without changing canonical Event data;
 - execute published bundles in a sandboxed separate/opaque-origin iframe with
   strict CSP, a schema-validated `MessageChannel`, and no host credentials,
   cookies, storage, navigation, or direct network by default;
