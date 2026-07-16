@@ -28,6 +28,8 @@ from aloy_backend.models import (  # noqa: F401
     Run,
     SkillDefinition,
     SkillGrant,
+    SurfaceProject,
+    SurfaceRevision,
     TeamConfig,
     TraceRecord,
     UsageRecord,

@@ -27,19 +27,23 @@ fingerprinted run profiles that bind prompts, tools, explicit skills, and model
 capabilities with fail-fast validation; Aloy forwards configured prompts and
 provider capabilities and bundles an explicit-only Surface Builder skill.
 
-R5 is active on `aloy-v1-r5-filesystem-harvest`. It adds Pori-native typed file
-results, virtual mount routing, read-only mounts, ephemeral memory storage, and
-a file-only adapter over the existing Sandbox. Product runs can receive a
-read-only `/event` projection and an isolated writable `/workspace` without
-granting host filesystem or shell access. Unmounted paths are denied, standard
-file tools route only mounted virtual paths, and child agents inherit the same
-product-owned backend. This adapts the MIT Deep Agents backend pattern without
-adding Deep Agents or LangGraph; its host-filesystem and local-shell backends
-were deliberately rejected (see `HARVEST.md`). Next wire these mounts to
-Surface persistence + authoring tools, then implement isolated build + iframe
-host, SDK + interaction transport, the independent Critic, and the two proofs.
-§13 of the Surface spec
-also locks the design brief,
+The filesystem foundation was merged into `aloy-v1` as PR #174 at merge commit
+`f5e9831ff02081ea4ee222b15bc3cd662efac1d1`. It provides typed, deny-by-default
+virtual mounts without adopting host-filesystem or local-shell backends.
+
+R5 is active on `aloy-v1-r5-surface-persistence`. Aloy now has one tenant-
+scoped `surface_project` per Event and immutable source/manifest revisions with
+parent lineage, exact checksums, creator Run provenance, optimistic draft
+claims, idempotent mutation keys, file/source limits, and user lock state. The
+explicit Surface Builder profile alone receives `surface_read_project` and
+`surface_write_files`, plus read/write/list/edit tools over a read-only `/event`
+projection and run-local `/workspace` seeded from the durable draft. Public
+clients can read project/revision metadata but not source contents; there is no
+public source-mutation route. Every committed draft adds a semantic Trail row.
+
+Next implement isolated build + diagnostics + preview artifacts, then iframe
+hosting, SDK + interaction transport, the independent Critic, publication,
+and the two proofs. §13 of the Surface spec also locks the design brief,
 design system, screenshot states, deterministic audit, independent Critic,
 user-job simulation, bounded repair, user control, scorecard, and last-good
 publish gate. Do not add R6 research providers or R7 Gmail behavior.
@@ -55,6 +59,10 @@ source files, backend mypy is clean across 87 source files, and kernel/backend
 Black and isort checks pass. The boundary script could not run because the
 optional `import-linter` executable is not installed in the local environment;
 no dependency was changed merely to satisfy that local check.
+
+Verification for active Surface persistence: 268 Aloy backend tests pass; the
+15-test focused persistence/profile/migration/workspace suite passes; backend
+mypy is clean across 91 source files; and backend Black/isort checks pass.
 
 ## NEW: Aloy V1 R4 - live Surface and semantic Trail (2026-07-15)
 

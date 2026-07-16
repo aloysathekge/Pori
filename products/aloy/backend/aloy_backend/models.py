@@ -98,6 +98,80 @@ class Event(SQLModel, table=True):
     )
 
 
+class SurfaceProject(SQLModel, table=True):
+    """One model-authored application project owned by one Event."""
+
+    __tablename__ = "surface_projects"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "user_id",
+            "event_id",
+            name="uq_surface_project_event",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"surface_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    draft_revision_id: str | None = Field(default=None, index=True)
+    published_revision_id: str | None = Field(default=None, index=True)
+    sdk_version: str = "1"
+    lifecycle: str = Field(default="draft", index=True)
+    user_lock_state: str = Field(default="editable", index=True)
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class SurfaceRevision(SQLModel, table=True):
+    """Immutable source and manifest snapshot for a Surface project."""
+
+    __tablename__ = "surface_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "revision_number",
+            name="uq_surface_revision_number",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "idempotency_key",
+            name="uq_surface_revision_idempotency",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"srev_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    revision_number: int = Field(index=True)
+    parent_revision_id: str | None = Field(default=None, index=True)
+    creator_run_id: str | None = Field(default=None, index=True)
+    idempotency_key: str
+    request_fingerprint: str
+    manifest: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    files: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    checksum: str = Field(index=True)
+    file_count: int = 0
+    total_bytes: int = 0
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Task(SQLModel, table=True):
     """Durable executable work owned by an Event."""
 
