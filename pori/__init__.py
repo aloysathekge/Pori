@@ -135,6 +135,7 @@ from .providers import (
     get_provider_profile,
     provider_profiles,
 )
+from .profiles import RunProfile, RunProfileResolutionError
 from .retrieval import RetrievalEvidence, fuse_retrieval
 from .runtime import (
     BudgetExceeded,
@@ -273,6 +274,8 @@ __all__ = [
     "diagnose_provider",
     "get_provider_profile",
     "provider_profiles",
+    "RunProfile",
+    "RunProfileResolutionError",
     "RetrievalEvidence",
     "fuse_retrieval",
     "SQLiteSessionRepository",

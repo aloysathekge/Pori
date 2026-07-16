@@ -1,0 +1,6 @@
+interface:
+  display_name: "Surface Builder"
+  short_description: "Build and safely evolve Event Surfaces"
+  default_prompt: "Use $surface-builder to create or revise this Event Surface."
+policy:
+  allow_implicit_invocation: false

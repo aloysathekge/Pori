@@ -7,13 +7,16 @@
 
 ## Donor location
 
-Donor OSS repos live **outside this git repo**, at `../references/` (i.e. `Pori/references/`). They are reference-only — **never a runtime dependency**, cloned as external checkouts or submodules.
+Donor OSS repos live **outside this git repo**, normally under `../references/`.
+They are reference-only — **never a runtime dependency**, cloned as external
+checkouts or submodules. The table records the exact path for each checkout.
 
 **Present donors** (as of this pass):
 
 | Donor | Path | License | How we harvest |
 |---|---|---|---|
 | Hermes Agent (NousResearch) | `../references/hermes-agent` | MIT | adapt + attribute |
+| Deep Agents (LangChain) | `../deepagents-reference` | MIT | adapt + attribute |
 | Claude Code | `../references/claude-code` | non-permissive | **design/behavior only (clean-room)** |
 | Agno | `../references/agno` | (verify) | verify license before adapting |
 | agent-oss | `../references/agent-oss` | (verify) | verify license before adapting |
@@ -45,6 +48,7 @@ Donor OSS repos live **outside this git repo**, at `../references/` (i.e. `Pori/
 | Provider normalization | LiteLLM |
 | Tool interop / event protocol | MCP, AG-UI / ACP |
 | Multi-agent role/team patterns | Agno, AutoGen, CrewAI |
+| Purpose-scoped prompt/tool/skill/model assembly | Deep Agents |
 
 ---
 
@@ -54,6 +58,7 @@ Donor OSS repos live **outside this git repo**, at `../references/` (i.e. `Pori/
 
 | Date | Pattern | Source (file if known) | License | Landed in | Why |
 |---|---|---|---|---|---|
+| 2026-07-16 | Immutable purpose-scoped run profile with deterministic prompt/tool/skill/model assembly and fail-fast requirement validation | Deep Agents `libs/deepagents/deepagents/profiles/harness/harness_profiles.py` and `libs/deepagents/deepagents/graph.py` @ `9fdd498937842e2ac490ae0e0ca74eef47abd0bb` | MIT | `pori/profiles.py`, `pori/orchestrator/core.py`, `products/aloy/backend/aloy_backend/{orchestrator.py,run_profiles.py,skills.py,product_skills/surface-builder}` | Give Aloy a reproducible Surface-authoring harness while retaining Pori's own loop, skills, capability snapshots, checkpoints, and provider adapters; no Deep Agents/LangGraph runtime dependency |
 | _template_ | _e.g. hash-chained receipts_ | _OpenHands event stream / Hermes verification_evidence.py_ | _MIT_ | _packages/pori/receipts_ | _tamper-evident, replayable audit substrate_ |
 | 2026-07-03 | Shared TS transport package (typed client + package/tsconfig layout) | Hermes `apps/shared` (`json-rpc-gateway.ts`, `websocket-url.ts`, `package.json`, `tsconfig.json`) | MIT | `apps/shared` (`@aloy/shared`) | one REST+SSE client for web+desktop — **PTY/JSON-RPC-over-WebSocket bridge stripped**, retargeted to Pori's `PoriEvent` SSE contract, rebranded `@hermes/shared`→`@aloy/shared` (surface copy-then-rebrand, per docs/Aloy.md §3a) |
 | 2026-07-03 | Web SPA build scaffold + chat structure (Vite+React+Tailwind) | Hermes `web/` (`vite.config.ts`, `package.json` stack, `ChatPage`/`Markdown` patterns) | MIT | `apps/web` (`@aloy/web`) | Aloy chat SPA — harvested the Vite/React/Tailwind scaffold + chat/streaming/clarify structure; **did NOT copy** `@nous-research/ui` (private DS), `@xterm`/PTY, three/leva/gsap, dashboard-token plugin, or the Hermes-only pages; wired to `@aloy/shared`, own theme + branding |

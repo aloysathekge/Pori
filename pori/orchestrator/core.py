@@ -21,11 +21,12 @@ from ..agent import Agent, AgentSettings
 from ..evolution import EvolutionRepository
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
+from ..profiles import RunProfile, RunProfileResolutionError
 from ..runtime import CancellationToken, RunContext
 from ..skill_provenance import use_write_origin
 from ..skills import SkillCatalog
 from ..skills_learn import build_background_review_prompt
-from ..tools.registry import ToolRegistry
+from ..tools.registry import CapabilityResolutionError, ToolRegistry
 from ..utils.context import use_identity
 
 logger = logging.getLogger("pori.orchestrator")
@@ -63,9 +64,18 @@ class Orchestrator:
         soul_text: Optional[str] = None,
         load_project_context: bool = False,
         mcp_connection_factory: Optional[Callable[..., Any]] = None,
+        system_prompt: Optional[str] = None,
+        model_capabilities: Optional[frozenset[str]] = None,
+        run_profile: Optional[RunProfile] = None,
     ):
         self.llm = llm
-        self.tools_registry = tools_registry
+        self.run_profile = run_profile
+        self.model_capabilities = model_capabilities or frozenset()
+        self.system_prompt = self._compose_system_prompt(system_prompt, run_profile)
+        self.tools_registry = self._resolve_profile(
+            tools_registry,
+            skill_catalog=skill_catalog,
+        )
         # Optional injectable MCP connection factory (tests / custom transports);
         # None -> the session set uses the default SDK-backed factory.
         self._mcp_factory = mcp_connection_factory
@@ -82,6 +92,69 @@ class Orchestrator:
         self.soul_path = soul_path
         self.soul_text = soul_text
         self.load_project_context = load_project_context
+
+    @staticmethod
+    def _compose_system_prompt(
+        system_prompt: Optional[str], run_profile: Optional[RunProfile]
+    ) -> Optional[str]:
+        blocks = [
+            block.strip()
+            for block in (
+                system_prompt or "",
+                run_profile.system_prompt if run_profile else "",
+            )
+            if block.strip()
+        ]
+        return "\n\n".join(blocks) or None
+
+    def _resolve_profile(
+        self,
+        tools_registry: ToolRegistry,
+        *,
+        skill_catalog: Optional[SkillCatalog],
+    ) -> ToolRegistry:
+        profile = self.run_profile
+        if profile is None:
+            return tools_registry
+
+        missing_capabilities = profile.required_model_capabilities.difference(
+            self.model_capabilities
+        )
+        if missing_capabilities:
+            raise RunProfileResolutionError(
+                f"Run profile '{profile.profile_id}' requires unavailable model "
+                "capabilities: " + ", ".join(sorted(missing_capabilities))
+            )
+
+        try:
+            resolved = tools_registry.filtered(
+                include_tools=profile.allowed_tools,
+                exclude_tools=profile.denied_tools,
+            )
+        except CapabilityResolutionError as exc:
+            raise RunProfileResolutionError(
+                f"Run profile '{profile.profile_id}' tool surface could not be resolved: {exc}"
+            ) from exc
+
+        missing_tools = profile.required_tools.difference(resolved.tools)
+        if missing_tools:
+            raise RunProfileResolutionError(
+                f"Run profile '{profile.profile_id}' requires unavailable tools: "
+                + ", ".join(sorted(missing_tools))
+            )
+
+        available_skills = (
+            {manifest.skill_id for manifest in skill_catalog.manifests()}
+            if skill_catalog is not None
+            else set()
+        )
+        missing_skills = profile.required_skill_ids.difference(available_skills)
+        if missing_skills:
+            raise RunProfileResolutionError(
+                f"Run profile '{profile.profile_id}' requires unavailable skills: "
+                + ", ".join(sorted(missing_skills))
+            )
+        return resolved
 
     async def execute_task(
         self,
@@ -211,8 +284,24 @@ class Orchestrator:
             mcp_set = McpSessionSet(mcp_servers, connection_factory=self._mcp_factory)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, mcp_set.connect_and_register, run_registry)
+            # MCP tools arrive after construction. Re-resolve the profile so a
+            # server cannot reintroduce a denied tool or escape an allowlist.
+            run_registry = self._resolve_profile(
+                run_registry,
+                skill_catalog=self.skill_catalog,
+            )
 
         # Create and register the agent
+        resolved_skill_ids = list(
+            dict.fromkeys(
+                [
+                    *sorted(
+                        self.run_profile.required_skill_ids if self.run_profile else ()
+                    ),
+                    *(selected_skill_ids or []),
+                ]
+            )
+        )
         agent = Agent(
             task=task,
             llm=self.llm,
@@ -224,8 +313,10 @@ class Orchestrator:
             hitl_config=hitl_config,
             run_context=run_context,
             skill_catalog=self.skill_catalog,
-            skill_limit=self.skill_limit,
-            selected_skill_ids=selected_skill_ids,
+            skill_limit=max(self.skill_limit, len(resolved_skill_ids)),
+            selected_skill_ids=resolved_skill_ids or None,
+            system_prompt=self.system_prompt,
+            model_capabilities=self.model_capabilities,
             evolution_repository=self.evolution_repository,
             soul_path=self.soul_path,
             soul_text=self.soul_text,
@@ -259,6 +350,9 @@ class Orchestrator:
                 "final_answer": summary.get("final_answer"),
                 "reasoning": summary.get("reasoning"),
                 "selected_skills": summary.get("selected_skills", []),
+                "run_profile": (
+                    self.run_profile.descriptor() if self.run_profile else None
+                ),
                 "artifacts": summary.get("artifacts", []),
                 "metrics": summary.get("metrics"),
                 "trace": summary.get("trace"),

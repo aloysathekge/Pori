@@ -1,10 +1,35 @@
 import pytest
 
 from aloy_backend.models import SkillDefinition, SkillGrant
-from aloy_backend.skills import load_skill_catalog
+from aloy_backend.skills import SURFACE_BUILDER_SKILL_ID, load_skill_catalog
 from pori import ToolRegistry
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_catalog_always_includes_bundled_surface_builder(db_session_maker):
+    async with db_session_maker() as session:
+        catalog = await load_skill_catalog(
+            session,
+            organization_id="org-empty",
+            user_id="alice",
+            role="owner",
+        )
+
+    registry = ToolRegistry()
+    selected = catalog.select(
+        "Build this Event Surface",
+        registry.snapshot(),
+        model_capabilities=frozenset({"tools"}),
+        explicit_skill_ids=[SURFACE_BUILDER_SKILL_ID],
+    )
+    loaded = catalog.load_selected(selected)
+
+    assert [skill.manifest.skill_id for skill in loaded] == [SURFACE_BUILDER_SKILL_ID]
+    assert loaded[0].manifest.provenance == "aloy-bundled"
+    assert loaded[0].manifest.trust_level == "product"
+    assert loaded[0].manifest.model_invocation_disabled is True
+    assert "last-good revision" in loaded[0].instructions
 
 
 async def test_skill_lifecycle_requires_approval_and_grant(client):
