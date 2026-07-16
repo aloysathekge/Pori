@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
+const PROTOCOL = '1' as const;
+const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_ATTEMPTS = 2;
+
 export interface SurfaceDataRecord<T = Record<string, unknown>> {
   id: string;
   namespace: string;
@@ -66,78 +70,230 @@ export interface SurfaceAction {
   reason?: string;
 }
 
+export type SurfaceRuntimeStatus = 'disconnected' | 'healthy' | 'degraded';
+
+export interface SurfaceRuntimeState {
+  status: SurfaceRuntimeStatus;
+  message?: string;
+}
+
 interface BridgeResponse {
   protocol: '1';
   type: 'response';
+  sessionId: string;
   requestId: string;
   ok: boolean;
   result?: unknown;
   error?: string;
+  retryable?: boolean;
+}
+
+interface PendingRequest {
+  method: string;
+  params: Record<string, unknown>;
+  attempts: number;
+  requestId: string;
+  timeout: ReturnType<typeof setTimeout> | null;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
+
+export class SurfaceRequestTimeoutError extends Error {
+  readonly method: string;
+  readonly idempotencyKey?: string;
+
+  constructor(method: string, idempotencyKey?: string) {
+    super(`Aloy Surface ${method} request timed out`);
+    this.name = 'SurfaceRequestTimeoutError';
+    this.method = method;
+    this.idempotencyKey = idempotencyKey;
+  }
 }
 
 let port: MessagePort | null = null;
+let sessionId: string | null = null;
 let context: SurfaceContext | null = null;
-const subscribers = new Set<() => void>();
-const pending = new Map<
-  string,
-  { resolve: (value: unknown) => void; reject: (error: Error) => void }
->();
+const disconnectedRuntime: SurfaceRuntimeState = { status: 'disconnected' };
+let runtime: SurfaceRuntimeState = disconnectedRuntime;
+const contextSubscribers = new Set<() => void>();
+const runtimeSubscribers = new Set<() => void>();
+const pending = new Map<string, PendingRequest>();
 
-function publish(next: SurfaceContext) {
+function publishContext(next: SurfaceContext) {
   context = next;
-  for (const subscriber of subscribers) subscriber();
+  for (const subscriber of contextSubscribers) subscriber();
+}
+
+function publishRuntime(next: SurfaceRuntimeState) {
+  runtime = next;
+  for (const subscriber of runtimeSubscribers) subscriber();
+}
+
+function clearPendingTimeout(request: PendingRequest) {
+  if (request.timeout) clearTimeout(request.timeout);
+  request.timeout = null;
+}
+
+function rejectPending(request: PendingRequest, error: Error) {
+  clearPendingTimeout(request);
+  pending.delete(request.requestId);
+  request.reject(error);
+}
+
+function send(request: PendingRequest) {
+  if (!port || !sessionId) {
+    rejectPending(request, new Error('Aloy Surface bridge is not ready'));
+    return;
+  }
+  clearPendingTimeout(request);
+  pending.delete(request.requestId);
+  request.requestId = crypto.randomUUID();
+  request.attempts += 1;
+  pending.set(request.requestId, request);
+  request.timeout = setTimeout(() => {
+    if (!pending.has(request.requestId)) return;
+    if (request.attempts < MAX_ATTEMPTS && port && sessionId) {
+      send(request);
+      return;
+    }
+    rejectPending(
+      request,
+      new SurfaceRequestTimeoutError(
+        request.method,
+        typeof request.params.idempotencyKey === 'string'
+          ? request.params.idempotencyKey
+          : undefined,
+      ),
+    );
+  }, REQUEST_TIMEOUT_MS);
+  try {
+    port.postMessage({
+      protocol: PROTOCOL,
+      type: 'request',
+      sessionId,
+      requestId: request.requestId,
+      method: request.method,
+      params: request.params,
+    });
+  } catch {
+    port.close();
+    port = null;
+    sessionId = null;
+    publishRuntime({
+      status: 'degraded',
+      message: 'The Aloy Surface bridge disconnected',
+    });
+    // Keep the bounded request pending so an imminent host reconnect can
+    // replay it with the same idempotency key.
+  }
+}
+
+function replayPending() {
+  for (const request of [...pending.values()]) {
+    if (request.attempts < MAX_ATTEMPTS) send(request);
+    else rejectPending(request, new Error('Aloy Surface bridge reconnected after request retry'));
+  }
 }
 
 function onPortMessage(event: MessageEvent<unknown>) {
-  const value = event.data as BridgeResponse | { type?: string; context?: SurfaceContext };
-  if (value?.type === 'context' && value.context) {
-    publish(value.context);
+  const value = event.data as {
+    protocol?: string;
+    type?: string;
+    sessionId?: string;
+    nonce?: string;
+    context?: SurfaceContext;
+    status?: string;
+    message?: string;
+  } | null;
+  if (
+    !value
+    || value.protocol !== PROTOCOL
+    || value.sessionId !== sessionId
+    || !value.type
+  ) return;
+  if (value.type === 'ping' && typeof value.nonce === 'string') {
+    port?.postMessage({
+      protocol: PROTOCOL,
+      type: 'pong',
+      sessionId,
+      nonce: value.nonce,
+    });
     return;
   }
-  if (value?.type !== 'response' || !('requestId' in value)) return;
+  if (value.type === 'context' && value.context) {
+    publishContext(value.context);
+    return;
+  }
+  if (value.type === 'runtime' && value.status === 'degraded') {
+    publishRuntime({ status: 'degraded', message: value.message });
+    port?.close();
+    port = null;
+    sessionId = null;
+    return;
+  }
+  if (value.type !== 'response' || !('requestId' in value)) return;
   const response = value as BridgeResponse;
   if (typeof response.requestId !== 'string') return;
-  const waiter = pending.get(response.requestId);
-  if (!waiter) return;
+  const request = pending.get(response.requestId);
+  if (!request) return;
+  clearPendingTimeout(request);
   pending.delete(response.requestId);
-  if (response.ok) waiter.resolve(response.result);
-  else waiter.reject(new Error(response.error || 'Aloy Surface request failed'));
+  if (response.ok) {
+    request.resolve(response.result);
+    return;
+  }
+  if (response.retryable && request.attempts < MAX_ATTEMPTS && port && sessionId) {
+    send(request);
+    return;
+  }
+  request.reject(new Error(response.error || 'Aloy Surface request failed'));
 }
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const value = event.data as {
     protocol?: string;
     type?: string;
+    sessionId?: string;
     context?: SurfaceContext;
   } | null;
   if (
     !event.isTrusted
     || event.source !== window.parent
-    || value?.protocol !== '1'
+    || value?.protocol !== PROTOCOL
     || value.type !== 'aloy.surface.connect'
+    || typeof value.sessionId !== 'string'
+    || !value.sessionId
     || !value.context
     || event.ports.length !== 1
   ) return;
+
   port?.close();
-  for (const waiter of pending.values()) {
-    waiter.reject(new Error('Aloy Surface bridge reconnected'));
-  }
-  pending.clear();
+  for (const request of pending.values()) clearPendingTimeout(request);
+  sessionId = value.sessionId;
   port = event.ports[0];
   port.onmessage = onPortMessage;
   port.start();
-  publish(value.context);
+  publishContext(value.context);
+  publishRuntime({ status: 'healthy' });
+  port.postMessage({ protocol: PROTOCOL, type: 'ready', sessionId });
+  replayPending();
 });
 
 function request<T>(method: string, params: Record<string, unknown>): Promise<T> {
-  if (!port) return Promise.reject(new Error('Aloy Surface bridge is not ready'));
-  const requestId = crypto.randomUUID();
+  if (!port || !sessionId) {
+    return Promise.reject(new Error('Aloy Surface bridge is not ready'));
+  }
   return new Promise<T>((resolve, reject) => {
-    pending.set(requestId, {
+    const pendingRequest: PendingRequest = {
+      method,
+      params,
+      attempts: 0,
+      requestId: '',
+      timeout: null,
       resolve: (value) => resolve(value as T),
       reject,
-    });
-    port?.postMessage({ protocol: '1', type: 'request', requestId, method, params });
+    };
+    send(pendingRequest);
   });
 }
 
@@ -150,16 +306,33 @@ function idempotencyKey(value?: string) {
 }
 
 export function subscribeSurface(listener: () => void) {
-  subscribers.add(listener);
-  return () => subscribers.delete(listener);
+  contextSubscribers.add(listener);
+  return () => contextSubscribers.delete(listener);
+}
+
+export function subscribeSurfaceRuntime(listener: () => void) {
+  runtimeSubscribers.add(listener);
+  return () => runtimeSubscribers.delete(listener);
 }
 
 export function getSurfaceContext(): SurfaceContext | null {
   return context;
 }
 
+export function getSurfaceRuntime(): SurfaceRuntimeState {
+  return runtime;
+}
+
 export function useSurfaceContext(): SurfaceContext | null {
   return useSyncExternalStore(subscribeSurface, getSurfaceContext, () => null);
+}
+
+export function useSurfaceRuntime(): SurfaceRuntimeState {
+  return useSyncExternalStore(
+    subscribeSurfaceRuntime,
+    getSurfaceRuntime,
+    () => disconnectedRuntime,
+  );
 }
 
 export function useEvent<T = Record<string, unknown>>(): T | null {

@@ -246,7 +246,8 @@ security boundary. It teaches:
 - truth and consequence presentation;
 - how to inspect build errors, preview, and repair;
 - how to evolve an application without destroying durable Event data;
-- University, Madrid, and Career OS examples as patterns rather than templates.
+- University, Madrid, and future showcase templates as portable seeded Surface
+  projects rather than domain logic embedded in the runtime.
 
 Critical rules must also be enforced by tools, schemas, the compiler, CSP, and
 the host bridge because an optional skill cannot be trusted as a sandbox. The
@@ -294,9 +295,15 @@ an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`. The
 document repeats the strict CSP in a leading meta element because fetch-time
 response headers do not carry over to Blob navigation. No bearer token,
 object-store reference, source tree, or build log enters the iframe. This
-preview path is not publication: last-good selection, the bound
-`MessageChannel`, heartbeat/runtime watchdogs, and capability SDK remain
-separate gates.
+preview path is not publication. The host now binds each `MessageChannel` to a
+fresh session id and does not report the runtime healthy until the generated
+SDK acknowledges that exact session. Context and interaction calls have
+bounded timeouts. Host heartbeats detect an unresponsive runtime, while the
+SDK safely replays at most once after a retryable failure or reconnect using
+the original interaction idempotency key. The host keeps the existing iframe
+visible during bounded reconnect attempts and exposes an explicit manual
+recovery action if those attempts are exhausted. Last-good publication and
+the broader render/resource watchdog gate remain separate work.
 
 Privileged widgets remain host-reviewed. For example, a `Map` SDK component may
 use a configured map adapter or controlled proxy with attribution, privacy
@@ -447,7 +454,9 @@ The model-authored Surface runtime is ready when:
 2. one independently authored Madrid application can render a map, flights,
    Schengen readiness, hotel choice, budget, itinerary, uncertainty, and a
    safe comparison intent through the same SDK/runtime;
-3. neither proof is a hardcoded product page or selected fixed template;
+3. both are installable showcase templates that use the same ordinary Event,
+   source revision, build, SDK, interaction, and publication paths as any other
+   Surface, with no domain-specific branch in Aloy's host or backend;
 4. presentation interactions remain local while meaningful selections persist
    and reasoning intents reach the canonical Event Session exactly once;
 5. external actions cannot bypass Proposal → decision → executor → receipt;
@@ -463,3 +472,19 @@ The model-authored Surface runtime is ready when:
     accessibility, and narrow-screen behavior pass interaction QA;
 11. the deterministic gate, rendered critique, user-job suites, bounded repair,
     user controls, and last-good publication policy in §13 pass.
+
+### 14.1 Showcase-template role
+
+University ships first as the onboarding and continuity demonstration. Its
+seeded application includes navigation, timetable, courses, exams and tests,
+and study actions. Madrid ships second as the rich planning and trust
+demonstration, after the dedicated host-widget phase provides Map and other
+reviewed primitives; it includes flights, hotels, visa readiness, budget,
+itinerary, and protected payment intent.
+
+Templates may provide source, manifest, sample Event records, guided prompts,
+and expected user-job tests. They may not add template-only SDK methods,
+privileged access, host components, database tables, or conditionals such as
+`event.type === "university"`. Installing one creates normal tenant-owned
+records and immutable Surface revisions. A template can therefore teach and
+market Aloy while remaining honest evidence that the general platform works.

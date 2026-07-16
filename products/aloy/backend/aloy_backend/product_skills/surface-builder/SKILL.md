@@ -89,6 +89,16 @@ when retrying the exact same user action. A user-originated Surface write may
 record `user_reported`; generated code cannot claim `committed`, `verified`, or
 receipt-backed posture.
 
+The host owns runtime connectivity. On every connection the SDK acknowledges
+the exact bridge session, answers host heartbeats, and accepts context or
+interaction responses only from that session. Interaction Promises are
+bounded and may be replayed once after a retryable failure or host reconnect;
+the SDK preserves the original idempotency key across that replay. Do not add
+custom parent-window messaging, retry loops, network fallbacks, fake offline
+success, or a second persistence layer. Use `useSurfaceRuntime()` when the
+generated application needs to show a local degraded state, while the trusted
+host remains responsible for reconnect and recovery controls.
+
 ## Quality bar
 
 - Make the Event's next useful decision obvious without flattening the whole

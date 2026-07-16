@@ -2,6 +2,46 @@
 
 _Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
+## NEW: University and Madrid are showcase templates (2026-07-16)
+
+Product direction is now explicit: University ships first and Madrid second as
+polished first-run templates that teach new users how Aloy works and serve as
+live marketing demonstrations. University covers navigation, timetable,
+courses, exams/tests, and study actions. Madrid follows the dedicated reviewed-
+widget phase and covers map, flights, hotels, visa, budget, itinerary, and
+protected payment intent.
+
+These are portable seed packages, not domain behavior hardcoded into Aloy.
+They must instantiate normal tenant-owned Events, data, source revisions,
+builds, SDK interactions, Proposals, receipts, and Trail through the exact same
+paths as every other Surface. The host runtime and backend must contain no
+University/travel switch. This supersedes earlier wording that called the two
+experiences “not templates”; they are templates at the product/catalog layer,
+while remaining proofs of the general platform.
+
+## NEW: Surface runtime resilience (2026-07-16)
+
+The active `aloy-v1-r5-surface-runtime-resilience` branch hardens the bound
+Surface runtime without granting generated code any new authority. A bridge is
+healthy only after the iframe SDK acknowledges a fresh session id; all bridge
+messages are session-bound, and a host heartbeat detects a stalled generated
+runtime. Context and interaction requests have bounded abortable timeouts.
+
+`@aloy/surface` now exposes runtime state, rejects messages from stale bridge
+sessions, answers heartbeats, bounds interaction Promises, and safely replays
+one retryable request using the exact original idempotency key. The Workbench
+keeps the last-good iframe mounted through bounded 1/2/4-second reconnects and
+shows trusted reconnect/degraded UI with a manual recovery action instead of
+replacing valid generated UI with a fatal error screen.
+
+Focused host tests cover exact-session acknowledgement, stale-session
+rejection, and idempotent interaction routing. Aloy app tests and ESLint pass;
+the app and standalone SDK production builds pass. Remaining R5 runtime work:
+finish runtime/publication correctness, create the University showcase first,
+then handle reviewed widgets in a dedicated phase before the Madrid showcase;
+publication/last-good selection, render/resource watchdogs, and Critic remain
+open.
+
 ## NEW: Surface product lifecycle clarified in parent vision (2026-07-16)
 
 `docs/aloy-vision.md` is now version 3.1 and explicitly defines an Event
@@ -70,9 +110,8 @@ state. A newly successful build still replaces the runtime document. The
 Surface Builder skill includes the exact SDK/manifest contract.
 
 The initial foundation verification remains superseded by the lifecycle result
-above. Remaining SDK work before the R5 gate: heartbeat/runtime watchdogs,
-privileged host widget transport (Map first), publication/last-good selection,
-Critic, and University/Madrid proof Surfaces.
+above. Runtime handshake, heartbeat, timeouts, and recovery continue in the
+runtime-resilience section above; the remaining R5 gates are tracked there.
 
 ## NEW: Event Workbench shell (2026-07-16)
 
@@ -105,13 +144,14 @@ as immutable last-good revisions, executed in a sandboxed iframe, and connected
 to tenant/Event data and the permanent Session only through a capability-scoped
 SDK and validated interaction bridge.
 
-The two north-star images are preserved in `docs/assets/`. They are behavioral
-proofs, not templates: University demonstrates timetable/course/assessment
-truth plus a study-help interaction; Madrid demonstrates map/travel choices,
-visa readiness, estimates, provenance, uncertainty, and safe action intent.
-R5 must produce both independently through the same runtime without hardcoding
-either page. Tasks, Proposals, receipts, files, evidence, and Trail remain
-canonical whether or not generated code displays them.
+The two north-star images are preserved in `docs/assets/`. They define the
+behavior and quality expected from the University and Madrid showcase
+templates: University demonstrates timetable/course/assessment truth plus a
+study-help interaction; Madrid demonstrates map/travel choices, visa readiness,
+estimates, provenance, uncertainty, and safe action intent. Both must use the
+same general runtime without hardcoding either domain into it. Tasks,
+Proposals, receipts, files, evidence, and Trail remain canonical whether or not
+generated code displays them.
 
 R4 is merged into `aloy-v1` as PR #172. The first authoring-harness foundation
 was merged into `aloy-v1` as PR #173 at merge commit
