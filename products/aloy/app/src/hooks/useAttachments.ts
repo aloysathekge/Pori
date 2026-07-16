@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { uploadConversationFile } from '@/api/conversations';
 import type { MessageImage, PendingFile } from '@/types';
 
+export interface StoredFileReference {
+  file_id: string;
+  name: string;
+  size: number;
+}
+
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
 const MAX_FILES = 3;
@@ -181,6 +187,22 @@ export function useAttachments(activeId: string | null) {
     setPendingFiles((prev) => prev.filter((_, idx) => idx !== index));
   }
 
+  function attachStoredFile(reference: StoredFileReference) {
+    setPendingFiles((prev) => {
+      if (prev.some((file) => file.file_id === reference.file_id)) return prev;
+      if (prev.length >= MAX_FILES) return prev;
+      return [
+        ...prev,
+        {
+          key: `stored:${reference.file_id}`,
+          file_id: reference.file_id,
+          name: reference.name,
+          size: reference.size,
+        },
+      ];
+    });
+  }
+
   /** Clear everything staged (called after the send captures the arrays). */
   function resetAttachments() {
     setPendingImages([]);
@@ -191,6 +213,7 @@ export function useAttachments(activeId: string | null) {
     pendingImages,
     pendingFiles,
     addAttachments,
+    attachStoredFile,
     removeImage,
     removeFile,
     resetAttachments,

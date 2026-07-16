@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Activity,
+  BadgeCheck,
   CheckCircle2,
   Circle,
   FileText,
@@ -33,24 +34,23 @@ import {
   updateEventTask,
   workOnEventTask,
   type EventSurfaceResponse,
+  type EventFile,
   type EventTask,
   type EventTrailEntry,
 } from '@/api/events';
-import { ArtifactDrawer } from '@/components/chat/ArtifactDrawer';
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
-import { RunReplay } from '@/components/chat/RunReplay';
 import { ProposalCard } from '@/components/events/ProposalCard';
-import { SurfaceFrame } from '@/components/surfaces/SurfaceFrame';
 import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
+import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/workbench/EventWorkbench';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { useAttachments } from '@/hooks/useAttachments';
+import { useAttachments, type StoredFileReference } from '@/hooks/useAttachments';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
 import type { MessageResponse } from '@/types';
 
-type ContextTab = 'tasks' | 'decisions' | 'files' | 'trail';
-type WorkspaceMode = 'conversation' | 'split' | 'surface';
+type ContextTab = 'tasks' | 'approvals' | 'receipts' | 'files' | 'trail';
+type WorkspaceMode = 'conversation' | 'split' | 'workbench';
 
 const INPUT =
   'w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none';
@@ -74,6 +74,10 @@ function taskCanToggle(status: EventTask['status']) {
 
 export function EventPage() {
   const { eventId = '' } = useParams();
+  return <EventPageWorkspace key={eventId} eventId={eventId} />;
+}
+
+function EventPageWorkspace({ eventId }: { eventId: string }) {
   const [data, setData] = useState<EventSurfaceResponse | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
@@ -82,19 +86,32 @@ export function EventPage() {
   const [trailCursor, setTrailCursor] = useState<string | null | undefined>(undefined);
   const [loadingOlderTrail, setLoadingOlderTrail] = useState(false);
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'reconnecting' | 'stale' | 'offline'>('connecting');
-  const [replayRunId, setReplayRunId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
-  const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [loadingConversation, setLoadingConversation] = useState(true);
-  const [contextOpen, setContextOpen] = useState(true);
+  const [contextOpen, setContextOpen] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:context-open`) !== 'false');
   const [contextTab, setContextTab] = useState<ContextTab>('tasks');
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => {
     const stored = window.localStorage.getItem(`aloy:event:${eventId}:workspace-mode`);
-    return stored === 'split' || stored === 'surface' ? stored : 'conversation';
+    if (stored === 'surface') return 'workbench';
+    return stored === 'split' || stored === 'workbench' ? stored : 'conversation';
   });
   const [splitRatio, setSplitRatio] = useState(() => {
     const stored = Number(window.localStorage.getItem(`aloy:event:${eventId}:split-ratio`));
+    return Number.isFinite(stored) && stored >= 30 && stored <= 70 ? stored : 50;
+  });
+  const [workbenchTabs, setWorkbenchTabs] = useState<WorkbenchTab[]>(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(`aloy:event:${eventId}:workbench-tabs`) || '[]') as WorkbenchTab[];
+      return [SURFACE_TAB, ...stored.filter((tab) => tab.id !== SURFACE_TAB.id)];
+    } catch {
+      return [SURFACE_TAB];
+    }
+  });
+  const [activeWorkbenchTabId, setActiveWorkbenchTabId] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:workbench-active`) || SURFACE_TAB.id);
+  const [showSurfaceAlongside, setShowSurfaceAlongside] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:surface-alongside`) === 'true');
+  const [resourceRatio, setResourceRatio] = useState(() => {
+    const stored = Number(window.localStorage.getItem(`aloy:event:${eventId}:resource-ratio`));
     return Number.isFinite(stored) && stored >= 30 && stored <= 70 ? stored : 50;
   });
   const [error, setError] = useState('');
@@ -115,6 +132,14 @@ export function EventPage() {
     window.localStorage.setItem(`aloy:event:${eventId}:split-ratio`, String(splitRatio));
   }, [eventId, splitRatio]);
 
+  useEffect(() => {
+    window.localStorage.setItem(`aloy:event:${eventId}:context-open`, String(contextOpen));
+    window.localStorage.setItem(`aloy:event:${eventId}:workbench-tabs`, JSON.stringify(workbenchTabs));
+    window.localStorage.setItem(`aloy:event:${eventId}:workbench-active`, activeWorkbenchTabId);
+    window.localStorage.setItem(`aloy:event:${eventId}:surface-alongside`, String(showSurfaceAlongside));
+    window.localStorage.setItem(`aloy:event:${eventId}:resource-ratio`, String(resourceRatio));
+  }, [activeWorkbenchTabId, contextOpen, eventId, resourceRatio, showSurfaceAlongside, workbenchTabs]);
+
   function startResize(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     const workspace = workspaceRef.current;
@@ -130,6 +155,37 @@ export function EventPage() {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop, { once: true });
+  }
+
+  function openWorkbenchTab(tab: WorkbenchTab) {
+    setWorkbenchTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
+    setActiveWorkbenchTabId(tab.id);
+    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'workbench');
+  }
+
+  function openSurface() {
+    openWorkbenchTab(SURFACE_TAB);
+  }
+
+  function openArtifact(path: string) {
+    openWorkbenchTab({
+      id: `artifact:${path}`,
+      kind: 'artifact',
+      label: path.split(/[/\\]/).pop() || path,
+      path,
+    });
+  }
+
+  function closeWorkbenchTab(tabId: string) {
+    if (tabId === SURFACE_TAB.id) return;
+    setWorkbenchTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === tabId);
+      const next = current.filter((tab) => tab.id !== tabId);
+      if (activeWorkbenchTabId === tabId) {
+        setActiveWorkbenchTabId(next[Math.max(0, index - 1)]?.id ?? SURFACE_TAB.id);
+      }
+      return next;
+    });
   }
 
   const loadSurface = useCallback(async () => {
@@ -171,6 +227,7 @@ export function EventPage() {
     addAttachments,
     removeImage,
     removeFile,
+    attachStoredFile,
     resetAttachments,
     uploadsInFlight,
     attachmentsFull,
@@ -207,7 +264,6 @@ export function EventPage() {
     abortStream();
     resetStreamUi();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on canonical conversation change
-    setArtifactPath(null);
     setLoadingConversation(true);
     let cancelled = false;
     getConversation(conversationId)
@@ -409,6 +465,20 @@ export function EventPage() {
     await loadSurface();
   }
 
+  function openFile(file: EventFile) {
+    openWorkbenchTab({ id: `file:${file.id}`, kind: 'file', label: file.name, file });
+  }
+
+  function openReplay(runId: string, taskTitle: string) {
+    openWorkbenchTab({ id: `replay:${runId}`, kind: 'replay', label: `${taskTitle} replay`, runId });
+  }
+
+  function askAloyAboutFile(reference: StoredFileReference) {
+    attachStoredFile(reference);
+    setInput((current) => current || `Help me understand and work with ${reference.name}.`);
+    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'conversation');
+  }
+
   if (!data) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -425,18 +495,18 @@ export function EventPage() {
   const openTasks = tasks.filter(
     (task) => task.status !== 'done' && task.status !== 'cancelled',
   ).length;
+  const receipts = data.surface.execution_groups.flatMap((group) =>
+    group.receipts.map((receipt, index) => ({ receipt, group, id: `${group.id}:${index}` })),
+  );
 
   const tabs: Array<{ id: ContextTab; icon: typeof ListTodo; label: string; count?: number }> = [
     { id: 'tasks', icon: ListTodo, label: 'Tasks', count: openTasks },
-    { id: 'decisions', icon: ShieldCheck, label: 'Decisions', count: data.surface.proposals.length },
+    { id: 'approvals', icon: ShieldCheck, label: 'Approvals', count: data.surface.proposals.length },
+    { id: 'receipts', icon: BadgeCheck, label: 'Receipts', count: receipts.length },
     { id: 'files', icon: FileText, label: 'Files', count: files.length },
     { id: 'trail', icon: Activity, label: 'Trail' },
   ];
   const lastMessage = messages.at(-1);
-
-  function openSurfaceFromConversation() {
-    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'surface');
-  }
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
@@ -463,7 +533,7 @@ export function EventPage() {
             )}
           </div>
           <div className="flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5" aria-label="Event workspace view">
-            {(['conversation', 'split', 'surface'] as const).map((mode) => (
+            {(['conversation', 'split', 'workbench'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -496,7 +566,7 @@ export function EventPage() {
           ref={workspaceRef}
           className={`flex min-h-0 flex-1 ${workspaceMode === 'split' ? 'flex-col md:flex-row' : ''}`}
         >
-        {workspaceMode !== 'surface' && (
+        {workspaceMode !== 'workbench' && (
           <div
             className={`flex min-h-0 min-w-0 flex-col ${workspaceMode === 'split' ? 'flex-none' : 'flex-1'}`}
             style={workspaceMode === 'split' ? { flexBasis: `${splitRatio}%` } : undefined}
@@ -529,7 +599,7 @@ export function EventPage() {
                 onAnswerClarify={answerClarify}
                 approval={approval}
                 onDecideApproval={answerApproval}
-                onOpenArtifact={setArtifactPath}
+                onOpenArtifact={openArtifact}
                 onResend={sending ? undefined : resend}
                 onContinue={sending ? undefined : continueRun}
                 hasOlder={!!messageCursor}
@@ -548,7 +618,7 @@ export function EventPage() {
                       && !approval
                       && lastMessage?.role === 'assistant'
                     }
-                    onOpen={openSurfaceFromConversation}
+                    onOpen={openSurface}
                   />
                 )}
               />
@@ -582,19 +652,30 @@ export function EventPage() {
             type="button"
             onPointerDown={startResize}
             className="group relative hidden w-1 shrink-0 cursor-col-resize bg-zinc-800 transition-colors hover:bg-accent-600 md:block"
-            aria-label="Resize Conversation and Surface"
+            aria-label="Resize Conversation and Workbench"
             title="Drag to resize"
           >
             <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-600 group-hover:bg-white/70" />
           </button>
         )}
 
-        {workspaceMode !== 'conversation' && (
+        {workspaceMode !== 'conversation' && conversationId && (
           <div className="min-h-0 min-w-0 flex-1 border-t border-zinc-800 md:border-t-0">
-            <SurfaceFrame
+            <EventWorkbench
               eventId={eventId}
               eventTitle={data.event.title}
+              conversationId={conversationId}
               refreshKey={activity[0]?.id}
+              tabs={workbenchTabs}
+              activeTabId={activeWorkbenchTabId}
+              onSelectTab={setActiveWorkbenchTabId}
+              onCloseTab={closeWorkbenchTab}
+              onDismiss={() => setWorkspaceMode('conversation')}
+              onAskAloy={askAloyAboutFile}
+              showSurfaceAlongside={showSurfaceAlongside}
+              onToggleSurfaceAlongside={() => setShowSurfaceAlongside((value) => !value)}
+              resourceRatio={resourceRatio}
+              onResourceRatioChange={setResourceRatio}
             />
           </div>
         )}
@@ -613,7 +694,7 @@ export function EventPage() {
             </button>
           </div>
 
-          <div className="grid shrink-0 grid-cols-4 border-b border-zinc-800 px-2">
+          <div className="grid shrink-0 grid-cols-5 border-b border-zinc-800 px-2">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -701,20 +782,38 @@ export function EventPage() {
               </div>
             )}
 
-            {contextTab === 'decisions' && (
+            {contextTab === 'approvals' && (
               <div className="space-y-3">
                 {data.surface.proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onDecision={(decision) => decide(proposal.id, decision)} />)}
                 {data.surface.proposals.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Nothing needs your decision.</p>}
               </div>
             )}
 
+            {contextTab === 'receipts' && (
+              <div className="space-y-3">
+                {receipts.map(({ receipt, group, id }) => (
+                  <article key={id} className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                    <div className="flex items-start gap-2.5">
+                      <BadgeCheck size={17} className="mt-0.5 shrink-0 text-emerald-500" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-200">{String(receipt.action || receipt.type || receipt.status || 'Committed action')}</p>
+                        <p className="mt-1 text-xs text-zinc-500">{group.task_title} · {when(group.created_at)}</p>
+                        <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-950/70 p-2 font-mono text-[10px] leading-4 text-zinc-500">{JSON.stringify(receipt, null, 2)}</pre>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+                {receipts.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No committed receipts yet.</p>}
+              </div>
+            )}
+
             {contextTab === 'files' && (
               <div className="space-y-2">
                 {files.map((file) => (
-                  <div key={file.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+                  <button type="button" key={file.id} onClick={() => openFile(file)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900">
                     <FileText size={17} className="shrink-0 text-zinc-500" />
                     <div className="min-w-0"><p className="truncate text-sm text-zinc-300">{file.name}</p><p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p></div>
-                  </div>
+                  </button>
                 ))}
                 {files.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No Event files yet.</p>}
               </div>
@@ -741,9 +840,9 @@ export function EventPage() {
                         </div>
                       ))}
                       <div className="flex flex-wrap gap-3 text-xs">
-                        <button type="button" onClick={() => setReplayRunId(group.run_id)} className="text-accent-700 hover:text-accent-600">Open Run replay</button>
+                        <button type="button" onClick={() => openReplay(group.run_id, group.task_title)} className="text-accent-700 hover:text-accent-600">Open Run replay</button>
                         {group.conversation_id && <Link to={`/chat/${group.conversation_id}`} className="text-zinc-400 hover:text-zinc-200">Origin conversation</Link>}
-                        {!!group.artifacts.length && <span className="text-zinc-500">{group.artifacts.length} artifact{group.artifacts.length === 1 ? '' : 's'}</span>}
+                        {group.artifacts.map((artifact) => <button type="button" key={artifact.id} onClick={() => openFile(artifact)} className="text-zinc-400 hover:text-zinc-200">{artifact.name}</button>)}
                         {!!group.proposals.length && <span className="text-zinc-500">{group.proposals.length} proposal{group.proposals.length === 1 ? '' : 's'}</span>}
                         {!!group.receipts.length && <span className="text-emerald-600">{group.receipts.length} receipt{group.receipts.length === 1 ? '' : 's'}</span>}
                       </div>
@@ -772,8 +871,18 @@ export function EventPage() {
         </aside>
       )}
 
-      {artifactPath && conversationId && <ArtifactDrawer conversationId={conversationId} openPath={artifactPath} onClose={() => setArtifactPath(null)} />}
-      {replayRunId && <RunReplay runId={replayRunId} onClose={() => setReplayRunId(null)} />}
+      {!contextOpen && (
+        <aside className="hidden w-12 shrink-0 flex-col items-center border-l border-zinc-800 bg-zinc-900 py-2 xl:flex" aria-label="Collapsed Event context">
+          <button type="button" onClick={() => setContextOpen(true)} className="mb-2 rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Open Event context" aria-label="Open Event context"><PanelRightOpen size={17} /></button>
+          <div className="h-px w-7 bg-zinc-800" />
+          {tabs.map((tab) => (
+            <button key={tab.id} type="button" onClick={() => { setContextTab(tab.id); setContextOpen(true); }} className="relative mt-2 rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title={tab.label} aria-label={`Open ${tab.label}`}>
+              <tab.icon size={16} />
+              {!!tab.count && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-accent-700 px-1 text-center text-[9px] font-semibold text-white">{tab.count}</span>}
+            </button>
+          ))}
+        </aside>
+      )}
     </div>
   );
 }

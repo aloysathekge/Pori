@@ -69,9 +69,10 @@ export function AppLayout() {
   const navigate = useNavigate();
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPeek, setSidebarPeek] = useState(false);
   const [actionError, setActionError] = useState('');
   const [expanded, setExpanded] = useState(
-    () => localStorage.getItem('aloy.nav') !== 'slim',
+    () => !['slim', 'auto'].includes(localStorage.getItem('aloy.nav') || ''),
   );
 
   useEffect(() => {
@@ -88,12 +89,13 @@ export function AppLayout() {
 
   function toggleExpanded() {
     setExpanded((value) => {
-      localStorage.setItem('aloy.nav', value ? 'slim' : 'full');
+      localStorage.setItem('aloy.nav', value ? 'auto' : 'full');
+      setSidebarPeek(value);
       return !value;
     });
   }
 
-  const compact = !expanded;
+  const compact = false;
   const closeMobile = () => setSidebarOpen(false);
   const dedicatedEvents = events.filter((event) => !event.is_life);
 
@@ -124,10 +126,19 @@ export function AppLayout() {
         />
       )}
 
+      {!expanded && (
+        <div
+          className="fixed inset-y-0 left-0 z-30 hidden w-3 lg:block"
+          onMouseEnter={() => setSidebarPeek(true)}
+          aria-hidden="true"
+        />
+      )}
+
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width,transform] duration-200 lg:static lg:translate-x-0 ${
+        onMouseLeave={() => { if (!expanded) setSidebarPeek(false); }}
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zinc-800 bg-zinc-950 transition-transform duration-200 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${expanded ? 'lg:w-72' : 'lg:w-[68px]'}`}
+        } ${expanded ? 'lg:static lg:translate-x-0' : sidebarPeek ? 'lg:fixed lg:translate-x-0 lg:shadow-2xl' : 'lg:fixed lg:-translate-x-full'}`}
       >
         <div className={`flex h-14 shrink-0 items-center border-b border-zinc-800 ${compact ? 'justify-center px-2' : 'px-4'}`}>
           <AloyMark size={25} />
@@ -239,12 +250,12 @@ export function AppLayout() {
             type="button"
             onClick={toggleExpanded}
             className={`hidden min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 lg:flex ${compact ? 'justify-center' : ''}`}
-            title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            title={expanded ? 'Auto-hide sidebar' : 'Keep sidebar open'}
           >
             {expanded ? <PanelLeftClose size={17} /> : <ChevronRight size={17} />}
-            {!compact && <span>Collapse</span>}
+            {!compact && <span>{expanded ? 'Auto-hide' : 'Keep open'}</span>}
           </button>
-          <ThemeToggle expanded={expanded} />
+          <ThemeToggle expanded />
           <Button
             variant="ghost"
             className={`w-full gap-2.5 text-zinc-400 ${compact ? 'justify-center' : 'justify-start'}`}
