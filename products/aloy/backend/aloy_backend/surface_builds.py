@@ -1,0 +1,492 @@
+"""Durable orchestration for deterministic validation and isolated builds."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import io
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
+
+from pori import RunContext
+
+from .database import async_session
+from .models import (
+    Event,
+    EventTrailEntry,
+    SurfaceBuild,
+    SurfaceProject,
+    SurfaceRevision,
+)
+from .storage import ObjectStore, get_object_store, surface_bundle_key
+from .surface_authoring import SurfaceAuthoringError, SurfaceConflictError
+from .surface_build_runner import (
+    MAX_SURFACE_BUILD_LOG_CHARS,
+    MAX_SURFACE_BUNDLE_BYTES,
+    SurfaceBuildRunner,
+    SurfaceBuildRunnerResult,
+    configured_surface_build_runner,
+    validate_surface_source,
+)
+
+
+class SurfaceBuildParams(BaseModel):
+    revision_id: str = Field(min_length=1, max_length=200)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+    @field_validator("revision_id", "idempotency_key")
+    @classmethod
+    def validate_trimmed(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("Surface build identifiers must be trimmed")
+        return value
+
+
+class SurfacePreviewParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    build_id: str | None = Field(default=None, max_length=200)
+
+
+def _build_fingerprint(revision: SurfaceRevision, toolchain_version: str) -> str:
+    encoded = json.dumps(
+        {
+            "revision_id": revision.id,
+            "source_checksum": revision.checksum,
+            "toolchain_version": toolchain_version,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _public_preview_artifacts(values: list[dict]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for value in values[:50]:
+        if not isinstance(value, dict):
+            continue
+        try:
+            size_bytes = max(0, int(value.get("size_bytes") or 0))
+        except (TypeError, ValueError):
+            size_bytes = 0
+        artifact = {
+            "kind": str(value.get("kind") or "preview"),
+            "name": str(value.get("name") or "")[:200],
+            "content_type": str(value.get("content_type") or "")[:200],
+            "sha256": str(value.get("sha256") or "")[:128],
+            "size_bytes": size_bytes,
+        }
+        artifacts.append(artifact)
+    return artifacts
+
+
+def surface_build_payload(
+    build: SurfaceBuild,
+    *,
+    include_log: bool,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": build.id,
+        "event_id": build.event_id,
+        "project_id": build.project_id,
+        "revision_id": build.revision_id,
+        "creator_run_id": build.creator_run_id,
+        "status": build.status,
+        "source_checksum": build.source_checksum,
+        "toolchain_version": build.toolchain_version,
+        "validation_result": build.validation_result,
+        "diagnostics": build.diagnostics,
+        "bundle_available": bool(build.bundle_key),
+        "bundle_sha256": build.bundle_sha256,
+        "bundle_size_bytes": build.bundle_size_bytes,
+        "preview_artifacts": build.preview_artifacts,
+        "resource_metrics": build.resource_metrics,
+        "created_at": build.created_at,
+        "started_at": build.started_at,
+        "completed_at": build.completed_at,
+    }
+    if include_log:
+        payload["build_log"] = build.build_log
+    return payload
+
+
+async def _owned_project(
+    session: AsyncSession,
+    *,
+    organization_id: str,
+    user_id: str,
+    event_id: str,
+) -> SurfaceProject | None:
+    result = await session.execute(
+        select(SurfaceProject).where(
+            SurfaceProject.organization_id == organization_id,
+            SurfaceProject.user_id == user_id,
+            SurfaceProject.event_id == event_id,
+        )
+    )
+    return result.scalars().first()
+
+
+async def _owned_build(
+    session: AsyncSession,
+    build_id: str,
+    *,
+    organization_id: str,
+    user_id: str,
+    event_id: str,
+    project_id: str,
+) -> SurfaceBuild | None:
+    result = await session.execute(
+        select(SurfaceBuild).where(
+            SurfaceBuild.id == build_id,
+            SurfaceBuild.organization_id == organization_id,
+            SurfaceBuild.user_id == user_id,
+            SurfaceBuild.event_id == event_id,
+            SurfaceBuild.project_id == project_id,
+        )
+    )
+    return result.scalars().first()
+
+
+class SurfaceBuildHandler:
+    """Build immutable Surface source on behalf of one authenticated Run."""
+
+    def __init__(
+        self,
+        *,
+        run_context: RunContext,
+        runner: SurfaceBuildRunner | None = None,
+        object_store: ObjectStore | None = None,
+        session_factory: Any = async_session,
+        owner_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
+        self._run_context = run_context
+        self._runner = runner or configured_surface_build_runner()
+        # Resolve storage only if a successful build actually has a bundle to
+        # retain. Merely assembling a Surface Builder run stays side-effect free.
+        self._object_store = object_store
+        self._session_factory = session_factory
+        self._owner_loop = owner_loop
+
+    async def _on_owner_loop(self, coroutine):
+        current = asyncio.get_running_loop()
+        if self._owner_loop is None or self._owner_loop is current:
+            return await coroutine
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._owner_loop)
+        return await asyncio.wrap_future(future)
+
+    async def _event_and_project(
+        self,
+        session: AsyncSession,
+    ) -> tuple[Event, SurfaceProject]:
+        event_id = self._run_context.event_id
+        if not event_id:
+            raise SurfaceAuthoringError("Event identity is required")
+        event = await session.get(Event, event_id)
+        if (
+            event is None
+            or event.organization_id != self._run_context.organization_id
+            or event.user_id != self._run_context.user_id
+        ):
+            raise SurfaceAuthoringError("Event is unavailable")
+        project = await _owned_project(
+            session,
+            organization_id=event.organization_id,
+            user_id=event.user_id,
+            event_id=event.id,
+        )
+        if project is None:
+            raise SurfaceAuthoringError("Surface project is unavailable")
+        return event, project
+
+    async def _build(self, params: SurfaceBuildParams) -> dict[str, Any]:
+        async with self._session_factory() as session:
+            event, project = await self._event_and_project(session)
+            revision_result = await session.execute(
+                select(SurfaceRevision).where(
+                    SurfaceRevision.id == params.revision_id,
+                    SurfaceRevision.organization_id == event.organization_id,
+                    SurfaceRevision.user_id == event.user_id,
+                    SurfaceRevision.event_id == event.id,
+                    SurfaceRevision.project_id == project.id,
+                )
+            )
+            revision = revision_result.scalars().first()
+            if revision is None:
+                raise SurfaceAuthoringError("Surface revision is unavailable")
+            request_fingerprint = _build_fingerprint(
+                revision, self._runner.toolchain_version
+            )
+            replay_result = await session.execute(
+                select(SurfaceBuild).where(
+                    SurfaceBuild.project_id == project.id,
+                    SurfaceBuild.organization_id == event.organization_id,
+                    SurfaceBuild.user_id == event.user_id,
+                    SurfaceBuild.idempotency_key == params.idempotency_key,
+                )
+            )
+            replay = replay_result.scalars().first()
+            if replay is not None:
+                if replay.request_fingerprint != request_fingerprint:
+                    raise SurfaceConflictError(
+                        "idempotency_key was already used for a different build"
+                    )
+                payload = surface_build_payload(replay, include_log=True)
+                payload["replayed"] = True
+                return payload
+
+            files = {
+                str(path): str(content)
+                for path, content in dict(revision.files).items()
+            }
+            manifest = dict(revision.manifest)
+            diagnostics = validate_surface_source(files, manifest)
+            now = datetime.now(timezone.utc)
+            build = SurfaceBuild(
+                organization_id=event.organization_id,
+                user_id=event.user_id,
+                event_id=event.id,
+                project_id=project.id,
+                revision_id=revision.id,
+                creator_run_id=self._run_context.run_id,
+                idempotency_key=params.idempotency_key,
+                request_fingerprint=request_fingerprint,
+                status="failed" if diagnostics else "building",
+                source_checksum=revision.checksum,
+                toolchain_version=self._runner.toolchain_version,
+                validation_result={
+                    "passed": not diagnostics,
+                    "checked_at": now.isoformat(),
+                },
+                diagnostics=diagnostics,
+                started_at=now,
+                completed_at=now if diagnostics else None,
+            )
+            session.add(build)
+            if diagnostics:
+                session.add(
+                    self._trail_entry(
+                        event=event,
+                        build=build,
+                        summary="Surface build rejected by deterministic validation",
+                    )
+                )
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise SurfaceConflictError(
+                    "Surface build was created concurrently; inspect builds and retry"
+                ) from exc
+            if diagnostics:
+                payload = surface_build_payload(build, include_log=True)
+                payload["replayed"] = False
+                return payload
+
+        try:
+            runner_result = await self._runner.build(
+                build_id=build.id,
+                files=files,
+                manifest=manifest,
+            )
+        except Exception as exc:
+            runner_result = SurfaceBuildRunnerResult(
+                status="failed",
+                diagnostics=[
+                    {
+                        "code": "builder_exception",
+                        "severity": "error",
+                        "message": f"Isolated builder failed: {exc}",
+                        "path": None,
+                        "line": None,
+                    }
+                ],
+            )
+
+        status = runner_result.status
+        result_diagnostics = list(runner_result.diagnostics)
+        bundle_key: str | None = None
+        bundle_sha256: str | None = None
+        bundle_size = 0
+        if status == "succeeded":
+            if runner_result.bundle is None:
+                status = "failed"
+                result_diagnostics.append(
+                    {
+                        "code": "missing_bundle",
+                        "severity": "error",
+                        "message": "The isolated builder returned no bundle",
+                        "path": None,
+                        "line": None,
+                    }
+                )
+            elif len(runner_result.bundle) > MAX_SURFACE_BUNDLE_BYTES:
+                status = "failed"
+                result_diagnostics.append(
+                    {
+                        "code": "bundle_too_large",
+                        "severity": "error",
+                        "message": (
+                            "Surface bundle exceeds "
+                            f"{MAX_SURFACE_BUNDLE_BYTES} bytes"
+                        ),
+                        "path": None,
+                        "line": None,
+                    }
+                )
+            else:
+                bundle_size = len(runner_result.bundle)
+                bundle_sha256 = hashlib.sha256(runner_result.bundle).hexdigest()
+                bundle_key = surface_bundle_key(
+                    event.organization_id,
+                    event.id,
+                    build.id,
+                    bundle_sha256,
+                )
+                try:
+                    object_store = self._object_store or get_object_store()
+                    await asyncio.to_thread(
+                        object_store.put,
+                        bundle_key,
+                        io.BytesIO(runner_result.bundle),
+                        content_type="application/zip",
+                    )
+                except Exception as exc:
+                    status = "failed"
+                    bundle_key = None
+                    bundle_sha256 = None
+                    bundle_size = 0
+                    result_diagnostics.append(
+                        {
+                            "code": "bundle_storage_failed",
+                            "severity": "error",
+                            "message": f"Surface bundle could not be retained: {exc}",
+                            "path": None,
+                            "line": None,
+                        }
+                    )
+
+        async with self._session_factory() as session:
+            event, project = await self._event_and_project(session)
+            persisted = await _owned_build(
+                session,
+                build.id,
+                organization_id=event.organization_id,
+                user_id=event.user_id,
+                event_id=event.id,
+                project_id=project.id,
+            )
+            if persisted is None:
+                raise SurfaceAuthoringError("Surface build record disappeared")
+            persisted.status = status
+            persisted.diagnostics = result_diagnostics
+            persisted.build_log = runner_result.build_log[-MAX_SURFACE_BUILD_LOG_CHARS:]
+            persisted.bundle_key = bundle_key
+            persisted.bundle_sha256 = bundle_sha256
+            persisted.bundle_size_bytes = bundle_size
+            persisted.preview_artifacts = _public_preview_artifacts(
+                runner_result.preview_artifacts
+            )
+            persisted.resource_metrics = dict(runner_result.resource_metrics)
+            persisted.completed_at = datetime.now(timezone.utc)
+            session.add(persisted)
+            session.add(
+                self._trail_entry(
+                    event=event,
+                    build=persisted,
+                    summary=(
+                        "Surface build completed"
+                        if status == "succeeded"
+                        else f"Surface build {status}"
+                    ),
+                )
+            )
+            await session.commit()
+            await session.refresh(persisted)
+            payload = surface_build_payload(persisted, include_log=True)
+            payload["replayed"] = False
+            return payload
+
+    def _trail_entry(
+        self,
+        *,
+        event: Event,
+        build: SurfaceBuild,
+        summary: str,
+    ) -> EventTrailEntry:
+        evidence = [{"surface_build_id": build.id}]
+        if build.bundle_sha256:
+            evidence.append({"bundle_sha256": build.bundle_sha256})
+        return EventTrailEntry(
+            organization_id=event.organization_id,
+            user_id=event.user_id,
+            event_id=event.id,
+            actor_id=self._run_context.agent_id,
+            kind="surface_build_finished",
+            summary=summary,
+            run_id=self._run_context.run_id,
+            evidence_refs=evidence,
+            payload={
+                "project_id": build.project_id,
+                "revision_id": build.revision_id,
+                "build_id": build.id,
+                "status": build.status,
+            },
+        )
+
+    async def build(self, params: SurfaceBuildParams) -> dict[str, Any]:
+        return await self._on_owner_loop(self._build(params))
+
+    async def _preview(self, params: SurfacePreviewParams) -> dict[str, Any]:
+        async with self._session_factory() as session:
+            event, project = await self._event_and_project(session)
+            if params.build_id:
+                build = await _owned_build(
+                    session,
+                    params.build_id,
+                    organization_id=event.organization_id,
+                    user_id=event.user_id,
+                    event_id=event.id,
+                    project_id=project.id,
+                )
+            else:
+                result = await session.execute(
+                    select(SurfaceBuild)
+                    .where(
+                        SurfaceBuild.organization_id == event.organization_id,
+                        SurfaceBuild.user_id == event.user_id,
+                        SurfaceBuild.event_id == event.id,
+                        SurfaceBuild.project_id == project.id,
+                    )
+                    .order_by(col(SurfaceBuild.created_at).desc())
+                    .limit(1)
+                )
+                build = result.scalars().first()
+            if build is None:
+                raise SurfaceAuthoringError("Surface build is unavailable")
+            payload = surface_build_payload(build, include_log=True)
+            payload["preview_ready"] = build.status == "succeeded"
+            payload["execution_available"] = False
+            payload["message"] = (
+                "Preview artifacts are retained but executable hosting is not "
+                "enabled in this phase"
+            )
+            return payload
+
+    async def preview(self, params: SurfacePreviewParams) -> dict[str, Any]:
+        return await self._on_owner_loop(self._preview(params))
+
+
+__all__ = [
+    "SurfaceBuildHandler",
+    "SurfaceBuildParams",
+    "SurfacePreviewParams",
+    "surface_build_payload",
+]

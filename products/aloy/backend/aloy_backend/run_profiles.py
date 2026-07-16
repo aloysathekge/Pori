@@ -3,7 +3,10 @@
 from pori import RunProfile
 
 from .skills import SURFACE_BUILDER_SKILL_ID
+from .tools.surface_builds import SURFACE_BUILD_TOOL_NAMES
 from .tools.surfaces import SURFACE_AUTHORING_TOOL_NAMES
+
+SURFACE_BUILDER_REQUIRED_TOOLS = SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES
 
 SURFACE_BUILDER_ALLOWED_TOOLS = frozenset(
     {
@@ -11,7 +14,7 @@ SURFACE_BUILDER_ALLOWED_TOOLS = frozenset(
         "list_directory",
         "read_file",
         "write_file",
-        *SURFACE_AUTHORING_TOOL_NAMES,
+        *SURFACE_BUILDER_REQUIRED_TOOLS,
     }
 )
 
@@ -25,10 +28,14 @@ SURFACE_BUILDER_RUN_PROFILE = RunProfile(
         "and never bypass validation, preview, approval, or publication rails."
     ),
     allowed_tools=SURFACE_BUILDER_ALLOWED_TOOLS,
-    required_tools=SURFACE_AUTHORING_TOOL_NAMES,
+    required_tools=SURFACE_BUILDER_REQUIRED_TOOLS,
     required_skill_ids=frozenset({SURFACE_BUILDER_SKILL_ID}),
     required_model_capabilities=frozenset({"tools"}),
 )
 
 
-__all__ = ["SURFACE_BUILDER_ALLOWED_TOOLS", "SURFACE_BUILDER_RUN_PROFILE"]
+__all__ = [
+    "SURFACE_BUILDER_ALLOWED_TOOLS",
+    "SURFACE_BUILDER_REQUIRED_TOOLS",
+    "SURFACE_BUILDER_RUN_PROFILE",
+]

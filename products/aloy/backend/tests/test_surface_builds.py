@@ -1,0 +1,422 @@
+from __future__ import annotations
+
+import hashlib
+import importlib
+import io
+
+import pytest
+import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import create_engine, inspect
+from sqlmodel import select
+
+from aloy_backend.models import EventTrailEntry, SurfaceBuild, SurfaceProject
+from aloy_backend.runtime import authenticated_run_context
+from aloy_backend.surface_authoring import (
+    SurfaceAuthoringHandler,
+    SurfaceConflictError,
+    SurfaceWriteFilesParams,
+)
+from aloy_backend.surface_build_runner import (
+    MAX_SURFACE_BUNDLE_BYTES,
+    SURFACE_TOOLCHAIN_VERSION,
+    SandboxSurfaceBuildRunner,
+    SurfaceBuildRunnerResult,
+    UnavailableSurfaceBuildRunner,
+    validate_surface_source,
+)
+from aloy_backend.surface_builds import (
+    SurfaceBuildHandler,
+    SurfaceBuildParams,
+    SurfacePreviewParams,
+)
+from pori.sandbox.local import LocalSandboxProvider
+
+
+class FakeBuildRunner:
+    toolchain_version = SURFACE_TOOLCHAIN_VERSION
+
+    def __init__(self, result: SurfaceBuildRunnerResult):
+        self.result = result
+        self.calls: list[dict] = []
+
+    async def build(self, *, build_id, files, manifest):
+        self.calls.append({"build_id": build_id, "files": files, "manifest": manifest})
+        return self.result
+
+
+class MemoryObjectStore:
+    def __init__(self):
+        self.values: dict[str, bytes] = {}
+
+    def put(self, key, data, *, content_type):
+        del content_type
+        value = data.read()
+        self.values[key] = value
+        return len(value)
+
+    def open(self, key):
+        return io.BytesIO(self.values[key])
+
+    def delete(self, key):
+        self.values.pop(key, None)
+
+    def url(self, key, *, expires_s=300):
+        del key, expires_s
+        return None
+
+
+async def _create_event(client, title: str = "University") -> dict:
+    response = await client.post(
+        "/v1/events",
+        json={"title": title, "summary": "Persistent Event", "phase": "active"},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _run_context(event_id: str, *, user_id: str = "test-user"):
+    return authenticated_run_context(
+        user_id=user_id,
+        organization_id=f"user:{user_id}",
+        run_id=f"run-build-{user_id}",
+        session_id=f"session-build-{user_id}",
+        event_id=event_id,
+        workspace_id=event_id,
+        agent_id="surface-builder",
+    )
+
+
+async def _author_revision(event_id: str, session_factory, *, content: str) -> str:
+    handler = SurfaceAuthoringHandler(
+        run_context=_run_context(event_id),
+        session_factory=session_factory,
+    )
+    result = await handler.write(
+        SurfaceWriteFilesParams(
+            expected_revision=None,
+            idempotency_key="author-source-0001",
+            patches=[
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "content": content,
+                }
+            ],
+        )
+    )
+    return result["draft"]["id"]
+
+
+def test_surface_source_validation_is_deterministic_and_sdk_scoped():
+    manifest = {"entrypoint": "/src/App.tsx", "sdk_version": "1"}
+    valid = {
+        "/src/App.tsx": (
+            'import React from "react";\n'
+            'import { intent } from "@aloy/surface";\n'
+            "const parent = 'course';\n"
+            "export default () => <main>{parent}</main>;\n"
+        )
+    }
+    assert validate_surface_source(valid, manifest) == []
+
+    invalid = {
+        "/src/App.tsx": (
+            'import Map from "unapproved-map-sdk";\n'
+            "fetch('https://example.com');\n"
+            "window.parent.postMessage('escape', '*');\n"
+        ),
+        "/src/styles.css": (
+            '@import "https://example.com/theme.css";\n'
+            "main { background: url(//example.com/image.png); }"
+        ),
+    }
+    diagnostics = validate_surface_source(invalid, manifest)
+    assert {
+        "undeclared_import",
+        "direct_network",
+        "host_escape",
+        "css_import",
+        "external_asset",
+    } <= {item["code"] for item in diagnostics}
+    assert all(item["line"] is not None for item in diagnostics)
+    assert diagnostics == validate_surface_source(invalid, manifest)
+
+
+async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client)
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content='import React from "react"; export default () => <main>Courses</main>',
+    )
+    bundle = b"surface-bundle"
+    runner = FakeBuildRunner(
+        SurfaceBuildRunnerResult(
+            status="succeeded",
+            bundle=bundle,
+            build_log="compiled cleanly",
+            preview_artifacts=[
+                {
+                    "kind": "entry",
+                    "name": "index.js",
+                    "content_type": "text/javascript",
+                    "sha256": "abc",
+                    "size_bytes": "14",
+                },
+                {"kind": "bad-size", "size_bytes": "not-an-int"},
+            ],
+            resource_metrics={"duration_ms": 12},
+        )
+    )
+    store = MemoryObjectStore()
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=runner,
+        object_store=store,
+        session_factory=db_session_maker,
+    )
+
+    built = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-university-0001",
+        )
+    )
+    assert built["status"] == "succeeded", built
+    assert built["bundle_available"] is True
+    assert built["bundle_sha256"] == hashlib.sha256(bundle).hexdigest()
+    assert built["bundle_size_bytes"] == len(bundle)
+    assert built["preview_artifacts"][1]["size_bytes"] == 0
+    assert "bundle_key" not in built
+
+    replay = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-university-0001",
+        )
+    )
+    assert replay["replayed"] is True
+    assert len(runner.calls) == 1
+
+    preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
+    assert preview["preview_ready"] is True
+    assert preview["execution_available"] is False
+
+    async with db_session_maker() as session:
+        persisted = await session.get(SurfaceBuild, built["id"])
+        assert persisted is not None
+        assert persisted.bundle_key is not None
+        with store.open(persisted.bundle_key) as retained:
+            assert retained.read() == bundle
+        trail = list(
+            (
+                await session.execute(
+                    select(EventTrailEntry).where(
+                        EventTrailEntry.event_id == event["id"],
+                        EventTrailEntry.kind == "surface_build_finished",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(trail) == 1
+        assert trail[0].payload["status"] == "succeeded"
+
+    listed = await client.get(f"/v1/events/{event['id']}/surface/builds")
+    fetched = await client.get(f"/v1/events/{event['id']}/surface/builds/{built['id']}")
+    denied = await client.get(
+        f"/v1/events/{event['id']}/surface/builds/{built['id']}",
+        headers={"X-Test-User": "other-user"},
+    )
+    assert listed.status_code == 200
+    assert fetched.status_code == 200
+    assert denied.status_code == 404
+    for payload in [listed.json()[0], fetched.json()]:
+        assert "bundle_key" not in payload
+        assert "build_log" not in payload
+
+
+async def test_surface_build_rejects_source_before_runner_execution(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Madrid")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content="export default () => { fetch('/secret'); return <main>Madrid</main> }",
+    )
+    runner = FakeBuildRunner(
+        SurfaceBuildRunnerResult(status="succeeded", bundle=b"must-not-run")
+    )
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=runner,
+        object_store=MemoryObjectStore(),
+        session_factory=db_session_maker,
+    )
+
+    result = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-madrid-0001",
+        )
+    )
+    assert result["status"] == "failed"
+    assert result["bundle_available"] is False
+    assert {item["code"] for item in result["diagnostics"]} == {"direct_network"}
+    assert runner.calls == []
+
+
+async def test_surface_build_is_blocked_without_isolation_and_rejects_large_bundle(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Career OS")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content="export default () => <main>Jobs</main>",
+    )
+    unavailable = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=UnavailableSurfaceBuildRunner(),
+        session_factory=db_session_maker,
+    )
+    blocked = await unavailable.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-career-blocked-0001",
+        )
+    )
+    assert blocked["status"] == "blocked"
+    assert blocked["diagnostics"][0]["code"] == "isolated_builder_unavailable"
+
+    oversized = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=FakeBuildRunner(
+            SurfaceBuildRunnerResult(
+                status="succeeded",
+                bundle=b"x" * (MAX_SURFACE_BUNDLE_BYTES + 1),
+            )
+        ),
+        object_store=MemoryObjectStore(),
+        session_factory=db_session_maker,
+    )
+    failed = await oversized.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-career-large-0001",
+        )
+    )
+    assert failed["status"] == "failed"
+    assert failed["diagnostics"][0]["code"] == "bundle_too_large"
+    assert failed["bundle_available"] is False
+
+    with pytest.raises(ValueError, match="cannot build generated Surfaces"):
+        SandboxSurfaceBuildRunner(LocalSandboxProvider())
+
+
+async def test_surface_build_idempotency_key_cannot_cross_revisions(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Timetable")
+    author = SurfaceAuthoringHandler(
+        run_context=_run_context(event["id"]),
+        session_factory=db_session_maker,
+    )
+    first = await author.write(
+        SurfaceWriteFilesParams(
+            expected_revision=None,
+            idempotency_key="author-timetable-0001",
+            patches=[
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "content": "export default () => <main>One</main>",
+                }
+            ],
+        )
+    )
+    second = await author.write(
+        SurfaceWriteFilesParams(
+            expected_revision=first["draft"]["id"],
+            idempotency_key="author-timetable-0002",
+            patches=[
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "content": "export default () => <main>Two</main>",
+                }
+            ],
+        )
+    )
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=FakeBuildRunner(
+            SurfaceBuildRunnerResult(status="succeeded", bundle=b"bundle")
+        ),
+        object_store=MemoryObjectStore(),
+        session_factory=db_session_maker,
+    )
+    await handler.build(
+        SurfaceBuildParams(
+            revision_id=first["draft"]["id"],
+            idempotency_key="same-build-key-0001",
+        )
+    )
+    with pytest.raises(SurfaceConflictError, match="different build"):
+        await handler.build(
+            SurfaceBuildParams(
+                revision_id=second["draft"]["id"],
+                idempotency_key="same-build-key-0001",
+            )
+        )
+
+
+def test_surface_build_migration_creates_and_removes_build_table(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'surface-build-migration.db'}")
+    metadata = sa.MetaData()
+    sa.Table("events", metadata, sa.Column("id", sa.String(), primary_key=True))
+    sa.Table(
+        "surface_projects",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+    )
+    sa.Table(
+        "surface_revisions",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+    )
+    metadata.create_all(engine)
+
+    with engine.begin() as connection:
+        migration = importlib.import_module(
+            "aloy_backend.alembic.versions.y1b2c3d4e5f6_surface_builds"
+        )
+        original_op = migration.op
+        migration.op = Operations(MigrationContext.configure(connection))
+        try:
+            migration.upgrade()
+            assert "surface_builds" in set(inspect(connection).get_table_names())
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("surface_builds")
+            }
+            assert {
+                "idempotency_key",
+                "toolchain_version",
+                "validation_result",
+                "diagnostics",
+                "bundle_key",
+                "preview_artifacts",
+            } <= columns
+            migration.downgrade()
+            assert "surface_builds" not in set(inspect(connection).get_table_names())
+        finally:
+            migration.op = original_op
+    engine.dispose()

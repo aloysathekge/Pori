@@ -31,7 +31,8 @@ The filesystem foundation was merged into `aloy-v1` as PR #174 at merge commit
 `f5e9831ff02081ea4ee222b15bc3cd662efac1d1`. It provides typed, deny-by-default
 virtual mounts without adopting host-filesystem or local-shell backends.
 
-R5 is active on `aloy-v1-r5-surface-persistence`. Aloy now has one tenant-
+Surface persistence was merged into `aloy-v1` as PR #175 at merge commit
+`6aac2d78068e4dd5713b5c41ef9901258e8b949c`. Aloy now has one tenant-
 scoped `surface_project` per Event and immutable source/manifest revisions with
 parent lineage, exact checksums, creator Run provenance, optimistic draft
 claims, idempotent mutation keys, file/source limits, and user lock state. The
@@ -41,8 +42,23 @@ projection and run-local `/workspace` seeded from the durable draft. Public
 clients can read project/revision metadata but not source contents; there is no
 public source-mutation route. Every committed draft adds a semantic Trail row.
 
-Next implement isolated build + diagnostics + preview artifacts, then iframe
-hosting, SDK + interaction transport, the independent Critic, publication,
+R5 build/preview is implemented on `aloy-v1-r5-surface-build-preview`. Each
+immutable revision can produce an idempotent durable `surface_build` with
+deterministic source checks, retained diagnostics/logs/metrics, a content-
+addressed bundle pointer, preview artifact metadata, and a semantic Trail row.
+Generated source runs only through a fixed Aloy toolchain contract in a non-
+local sandbox provider; absent isolation returns `blocked` and never falls back
+to a host subprocess. Public tenant-scoped reads expose safe metadata but never
+the object-store key, source, build log, or executable bundle. `surface_preview`
+currently inspects metadata only: executable iframe hosting is intentionally
+the next security boundary.
+
+Verification for build/preview: all 274 Aloy backend tests pass; the focused
+16-test Surface suite passes; backend mypy is clean across 94 source files; and
+backend Black/isort checks pass.
+
+Next implement the sandboxed iframe host and immutable bundle delivery, then
+SDK + interaction transport, the independent Critic, publication,
 and the two proofs. §13 of the Surface spec also locks the design brief,
 design system, screenshot states, deterministic audit, independent Critic,
 user-job simulation, bounded repair, user control, scorecard, and last-good
