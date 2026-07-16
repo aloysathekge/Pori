@@ -9,8 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
-from pori.sandbox import SandboxProvider, get_sandbox_provider
-from pori.sandbox.local import LocalSandboxProvider
+from pori import LocalSandboxProvider, SandboxProvider, get_sandbox_provider
 
 SURFACE_TOOLCHAIN_VERSION = "aloy-surface-toolchain@1"
 MAX_SURFACE_BUNDLE_BYTES = 2 * 1024 * 1024

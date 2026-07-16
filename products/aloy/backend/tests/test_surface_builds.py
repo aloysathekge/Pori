@@ -31,7 +31,7 @@ from aloy_backend.surface_builds import (
     SurfaceBuildParams,
     SurfacePreviewParams,
 )
-from pori.sandbox.local import LocalSandboxProvider
+from pori import LocalSandboxProvider
 
 
 class FakeBuildRunner:
