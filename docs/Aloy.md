@@ -1,6 +1,8 @@
 # Aloy — Product Plan (website · webapp · desktop · API)
 
-**Status:** Draft v0.1
+**Status:** Historical original plan — superseded by
+[`aloy-vision.md`](./aloy-vision.md) and retained only for architecture
+provenance. It must not override the canonical vision or active V1 plan.
 **Date:** 2026-07-03
 **Scope:** Aloy as the flagship **product** on the Pori kernel — its four delivery clients (**API/backend**, **webapp**, **desktop/Electron**, **website**) and the cross-cutting planes (auth/tenancy, knowledge, streaming, receipts) that bind them.
 **Companion:** [`Pori.md`](./Pori.md) — the kernel PRD. Aloy *consumes* Pori; Pori never depends on Aloy.

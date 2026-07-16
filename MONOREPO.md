@@ -1,7 +1,7 @@
 # Pori / Aloy Monorepo — Structure & Rules
 
 **Status:** v0.3 — platform + products · 2026-07-04
-**See also:** [`docs/Pori.md`](./docs/Pori.md) (PRD), [`docs/Aloy.md`](./docs/Aloy.md) (product plan), [`docs/Pori_Implementation_Plan.md`](./docs/Pori_Implementation_Plan.md), [`HARVEST.md`](./HARVEST.md)
+**See also:** [`docs/Pori.md`](./docs/Pori.md) (kernel PRD), [`docs/aloy-vision.md`](./docs/aloy-vision.md) (Aloy product parent), [`docs/aloy-v1-plan.md`](./docs/aloy-v1-plan.md) (active delivery), [`HARVEST.md`](./HARVEST.md)
 
 ## The shape: one platform, many products
 
