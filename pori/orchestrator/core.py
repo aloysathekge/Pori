@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from ..agent import Agent, AgentSettings
 from ..evolution import EvolutionRepository
+from ..file_backends import FILE_BACKEND_CONTEXT_KEY, FileBackend
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
 from ..profiles import RunProfile, RunProfileResolutionError
@@ -67,11 +68,13 @@ class Orchestrator:
         system_prompt: Optional[str] = None,
         model_capabilities: Optional[frozenset[str]] = None,
         run_profile: Optional[RunProfile] = None,
+        file_backend: Optional[FileBackend] = None,
     ):
         self.llm = llm
         self.run_profile = run_profile
         self.model_capabilities = model_capabilities or frozenset()
         self.system_prompt = self._compose_system_prompt(system_prompt, run_profile)
+        self.file_backend = file_backend
         self.tools_registry = self._resolve_profile(
             tools_registry,
             skill_catalog=skill_catalog,
@@ -292,6 +295,17 @@ class Orchestrator:
             )
 
         # Create and register the agent
+        resolved_tool_context_extra = dict(tool_context_extra or {})
+        if self.file_backend is not None:
+            supplied_backend = resolved_tool_context_extra.get(FILE_BACKEND_CONTEXT_KEY)
+            if (
+                supplied_backend is not None
+                and supplied_backend is not self.file_backend
+            ):
+                raise ValueError(
+                    "tool_context_extra cannot replace the orchestrator's file backend"
+                )
+            resolved_tool_context_extra[FILE_BACKEND_CONTEXT_KEY] = self.file_backend
         resolved_skill_ids = list(
             dict.fromkeys(
                 [
@@ -321,7 +335,7 @@ class Orchestrator:
             soul_path=self.soul_path,
             soul_text=self.soul_text,
             load_project_context=self.load_project_context,
-            tool_context_extra=tool_context_extra,
+            tool_context_extra=resolved_tool_context_extra,
             resume_task_id=resume_task_id,
             task_attachments=task_attachments,
             cancellation_token=cancellation_token,
@@ -465,7 +479,14 @@ class Orchestrator:
             soul_text=system_prompt,
             hitl_config=hitl_config,
             hitl_handler=hitl_handler,
-            tool_context_extra=child_tool_context,
+            tool_context_extra={
+                **(child_tool_context or {}),
+                **(
+                    {FILE_BACKEND_CONTEXT_KEY: self.file_backend}
+                    if self.file_backend is not None
+                    else {}
+                ),
+            },
         )
         await agent.run()
         summary = agent.result_summary()
