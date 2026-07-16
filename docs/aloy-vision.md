@@ -1,17 +1,16 @@
 # Aloy — product vision
 
-_Canonical product definition, version 2.3. Revised 2026-07-16 after the
-Event-workspace, Task-execution, Life-Conversation, and model-authored Surface reviews. Product specs
-and implementation plans must agree with this document. The active V1 delivery
-sequence lives in
-[`aloy-v1-plan.md`](./aloy-v1-plan.md)._
+_Canonical product definition, version 3.0, revised 2026-07-16. This document
+defines what Aloy is, how its core product concepts fit together, and what V1
+must prove. Detailed contracts live in the linked child specifications; live
+implementation status lives in [`.agent/progress/current.md`](../.agent/progress/current.md)._
 
 ## 1. Thesis
 
 **Aloy is a persistent workspace for meaningful work and life events, where
 agents make durable progress and people remain in control of consequences.**
 
-Most assistants reduce work to:
+Most assistants reduce work to a transient exchange:
 
 ```text
 conversation → response → forgotten scrollback
@@ -20,547 +19,637 @@ conversation → response → forgotten scrollback
 Aloy turns an intention into a durable operating loop:
 
 ```text
-intention → Event → Task → agent work → trusted state → next action
-                                   └→ Proposal → decision → receipt
+intention → Event → Task → agent work → evidence → useful state → next action
+                              └→ Proposal → decision → receipt
 ```
 
-The conversation remains important, but it is no longer the only place where
-work exists. Tasks, files, decisions, memory, evidence, and history belong to
-the Event and survive individual Runs, app restarts, and context-window limits.
+Conversation remains central, but it is no longer the only place where work
+exists. Tasks, files, artifacts, decisions, memory, evidence, and history belong
+to a durable Event. They survive individual model Runs, app restarts, worker
+restarts, and context-window limits.
+
+The division of responsibility is deliberate:
+
+- the user defines intent, starts work, sets priorities, supplies judgment,
+  and controls consequential actions;
+- Aloy plans, researches, drafts, organizes, tracks, and executes permitted
+  work within explicit limits;
+- the system preserves truth, provenance, consent, recovery, and isolation even
+  when a model is wrong or a process crashes.
+
+V1 begins with explicit initiation and bounded execution. Proactivity and
+autonomy are capabilities the user grants later; they are not defaults Aloy
+quietly assumes.
 
 > **Life is the permanent user–Aloy space. A dedicated Event is the durable
-> home for a meaningful outcome. Tasks are how intention becomes work.**
-
-The user controls intent, initiation, priorities, decisions, and review. Aloy
-plans, researches, drafts, tracks, executes permitted work, and adapts. V1
-starts with explicit initiation and bounded execution; autonomy is granted
-deliberately and earned later.
+> home for a meaningful outcome. Tasks turn intention into executable work.
+> Runs do the temporary computation.**
 
 ## 2. The product model
 
 ```text
 USER ↔ ALOY
        │
-       ├── LIFE ── permanent personal space
+       ├── LIFE — permanent personal space
        │     ├── Conversation A
        │     ├── Conversation B
        │     └── loose Tasks, files, memory, and Trail
        │
-       ├── TODAY ── attention across Life and Events
+       ├── TODAY — attention across Life and dedicated Events
        │
        └── DEDICATED EVENT
              durable identity, outcome, context, files, and policy
              ├── one canonical continuous Conversation
              ├── Tasks, Surface, Trail, and Triggers
-             └── RUN ── bounded agent execution
-                         ├── Working state and artifacts
-                         └── Proposal → decision → receipt
+             └── RUN — bounded agent execution
+                   ├── working state and artifacts
+                   └── Proposal → decision → executor → receipt
 ```
 
-Three different things must never be collapsed:
+Three identities must never be collapsed:
 
 | identity | meaning | lifetime |
 |---|---|---|
-| **Event** | durable product aggregate | until archived/deleted |
-| **Conversation** | one user-visible chat thread | until archived/deleted |
-| **Run** | one bounded agent execution | minutes or hours |
+| **Event** | durable product aggregate and source-of-context boundary | until archived or deleted |
+| **Conversation** | user-visible dialogue and instruction history | until archived or deleted |
+| **Run** | one bounded attempt to reason or perform work | seconds, minutes, or hours |
 
-“Session” is a product role, not another aggregate. In a dedicated Event, its
-canonical Conversation is the continuous Session. In Life, each user-started
-Conversation is an independent Session over shared personal state.
+“Session” describes a product role, not a fourth aggregate. A dedicated
+Event's canonical Conversation is its continuous Session. In Life, every
+user-started Conversation is a separate Session over shared accepted personal
+state.
+
+The product has two equally important entry points:
+
+```text
+New conversation → fresh Life Conversation
+
+New Event → dedicated Event + its lifetime Conversation
+```
+
+A conversation does not automatically become a dedicated Event. An Event is a
+deliberate commitment to durable context and an outcome. Aloy may suggest that
+a Life Conversation deserves an Event later, but it never silently moves or
+reclassifies the user's work.
 
 ## 3. The primitives
 
 ### 3.1 Event — the durable home
 
-An Event represents something with a future: _Career OS, Building Aloy,
-University, Trip to San Francisco, Weekly Review_. It owns the context needed
-to make progress over time:
+An Event represents something with a future: _Career OS, University, Building
+Aloy, Trip to Madrid, Weekly Review_. It owns the context required to make
+progress over time:
 
 - identity, goal, lifecycle, phase, and summary;
-- one canonical continuous Conversation for a dedicated Event;
-- Tasks and their execution history;
-- working state, files, and artifacts;
-- pending and resolved Proposals;
-- Event memory and connected services;
-- the Trail and evidence references;
-- triggers, limits, and autonomy settings.
+- the canonical Conversation for a dedicated Event;
+- Tasks and their execution histories;
+- working state, uploads, files, and artifacts;
+- pending and resolved Proposals and their receipts;
+- Event memory, evidence, and connected-service references;
+- the semantic Trail;
+- triggers, limits, and autonomy settings;
+- one model-authored Event Surface and its revision history.
 
-An Event is not a page and not a chat folder. The UI is a lens over the Event;
-the Event remains authoritative when the UI is closed.
+An Event is not a page, a folder of chats, or a permanently running model. The
+UI is a lens over it. The Event remains authoritative when its screen is closed
+and when no agent process is active.
 
-The lifecycle is deliberately small:
+The lifecycle is intentionally small:
 
 ```text
 Emerging → Active → Dormant → Concluded → Archived
 ```
 
-- **Emerging:** a possible Event awaiting user acceptance. Deferred after V1.
-- **Active:** work and explicitly configured triggers may run.
-- **Dormant:** state is retained; proactive work and triggers are paused.
-- **Concluded:** the intended outcome is complete; the Event may be reopened.
+- **Emerging:** a possible Event awaiting user acceptance; deferred beyond V1.
+- **Active:** user-started work and explicitly configured triggers may run.
+- **Dormant:** state is retained while proactive work and triggers are paused.
+- **Concluded:** the intended outcome is complete and may later be reopened.
 - **Archived:** hidden from normal navigation and operationally inactive.
 
-Users control lifecycle directly. Aloy may recommend a transition, but V1 does
-not silently make Events dormant, concluded, or archived. Phase names inside an
-active Event remain model- or user-defined.
-
-Manual Event creation is always available and commits directly because the
-user is the authority. Aloy-initiated Event creation is a Proposal and comes
-after the V1 loop is proven.
+Users control lifecycle changes. Aloy may recommend a change, but V1 never
+silently makes an Event dormant, concluded, or archived. Manual Event creation
+is a direct user action, not a Proposal.
 
 ### 3.2 Life — the permanent personal space
 
-Life is the permanent system Event representing the user's ongoing relationship
-with Aloy. It is a personal workspace, not the user identity and not the agent
-identity. Unlike a dedicated Event, Life may own many Conversations.
+Life is the system-created personal Event representing the user's ongoing
+relationship with Aloy. It is neither the user nor the agent. It is the place
+for work that does not yet deserve a dedicated Event.
 
-It provides:
+Life provides:
 
-1. unstructured capture before a dedicated Event exists;
-2. multiple fresh Conversation threads without creating Event clutter;
-3. one-off Tasks that do not deserve their own Event;
-4. routing into an existing or new Event;
-5. future cross-Event coordination;
-6. the foundation for Today.
+1. unstructured capture and ordinary conversation;
+2. multiple fresh Conversation threads without Event clutter;
+3. one-off or loose Tasks;
+4. shared accepted personal memory and preferences;
+5. files and artifacts that belong to personal work;
+6. an explicit path into a new or existing dedicated Event;
+7. the personal foundation for Today.
 
-**New conversation** creates a Conversation in Life. **New Event** creates a
-dedicated Event and its canonical Conversation. Life Conversations do not
-appear as Events in the Event rail. Tasks, files, artifacts, and Trail entries
-created from a Life Conversation belong to Life and retain their originating
-Conversation as provenance.
+**New conversation** creates a new Conversation inside Life. Life Conversations
+do not appear as Events in the Event rail. Deleting one removes its messages,
+not Life-owned Tasks, files, artifacts, receipts, Trail, or accepted memory.
 
-Life must be useful with zero user-created Events. Cross-Event reasoning,
-emergent clusters, and automatic Event proposals are later capabilities; V1
-keeps dedicated Event context isolated and creation manual. A user may create
-an Event from a Life Conversation through an explicit action that preserves an
-origin reference; Aloy never silently reclassifies the Conversation.
+A new Life Conversation receives relevant accepted Life state, but it does not
+receive every older transcript. Older conversations are retrieved explicitly
+when they are relevant. Life must remain useful even when the user creates no
+dedicated Events.
 
 ### 3.3 Conversations and continuous Event Sessions
 
-A dedicated Event has exactly one canonical user-facing Conversation. Opening
-the Event always resumes it, like reopening a long-running coding project. It
-cannot be independently deleted while the Event exists.
+A dedicated Event has exactly one canonical user-facing Conversation for its
+lifetime. Opening the Event always resumes that Conversation, like reopening a
+long-running coding project. The transcript grows, becomes pageable, and is
+summarized when necessary, but the product does not ask the user to select a
+new Session inside the Event.
 
-Life is intentionally different. The user may start many Conversations to get
-a clean transcript for a new topic. Deleting a Life Conversation deletes that
-thread's messages, not Life-owned Tasks, files, memory, receipts, or Trail. If
-the deleted thread is the stored Life default, the system safely selects another
-recent Conversation or returns Life to an empty-chat state.
+The Conversation persists; a model process does not. Every user turn or
+meaningful interaction starts a finite Run, which may finish, block, or hand
+work to the durable worker. Closing the app ends neither the Conversation nor
+properly queued background work.
 
-Starting a fresh Life Conversation resets transcript context, not the
-relationship or accepted memory. A Run loads:
+Life is intentionally different: a user may create many Conversations for
+clean topical starts. A Run loads only:
 
-1. the current Conversation's bounded recent messages;
-2. accepted global and Life or dedicated-Event memory;
-3. the owning Event's relevant Tasks, files, decisions, and working state;
-4. older Conversations only through explicit, scoped retrieval when relevant.
+1. bounded recent messages from the active Conversation;
+2. accepted global and owning-Event memory;
+3. relevant Tasks, files, decisions, evidence, and working state;
+4. older Event history through explicit scoped retrieval when needed.
 
-The runtime must not inject every Life transcript into every new Conversation.
-Messages remain durable and pageable, summaries preserve accepted meaning, and
-`search_event_history` pages older evidence into context on demand.
+Legacy, branch, gateway, or transport Conversation rows may remain for
+provenance, but a dedicated Event never presents them as competing Sessions.
 
-Legacy, gateway, branch, or transport Conversations may remain as provenance,
-but a dedicated Event never presents them as competing user-facing Sessions.
-
-Background Task Runs report to the Conversation selected for that execution.
-For a dedicated Event this is its canonical Conversation; for Life it is the
-Conversation where work was initiated or the one the user explicitly selected.
-The Task keeps an optional originating Conversation for provenance, while the
-Run stores the exact Conversation that receives progress and results.
-V1 permits one active foreground Run per Conversation and one active Task Run
-per owning Event, subject to a small account-wide concurrency cap.
+Background Task progress, clarification, and results return to the Conversation
+selected for that Run. Dedicated Event Tasks use the canonical Conversation;
+Life Tasks use the originating or explicitly selected Life Conversation.
 
 ### 3.4 Task — durable executable work
 
-A Task is not merely a checklist item. It is the durable contract that turns
-an intention into bounded agent work.
+A Task is not a stale checklist item and not a sentence the model once wrote.
+It is the durable contract that turns an intention into bounded work.
 
 A Task carries:
 
-- title and instructions;
-- definition of done;
+- title, instructions, and definition of done;
 - status, priority, and optional due date;
-- execution mode (`manual`, later `scheduled` or `triggered`);
-- assigned agent/configuration;
+- execution mode and assigned agent profile;
+- owning Event and originating Conversation provenance;
 - current Run and execution history;
-- optional originating Conversation for provenance;
 - progress, result summary, blocker, and produced artifacts;
-- budget limits for steps, time, tools, and cost.
+- limits for steps, time, tools, and cost.
 
 The V1 state machine is:
 
 ```text
 open → queued → in_progress
-                 ├→ blocked
-                 ├→ waiting_approval
-                 ├→ failed
-                 ├→ cancelled
-                 └→ done
+                  ├→ blocked
+                  ├→ waiting_approval
+                  ├→ failed
+                  ├→ cancelled
+                  └→ done
 ```
 
-The default start mechanism is an explicit **Work on this** action. Creating a
-Task does not silently spend money or begin work. Aloy may create and recommend
-Tasks, but it may only start them automatically when the user explicitly grants
-that Event an automation mode.
+Creating a Task does not silently start it. V1 begins execution through an
+explicit **Work on this** action. A later schedule, incoming-data trigger, or
+user-granted automation policy may start eligible work, but the wake reason is
+always durable and visible.
 
-One Task execution creates one Run. The worker claims it with a durable lease,
-persists progress, and supports stop, retry, and resume. Clarification moves the
-Task to `blocked`; an external consequence moves it to `waiting_approval`;
-completion requires the Task's definition of done, not merely an agent saying
-“done.” Users may always reopen a Task.
+One Task execution creates one Run. The worker claims it with a lease,
+checkpoints meaningful progress, and supports Stop, Retry, and Resume.
+Clarification moves work to `blocked`; a pending external consequence moves it
+to `waiting_approval`; completion requires the definition of done and resulting
+evidence, not an unsupported “done” in model prose.
 
-Task results appear consistently:
+Results appear consistently in four places:
 
-1. a compact result in the Conversation selected for that Run;
-2. a result summary on the Task;
-3. durable Event artifacts when files were produced;
-4. an expandable Trail group linked to the Run and evidence.
+1. a compact update in the Run's selected Conversation;
+2. a durable Task result and status;
+3. Event artifacts when files were produced;
+4. an expandable Trail narrative linked to the Run and evidence.
 
 ### 3.5 Run — bounded execution
 
-A Run is one attempt by an agent to perform a conversational turn, Task, cron
-job, gateway request, or follow-up. It is finite, budgeted, checkpointed, and
-observable.
+A Run is one finite attempt to answer a Conversation turn, execute a Task,
+react to a trigger, reconcile a Proposal, or perform a follow-up. It is
+budgeted, checkpointed, observable, cancellable, and recoverable.
 
-Runs may Observe, Compute, and Stage inside the Event without approval. A Run
-must never confuse staged work with an external consequence. Long or complex
-Tasks begin with a plan; progress is persisted at meaningful milestones rather
-than logging every token.
+Runs may observe, compute, organize, and stage inside the Event without
+approval. They may use sub-agents, tools, skills, and an isolated sandbox, but
+the parent Run owns synthesis, validation, budget, and final outcome.
 
-Sub-agents may help, but the parent Run owns validation, synthesis, budget, and
-the final Task outcome.
+A Run is never the durable home of user work. Useful results are promoted into
+Event state, artifacts, memory, Proposals, or Trail before scratch state can be
+discarded.
 
-### 3.6 Event Surface — trusted, model-authored application
+### 3.6 Event Surface — the model-authored Event application
 
-The Event Surface is the living, interactive representation of an Event. It is
-not the webapp itself and it is not merely a fixed sidebar. Conversation and
-Surface are peers in the Event workspace. The user may choose conversation
-focus, a resizable split, or Surface focus; on narrow screens they become
-explicit tabs or full-screen sheets. Aloy may update data live but never steals
-focus or rearranges the workspace while the user is interacting.
+The Event Surface is a durable, live application authored and evolved by Aloy
+for one Event. It is the visual operating layer over trusted Event state—not
+the Aloy app itself, not a fixed dashboard, and not a predefined collection of
+Tasks, Files, or Trail blocks.
 
-The Surface is a versioned React application authored and evolved by Aloy for
-one Event. It is not assembled from mandatory Tasks, Decisions, Files, Trail,
-or domain blocks. A University Event may become a timetable and assessment
-workspace; a Madrid trip may become a map, flight, visa, hotel, budget, and
-itinerary application. They share one secure runtime and SDK, not one template.
+A University Event may become a timetable and assessment workspace. A Madrid
+trip may become a map, flight, visa, hotel, budget, and itinerary application.
+Career OS may become a sourced company-research and opportunity-tracking tool.
+These Surfaces share a runtime and safety contract, not a page template.
 
-Application source, Event data, and local presentation state are separate.
-Most selections update durable Event data or send a structured intent to the
-canonical Event Session without rebuilding code. A request for a new
-capability or layout makes Aloy patch, build, validate, preview, and atomically
-publish a new immutable source revision. A failed revision never replaces the
-last working application.
+The Surface is real React and CSS authored by the model within a constrained
+project. Aloy may create components, layouts, forms, filters, local state, and
+Event-specific interactions. Requests such as “add a grade calculator” change
+the Surface code. Updates such as “the exam is on Friday” change Event data.
+Code revision, data revision, and local presentation state remain separate.
 
-Generated code executes only in a sandboxed iframe outside Aloy's trusted
-origin. It has restricted, version-locked imports, no secrets or direct
-authenticated API access, and no unrestricted network or browser capability.
-A capability-scoped `@aloy/surface` SDK provides tenant/Event-scoped reads,
-reactive data, structured intents, and reviewed privileged widgets such as
-maps and approvals. External consequences still require Proposal → decision →
-executor → receipt.
+Most Surface interactions do not call a model:
 
-Canonical records remain authoritative. Generated presentation cannot turn a
-selection into a booking, a user report into provider confirmation, or an
-estimate into a receipt. Surface data carries actor, posture, provenance, and
-evidence. Tasks, Runs, Proposals, receipts, StoredFiles, and Trail remain
-authoritative whether or not the generated application chooses to display them.
+- filtering, sorting, opening, and changing local tabs stay local;
+- durable selections are validated and persisted once;
+- requests for reasoning enter the canonical Event Conversation as structured
+  turns and start a Run;
+- booking, sending, paying, publishing, or deleting stages a Proposal;
+- requests for new UI capability start the source/build/quality/publish loop.
 
-Code and data carry independent monotonic revisions and update live through
-REST + SSE plus the isolated host bridge. Meaningful interactions and published
-code changes produce Trail entries. Presentation-only interactions and personal
-view preferences do not create Trail noise. New data does not unexpectedly
-change selection, scroll position, focus, or layout.
+Generated code is untrusted. It executes in an opaque-origin sandboxed iframe,
+has no host credentials or direct authenticated API access, and has no arbitrary
+network, package, storage, navigation, or device authority. A capability-scoped
+`@aloy/surface` SDK supplies validated Event reads, reactive updates,
+structured intents, and host-owned privileged widgets such as maps, approvals,
+file viewers, and credential collection.
 
-Every displayed assertion has a visible posture:
+The Surface may present canonical records, but it cannot redefine them. A
+selected hotel is not a booking; “I paid” is a user report; a provider action
+is pending until a receipt exists; a crash-window uncertainty is
+`indeterminate`, never confidently committed.
 
-- **Working:** research, drafts, and model-maintained summaries;
-- **Blocked:** work waiting on information or tooling;
-- **Pending:** a Proposal awaiting a decision;
-- **Committed:** a consequence backed by a receipt;
-- **Failed:** a definite unsuccessful attempt;
-- **Indeterminate:** an external outcome that must be reconciled.
+Surface quality is engineered rather than requested with the word “beautiful.”
+Every publish candidate is built in isolation, rendered at required viewports
+and states, checked deterministically, critiqued independently, exercised
+against the Event's primary user jobs, and repaired within bounded limits. A
+failed or weak candidate never replaces the last-good revision. The Surface
+Builder skill teaches the model how to work, but schemas, tools, sandboxing,
+CSP, host bridges, and the publish service enforce the boundary.
 
-The complete authoring, interaction, isolation, persistence, and acceptance contract
-is defined in [`aloy-surface-spec.md`](./aloy-surface-spec.md).
+The complete contract is defined in
+[`aloy-surface-spec.md`](./aloy-surface-spec.md).
 
 ### 3.7 Trail — the durable narrative
 
 The Trail explains what happened, why Aloy acted, what changed, and what
-evidence exists. It belongs to the Event and continues across Sessions, Runs,
-workers, and app restarts.
+evidence exists. It belongs to the Event and continues across Conversations,
+Runs, workers, app restarts, and Surface revisions.
 
 Trail records semantic activity:
 
-- Event lifecycle and trigger changes;
-- Task creation, claims, milestones, blockers, completion, and failure;
+- Event lifecycle, phase, trigger, and important memory changes;
+- Task creation, execution milestones, blockers, completion, and failure;
 - Run start and terminal outcome;
 - artifact creation and promotion;
-- Proposal, decision, execution, and reconciliation transitions;
-- important memory and phase changes.
+- meaningful Surface interactions and published revisions;
+- Proposal, decision, execution, receipt, and reconciliation transitions.
 
-Conversation messages are not duplicated into Trail. Low-level tool and model
-events remain in Run Replay. Trail groups one Task execution into an expandable
-narrative and links to the relevant Session message, Run Replay, artifact,
-Proposal, or receipt.
+Conversation messages are not duplicated into Trail. Low-level model and tool
+events remain in Run Replay. Presentation-only actions such as opening a pane,
+sorting a table, or resizing the workspace create no Trail noise.
 
-Trail is append-only. Corrections append correcting entries. Privacy redaction
-is an exceptional audited operation. The Event narrative lasts with the Event;
-raw debug data may have a shorter retention policy.
+Trail is append-only. Corrections append new entries. Each Task execution forms
+an expandable narrative linked to its Conversation message, Run Replay,
+artifacts, Proposal, receipt, and evidence.
 
 ### 3.8 Proposal — consent before consequence
 
-Agents may freely research, compare, simulate, draft, and stage inside an
-Event. Crossing into shared or external reality requires a durable Proposal:
+Agents may freely research, compare, simulate, draft, and stage within an
+Event. Crossing into external or shared reality requires a durable Proposal:
 
 ```text
-staged intent → Proposal → routing → decision → execution → receipt
+staged intent → Proposal → routing → decision → executor → receipt
 ```
 
-Always-Ask V1 actions include sending messages, spending, publishing, booking,
-deleting important external data, and changing account permissions. Approval
-never executes unvalidated prose: the Proposal stores the normalized tool and
-arguments, then a non-agent executor rechecks authorization, policy,
-credentials, schema, and Event lifecycle before calling the provider.
+Always-Ask V1 actions include sending messages, spending money, booking,
+publishing, deleting important external data, and changing permissions.
+Approval never executes unvalidated prose. The Proposal stores the normalized
+tool and arguments; a non-agent executor rechecks authorization, policy,
+credentials, schema, Event lifecycle, and idempotency before calling the
+provider.
 
-Approved execution is idempotent or reconcilable. If the provider may have
-accepted an action before the receipt was stored, the Proposal becomes
-`indeterminate` and is never blindly retried.
+A Proposal is not committed until evidence exists. If a provider may have
+accepted an action before Aloy stored the receipt, the outcome becomes
+`indeterminate` and is reconciled rather than blindly retried.
 
-Auto and Notify remain the same Proposal mechanism with pre-granted consent.
-They are not exercised in V1. Learned autonomy never overrides fixed safety
+Future Auto and Notify behavior uses this same mechanism with explicit
+pre-granted consent. Autonomy never bypasses the Proposal rail or fixed safety
 policy.
 
 ### 3.9 Files, artifacts, and memory
 
-Durable bytes belong to the Event. The Surface groups them as Uploads, Working
-files, and Outputs; these are product categories, not fragile physical folder
-semantics. A scratch file becomes an artifact only when the finalizer stores it
-durably and records provenance.
+Durable bytes belong to Life or a dedicated Event—not to a transient Run and
+not merely to a Conversation. Aloy presents three product categories:
 
-Working files may evolve through immutable versions. Files link to Tasks,
-Runs, Proposals, and Trail entries. Shared library blobs may be referenced by
-several Events without duplicating bytes.
+- **Uploads:** material supplied by the user or a trusted connection;
+- **Working files:** evolving drafts and intermediate durable state;
+- **Outputs/artifacts:** promoted results with Run, Task, and evidence
+  provenance.
 
-Memory is an index over durable things:
+These categories are product semantics, not fragile physical folders. A
+sandbox scratch file becomes an artifact only when the finalizer stores it
+durably, records provenance, and adds the semantic Trail entry. Files can link
+to Tasks, Runs, Proposals, receipts, and Surface records.
 
-- **Global:** identity and stable preferences;
-- **Event:** accepted facts, decisions, summaries, results, and file pointers;
-- **Transcript:** durable messages that are searched on demand, not treated as
-  automatically true memory.
+Memory is an index over durable truth:
 
-Receipts outrank model memory. Tenant and Event filtering occurs before
-ranking or semantic retrieval; cross-Event retrieval is deferred until
-isolation is proven.
+- **Global memory:** identity and stable preferences;
+- **Life/Event memory:** accepted facts, decisions, summaries, results, and
+  file pointers scoped to the owner;
+- **Transcript history:** durable messages retrieved on demand, not treated as
+  automatically accepted facts.
+
+Receipts and provider evidence outrank model memory. Tenant and Event scope is
+applied before ranking or semantic retrieval. Cross-Event retrieval remains
+deferred until zero-leakage isolation is proven.
 
 ### 3.10 Triggers — explicit reasons Aloy wakes
 
-Every proactive Run begins from a durable, Event-scoped trigger and writes why
-it woke to Trail. Rollout order:
+An Event may remain alive for months while no model process is running. Aloy
+wakes only because a durable reason exists:
 
-1. user presses **Work on this**;
-2. explicit schedule;
-3. incoming email or webhook;
-4. external state change;
-5. model-detected pattern.
+1. the user sends a Conversation message;
+2. the user presses **Work on this**;
+3. a meaningful Surface interaction requests reasoning or action;
+4. an explicitly configured schedule fires;
+5. approved incoming data or an external-state change arrives;
+6. clarification, approval, or reconciliation resumes blocked work;
+7. a user requests a Surface capability or design change.
 
-A trigger queues durable work before execution. Idempotency keys and leases
-prevent duplicates. Dormant Events have no active triggers. Users can pause
-proactive work globally or per Event.
+Every proactive wake is Event-scoped, budgeted, idempotent, and written to
+Trail. Dormant Events have no active triggers. Users can pause proactive work
+globally or per Event.
 
 ### 3.11 Today — the attention lens
 
-Today is not another Event Surface. It is the cross-Event view of what needs
-the user now:
+Today is not another Event or Surface. It is the explainable cross-Event view of
+what needs the user now:
 
-1. waiting decisions;
+1. decisions waiting for approval;
 2. overdue or time-critical work;
 3. blocked work requiring input;
 4. user-pinned priorities;
 5. stale Tasks;
 6. recent meaningful changes.
 
-Prioritization is deterministic and explainable. Model judgment may break ties
-but cannot silently override due dates, approvals, blockers, or user pins.
-
-Ordinary progress is ambient. V1 uses badges and Today, not proactive push.
-Digest, push, reach-out, and interruption budgets come after the core loop.
+Deterministic facts—due dates, blockers, approvals, and pins—outrank model
+judgment. Ordinary progress remains ambient. V1 uses badges and Today rather
+than unsolicited push; interruption budgets and proactive reach-out come later.
 
 ## 4. The constitution
 
-These invariants override feature convenience:
+These invariants override feature convenience and model preference:
 
 1. **No agent consequence without a durable Proposal.**
-2. **No committed claim without evidence.** A checkmark means a receipt exists.
+2. **No committed claim without evidence.** A checkmark means a receipt or
+   authoritative record exists.
 3. **No invisible work.** Every Run and meaningful state transition is durable
-   and explainable through Task, Trail, and Run Replay.
-4. **No accidental execution.** Task creation is not Task initiation unless an
-   explicit automation grant says otherwise.
+   and explainable through Task, Trail, evidence, and Run Replay.
+4. **No accidental execution.** Creating a Task is not permission to start it.
 5. **Dedicated Events have one canonical Conversation; Life may have many.**
-   Runs are temporary; Conversations and durable Event state continue.
-6. **Tasks are executable contracts.** Completion is tied to a definition of
-   done and resulting state, not model prose.
-7. **Context is a cache, not a home.** Durable truth lives in Event state,
+6. **Tasks are executable contracts.** Completion follows definition of done
+   and resulting evidence, not model prose.
+7. **A persistent Event is not a permanently running model.** Work starts only
+   from a durable, visible wake reason.
+8. **Context is a cache, not a home.** Durable truth lives in Event state,
    artifacts, memory, Trail, and receipts.
-8. **Events own context; shared reality is referenced, not copied.**
-9. **Scope before retrieval.** Tenant and Event boundaries are applied before
-   ranking, search, or model context assembly.
-10. **Bounded agency.** Every Run has explicit time, step, tool, and cost limits.
-11. **Dormant means quiet.** No triggers or background agents run for a dormant
-    Event.
-12. **The user can stop and recover.** Work is cancellable, retryable, and
+9. **Events own context; shared reality is referenced, not copied.**
+10. **Scope before retrieval.** Tenant and Event boundaries are applied before
+    search, ranking, or model context assembly.
+11. **Bounded agency.** Every Run has explicit step, time, tool, cost, and
+    concurrency limits.
+12. **Dormant means quiet.** Dormant Events do not run triggers or agents.
+13. **Generated code is always untrusted.** Skills guide behavior; host
+    enforcement defines authority.
+14. **Presentation cannot manufacture truth.** UI state never upgrades a
+    selection, report, estimate, or pending action into a committed fact.
+15. **The user can stop and recover.** Work is cancellable, retryable, and
     reconcilable without duplicating consequences.
 
 ## 5. Product experience
 
-Desktop is the primary Aloy experience; web remains a complete fallback. Its
-flexibility is inspired by modern desktop workspaces such as ChatGPT Desktop,
-but the information architecture is Aloy's own. The shell has four peer
-regions:
+Desktop is Aloy's primary experience; the web app remains a complete fallback.
+The workspace takes inspiration from flexible desktop tools, but its
+information architecture is specific to persistent agent work.
+
+### 5.1 The shell
 
 ```text
 global Aloy sidebar | Conversation | Workbench | Event context
 ```
 
-- **Global Aloy sidebar:** app navigation, Life Conversations, and dedicated
-  Events. It remains independent of Event content and may auto-hide or reveal
+- **Global Aloy sidebar:** Life Conversations, dedicated Events, Today, and app
+  navigation. It is independent of the open Event and can auto-hide or reveal
   from the left edge without permanently consuming workspace width.
-- **Conversation:** the Event's continuous canonical Session. It remains the
-  place to instruct Aloy, think, clarify, review progress, and receive compact
-  results for the lifetime of the Event.
-- **Workbench:** a first-class flexible pane for the model-authored Surface,
-  opened files and artifacts, and Run replay. Multiple opened documents become
-  tabs inside a host-owned viewer rather than being cramped into a drawer.
+- **Conversation:** the continuous Event Session—the place to instruct, think,
+  clarify, review progress, and receive compact outcomes.
+- **Workbench:** a first-class flexible pane containing the Event Surface,
+  opened files and artifacts, and Run Replay.
 - **Event context:** trusted Aloy chrome for Tasks, Trail, approvals, receipts,
-  and relevant file navigation. It collapses to a compact rail when the
-  Conversation or Workbench needs more room. Generated Surface code never owns
-  this region.
+  and relevant file navigation. It collapses to a compact rail when the main
+  workspace needs more room.
 
-Conversation and Workbench are composable peers. The user may choose
-Conversation focus, a draggable split, or focus the active Workbench item. On
-wide screens Aloy may show Conversation + Surface + an opened file when useful.
-On medium screens the active Workbench tab replaces the less important pane;
-on narrow screens Conversation, Surface, and files become explicit full-screen
-tabs or sheets. Pane sizes, selected tabs, open files, and layout mode persist
-per user and Event. Live updates never steal focus, move scroll, or rearrange
-the workspace.
+The global sidebar and Event context are different things. The sidebar
+navigates the whole product; Event context explains and controls the currently
+open Event. Generated Surface code owns neither.
+
+Creation controls must express the product model clearly. Aloy exposes one
+**New conversation** action rather than competing “Chat” and “New chat” primary
+destinations. **New Event** is a distinct, deliberate premium workspace action,
+not a second button styled exactly like conversation creation. Its identity
+uses Aloy's own Event language and iconography rather than a generic AI sparkle
+or “intelligence” symbol.
+
+### 5.2 Flexible workspace behavior
+
+Conversation and Workbench are composable peers. The user may choose:
+
+1. **Conversation focus** — the Workbench is hidden or minimized;
+2. **Split** — Conversation and the active Workbench item are visible and
+   resizable;
+3. **Workbench focus** — Surface, file, artifact, or replay receives the main
+   canvas.
+
+On wide screens Aloy may show Conversation + Surface + an opened document. On
+medium screens the active Workbench tab replaces the less important pane. On
+narrow screens Conversation, Surface, and documents become explicit
+full-screen tabs or sheets.
+
+Pane sizes, open items, selected tabs, and layout mode persist per user and
+Event. Live updates never steal focus, reset local interaction, move scroll, or
+silently rearrange the workspace.
 
 Opening a PDF, report, image, code file, spreadsheet, or Run artifact creates a
-host-owned Workbench tab. **Ask Aloy about this file** opens or reveals the
-Conversation beside it and attaches a trusted file reference to the next turn;
-generated Surface code never receives unrestricted file access.
+host-owned Workbench tab—not a cramped overlay drawer. Multiple files become
+tabs inside the viewer. **Ask Aloy about this file** reveals Conversation beside
+the document and attaches a trusted file reference to the next turn. Generated
+Surface code never receives unrestricted file access.
 
-When Aloy has produced a new successful Surface revision and the Surface is not
+### 5.3 Conversation-to-Surface handoff
+
+When Aloy produces a new successful Surface revision while the Surface is not
 visible, the trusted Conversation host places a compact **Surface ready** card
-after Aloy's completed response. It is driven by build metadata rather than
-assistant prose, appears once for each unseen revision, and opens Split on a
-wide screen or Surface focus on a narrow screen. Opening it is a presentation
-action: it does not start a Run or create a Trail entry.
+after Aloy's completed response.
 
-- **New conversation** opens a fresh Life thread.
-- **New Event** creates a dedicated workspace and canonical Conversation.
-- Life Conversation history is separate from the dedicated Event rail.
-- The Event rail shows dedicated Events, not Life chats or every Task.
-- The Surface is a model-authored Event application over trusted current state,
-  hosted inside the Workbench rather than treated as the entire Event screen.
-- Admin capabilities—Agents, Skills, Connections, Memory, Usage, Settings—are
-  secondary to the Event workspace.
+The card:
 
-The two entry loops are intentionally small:
+- is driven by successful build metadata, not assistant prose;
+- is host-owned and cannot be imitated by generated code outside its iframe;
+- appears once for each unseen revision;
+- opens Split on a suitable wide screen or Surface focus on a narrow screen;
+- starts no model Run and creates no Trail entry merely because it was opened.
+
+This makes the Surface discoverable without forcing it open or interrupting the
+Conversation.
+
+### 5.4 Entry loops
+
+The first-use loops stay intentionally small:
 
 ```text
-New conversation → talk or create a loose Life Task
+New conversation
+→ talk with Aloy in Life
+→ optionally create a loose Task or deliberately create an Event
 
-New Event → create Task → Work on this → watch progress
-→ review artifact → approve consequence → see receipt
+New Event
+→ enter a deliberate premium workspace
+→ continue one lifetime Conversation
+→ create a Task
+→ Work on this
+→ watch durable progress
+→ review an artifact
+→ approve a consequence
+→ inspect the receipt
 ```
 
-## 6. The V1 proof: Career OS
+### 5.5 Speed and continuity
 
-The V1 hero flow uses a real Event and a real Task:
+Aloy should feel immediate even when meaningful work is long-running:
+
+- Conversation begins streaming as soon as a Run produces output;
+- creating or starting durable work acknowledges quickly and continues through
+  the worker;
+- local Surface presentation interactions remain local;
+- the last-good Surface opens immediately while a new revision builds;
+- live Event transport updates the correct Conversation, Task, Trail, and
+  Surface without full-page polling;
+- reopening an Event restores its Conversation and workspace rather than
+  starting over.
+
+## 6. Product proofs
+
+### 6.1 Career OS — the V1 end-to-end proof
+
+The primary V1 flow begins with a real Event and a stale-but-executable Task:
 
 > Career OS → “Research US companies for startup jobs” → **Work on this**
 
-The complete proof is:
+The proof is complete only when:
 
 ```text
 open Career OS
+→ resume its continuous Conversation
 → start the research Task
 → Aloy plans and performs sourced web research
-→ progress streams into the continuous Session and Trail
+→ progress streams into Conversation and Trail
 → a cited report becomes an Event artifact
-→ the Task reaches done from its definition of done
-→ Aloy stages an email summary
-→ the user approves the Proposal
-→ Gmail sends to the founder's own address
+→ the Task satisfies its definition of done
+→ Aloy stages an email-summary Proposal
+→ the user approves it
+→ the executor sends through Gmail
 → a provider receipt commits the consequence
-→ Surface and Today update live
+→ Conversation, Surface, Today, and Trail update live
 ```
 
-The crash-window drill repeats the final action while killing the process after
-provider acceptance but before database commit. Reconciliation must find the
-provider operation and must not send a duplicate.
+The crash-window drill kills the process after provider acceptance but before
+database commit. Reconciliation must find or expose the provider outcome and
+must not send a duplicate.
 
-This flow is the acceptance test for the product thesis. A static Task list or
-a convincing chat response is not enough.
+A static Task list, attractive Surface, or convincing chat response is not
+enough. The durable loop must actually work.
+
+### 6.2 University — the continuity and usefulness proof
+
+A University Event should know the student's timetable, courses, upcoming
+tests and exams, study materials, and their provenance. Its Surface should let
+the student find the next class, inspect upcoming work, request study help,
+report a submission without claiming LMS confirmation, and later ask Aloy to
+add a grade calculator without losing Event data.
+
+The same continuous Conversation remains beside the evolving Surface for the
+duration of university life. Tasks can continue in the background; results,
+files, and evidence remain part of the Event.
+
+### 6.3 Madrid El Clásico — the rich interaction and trust proof
+
+For a user travelling from South Africa, a Madrid Event may combine a map,
+flights in ZAR, visa readiness, match-ticket evidence, hotels, budget, and an
+itinerary. The user can shortlist options and ask Aloy to compare them without
+turning every click into a model call.
+
+The Surface must distinguish official from unconfirmed tickets, estimates from
+current provider data, a chosen hotel from a booking, and user-reported payment
+from receipt-backed payment. Booking or payment must pass through Proposal,
+decision, executor, and receipt.
+
+University and Madrid are behavioral north stars, not templates hardcoded into
+the Aloy app. Their complete acceptance jobs live in the Surface specification.
 
 ## 7. V1 scope
 
 V1 includes:
 
-- Life and manually created Project Events;
-- multiple user-started Conversations in Life;
-- one continuous canonical Conversation per dedicated Event;
-- executable Tasks with explicit initiation;
-- durable worker execution, stop/retry/resume, and bounded budgets;
-- sandboxed model-authored Event Surface with live data and structured intents;
-- complete semantic Trail plus Run Replay;
-- Event files, artifacts, and scoped memory;
-- sourced web research;
-- Ask-routed Proposals and receipt-backed Gmail execution;
-- Today decisions, blockers, stale Tasks, and meaningful changes;
-- crash recovery, idempotency/reconciliation, and context isolation tests.
+- one permanent Life Event with multiple user-started Conversations;
+- manually created dedicated Events with one continuous Conversation each;
+- executable Tasks with explicit initiation, durable worker execution,
+  Stop/Retry/Resume, and bounded budgets;
+- sandboxed model-authored Event Surfaces with revisioned source, isolated
+  builds, live Event data, validated interactions, and last-good recovery;
+- a semantic Trail plus detailed Run Replay;
+- Event uploads, working files, outputs/artifacts, and scoped memory;
+- provider-neutral sourced web research and evidence-bearing artifacts;
+- Ask-routed Proposals and receipt-backed Gmail execution for the Career OS
+  proof;
+- Today for approvals, blockers, stale work, priorities, and meaningful change;
+- crash recovery, idempotency/reconciliation, context longevity, responsive
+  behavior, accessibility, and isolation tests.
 
 V1 deliberately excludes:
 
-- automatic/emergent Event detection;
-- cross-Event Life coordination and retrieval;
-- learned Auto/Notify autonomy;
-- push-notification and interruption-budget learning;
-- Calendar/Money/People Reality Objects and object guardians;
-- unsandboxed model-generated code, arbitrary npm dependencies, direct network
-  or authenticated host access, and unreviewed privileged runtime components;
-- cross-user shared Events and multi-agent negotiation;
-- unrestricted concurrent Runs inside one Event;
-- local-folder desktop access and full mobile-native clients.
+- automatic or emergent Event detection;
+- automatic transfer of Life Conversations, Tasks, or files into Events;
+- unrestricted cross-Event retrieval and Life-wide coordination;
+- learned Auto/Notify autonomy and unsolicited push notifications;
+- Reality Objects for Calendar, Money, or People;
+- arbitrary Surface npm dependencies, generated backend services, direct
+  generated network/provider access, or unsandboxed model-generated code;
+- user-installed Surface plugins and unreviewed privileged widgets;
+- shared cross-user Events and multi-agent negotiation;
+- unrestricted concurrent Runs inside one Event or account;
+- local-folder desktop integration and full native mobile clients.
 
-## 8. Substrate and status
+## 8. Product and platform boundary
 
-| Product capability | Current substrate | V1 status |
-|---|---|---|
-| Agent execution | Pori loop, tools, teams, streaming, stop/resume | built foundation |
-| Event aggregate | Event ownership on Runs/files/memory/audit | built foundation |
-| Life Conversations | singleton Life assignment + Conversation CRUD | R1 built |
-| Dedicated Event Session | `Event.primary_conversation_id` | R1 built |
-| Task working state | Task CRUD + agent mutation tools | R2 built |
-| Durable execution | worker leases, checkpoints, cron chassis | R3 built |
-| Event Surface | static Event context + live projection transport | R4 transport; model-authored runtime is R5 |
-| Trail | Event entries, receipts, traces, run replay | R4 live grouping/pagination built |
-| Proposals | durable staging, decisions, executor, receipts | built foundation |
-| Files/artifacts | object storage, finalizer, library pointers | built foundation |
-| Event memory | scoped loader and history-search seams | Life transcript isolation R1; compaction R8 |
-| Web research | tool ecosystem/MCP seams | provider-neutral product tools needed |
-| Gmail proof | connection + Proposal-safe execution rail | integration drill needed |
-| Today | Event aggregation of decisions/activity/open Tasks | R4 blockers/staleness built |
-| Desktop | shell + web workspace | responsive QA R0/R8; native packaging later |
+Pori is the product-agnostic agent kernel. It provides bounded execution,
+planning, tools, memory contracts, teams/sub-agents, evaluation, checkpointing,
+streaming, and sandbox abstractions. Pori does not know about Aloy Events,
+Surfaces, Today, or Proposals.
 
-## 9. Delivery rule
+Aloy is the product harness around Pori. It supplies:
 
-The active sequence and acceptance gates are in
-[`docs/aloy-v1-plan.md`](./aloy-v1-plan.md). Each phase gets its own branch and
-PR into the `aloy-v1` integration branch. `main` remains protected until the
-Career OS loop, visual QA, reliability drill, and required tests pass.
+- Event-aware prompts, context assembly, policy, and run profiles;
+- explicit skills such as Surface Builder;
+- tenant and Event-scoped tools and virtual filesystems;
+- durable workers, product Triggers, and Proposal execution;
+- REST + SSE product APIs and the trusted desktop/web host;
+- isolated build and runtime boundaries for generated Surfaces;
+- product-specific evaluation and quality gates.
+
+Skills improve model behavior but never define security. Authorization,
+tenancy, schemas, idempotency, execution limits, sandboxing, CSP, receipts, and
+publish gates remain enforced outside model instructions.
 
 Architecture remains one-way:
 
@@ -568,15 +657,40 @@ Architecture remains one-way:
 products → extensions → pori
 ```
 
-The Pori kernel stays product-agnostic. Aloy surfaces reach the backend only
-through REST + SSE. Product state and policy remain in `products/aloy`.
+Aloy's TypeScript surfaces reach the backend only over REST + SSE. Product
+state and policy remain in `products/aloy`; the kernel remains independently
+usable and extractable.
 
-Related documents:
+The target architecture is provider-neutral. Trusted app/API/worker services
+may run on an ordinary cloud platform, while untrusted Surface builds and
+agent execution that require isolation run in managed remote sandboxes. V1
+must exercise the remote path so latency, recovery, and cost are understood;
+it must never fall back to executing generated Surface builds as a host-local
+subprocess.
 
-- [`aloy-v1-plan.md`](./aloy-v1-plan.md) — active execution plan
-- [`aloy-surface-spec.md`](./aloy-surface-spec.md) — model-authored Event Surface contract
-- [`aloy-wedge-spec.md`](./aloy-wedge-spec.md) — implemented Event/Proposal foundation
-- [`Aloy.md`](./Aloy.md) — monorepo/product architecture
-- [`engineering-excellence-spec.md`](./engineering-excellence-spec.md) — quality bar
-- [`../products/aloy/BOOT.md`](../products/aloy/BOOT.md) — local boot guide
-- [`../.agent/progress/current.md`](../.agent/progress/current.md) — live state
+## 9. Delivery and document map
+
+The active delivery sequence and acceptance gates live in
+[`aloy-v1-plan.md`](./aloy-v1-plan.md). Each phase uses its own branch and PR
+into the `aloy-v1` integration branch. `main` remains protected until the
+Career OS loop, Surface proofs, visual QA, reliability drill, and required
+verification gates pass. Branch names do not use agent or tool prefixes.
+
+This document is the parent product source of truth. Child documents may add
+detail but must not redefine its primitives or invariants:
+
+- [`aloy-v1-plan.md`](./aloy-v1-plan.md) — active delivery sequence and gates;
+- [`aloy-surface-spec.md`](./aloy-surface-spec.md) — generated Surface project,
+  SDK, isolation, interaction, quality, and publication contract;
+- [`aloy-wedge-spec.md`](./aloy-wedge-spec.md) — implemented Event, Proposal,
+  file, Trail, and initial workspace foundation;
+- [`Aloy.md`](./Aloy.md) — monorepo and product architecture;
+- [`engineering-excellence-spec.md`](./engineering-excellence-spec.md) —
+  engineering quality bar;
+- [`../products/aloy/BOOT.md`](../products/aloy/BOOT.md) — local boot guide;
+- [`../.agent/progress/current.md`](../.agent/progress/current.md) — current
+  branch, shipped slices, verification, and immediate next work.
+
+When a child document or implementation conflicts with this vision, the
+conflict must be resolved explicitly. It must not be hidden by adding another
+parallel concept or a second source of truth.
