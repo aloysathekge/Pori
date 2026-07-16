@@ -42,7 +42,8 @@ projection and run-local `/workspace` seeded from the durable draft. Public
 clients can read project/revision metadata but not source contents; there is no
 public source-mutation route. Every committed draft adds a semantic Trail row.
 
-R5 build/preview is implemented on `aloy-v1-r5-surface-build-preview`. Each
+R5 build/preview was merged as PR #176 at merge commit
+`a63384188e5f9bc13563bc36fb9b69d976d282b2`. Each
 immutable revision can produce an idempotent durable `surface_build` with
 deterministic source checks, retained diagnostics/logs/metrics, a content-
 addressed bundle pointer, preview artifact metadata, and a semantic Trail row.
@@ -50,15 +51,35 @@ Generated source runs only through a fixed Aloy toolchain contract in a non-
 local sandbox provider; absent isolation returns `blocked` and never falls back
 to a host subprocess. Public tenant-scoped reads expose safe metadata but never
 the object-store key, source, build log, or executable bundle. `surface_preview`
-currently inspects metadata only: executable iframe hosting is intentionally
-the next security boundary.
+inspects metadata only.
+
+The next security boundary is implemented on
+`aloy-v1-r5-surface-iframe-host`. A tenant-authenticated endpoint reads a
+successful immutable bundle without exposing its object-store key, validates
+the exact `surface.js` plus optional `surface.css` ZIP contract, neutralizes
+raw-text end-tag injection, and creates Aloy-owned HTML under a nonce-bound CSP
+with direct network, objects, frames, workers, forms, and base URLs denied. The
+app turns that authenticated document into a revocable Blob URL and runs it in
+an opaque-origin `sandbox="allow-scripts"` iframe. Event workspaces now have
+Conversation, resizable Split, and Surface focus modes while the trusted Event
+context rail remains outside generated code. After an assistant response, a
+host-owned Surface-ready card reveals each unseen successful build once when
+the Surface is not already visible; it opens Split on wide screens and Surface
+focus on narrow screens without starting a model turn or adding Trail noise.
+This is explicitly a preview; publication/last-good selection and the
+capability SDK/interaction bridge are not yet implied.
 
 Verification for build/preview: all 274 Aloy backend tests pass; the focused
 16-test Surface suite passes; backend mypy is clean across 94 source files; and
 backend Black/isort checks pass.
 
-Next implement the sandboxed iframe host and immutable bundle delivery, then
-SDK + interaction transport, the independent Critic, publication,
+Verification for the iframe host: all 275 Aloy backend tests pass; backend
+mypy is clean across 95 source files; backend Black/isort checks pass; and the
+Aloy app passes ESLint, TypeScript, and its production build. Signed-in visual
+QA remains the final local acceptance step.
+
+Next complete signed-in visual QA for the iframe host, then implement the
+bound SDK + interaction transport, the independent Critic,
 and the two proofs. §13 of the Surface spec also locks the design brief,
 design system, screenshot states, deterministic audit, independent Critic,
 user-job simulation, bounded repair, user control, scorecard, and last-good

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Activity,
   CheckCircle2,
@@ -41,6 +41,8 @@ import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
 import { RunReplay } from '@/components/chat/RunReplay';
 import { ProposalCard } from '@/components/events/ProposalCard';
+import { SurfaceFrame } from '@/components/surfaces/SurfaceFrame';
+import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAttachments } from '@/hooks/useAttachments';
@@ -48,6 +50,7 @@ import { useStreamingRun } from '@/hooks/useStreamingRun';
 import type { MessageResponse } from '@/types';
 
 type ContextTab = 'tasks' | 'decisions' | 'files' | 'trail';
+type WorkspaceMode = 'conversation' | 'split' | 'surface';
 
 const INPUT =
   'w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none';
@@ -86,14 +89,48 @@ export function EventPage() {
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [contextOpen, setContextOpen] = useState(true);
   const [contextTab, setContextTab] = useState<ContextTab>('tasks');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => {
+    const stored = window.localStorage.getItem(`aloy:event:${eventId}:workspace-mode`);
+    return stored === 'split' || stored === 'surface' ? stored : 'conversation';
+  });
+  const [splitRatio, setSplitRatio] = useState(() => {
+    const stored = Number(window.localStorage.getItem(`aloy:event:${eventId}:split-ratio`));
+    return Number.isFinite(stored) && stored >= 30 && stored <= 70 ? stored : 50;
+  });
   const [error, setError] = useState('');
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [resumeTaskId, setResumeTaskId] = useState<string | null>(null);
   const [resumeResponse, setResumeResponse] = useState('');
   const previousSending = useRef(false);
   const trailEventId = useRef<string | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   const conversationId = data?.event.conversation_id ?? null;
+
+  useEffect(() => {
+    window.localStorage.setItem(`aloy:event:${eventId}:workspace-mode`, workspaceMode);
+  }, [eventId, workspaceMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(`aloy:event:${eventId}:split-ratio`, String(splitRatio));
+  }, [eventId, splitRatio]);
+
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const move = (pointer: PointerEvent) => {
+      const bounds = workspace.getBoundingClientRect();
+      const ratio = ((pointer.clientX - bounds.left) / bounds.width) * 100;
+      setSplitRatio(Math.min(70, Math.max(30, ratio)));
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+  }
 
   const loadSurface = useCallback(async () => {
     if (!eventId) return;
@@ -395,6 +432,11 @@ export function EventPage() {
     { id: 'files', icon: FileText, label: 'Files', count: files.length },
     { id: 'trail', icon: Activity, label: 'Trail' },
   ];
+  const lastMessage = messages.at(-1);
+
+  function openSurfaceFromConversation() {
+    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'surface');
+  }
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
@@ -420,6 +462,19 @@ export function EventPage() {
               <p className="truncate text-xs text-zinc-500">{data.event.summary}</p>
             )}
           </div>
+          <div className="flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5" aria-label="Event workspace view">
+            {(['conversation', 'split', 'surface'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setWorkspaceMode(mode)}
+                className={`rounded-md px-2.5 py-1.5 text-[11px] font-medium capitalize transition-colors ${workspaceMode === mode ? 'bg-zinc-700 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'} ${mode === 'split' ? 'hidden md:block' : ''}`}
+                aria-pressed={workspaceMode === mode}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setContextOpen((value) => !value)}
@@ -437,6 +492,15 @@ export function EventPage() {
           </div>
         )}
 
+        <div
+          ref={workspaceRef}
+          className={`flex min-h-0 flex-1 ${workspaceMode === 'split' ? 'flex-col md:flex-row' : ''}`}
+        >
+        {workspaceMode !== 'surface' && (
+          <div
+            className={`flex min-h-0 min-w-0 flex-col ${workspaceMode === 'split' ? 'flex-none' : 'flex-1'}`}
+            style={workspaceMode === 'split' ? { flexBasis: `${splitRatio}%` } : undefined}
+          >
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-6">
           <div className="mx-auto max-w-4xl">
             {loadingConversation ? (
@@ -471,6 +535,22 @@ export function EventPage() {
                 hasOlder={!!messageCursor}
                 loadingOlder={loadingOlderMessages}
                 onLoadOlder={() => void loadOlderMessages()}
+                afterMessages={(
+                  <SurfaceOpenCard
+                    eventId={eventId}
+                    eventTitle={data.event.title}
+                    refreshKey={activity[0]?.id}
+                    visible={
+                      workspaceMode === 'conversation'
+                      && !sending
+                      && !streaming
+                      && !clarify
+                      && !approval
+                      && lastMessage?.role === 'assistant'
+                    }
+                    onOpen={openSurfaceFromConversation}
+                  />
+                )}
               />
             )}
           </div>
@@ -493,6 +573,31 @@ export function EventPage() {
               onStop={sending && !clarify ? stopRun : undefined}
             />
           </div>
+        </div>
+          </div>
+        )}
+
+        {workspaceMode === 'split' && (
+          <button
+            type="button"
+            onPointerDown={startResize}
+            className="group relative hidden w-1 shrink-0 cursor-col-resize bg-zinc-800 transition-colors hover:bg-accent-600 md:block"
+            aria-label="Resize Conversation and Surface"
+            title="Drag to resize"
+          >
+            <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-600 group-hover:bg-white/70" />
+          </button>
+        )}
+
+        {workspaceMode !== 'conversation' && (
+          <div className="min-h-0 min-w-0 flex-1 border-t border-zinc-800 md:border-t-0">
+            <SurfaceFrame
+              eventId={eventId}
+              eventTitle={data.event.title}
+              refreshKey={activity[0]?.id}
+            />
+          </div>
+        )}
         </div>
       </section>
 

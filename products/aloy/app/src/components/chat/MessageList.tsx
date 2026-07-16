@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import { ClarifyPrompt } from '@/components/chat/ClarifyPrompt';
@@ -26,6 +26,7 @@ interface Props {
   hasOlder?: boolean;
   loadingOlder?: boolean;
   onLoadOlder?: () => void;
+  afterMessages?: ReactNode;
 }
 
 /**
@@ -51,6 +52,7 @@ export function MessageList({
   hasOlder,
   loadingOlder,
   onLoadOlder,
+  afterMessages,
 }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -119,6 +121,7 @@ export function MessageList({
           onDecide={onDecideApproval}
         />
       )}
+      {afterMessages}
       <div ref={messagesEndRef} />
     </div>
   );
