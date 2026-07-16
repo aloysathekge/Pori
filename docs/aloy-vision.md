@@ -1,6 +1,6 @@
 # Aloy — product vision
 
-_Canonical product definition, version 3.0, revised 2026-07-16. This document
+_Canonical product definition, version 3.1, revised 2026-07-16. This document
 defines what Aloy is, how its core product concepts fit together, and what V1
 must prove. Detailed contracts live in the linked child specifications; live
 implementation status lives in [`.agent/progress/current.md`](../.agent/progress/current.md)._
@@ -248,10 +248,78 @@ for one Event. It is the visual operating layer over trusted Event state—not
 the Aloy app itself, not a fixed dashboard, and not a predefined collection of
 Tasks, Files, or Trail blocks.
 
+> **Event data is permanent truth. A Surface is a versioned, replaceable
+> application Aloy builds over that truth.**
+
 A University Event may become a timetable and assessment workspace. A Madrid
 trip may become a map, flight, visa, hotel, budget, and itinerary application.
 Career OS may become a sourced company-research and opportunity-tracking tool.
 These Surfaces share a runtime and safety contract, not a page template.
+
+#### A real application, not one screen
+
+A Surface may have the complete information architecture its Event requires:
+local navigation, tabs and sub-tabs, routes, sticky headers, scrollable views,
+search, filters, forms, tables, boards, calendars, timelines, maps, charts,
+galleries, comparison tools, and responsive layouts. It must include useful
+loading, empty, error, stale, and unavailable states. The model may author
+custom React components when trusted primitives are insufficient.
+
+There are two deliberately separate navigation levels:
+
+1. **Aloy workspace navigation** is trusted host chrome. It controls
+   Conversation, Workbench items, opened files and artifacts, Run Replay, and
+   Event context.
+2. **Surface navigation** is generated for the Event. A Madrid Surface may
+   contain Overview, Flights, Stay, Match, Itinerary, Budget, and Documents. A
+   University Surface may contain Today, Timetable, Courses, Assignments,
+   Exams, Study, and Documents, with course-level sub-navigation beneath it.
+
+The Surface fills its Workbench pane. Ordinarily it owns one primary scrolling
+content region while important local navigation may remain sticky. It must
+adapt when Conversation, Event context, or a file opens beside it. On narrow
+screens its sections become suitable full-screen views or compact navigation.
+Normal Surface navigation never requires a popup window.
+
+The iframe is a security boundary, not a visual boundary. A Surface should
+inherit Aloy's design tokens, typography, themes, spacing, motion, and
+accessibility behavior; fill its pane without foreign-looking borders; and
+resize without losing its selected section, filters, local input, or scroll.
+
+#### When a Surface is warranted
+
+Aloy looks for a **Surface opportunity**, not a keyword. A Surface becomes
+valuable when several of these conditions are true:
+
+- the outcome will continue for days, weeks, or months;
+- several changing records or dependencies must be tracked;
+- the user needs comparisons, schedules, maps, timelines, documents, or
+  progress at a glance;
+- repeated decisions or recurring work are expected;
+- current truth is difficult to recover from Conversation alone;
+- the user repeatedly asks where things stand or what needs attention.
+
+A simple explanation or one-off answer should remain in Conversation. A
+semester, international trip, job campaign, relocation, thesis, renovation, or
+business launch usually benefits from a Surface. The user may request one
+explicitly, and Aloy may propose one when the opportunity is clear; the user
+does not need to know the internal term before it is useful.
+
+Before generating code, Aloy produces a structured Surface brief containing:
+
+- the Event's primary user job and current phase;
+- the questions the Surface must answer immediately;
+- its views and information hierarchy;
+- canonical entities, evidence posture, and data requirements;
+- local interactions, durable intents, reasoning requests, and protected
+  actions;
+- required trusted widgets and host services;
+- responsive, accessibility, loading, empty, stale, and failure states.
+
+This brief is the product contract for the candidate. It prevents an attractive
+but unhelpful dashboard from passing merely because it compiles.
+
+#### Construction and authority
 
 The Surface is real React and CSS authored by the model within a constrained
 project. Aloy may create components, layouts, forms, filters, local state, and
@@ -275,10 +343,43 @@ network, package, storage, navigation, or device authority. A capability-scoped
 structured intents, and host-owned privileged widgets such as maps, approvals,
 file viewers, and credential collection.
 
+Generated code chooses how trusted widgets are composed into the Event
+experience. The host retains credentials, provider calls, permanent files,
+authentication, authorization, payments, approvals, receipts, and device
+access. This allows a model-authored map, calendar, document workflow, or
+payment-preparation flow to feel native without granting generated code the
+authority behind it.
+
 The Surface may present canonical records, but it cannot redefine them. A
 selected hotel is not a booking; “I paid” is a user report; a provider action
 is pending until a receipt exists; a crash-window uncertainty is
 `indeterminate`, never confidently committed.
+
+#### Build, quality, and publication lifecycle
+
+Every Surface follows a controlled lifecycle:
+
+```text
+opportunity or request
+→ Surface brief
+→ isolated candidate build
+→ deterministic checks
+→ viewport and state renders
+→ independent critique
+→ primary user-job simulation
+→ bounded repair
+→ publish
+→ monitor and improve
+```
+
+Deterministic gates validate the manifest, types, imports, build, bundle
+limits, capability declarations, and forbidden authority. Visual gates render
+the candidate at required desktop, split-pane, tablet, mobile, light, and dark
+states and check overflow, hierarchy, contrast, responsiveness, and failure
+behavior. Interaction gates simulate the Event's real jobs: selecting,
+filtering, updating durable data, asking Aloy, opening files, requesting an
+action, approving or rejecting it, receiving failure, and restoring after a
+reload.
 
 Surface quality is engineered rather than requested with the word “beautiful.”
 Every publish candidate is built in isolation, rendered at required viewports
@@ -287,6 +388,41 @@ against the Event's primary user jobs, and repaired within bounded limits. A
 failed or weak candidate never replaces the last-good revision. The Surface
 Builder skill teaches the model how to work, but schemas, tools, sandboxing,
 CSP, host bridges, and the publish service enforce the boundary.
+
+Publishing is versioned and risk-aware. A safe visual repair or read-only view
+may publish automatically after passing the gate. A major navigation change
+should be explained or previewed. A newly declared external, financial,
+destructive, or permission-changing capability always remains subject to the
+host's policy and approval boundary. The user can inspect revisions, request a
+redesign, prefer an earlier layout, or roll back. A failed build, runtime crash,
+or exhausted repair attempt leaves the last-good revision in place.
+
+#### Persistence and evolution
+
+An Event may live for years; a browser process, model Run, and iframe do not.
+The server persists Event truth, Surface data, published revision, build
+history, interactions, and per-user workspace preferences. Reopening the Event
+loads the last-good Surface over current Event state and restores its useful
+local context.
+
+Aloy improves a Surface only when there is evidence that the current
+application no longer serves the Event well, for example:
+
+- the Event entered a new phase;
+- new canonical data no longer fits the current information architecture;
+- the user repeatedly asks for buried information or manual workarounds;
+- an important view is unused or a primary job repeatedly fails;
+- a trusted capability such as a map or calendar becomes relevant;
+- the user explicitly requests a new view, calculator, workflow, or redesign;
+- quality monitoring detects a runtime, responsive, accessibility, or stale-
+  data failure.
+
+Aloy prefers a focused patch when the application remains sound and a larger
+redesign when the Event's phase or user jobs have materially changed. It does
+not randomly rearrange a familiar workspace. A University Surface may evolve
+from timetable and course capture, to assignment management, to exam revision,
+to results and next-semester planning while preserving one Event, one
+continuous Conversation, and the same durable academic truth.
 
 The complete contract is defined in
 [`aloy-surface-spec.md`](./aloy-surface-spec.md).

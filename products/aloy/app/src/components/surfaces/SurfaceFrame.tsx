@@ -7,6 +7,7 @@ import {
   type SurfaceBuild,
 } from '@/api/surfaces';
 import { Spinner } from '@/components/ui/Spinner';
+import { SurfaceBridgeHost } from './surfaceBridge';
 
 interface SurfaceFrameProps {
   eventId: string;
@@ -25,9 +26,15 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   const [reload, setReload] = useState(0);
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const bridgeRef = useRef<SurfaceBridgeHost | null>(null);
+  const currentBuildId = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
+    bridgeRef.current?.disconnect();
+    bridgeRef.current = null;
+    currentBuildId.current = null;
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     objectUrl.current = null;
     setState({ kind: 'loading' });
@@ -48,6 +55,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
         return;
       }
       objectUrl.current = url;
+      currentBuildId.current = build.id;
       window.localStorage.setItem(surfaceSeenKey(eventId), build.id);
       setState({ kind: 'ready', url, build });
     } catch (cause) {
@@ -63,14 +71,58 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- build identity drives an authenticated runtime reload
     void load();
-  }, [load, refreshKey, reload]);
+  }, [load, reload]);
+
+  useEffect(() => {
+    if (!refreshKey || !currentBuildId.current) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const builds = await listSurfaceBuilds(eventId);
+        if (cancelled) return;
+        const build = builds.find(
+          (candidate) => candidate.status === 'succeeded' && candidate.bundle_available,
+        );
+        if (build && build.id !== currentBuildId.current) {
+          await load();
+          return;
+        }
+        await bridgeRef.current?.refresh();
+      } catch {
+        // The existing last-good Surface stays mounted; the live stream will
+        // provide another invalidation and manual reload remains available.
+      }
+    };
+    void refresh();
+    return () => { cancelled = true; };
+  }, [eventId, load, refreshKey]);
 
   useEffect(() => {
     return () => {
       requestId.current += 1;
+      bridgeRef.current?.disconnect();
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
   }, []);
+
+  async function connectBridge(build: SurfaceBuild) {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    bridgeRef.current?.disconnect();
+    const bridge = new SurfaceBridgeHost(eventId, build.id);
+    bridgeRef.current = bridge;
+    try {
+      await bridge.connect(frame);
+    } catch (cause) {
+      if (bridgeRef.current !== bridge) return;
+      bridge.disconnect();
+      setState({
+        kind: 'error',
+        message: cause instanceof Error ? cause.message : 'Surface bridge unavailable',
+        build,
+      });
+    }
+  }
 
   const buildLabel = useMemo(() => {
     if (state.kind !== 'ready') return null;
@@ -138,7 +190,9 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
         {state.kind === 'ready' && (
           <iframe
             key={state.url}
+            ref={iframeRef}
             src={state.url}
+            onLoad={() => void connectBridge(state.build)}
             sandbox="allow-scripts"
             referrerPolicy="no-referrer"
             title={`${eventTitle} Surface preview`}

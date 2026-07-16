@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import {
+  AlertTriangle,
   Bookmark,
   BookmarkCheck,
   Check,
+  CheckCircle2,
   CircleSlash,
   Copy,
   Download,
   FileText,
   History,
   RotateCcw,
+  ShieldCheck,
+  XCircle,
 } from 'lucide-react';
 import { apiStreamFetch } from '@/api/client';
 import { saveToLibrary } from '@/api/files';
@@ -45,6 +49,8 @@ export function MessageBubble({
   onContinue?: (message: MessageResponse) => void;
 }) {
   const isUser = message.role === 'user';
+  const isSurfaceAction = message.metadata?.kind === 'surface_action_lifecycle';
+  const surfaceActionStatus = message.metadata?.status ?? 'waiting_approval';
   const artifacts = message.metadata?.artifacts ?? [];
   const runId = message.metadata?.run_id ?? null;
   const [replaying, setReplaying] = useState(false);
@@ -99,11 +105,32 @@ export function MessageBubble({
       )}
       <div
         className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-          isUser
+          isSurfaceAction
+            ? 'border border-zinc-700 bg-zinc-900/80 text-zinc-200 shadow-sm'
+            : isUser
             ? 'bg-accent-600 text-white selection:bg-white/35 selection:text-white'
             : 'bg-zinc-800 text-zinc-200'
         }`}
       >
+        {isSurfaceAction && (
+          <div className="mb-2 flex items-center gap-2 border-b border-zinc-700/80 pb-2">
+            {surfaceActionStatus === 'committed' ? (
+              <CheckCircle2 size={15} className="text-emerald-500" />
+            ) : surfaceActionStatus === 'indeterminate' ? (
+              <AlertTriangle size={15} className="text-amber-500" />
+            ) : ['failed', 'rejected'].includes(surfaceActionStatus) ? (
+              <XCircle size={15} className="text-red-400" />
+            ) : (
+              <ShieldCheck size={15} className="text-accent-500" />
+            )}
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-300">
+              Surface action
+            </span>
+            <span className="ml-auto rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] capitalize text-zinc-400">
+              {surfaceActionStatus.replaceAll('_', ' ')}
+            </span>
+          </div>
+        )}
         {(message.metadata?.images?.length ?? 0) > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {message.metadata!.images!.map((img, i) => (

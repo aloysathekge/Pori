@@ -120,6 +120,7 @@ class SurfaceProject(SQLModel, table=True):
     draft_revision_id: str | None = Field(default=None, index=True)
     published_revision_id: str | None = Field(default=None, index=True)
     sdk_version: str = "1"
+    data_revision: int = 0
     lifecycle: str = Field(default="draft", index=True)
     user_lock_state: str = Field(default="editable", index=True)
     created_at: datetime = Field(
@@ -223,6 +224,93 @@ class SurfaceBuild(SQLModel, table=True):
     )
     completed_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class SurfaceDataRecord(SQLModel, table=True):
+    """Canonical namespaced Event data exposed through the Surface SDK."""
+
+    __tablename__ = "surface_data_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "namespace", "record_key", name="uq_surface_data_record"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"sdata_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    namespace: str = Field(index=True)
+    record_key: str = Field(index=True)
+    data: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    revision: int = Field(index=True)
+    posture: str = Field(default="user_reported", index=True)
+    actor_id: str = Field(index=True)
+    provenance: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    evidence_refs: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class SurfaceInteraction(SQLModel, table=True):
+    """Exactly-once, revision-bound request from untrusted generated UI."""
+
+    __tablename__ = "surface_interactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "idempotency_key",
+            name="uq_surface_interaction_idempotency",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"sint_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    build_id: str = Field(foreign_key="surface_builds.id", index=True)
+    code_revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    conversation_id: str | None = Field(default=None, index=True)
+    name: str = Field(index=True)
+    interaction_class: str = Field(index=True)
+    component_id: str
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    actor_id: str = Field(index=True)
+    idempotency_key: str
+    request_fingerprint: str
+    base_data_revision: int
+    result_data_revision: int | None = Field(default=None, index=True)
+    status: str = Field(index=True)
+    handling_run_id: str | None = Field(default=None, index=True)
+    proposal_id: str | None = Field(default=None, index=True)
+    request_message_id: str | None = Field(default=None, index=True)
+    outcome_message_id: str | None = Field(default=None, index=True)
+    result: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    error: str | None = None
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
     )
 
 

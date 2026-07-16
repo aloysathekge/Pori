@@ -2,6 +2,78 @@
 
 _Last updated: 2026-07-16 (Aloy V1 R5 architecture reset)._
 
+## NEW: Surface product lifecycle clarified in parent vision (2026-07-16)
+
+`docs/aloy-vision.md` is now version 3.1 and explicitly defines an Event
+Surface as a rich, navigable application rather than a single screen or fixed
+dashboard. Surface-owned tabs, sub-navigation, routes, scrolling, responsive
+states, and custom Event-specific UI remain distinct from Aloy's trusted
+workspace navigation and host-owned privileged capabilities.
+
+The parent vision now defines the complete opportunity → brief → isolated
+build → deterministic/visual/interaction evaluation → independent Critic →
+bounded repair → risk-aware publish → monitor/improve lifecycle. Durable Event
+truth remains independent of replaceable Surface code; last-good publication,
+user rollback, phase-aware evolution, and evidence-based redesign prevent weak
+builds or arbitrary layout churn from disrupting a long-lived Event. This is a
+product-contract clarification only; it does not claim the remaining R5
+publication, Critic, widget, or proof implementation is complete.
+
+## NEW: Surface Run and Proposal lifecycle reconciliation (2026-07-16)
+
+The active `aloy-v1-r5-surface-sdk-bridge` branch now closes the trusted
+interaction loop. Surface reasoning requests move `queued → running →
+completed|failed|cancelled` from the durable worker, and external actions move
+`waiting_approval → approved → executing → committed|rejected|failed|
+indeterminate` only from Proposal decision/executor truth. Run, Proposal,
+SurfaceInteraction, semantic Trail, and host-owned Conversation messages are
+updated in the same transaction at each trusted boundary. Request/outcome
+message ids make lifecycle cards exactly-once across retries and recovery.
+
+Runtime context now carries the Event Surface's recent interaction ledger and
+`@aloy/surface` exports `useInteractions`, allowing generated UI to render live
+status and receipt-backed outcomes without inventing completion from local
+state. Proposal Trail SSE frames resolve the Proposal's origin Conversation so
+the open permanent Session refreshes immediately. The app renders protected
+action request/outcome messages as trusted lifecycle cards.
+
+Verification is green: all 282 Aloy backend tests pass; a focused 31-test
+Surface/Proposal/worker/live-routing set passes; backend Black/isort are clean
+across 179 files; backend mypy is clean across 98 source files; the standalone
+Surface SDK compiles; and the Aloy app passes ESLint and its production build.
+
+## NEW: Surface SDK and interaction bridge foundation (2026-07-16)
+
+The active branch is `aloy-v1-r5-surface-sdk-bridge`, based on the merged Event
+Workbench PR #178. The first bound-SDK slice is implemented. A new private
+`@aloy/surface` workspace package provides reactive Event/data hooks plus
+`dispatch`, `askAloy`, and `requestAction`. Generated code receives its context
+only through a host-created `MessageChannel`; the opaque-origin iframe still
+receives no bearer token, REST access, cookies, storage, direct network, or
+Electron authority.
+
+`surface.json` is now a versioned, fail-closed manifest that declares read
+capabilities, typed intents, namespaced data writes, host action tools, and
+reviewed widgets. The backend persists independent Surface data revisions,
+provenance/posture-bearing data records, and exactly-once revision/build-bound
+interactions. Capability-scoped context reads expose only declared Event data.
+Durable selection dispatches validate the declared schema and atomically update
+one namespaced record plus semantic Trail; `askAloy` appends one structured turn
+to the Event's canonical Conversation and queues one durable Run; external
+actions validate the exact live tool schema and stage a Proposal without
+execution. User-originated Surface writes can claim only `user_reported`, never
+committed or receipt-backed posture.
+
+Event SSE invalidation now refreshes the bound context without remounting the
+iframe when the successful build is unchanged, preserving Surface-local UI
+state. A newly successful build still replaces the runtime document. The
+Surface Builder skill includes the exact SDK/manifest contract.
+
+The initial foundation verification remains superseded by the lifecycle result
+above. Remaining SDK work before the R5 gate: heartbeat/runtime watchdogs,
+privileged host widget transport (Map first), publication/last-good selection,
+Critic, and University/Madrid proof Surfaces.
+
 ## NEW: Event Workbench shell (2026-07-16)
 
 The active branch is `aloy-v1-r5-event-workbench`, based on the merged iframe

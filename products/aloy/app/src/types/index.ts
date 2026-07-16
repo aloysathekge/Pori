@@ -41,6 +41,13 @@ export interface PendingFile extends MessageFile {
 }
 
 export interface MessageMetadata {
+  kind?: string;
+  phase?: string;
+  status?: string;
+  surface_interaction_id?: string;
+  proposal_id?: string;
+  tool?: string;
+  has_receipt?: boolean;
   images?: MessageImage[];
   files?: MessageFile[];
   reasoning?: string | null;

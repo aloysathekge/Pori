@@ -262,6 +262,70 @@ async def test_event_stream_replays_missed_change_with_origin_conversation(
     assert sibling["id"] not in change
 
 
+async def test_event_stream_routes_proposal_changes_to_origin_conversation(
+    client, db_session_maker
+):
+    event = await _project(client)
+    async with db_session_maker() as session:
+        first = (
+            (
+                await session.execute(
+                    select(EventTrailEntry)
+                    .where(EventTrailEntry.event_id == event["id"])
+                    .order_by(col(EventTrailEntry.created_at).desc())
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert first is not None
+        proposal = ActionProposal(
+            organization_id=ORG,
+            user_id=USER,
+            event_id=event["id"],
+            origin_session_id=event["conversation_id"],
+            tool="gmail_send",
+            args={},
+            tool_schema_fingerprint="schema",
+            reason="Send the summary",
+            impact="Email",
+            risk="high",
+            routing="ask",
+            status="pending",
+        )
+        session.add(proposal)
+        await session.flush()
+        proposal_id = proposal.id
+        session.add(
+            EventTrailEntry(
+                organization_id=ORG,
+                user_id=USER,
+                event_id=event["id"],
+                actor_id=USER,
+                kind="proposal_decided",
+                summary="Rejected external action",
+                proposal_id=proposal_id,
+                created_at=first.created_at + timedelta(seconds=1),
+            )
+        )
+        await session.commit()
+        response = await stream_event_changes(
+            event["id"],
+            _ConnectedRequest(),  # type: ignore[arg-type]
+            encode_cursor(first.created_at, first.id),
+            _context(),
+            session,
+        )
+        iterator = response.body_iterator
+        await anext(iterator)
+        change = await anext(iterator)
+        await iterator.aclose()
+
+    assert "event: event_change" in change
+    assert event["conversation_id"] in change
+    assert proposal_id in change
+
+
 async def test_today_calls_out_blocked_and_stale_tasks(client, db_session_maker):
     event = await _project(client)
     blocked = (

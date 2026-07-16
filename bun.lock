@@ -5,6 +5,18 @@
     "": {
       "name": "pori-monorepo",
     },
+    "packages/aloy-surface": {
+      "name": "@aloy/surface",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/react": "^19.2.14",
+        "react": "^19.2.4",
+        "typescript": "~5.9.3",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+      },
+    },
     "packages/pori-client": {
       "name": "@pori/client",
       "version": "0.0.0",
@@ -54,6 +66,8 @@
   },
   "packages": {
     "@aloy/app": ["@aloy/app@workspace:products/aloy/app"],
+
+    "@aloy/surface": ["@aloy/surface@workspace:packages/aloy-surface"],
 
     "@aloy/website": ["@aloy/website@workspace:products/aloy/website"],
 
