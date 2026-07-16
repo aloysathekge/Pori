@@ -300,6 +300,8 @@ class SurfaceInteraction(SQLModel, table=True):
     status: str = Field(index=True)
     handling_run_id: str | None = Field(default=None, index=True)
     proposal_id: str | None = Field(default=None, index=True)
+    request_message_id: str | None = Field(default=None, index=True)
+    outcome_message_id: str | None = Field(default=None, index=True)
     result: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     error: str | None = None
     created_at: datetime = Field(

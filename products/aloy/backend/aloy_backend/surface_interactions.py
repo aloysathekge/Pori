@@ -39,6 +39,7 @@ from .models import (
     Task,
 )
 from .proposal_executor import proposal_tool_registry
+from .surface_lifecycle import stage_surface_action_message
 from .surface_manifest import (
     SURFACE_PROTOCOL_VERSION,
     SurfaceIntentDeclaration,
@@ -126,6 +127,8 @@ def interaction_payload(interaction: SurfaceInteraction) -> dict[str, Any]:
         "status": interaction.status,
         "handling_run_id": interaction.handling_run_id,
         "proposal_id": interaction.proposal_id,
+        "request_message_id": interaction.request_message_id,
+        "outcome_message_id": interaction.outcome_message_id,
         "result": interaction.result,
         "error": interaction.error,
         "created_at": interaction.created_at,
@@ -190,7 +193,26 @@ async def surface_runtime_context(
         session, context=context, event_id=event_id, build_id=build_id
     )
     capabilities = set(manifest.capabilities)
-    data: dict[str, Any] = {}
+    interactions = list(
+        (
+            await session.execute(
+                select(SurfaceInteraction)
+                .where(
+                    SurfaceInteraction.organization_id == context.organization_id,
+                    SurfaceInteraction.user_id == context.user_id,
+                    SurfaceInteraction.event_id == event.id,
+                    SurfaceInteraction.project_id == project.id,
+                )
+                .order_by(col(SurfaceInteraction.created_at).desc())
+                .limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    data: dict[str, Any] = {
+        "interactions": [interaction_payload(row) for row in interactions]
+    }
     if "event" in capabilities:
         data["event"] = event_payload(event)
     if "tasks" in capabilities:
@@ -655,6 +677,11 @@ async def handle_surface_interaction(
         interaction.status = "waiting_approval"
         interaction.proposal_id = proposal.id
         interaction.result = {"proposal_id": proposal.id}
+        await stage_surface_action_message(
+            session,
+            interaction=interaction,
+            proposal=proposal,
+        )
         session.add(
             EventTrailEntry(
                 organization_id=context.organization_id,

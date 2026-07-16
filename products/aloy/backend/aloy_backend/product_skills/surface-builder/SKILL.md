@@ -73,7 +73,11 @@ manifest is:
 }
 ```
 
-Use `useEvent`, `useTasks`, and `useSurfaceData(namespace)` for reactive reads.
+Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`, and `useInteractions`
+for reactive reads. Interaction records are the durable way to render queued,
+running, approval, execution, committed, rejected, failed, or indeterminate
+outcomes after the original SDK Promise has resolved; never invent completion
+from local component state.
 Use `dispatch(name, payload)` only for declared durable selections,
 `askAloy(message, context)` for an explicit reasoning turn, and
 `requestAction({name, payload, reason})` only for a declared external action

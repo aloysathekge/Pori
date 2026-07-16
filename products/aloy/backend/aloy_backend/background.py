@@ -40,6 +40,7 @@ from .run_outcome import (
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
+from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .task_execution import (
     DurableClarificationRecorder,
     add_task_lifecycle_message,
@@ -233,6 +234,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         conversation: Conversation | None = None
 
         try:
+            if await mark_surface_run_started(session, run=run):
+                # Surface reasoning has its own semantic start transition so
+                # Event SSE can refresh generated UI while the Run works.
+                await session.commit()
             membership_result = await session.execute(
                 select(OrganizationMembership).where(
                     OrganizationMembership.organization_id == run.organization_id,
@@ -504,6 +509,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     pending_proposal=pending_proposal,
                 )
 
+            surface_outcome_message: Message | None = None
             if conversation is not None and run.status == "completed":
                 answer = (final or {}).get("final_answer") or ""
                 if task is not None and task.status == "blocked":
@@ -549,31 +555,30 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         ),
                     )
                 else:
-                    session.add(
-                        Message(
-                            conversation_id=conversation.id,
-                            role="assistant",
-                            content=answer,
-                            metadata_={
-                                "run_id": run.id,
-                                "reasoning": (final or {}).get("reasoning"),
-                                "steps_taken": run.steps_taken,
-                                "metrics": run.metrics,
-                                "selected_skills": run.selected_skills,
-                                "artifacts": run.artifacts,
-                                "plan": run.plan,
-                                **(
-                                    {
-                                        "kind": "task_result",
-                                        "task_id": task.id,
-                                        "task_status": task.status,
-                                    }
-                                    if task is not None
-                                    else {}
-                                ),
-                            },
-                        )
+                    surface_outcome_message = Message(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=answer,
+                        metadata_={
+                            "run_id": run.id,
+                            "reasoning": (final or {}).get("reasoning"),
+                            "steps_taken": run.steps_taken,
+                            "metrics": run.metrics,
+                            "selected_skills": run.selected_skills,
+                            "artifacts": run.artifacts,
+                            "plan": run.plan,
+                            **(
+                                {
+                                    "kind": "task_result",
+                                    "task_id": task.id,
+                                    "task_status": task.status,
+                                }
+                                if task is not None
+                                else {}
+                            ),
+                        },
                     )
+                    session.add(surface_outcome_message)
                 conversation.updated_at = datetime.now(timezone.utc)
                 session.add(conversation)
                 if memory is not None:
@@ -598,6 +603,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                             else None
                         ),
                     )
+
+            await reconcile_surface_run(
+                session,
+                run=run,
+                outcome_message=surface_outcome_message,
+            )
 
         except Exception:
             logger.exception("Background run %s failed", run_id)
@@ -626,6 +637,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         )
                         conversation.updated_at = datetime.now(timezone.utc)
                         session.add(conversation)
+            if run.status == "failed":
+                await reconcile_surface_run(
+                    session,
+                    run=run,
+                    error="The worker exhausted its safe retry attempts.",
+                )
 
         try:
             current = await session.get(Run, run_id)
@@ -660,6 +677,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     poisoned.lease_owner = None
                     poisoned.lease_expires_at = None
                     session.add(poisoned)
+                    await reconcile_surface_run(
+                        session,
+                        run=poisoned,
+                        error="The Run outcome could not be persisted safely.",
+                    )
                     await session.commit()
             except Exception:
                 logger.exception("Could not mark poisoned run %s failed", run_id)

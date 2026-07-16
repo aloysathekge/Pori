@@ -19,6 +19,25 @@ export interface SurfaceDataRecord<T = Record<string, unknown>> {
   evidence_refs: Array<Record<string, unknown>>;
 }
 
+export interface SurfaceInteraction {
+  id: string;
+  event_id: string;
+  build_id: string;
+  code_revision_id: string;
+  name: string;
+  interaction_class: string;
+  component_id: string;
+  status: string;
+  handling_run_id: string | null;
+  proposal_id: string | null;
+  request_message_id: string | null;
+  outcome_message_id: string | null;
+  result: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SurfaceContext {
   protocol_version: '1';
   sdk_version: '1';
@@ -36,6 +55,7 @@ export interface SurfaceContext {
     proposals?: Array<Record<string, unknown>>;
     receipts?: Array<Record<string, unknown>>;
     trail?: Array<Record<string, unknown>>;
+    interactions: SurfaceInteraction[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
   };
 }
@@ -155,6 +175,10 @@ export function useSurfaceData<T = Record<string, unknown>>(
 
 export function useTasks(): Array<Record<string, unknown>> {
   return useSurfaceContext()?.data.tasks ?? [];
+}
+
+export function useInteractions(): SurfaceInteraction[] {
+  return useSurfaceContext()?.data.interactions ?? [];
 }
 
 export function dispatch<T = Record<string, unknown>>(

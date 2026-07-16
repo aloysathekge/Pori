@@ -40,6 +40,7 @@ from .models import (
     OrganizationMembership,
 )
 from .run_surface import resolve_run_surface
+from .surface_lifecycle import reconcile_surface_proposal
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy, Permission
 from .tools import GOOGLE_WRITE_TOOLS, register_google_tools
 
@@ -174,6 +175,12 @@ async def _expire_loaded_proposal(
             },
         )
     )
+    await reconcile_surface_proposal(
+        session,
+        proposal=proposal,
+        proposal_status="withdrawn",
+        error="Proposal expired; safe default rejected the action.",
+    )
     return True
 
 
@@ -277,6 +284,11 @@ async def decide_proposal(
             payload=payload,
         )
     )
+    await reconcile_surface_proposal(
+        session,
+        proposal=proposal,
+        proposal_status=str(update_values["status"]),
+    )
     await session.commit()
     await session.refresh(proposal)
     return proposal
@@ -311,6 +323,12 @@ async def _mark_approved_failed(
                 summary=f"Could not execute {proposal.tool}",
                 payload={"status": "failed", "error": error[:1000]},
             )
+        )
+        await reconcile_surface_proposal(
+            session,
+            proposal=proposal,
+            proposal_status="failed",
+            error=error,
         )
         await session.commit()
     return ProposalExecutionResult(proposal.id, "failed", False, error)
@@ -459,6 +477,11 @@ async def _claim(
         if result.rowcount != 1:  # type: ignore[attr-defined]
             await session.rollback()
             return None
+        await reconcile_surface_proposal(
+            session,
+            proposal=proposal,
+            proposal_status="executing",
+        )
         await session.commit()
     return attempt_id
 
@@ -497,6 +520,12 @@ async def _mark_indeterminate(
                     "error": error[:1000],
                 },
             )
+        )
+        await reconcile_surface_proposal(
+            session,
+            proposal=proposal,
+            proposal_status="indeterminate",
+            error=error,
         )
         await session.commit()
 
@@ -550,6 +579,12 @@ async def _finalize_execution(
                     "error": error,
                 },
             )
+        )
+        await reconcile_surface_proposal(
+            session,
+            proposal=current,
+            proposal_status=status,
+            error=error,
         )
         await session.commit()
     return status

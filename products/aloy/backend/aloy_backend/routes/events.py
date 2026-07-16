@@ -582,6 +582,9 @@ async def stream_event_changes(
                 )
                 run_ids = {entry.run_id for entry in rows if entry.run_id}
                 task_ids = {entry.task_id for entry in rows if entry.task_id}
+                proposal_ids = {
+                    entry.proposal_id for entry in rows if entry.proposal_id
+                }
                 run_rows = (
                     list(
                         (
@@ -608,14 +611,35 @@ async def stream_event_changes(
                     if task_ids
                     else []
                 )
+                proposal_rows = (
+                    list(
+                        (
+                            await live_session.execute(
+                                select(ActionProposal).where(
+                                    col(ActionProposal.id).in_(proposal_ids)
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if proposal_ids
+                    else []
+                )
                 conversations = {run.id: run.conversation_id for run in run_rows}
                 task_conversations = {
                     task.id: task.origin_conversation_id for task in task_rows
                 }
+                proposal_conversations = {
+                    proposal.id: proposal.origin_session_id
+                    for proposal in proposal_rows
+                }
             for entry in rows:
                 frame_id = encode_cursor(entry.created_at, entry.id)
-                conversation_id = conversations.get(entry.run_id or "") or (
-                    task_conversations.get(entry.task_id or "")
+                conversation_id = (
+                    conversations.get(entry.run_id or "")
+                    or (task_conversations.get(entry.task_id or ""))
+                    or (proposal_conversations.get(entry.proposal_id or ""))
                 )
                 yield _sse(
                     "event_change",

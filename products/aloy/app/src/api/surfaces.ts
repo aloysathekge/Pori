@@ -49,6 +49,8 @@ export interface SurfaceInteractionResponse {
   data_revision: number | null;
   handling_run_id: string | null;
   proposal_id: string | null;
+  request_message_id: string | null;
+  outcome_message_id: string | null;
   result: Record<string, unknown>;
   replayed: boolean;
 }

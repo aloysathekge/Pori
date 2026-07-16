@@ -84,6 +84,8 @@ def upgrade() -> None:
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("handling_run_id", sa.String(), nullable=True),
         sa.Column("proposal_id", sa.String(), nullable=True),
+        sa.Column("request_message_id", sa.String(), nullable=True),
+        sa.Column("outcome_message_id", sa.String(), nullable=True),
         sa.Column("result", sa.JSON(), nullable=False),
         sa.Column("error", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -114,6 +116,8 @@ def upgrade() -> None:
         "status",
         "handling_run_id",
         "proposal_id",
+        "request_message_id",
+        "outcome_message_id",
     ):
         op.create_index(
             f"ix_surface_interactions_{column}", "surface_interactions", [column]
