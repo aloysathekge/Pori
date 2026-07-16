@@ -352,3 +352,7 @@ async def test_today_calls_out_blocked_and_stale_tasks(client, db_session_maker)
     group = next(item for item in today["events"] if item["event"]["id"] == event["id"])
     assert [task["id"] for task in group["blocked"]] == [blocked["id"]]
     assert [task["id"] for task in group["stale"]] == [stale["id"]]
+    notifications = {item["id"]: item for item in today["notifications"]}
+    assert notifications[f"task:{stale['id']}:stale"]["title"] == (
+        "Task needs attention"
+    )

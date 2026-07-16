@@ -8,7 +8,6 @@ import {
   Folder,
   LogOut,
   Menu,
-  MessageSquare,
   MessageSquarePlus,
   PanelLeftClose,
   Settings,
@@ -19,7 +18,7 @@ import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { AloyMark, EventIcon, MemoryIcon, TodayIcon } from '@/components/icons';
+import { AloyMark, ChatIcon, EventIcon, MemoryIcon, TodayIcon } from '@/components/icons';
 
 const utilityItems = [
   { to: '/files', icon: FileText, label: 'Files' },
@@ -155,7 +154,7 @@ export function AppLayout() {
 
         <div className={`flex-1 overflow-y-auto ${compact ? 'px-2' : 'px-3'} py-3`}>
           {compact ? (
-            <RailLink to="/chat" icon={MessageSquare} label="Chat" compact onClick={closeMobile} />
+            <RailLink to="/chat" icon={ChatIcon} label="Life" compact onClick={closeMobile} />
           ) : (
             <div className="group relative">
               <NavLink
@@ -169,8 +168,8 @@ export function AppLayout() {
                   }`
                 }
               >
-                <MessageSquare size={17} className="shrink-0" />
-                <span>Chat</span>
+                <ChatIcon size={17} className="shrink-0" />
+                <span>Life</span>
               </NavLink>
               <button
                 type="button"

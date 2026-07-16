@@ -145,8 +145,24 @@ export interface TodayEventGroup {
   stale: EventTask[];
 }
 
+export interface TodayNotification {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  event_id: string;
+  event_title: string;
+  event_is_life: boolean;
+  proposal_id: string | null;
+  task_id: string | null;
+  run_id: string | null;
+  status: string | null;
+  created_at: string;
+}
+
 export interface TodayResponse {
   generated_at: string;
+  notifications: TodayNotification[];
   events: TodayEventGroup[];
 }
 

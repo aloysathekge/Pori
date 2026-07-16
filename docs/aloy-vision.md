@@ -155,6 +155,22 @@ receive every older transcript. Older conversations are retrieved explicitly
 when they are relevant. Life must remain useful even when the user creates no
 dedicated Events.
 
+#### Life product experience
+
+Life is presented as a first-class personal space, not as a generic “Chat”
+destination and not as another card in the dedicated Event list. The global
+navigation names it **Life**. **New conversation** always creates a fresh Life
+thread, while **New Event** remains a visually and conceptually distinct action
+that creates a durable workspace.
+
+Today keeps Life close through a compact personal-space band: the user can
+continue a recent Life Conversation, start a fresh one, or capture a loose
+thought without pretending Life is an attention-ranked Event. Opening Life
+shows its Conversation canvas and thread switcher while Life-owned Tasks,
+files, artifacts, memory, receipts, and Trail remain durable outside any one
+thread. Life may gain a user-shaped Surface later, but V1 does not force it into
+a fixed personal dashboard.
+
 ### 3.3 Conversations and continuous Event Sessions
 
 A dedicated Event has exactly one canonical user-facing Conversation for its
@@ -533,6 +549,20 @@ what needs the user now:
 Deterministic facts—due dates, blockers, approvals, and pins—outrank model
 judgment. Ordinary progress remains ambient. V1 uses badges and Today rather
 than unsolicited push; interruption budgets and proactive reach-out come later.
+
+Today greets the user by their profile name and ranks dedicated Events by what
+needs attention: decisions and blockers first, then stale or urgent work,
+active background work, upcoming work, and finally quiet Events. Events with
+nothing relevant collapse to lightweight rows instead of consuming equal card
+space. **New conversation** and the distinct premium **New Event** action remain
+available from the header.
+
+Notifications are a host-owned inbox of meaningful change, not model-authored
+prose and not a replacement for Today's priority ordering. They are derived
+from durable Proposals, Task state, receipts, and semantic Trail, retain their
+originating Life/Event references, and can be reviewed without losing context.
+Read state belongs to the user's persisted preferences. Today answers “what
+needs me now?”; notifications answer “what changed?”
 
 ## 4. The constitution
 
