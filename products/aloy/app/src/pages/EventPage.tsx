@@ -494,10 +494,15 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   const tasksSection = data.surface.sections.find((section) => section.kind === 'tasks');
   const filesSection = data.surface.sections.find((section) => section.kind === 'files');
   const contextSection = data.surface.sections.find((section) => section.kind === 'context');
+  const contextStatusSection = data.surface.sections.find(
+    (section) => section.kind === 'context_status',
+  );
   const tasks = tasksSection?.kind === 'tasks' ? tasksSection.tasks : [];
   const activity = trailEntries;
   const files = filesSection?.kind === 'files' ? filesSection.files : [];
   const contextItems = contextSection?.kind === 'context' ? contextSection.items : [];
+  const contextStatus =
+    contextStatusSection?.kind === 'context_status' ? contextStatusSection.status : null;
   const openTasks = tasks.filter(
     (task) => task.status !== 'done' && task.status !== 'cancelled',
   ).length;
@@ -829,6 +834,25 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
 
             {contextTab === 'files' && (
               <div className="space-y-2">
+                {contextStatus?.readiness.bootstrap_eligible && (
+                  <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-medium text-zinc-300">Event understanding</p>
+                      <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium capitalize text-zinc-400">
+                        {contextStatus.readiness.level.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      {contextStatus.readiness.reasons[0] ||
+                        'Aloy is assembling trusted Event context.'}
+                    </p>
+                    {contextStatus.readiness.should_bootstrap && (
+                      <p className="mt-1 text-[11px] text-accent-700">
+                        Ready for an evidence-grounded Event Brief.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {contextItems.length > 0 && <p className="pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Context sources</p>}
                 {contextItems.map((item) => {
                   const statusStyle = item.status === 'ready'

@@ -131,6 +131,10 @@ async def _prepare_message(
         conversation=conv,
         exclude_message_id=user_msg.id,
     )
+    # Context snapshots are content-addressed and form the durable provenance
+    # boundary for this Run. Commit them before streaming can outlive the
+    # request-scoped session.
+    await session.commit()
 
     return conv, memory
 

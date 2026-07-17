@@ -307,8 +307,8 @@ Gate:
 
 ### R5.5 — Event setup, context bootstrap, and scoped memory
 
-**Branches:** `aloy-v1-event-setup`, then
-`aloy-v1-event-context-ingestion`
+**Branches:** `aloy-v1-event-setup`, `aloy-v1-event-context-ingestion`, then
+`aloy-v1-event-context-pack`
 
 **R5.5a shipped on the branch:** durable tenant/user-scoped setup drafts;
 autosaved name, description, and mode; typed file, link, template, and existing
@@ -325,8 +325,12 @@ Event knowledge for text/HTML/JSON/CSV/XML/YAML/PDF/DOCX/XLSX sources. Public
 link retrieval is size/time bounded and rejects private/local network targets,
 unsafe redirects, and unsupported content. The Event Workbench shows live
 source readiness and errors. Internal storage and knowledge ids remain hidden.
-R5.5c begins at readiness and EventBrief bootstrap; connection synchronization,
-memory controls, and bootstrap Surface/cover work also remain.
+R5.5c implements content-addressed canonical Event context snapshots, safe
+trusted-context prompt placement and cache boundaries, deterministic readiness,
+Event-over-global conflict precedence, and typed/versioned/evidence-validated
+Event Brief persistence. The Event Workbench exposes safe readiness status.
+The actual model bootstrap Run, connection synchronization, memory controls,
+and bootstrap Surface/cover work remain.
 
 Scope:
 
@@ -500,10 +504,11 @@ filesystem, and Surface persistence slices are merged through PR #175. The
 isolated build + diagnostics + preview-metadata slice is implemented on
 `aloy-v1-r5-surface-build-preview`.
 
-Continue R5.5 from `aloy-v1-event-context-ingestion`: implement the host-owned
-readiness policy and an idempotent, typed, evidence-linked EventBrief bootstrap
-Run, then close Event-memory precedence and user controls and create the first
-evidence-grounded bootstrap Surface and sanitized cover brief. Then create the
-University showcase through that ordinary path, followed by the reviewed
-widget phase and Madrid. Do not add provider-specific research or Gmail
-behavior to this phase.
+Continue R5.5 from `aloy-v1-event-context-pack`: wire the configured bootstrap
+model profile into an idempotent Run that fills the typed, evidence-linked
+Event Brief contract from a frozen context snapshot. Then close Event-memory
+inspect/correct/forget/promote controls and connection refresh/revocation, and
+create the first evidence-grounded bootstrap Surface plus sanitized cover
+brief. Create the University showcase through that ordinary path, followed by
+the reviewed-widget phase and Madrid. Do not add provider-specific research or
+Gmail behavior to this phase.

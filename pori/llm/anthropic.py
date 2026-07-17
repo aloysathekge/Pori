@@ -17,7 +17,7 @@ from .messages import (
     ToolResultMessage,
     ToolTurn,
 )
-from .prompt_caching import cached_system, mark_last_messages
+from .prompt_caching import cached_system, mark_message_prefixes
 from .retry import RetryConfig, retry_async
 
 
@@ -99,6 +99,11 @@ class ChatAnthropic:
                 anthropic_messages.append(
                     {"role": msg.role, "content": _to_anthropic_content(msg.content)}
                 )
+
+        mark_message_prefixes(
+            [message for message in messages if not isinstance(message, SystemMessage)],
+            anthropic_messages,
+        )
 
         # Build request
         request: dict[str, Any] = {
@@ -234,7 +239,10 @@ class ChatAnthropic:
         # Cache the stable prefix: mark the last few messages so that, combined
         # with the single volatile trailing message from Agent._build_messages,
         # system + history + frozen context + task stay warm across steps.
-        mark_last_messages(anthropic_messages, 3)
+        mark_message_prefixes(
+            [message for message in messages if not isinstance(message, SystemMessage)],
+            anthropic_messages,
+        )
 
         request: dict[str, Any] = {
             "model": self.model,

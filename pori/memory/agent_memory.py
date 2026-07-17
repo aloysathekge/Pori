@@ -100,6 +100,12 @@ class AgentMemory:
         self.experiences: List[Dict[str, Any]] = []
         self.archival_passages: List[Dict[str, Any]] = []
         self.memory_records: List[MemoryRecord] = []
+        # Host-assembled canonical context is runtime-only. It is deliberately
+        # not serialized into durable agent memory: the owning product rebuilds
+        # it from authoritative rows for every cold Run.
+        self.trusted_context: str = ""
+        self.trusted_context_fingerprint: str = ""
+        self.trusted_context_cacheable: bool = True
         self._summary_message_id: Optional[str] = None
         self._embedding_backend = (
             os.getenv("PORI_MEMORY_EMBEDDING_BACKEND", "hash").strip().lower()
@@ -112,6 +118,18 @@ class AgentMemory:
         )
 
         self._load_from_store()
+
+    def set_trusted_context(
+        self,
+        content: str,
+        *,
+        fingerprint: str = "",
+        cacheable: bool = True,
+    ) -> None:
+        """Attach one host-owned, immutable context snapshot to the next Run."""
+        self.trusted_context = content.strip()
+        self.trusted_context_fingerprint = fingerprint
+        self.trusted_context_cacheable = cacheable
 
     def _serialize_any(self, value: Any) -> Any:
         if isinstance(value, datetime):

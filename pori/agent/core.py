@@ -297,6 +297,15 @@ class Agent:
                 agent_id=self.run_context.agent_id,
                 session_id=self.run_context.session_id,
             )
+        self._frozen_trusted_context = str(
+            getattr(self.memory, "trusted_context", "") or ""
+        )
+        self._trusted_context_fingerprint = str(
+            getattr(self.memory, "trusted_context_fingerprint", "") or ""
+        )
+        self._trusted_context_cacheable = bool(
+            getattr(self.memory, "trusted_context_cacheable", True)
+        )
         self.context_engine = context_engine or DefaultContextEngine()
         self.context_diagnostics: Optional[ContextDiagnostics] = None
         self.skill_catalog = skill_catalog

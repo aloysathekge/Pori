@@ -62,6 +62,33 @@ def mark_last_messages(messages: list[dict[str, Any]], n: int) -> None:
             marked += 1
 
 
+def mark_message_prefixes(
+    source_messages: list[Any],
+    provider_messages: list[dict[str, Any]],
+    *,
+    max_breakpoints: int = 3,
+) -> None:
+    """Apply explicit host breakpoints, then spend the remainder near the tail.
+
+    The system block consumes Anthropic's fourth breakpoint. If any source
+    message is marked non-cacheable, message-prefix caching is disabled for the
+    request; the tools/system prefix may still be cached safely before it.
+    """
+    if any(
+        not bool(getattr(message, "cacheable", True)) for message in source_messages
+    ):
+        return
+    marked = 0
+    for source, provider in zip(source_messages, provider_messages):
+        if marked >= max_breakpoints:
+            break
+        if bool(getattr(source, "cache_breakpoint", False)) and _apply_cache_marker(
+            provider
+        ):
+            marked += 1
+    mark_last_messages(provider_messages, max(0, max_breakpoints - marked))
+
+
 def _apply_cache_marker(message: dict[str, Any]) -> bool:
     """Mark a message's final content block with ``cache_control``.
 

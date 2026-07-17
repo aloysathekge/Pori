@@ -122,10 +122,14 @@ async def test_event_memory_loads_global_and_same_event_without_leakage(
     rendered = "\n".join(message.content for message in memory.messages)
     assert "current A message" in rendered
     assert "sibling A message" not in rendered
-    assert "A task" in rendered
-    assert "a.txt" in rendered
+    assert memory.trusted_context is not None
+    assert "A task" in memory.trusted_context
+    assert "a.txt" in memory.trusted_context
     assert "B secret" not in rendered
     assert "secret-b.txt" not in rendered
+    assert "B secret" not in memory.trusted_context
+    assert "secret-b.txt" not in memory.trusted_context
+    assert memory.trusted_context_fingerprint
     history = memory.search_event_history("sibling A message")
     assert any(
         hit["content"] == "[Session session-a2] sibling A message" for hit in history

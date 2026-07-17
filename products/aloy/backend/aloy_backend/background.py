@@ -308,6 +308,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 session_id=run.session_id,
                 agent_id=run.agent_id,
             )
+            await session.commit()
             if run.team_config_id:
                 team_config = await session.get(TeamConfig, run.team_config_id)
                 if (

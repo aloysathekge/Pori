@@ -98,6 +98,12 @@ class UserMessage(BaseModel):
 
     role: Literal["user"] = "user"
     content: MessageContent
+    # Provider adapters may use this host hint to place a prefix-cache
+    # breakpoint. A false value prevents message-prefix caching for the whole
+    # request so restricted host context is never included in an explicit
+    # application-controlled cache breakpoint.
+    cache_breakpoint: bool = False
+    cacheable: bool = True
 
 
 class ToolCall(BaseModel):

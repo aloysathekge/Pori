@@ -28,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse, StreamingResponse
 
 from ..database import get_session
+from ..event_context import context_status_payload, refresh_event_context_snapshot
 from ..event_presenters import (
     context_item_payload,
     event_payload,
@@ -609,6 +610,13 @@ async def get_event_surface(
         .scalars()
         .all()
     )
+    context_snapshot, _context_pack, _created = await refresh_event_context_snapshot(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+    )
+    await session.commit()
     return {
         "event": event_payload(event),
         "surface": {
@@ -640,6 +648,10 @@ async def get_event_surface(
                 {
                     "kind": "context",
                     "items": [context_item_payload(item) for item in context_items],
+                },
+                {
+                    "kind": "context_status",
+                    "status": context_status_payload(context_snapshot),
                 },
             ],
             "proposals": [proposal_payload(proposal) for proposal in proposals],
