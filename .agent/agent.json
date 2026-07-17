@@ -1,10 +1,9 @@
 {
   "name": "pori-core-agent",
   "scope": "repo",
-  "repo": "Pori/Pori",
+  "repo": "Pori",
   "inherits": [
-    "../.agent/agent.json",
-    "../../agent-kit"
+    "../Aloy_Agent_kit/agent-kit"
   ],
   "commands": [
     ".agent/commands/explore.md",
