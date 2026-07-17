@@ -2,7 +2,13 @@
 
 import pytest
 
-from pori.llm.prompt_caching import CACHE_CONTROL, cached_system, mark_last_messages
+from pori.llm import UserMessage
+from pori.llm.prompt_caching import (
+    CACHE_CONTROL,
+    cached_system,
+    mark_last_messages,
+    mark_message_prefixes,
+)
 
 pytestmark = [pytest.mark.unit]
 
@@ -64,3 +70,35 @@ def test_mark_last_messages_noop_for_zero_and_empty_content():
     empty = [{"role": "user", "content": ""}]
     mark_last_messages(empty, 3)
     assert empty[0]["content"] == ""  # empty string can't carry a marker → skipped
+
+
+def test_mark_message_prefixes_honors_host_breakpoint_then_marks_tail():
+    source = [
+        UserMessage(content="trusted", cache_breakpoint=True),
+        UserMessage(content="history"),
+        UserMessage(content="task"),
+        UserMessage(content="volatile"),
+    ]
+    provider = [{"role": "user", "content": message.content} for message in source]
+
+    mark_message_prefixes(source, provider, max_breakpoints=3)
+
+    assert provider[0]["content"][0]["cache_control"] == _EPHEMERAL
+    assert provider[1]["content"] == "history"
+    assert provider[2]["content"][0]["cache_control"] == _EPHEMERAL
+    assert provider[3]["content"][0]["cache_control"] == _EPHEMERAL
+
+
+def test_mark_message_prefixes_disables_message_cache_for_restricted_context():
+    source = [
+        UserMessage(content="restricted", cache_breakpoint=False, cacheable=False),
+        UserMessage(content="task"),
+    ]
+    provider = [{"role": "user", "content": message.content} for message in source]
+
+    mark_message_prefixes(source, provider)
+
+    assert provider == [
+        {"role": "user", "content": "restricted"},
+        {"role": "user", "content": "task"},
+    ]

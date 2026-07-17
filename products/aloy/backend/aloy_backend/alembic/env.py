@@ -19,6 +19,8 @@ from aloy_backend.models import (  # noqa: F401
     ContextArtifact,
     Conversation,
     CoreMemoryBlock,
+    EventBrief,
+    EventContextSnapshot,
     EvolutionActivation,
     EvolutionProposal,
     KnowledgeEntry,

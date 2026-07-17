@@ -10,17 +10,15 @@ from sqlmodel import col, select
 
 from pori import AgentMemory
 
+from .event_context import refresh_event_context_snapshot, render_event_context_pack
 from .memory_records import record_to_row, request_scope, row_to_record
 from .models import (
-    ActionProposal,
     ContextArtifact,
     Conversation,
     CoreMemoryBlock,
     Event,
     KnowledgeEntry,
     Message,
-    StoredFile,
-    Task,
 )
 from .provisioning import migrate_legacy_session_workspace
 from .scope_resolver import ORG, resolve_layered
@@ -133,7 +131,9 @@ async def load_event_memory(
         .order_by(col(KnowledgeEntry.created_at).desc())
         .limit(200)
     )
-    for entry in resolve_layered(list(entries_result.scalars().all())):
+    for entry in resolve_layered(
+        list(entries_result.scalars().all()), event_id=resolved_event_id
+    ):
         record = row_to_record(entry)
         if not record.is_retrievable():
             continue
@@ -144,71 +144,17 @@ async def load_event_memory(
         record.metadata["legacy_collection"] = "experience"
         memory.memory_records.append(record)
 
-    tasks = (
-        (
-            await session.execute(
-                select(Task)
-                .where(
-                    col(Task.event_id) == resolved_event_id,
-                    col(Task.organization_id) == organization_id,
-                    col(Task.user_id) == user_id,
-                )
-                .order_by(col(Task.order), col(Task.created_at))
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
+    snapshot, _pack, _created = await refresh_event_context_snapshot(
+        session,
+        organization_id=organization_id,
+        user_id=user_id,
+        event_id=resolved_event_id,
     )
-    proposals = (
-        (
-            await session.execute(
-                select(ActionProposal)
-                .where(
-                    col(ActionProposal.event_id) == resolved_event_id,
-                    col(ActionProposal.organization_id) == organization_id,
-                    col(ActionProposal.user_id) == user_id,
-                    col(ActionProposal.status).in_(["proposed", "routed", "pending"]),
-                )
-                .order_by(col(ActionProposal.created_at).desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
+    memory.set_trusted_context(
+        render_event_context_pack(snapshot),
+        fingerprint=snapshot.fingerprint,
+        cacheable=snapshot.provider_cache_allowed,
     )
-    files = (
-        (
-            await session.execute(
-                select(StoredFile)
-                .where(
-                    col(StoredFile.event_id) == resolved_event_id,
-                    col(StoredFile.organization_id) == organization_id,
-                    col(StoredFile.user_id) == user_id,
-                )
-                .order_by(col(StoredFile.created_at).desc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    state_lines = [
-        f"Event: {(event.title if event else resolved_event_id)}",
-        f"Summary: {(event.summary if event else '') or '(none)'}",
-    ]
-    if tasks:
-        state_lines.append(
-            "Tasks: " + "; ".join(f"[{task.status}] {task.title}" for task in tasks)
-        )
-    if proposals:
-        state_lines.append(
-            "Pending proposals: "
-            + "; ".join(f"{proposal.tool}: {proposal.reason}" for proposal in proposals)
-        )
-    if files:
-        state_lines.append("Event files: " + ", ".join(file.name for file in files))
-    event_context = "<event-context>\n" + "\n".join(state_lines) + "\n</event-context>"
 
     statement = (
         select(Message, Conversation.id)
@@ -262,8 +208,7 @@ async def load_event_memory(
         if remaining_chars <= 0:
             break
     memory.hydrate_messages(
-        [{"role": "system", "content": event_context}]
-        + [
+        [
             {
                 "id": message.id,
                 "role": message.role,

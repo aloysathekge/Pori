@@ -563,6 +563,18 @@ retrieved older Event history, and compaction summaries. The permanent Event
 Conversation may therefore continue for months without placing its complete
 transcript in every model prompt.
 
+The host materializes the stable portion as an immutable, content-addressed
+`EventContextSnapshot`. It contains Event identity, canonical state, context
+readiness, evidence references, and the active typed Event Brief; raw evidence
+bodies remain available through scoped retrieval rather than being copied into
+every prompt. The snapshot is injected as trusted reference data before
+transcript history, while the current user task remains the final instruction.
+An unchanged fingerprint may reuse a provider prompt-cache prefix; any
+canonical change creates a new snapshot and naturally invalidates that prefix.
+Confidential or restricted evidence disables application-controlled message
+prefix caching. Prompt caching is only a latency and cost optimization: it does
+not determine durability, memory acceptance, authority, or truth.
+
 Memory consolidation runs only after meaningful evidence: a confirmed user
 statement, accepted correction, important decision, completed phase, durable
 result, or explicit **remember this** request. It does not turn casual model

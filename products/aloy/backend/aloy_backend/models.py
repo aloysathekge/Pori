@@ -216,6 +216,75 @@ class EventConnectionGrant(SQLModel, table=True):
     )
 
 
+class EventContextSnapshot(SQLModel, table=True):
+    """Immutable, content-addressed host context assembled for one Event."""
+
+    __tablename__ = "event_context_snapshots"
+    __table_args__ = (
+        UniqueConstraint("event_id", "version", name="uq_event_context_version"),
+        UniqueConstraint(
+            "event_id", "fingerprint", name="uq_event_context_fingerprint"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"ectxsnap_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    version: int = Field(index=True)
+    schema_version: str = "1"
+    fingerprint: str = Field(index=True)
+    readiness: str = Field(index=True)
+    provider_cache_allowed: bool = True
+    pack: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    evidence_refs: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventBrief(SQLModel, table=True):
+    """Typed, evidence-linked understanding accepted for one Event version."""
+
+    __tablename__ = "event_briefs"
+    __table_args__ = (
+        UniqueConstraint("event_id", "version", name="uq_event_brief_version"),
+        UniqueConstraint("event_id", "fingerprint", name="uq_event_brief_fingerprint"),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"ebrief_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    version: int = Field(index=True)
+    schema_version: str = "1"
+    status: str = Field(default="active", index=True)
+    source_context_snapshot_id: str = Field(
+        foreign_key="event_context_snapshots.id", index=True
+    )
+    creator_run_id: str | None = Field(default=None, index=True)
+    fingerprint: str = Field(index=True)
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    evidence_refs: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class SurfaceProject(SQLModel, table=True):
     """One model-authored application project owned by one Event."""
 

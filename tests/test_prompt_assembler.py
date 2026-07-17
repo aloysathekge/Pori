@@ -229,3 +229,45 @@ def test_agent_skips_project_context_by_default(registry, tmp_path, monkeypatch)
         memory=AgentMemory(),
     )
     assert "SECRET_PROJECT_RULE" not in agent.system_message
+
+
+def test_trusted_host_context_is_frozen_before_history_and_fingerprinted(registry):
+    memory = AgentMemory()
+    memory.add_message("assistant", "older transcript")
+    memory.set_trusted_context(
+        '{"event":{"id":"evt-1"}}',
+        fingerprint="context-v1",
+        cacheable=True,
+    )
+    agent = Agent(
+        task="What needs attention?",
+        llm=_StubLLM(),
+        tools_registry=registry,
+        settings=AgentSettings(max_steps=2),
+        memory=memory,
+    )
+
+    messages = agent._build_messages()
+
+    assert messages[1].role == "user"
+    assert isinstance(messages[1].content, str)
+    assert messages[1].content.startswith("TRUSTED HOST CONTEXT")
+    assert messages[1].cache_breakpoint is True
+    assert messages[-1].role == "user"
+    assert isinstance(messages[-1].content, str)
+    assert messages[-1].content.startswith("CURRENT TASK")
+
+    other_memory = AgentMemory()
+    other_memory.set_trusted_context(
+        '{"event":{"id":"evt-1"}}',
+        fingerprint="context-v2",
+        cacheable=True,
+    )
+    other_agent = Agent(
+        task="What needs attention?",
+        llm=_StubLLM(),
+        tools_registry=registry,
+        settings=AgentSettings(max_steps=2),
+        memory=other_memory,
+    )
+    assert agent.prompt_fingerprint != other_agent.prompt_fingerprint

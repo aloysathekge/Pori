@@ -137,6 +137,26 @@ export interface EventSurfaceResponse {
       | { kind: 'notes'; notes: string }
       | { kind: 'files'; files: EventFile[] }
       | { kind: 'context'; items: EventSetupContextItem[] }
+      | {
+          kind: 'context_status';
+          status: {
+            snapshot_id: string;
+            snapshot_version: number;
+            fingerprint: string;
+            readiness: {
+              level: 'not_applicable' | 'name_only' | 'little' | 'sufficient' | 'rich';
+              bootstrap_eligible: boolean;
+              should_bootstrap: boolean;
+              evidence_chars: number;
+              ready_source_count: number;
+              available_connection_count: number;
+              reasons: string[];
+            };
+            provider_cache_allowed: boolean;
+            active_brief: { id: string; version: number } | null;
+            created_at: string;
+          };
+        }
     >;
     proposals: EventProposal[];
     execution_groups: EventExecutionGroup[];
