@@ -10,7 +10,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
+from .models import (
+    ActionProposal,
+    Event,
+    EventSetupContextItem,
+    EventTrailEntry,
+    StoredFile,
+    Task,
+)
 
 
 def _utc_payload(value: datetime | None) -> str | None:
@@ -42,6 +49,29 @@ def event_payload(event: Event) -> dict[str, Any]:
         },
         "created_at": event.created_at,
         "updated_at": event.updated_at,
+    }
+
+
+def context_item_payload(item: EventSetupContextItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "event_id": item.event_id,
+        "kind": item.kind,
+        "status": item.status,
+        "label": item.label,
+        "source_url": item.source_url,
+        "content_type": item.content_type,
+        "size_bytes": item.size_bytes,
+        "sensitivity": item.sensitivity,
+        "attempt_count": item.attempt_count,
+        "max_attempts": item.max_attempts,
+        "next_attempt_at": _utc_payload(item.next_attempt_at),
+        "retrieved_at": _utc_payload(item.retrieved_at),
+        "ingested_at": _utc_payload(item.ingested_at),
+        "error": item.error,
+        "metadata": item.metadata_,
+        "created_at": _utc_payload(item.created_at),
+        "updated_at": _utc_payload(item.updated_at),
     }
 
 

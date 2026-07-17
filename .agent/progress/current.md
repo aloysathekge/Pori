@@ -1,6 +1,36 @@
 # Current State
 
-_Last updated: 2026-07-17 (R5.5a durable Event setup context)._
+_Last updated: 2026-07-17 (R5.5b durable Event context ingestion)._
+
+## NEW: R5.5b durable Event context ingestion (2026-07-17)
+
+The active `aloy-v1-event-context-ingestion` branch turns promoted setup files
+and public links into durable, model-independent ingestion jobs. Every source
+has a visible `pending -> ingesting -> ready|failed` lifecycle, bounded attempts,
+worker lease and lease-expiry recovery, automatic backoff for transient
+failures, and a tenant-scoped manual retry path. Event creation and its
+permanent Conversation still complete immediately; neither extraction nor an
+unavailable source can block or roll back creation.
+
+The existing worker now extracts text, HTML, JSON/CSV/XML/YAML, PDF, DOCX, and
+XLSX sources into Event-scoped `KnowledgeEntry` rows. Entries retain source and
+content checksums, retrieval time, content type, source URL/freshness headers,
+sensitivity, Event-lifecycle retention, and exact draft/context provenance.
+Public-link ingestion rejects non-HTTP schemes, local/private network targets,
+unsafe redirects, oversized responses, and unsupported content. Completion and
+failure create semantic Trail entries, which drive live Workbench refresh.
+
+The Event Surface response now includes trusted context-source state, and the
+Workbench Files panel shows queued, ingesting, ready, and failed sources with
+errors and retry controls. Internal storage and knowledge identifiers remain
+server-owned. Focused ingestion/setup tests pass `10`; the complete Aloy backend
+suite passes `296`; backend mypy is clean across `101` source files; and app
+ESLint plus its production TypeScript/Vite build pass.
+
+Remaining R5.5 work is the host-owned readiness policy, typed/versioned
+evidence-linked EventBrief and bootstrap Run, exact memory precedence and user
+controls, connection-source synchronization/revocation, and the first
+evidence-grounded Surface and sanitized cover brief.
 
 ## NEW: R5.5a durable Event setup context (2026-07-17)
 
@@ -29,10 +59,8 @@ Event/connection/upload/file regression set pass, including resumability,
 tenant isolation, file/link/connection transfer, idempotent promotion,
 migration round-trip, and failed-ingestion tolerance. All 4 app tests pass;
 backend Ruff is clean; Aloy app ESLint and the production TypeScript/Vite build
-pass. The full backend suite exceeded the five-minute local verification
-window without reporting a failure. Remaining R5.5 work is asynchronous
-ingestion and readiness, the typed EventBrief/bootstrap Run, exact memory
-precedence and user controls, and the evidence-grounded starting Surface.
+pass. Its previously open asynchronous file/link ingestion work is superseded
+by the R5.5b section above.
 
 ## NEW: Event bootstrap and scoped-memory contract (2026-07-17)
 

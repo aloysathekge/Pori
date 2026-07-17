@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_session
-from ..event_presenters import event_payload
+from ..event_presenters import context_item_payload, event_payload
 from ..events import ensure_event_conversation
 from ..models import (
     ORG_CONNECTION_USER,
@@ -73,22 +73,6 @@ def _utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _item_payload(item: EventSetupContextItem) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "kind": item.kind,
-        "status": item.status,
-        "label": item.label,
-        "source_url": item.source_url,
-        "content_type": item.content_type,
-        "size_bytes": item.size_bytes,
-        "error": item.error,
-        "metadata": item.metadata_,
-        "created_at": _utc(item.created_at),
-        "updated_at": _utc(item.updated_at),
-    }
-
-
 async def _draft_payload(
     session: AsyncSession, draft: EventSetupDraft
 ) -> dict[str, Any]:
@@ -110,7 +94,7 @@ async def _draft_payload(
         "title": draft.title,
         "description": draft.description,
         "created_event_id": draft.created_event_id,
-        "context_items": [_item_payload(item) for item in items],
+        "context_items": [context_item_payload(item) for item in items],
         "created_at": _utc(draft.created_at),
         "updated_at": _utc(draft.updated_at),
     }
@@ -315,7 +299,7 @@ async def add_context(
             .first()
         )
         if duplicate is not None:
-            return _item_payload(duplicate)
+            return context_item_payload(duplicate)
         item.connection_id = connection.id
         item.label = body.label or connection.account_email or connection.provider
         item.status = "ready"
@@ -340,7 +324,7 @@ async def add_context(
     session.add(draft)
     await session.commit()
     await session.refresh(item)
-    return _item_payload(item)
+    return context_item_payload(item)
 
 
 @router.post("/{draft_id}/files", status_code=201)
@@ -401,12 +385,12 @@ async def add_file(
         user_id=context.user_id,
         draft_id=draft.id,
         kind="file",
-        status="ready",
+        status="pending",
         label=name,
         content_type=content_type,
         size_bytes=size,
         sha256=digest.hexdigest(),
-        metadata_={"ingestion": "available"},
+        metadata_={"ingestion": {"status": "queued"}},
     )
     item.storage_key = event_setup_file_key(
         context.organization_id, draft.id, item.id, name
@@ -422,7 +406,7 @@ async def add_file(
     session.add(draft)
     await session.commit()
     await session.refresh(item)
-    return _item_payload(item)
+    return context_item_payload(item)
 
 
 @router.delete("/{draft_id}/context/{item_id}", status_code=204)
@@ -527,6 +511,7 @@ async def promote_draft(
             )
         )
     for item in items:
+        item.event_id = event.id
         evidence.append({"context_item_id": item.id, "kind": item.kind})
         if item.kind == "file" and item.storage_key:
             session.add(
@@ -546,26 +531,27 @@ async def promote_draft(
                 )
             )
         elif item.kind == "link" and item.source_url:
-            session.add(
-                KnowledgeEntry(
-                    organization_id=context.organization_id,
-                    user_id=context.user_id,
-                    event_id=event.id,
-                    session_id=conversation.id,
-                    content=f"Event setup link: {item.source_url}",
-                    tags=["event-setup", "link"],
-                    importance=2,
-                    source="user",
-                    provenance={
-                        "source": "event_setup",
-                        "draft_id": draft.id,
-                        "context_item_id": item.id,
-                        "url": item.source_url,
-                    },
-                    scope_level="personal",
-                    metadata_={"event_scoped": True, "ingestion_status": item.status},
-                )
+            entry = KnowledgeEntry(
+                organization_id=context.organization_id,
+                user_id=context.user_id,
+                event_id=event.id,
+                session_id=conversation.id,
+                content=f"Event setup link: {item.source_url}",
+                tags=["event-setup", "link"],
+                importance=2,
+                source="user",
+                provenance={
+                    "source": "event_setup",
+                    "draft_id": draft.id,
+                    "context_item_id": item.id,
+                    "url": item.source_url,
+                },
+                scope_level="personal",
+                metadata_={"event_scoped": True, "ingestion_status": item.status},
             )
+            session.add(entry)
+            await session.flush()
+            item.knowledge_entry_id = entry.id
         elif item.kind == "connection" and item.connection_id:
             session.add(
                 EventConnectionGrant(
@@ -597,6 +583,7 @@ async def promote_draft(
                     metadata_={"event_scoped": True},
                 )
             )
+        session.add(item)
     session.add(
         EventTrailEntry(
             organization_id=context.organization_id,

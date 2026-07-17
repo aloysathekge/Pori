@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     storage_s3_region: str = "us-east-1"
     storage_presign_expiry_seconds: int = 300
 
+    # Event setup context ingestion. These jobs are model-independent and use
+    # the same durable worker process as Runs, with their own short leases.
+    context_ingestion_lease_seconds: int = 90
+    context_ingestion_link_timeout_seconds: float = 10.0
+    context_ingestion_max_link_bytes: int = 2 * 1024 * 1024
+    context_ingestion_max_text_chars: int = 200_000
+
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.
     telegram_bot_token: str = ""

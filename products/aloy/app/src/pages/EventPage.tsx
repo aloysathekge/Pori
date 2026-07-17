@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Circle,
   FileText,
+  Link2,
   ListTodo,
   PanelRightClose,
   PanelRightOpen,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { getConversation, getConversationMessages } from '@/api/conversations';
+import { retryEventContext, type EventSetupContextItem } from '@/api/eventSetup';
 import {
   createEventTask,
   decideEventProposal,
@@ -117,6 +119,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   });
   const [error, setError] = useState('');
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [contextActionId, setContextActionId] = useState<string | null>(null);
   const [resumeTaskId, setResumeTaskId] = useState<string | null>(null);
   const [resumeResponse, setResumeResponse] = useState('');
   const previousSending = useRef(false);
@@ -490,9 +493,11 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
 
   const tasksSection = data.surface.sections.find((section) => section.kind === 'tasks');
   const filesSection = data.surface.sections.find((section) => section.kind === 'files');
+  const contextSection = data.surface.sections.find((section) => section.kind === 'context');
   const tasks = tasksSection?.kind === 'tasks' ? tasksSection.tasks : [];
   const activity = trailEntries;
   const files = filesSection?.kind === 'files' ? filesSection.files : [];
+  const contextItems = contextSection?.kind === 'context' ? contextSection.items : [];
   const openTasks = tasks.filter(
     (task) => task.status !== 'done' && task.status !== 'cancelled',
   ).length;
@@ -504,10 +509,23 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     { id: 'tasks', icon: ListTodo, label: 'Tasks', count: openTasks },
     { id: 'approvals', icon: ShieldCheck, label: 'Approvals', count: data.surface.proposals.length },
     { id: 'receipts', icon: BadgeCheck, label: 'Receipts', count: receipts.length },
-    { id: 'files', icon: FileText, label: 'Files', count: files.length },
+    { id: 'files', icon: FileText, label: 'Files', count: files.length + contextItems.length },
     { id: 'trail', icon: Activity, label: 'Trail' },
   ];
   const lastMessage = messages.at(-1);
+
+  async function retryContext(item: EventSetupContextItem) {
+    setContextActionId(item.id);
+    setError('');
+    try {
+      await retryEventContext(eventId, item.id);
+      await loadSurface();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setContextActionId(null);
+    }
+  }
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
@@ -811,13 +829,42 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
 
             {contextTab === 'files' && (
               <div className="space-y-2">
+                {contextItems.length > 0 && <p className="pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Context sources</p>}
+                {contextItems.map((item) => {
+                  const statusStyle = item.status === 'ready'
+                    ? 'text-emerald-600'
+                    : item.status === 'failed'
+                      ? 'text-red-500'
+                      : item.status === 'ingesting'
+                        ? 'text-accent-700'
+                        : 'text-amber-600';
+                  return (
+                    <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+                      <div className="flex items-start gap-3">
+                        {item.kind === 'link' ? <Link2 size={17} className="mt-0.5 shrink-0 text-zinc-500" /> : <FileText size={17} className="mt-0.5 shrink-0 text-zinc-500" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm text-zinc-300">{item.label}</p>
+                          <p className={`mt-0.5 text-xs capitalize ${statusStyle}`}>{item.status === 'pending' ? 'Waiting to process' : item.status}</p>
+                          {item.error && <p className="mt-1 text-xs leading-5 text-red-500">{item.error}</p>}
+                          {item.ingested_at && <p className="mt-1 text-[11px] text-zinc-600">Retrieved {when(item.ingested_at)}</p>}
+                        </div>
+                        {item.status === 'failed' && (
+                          <Button size="sm" variant="outline" onClick={() => void retryContext(item)} disabled={contextActionId === item.id}>
+                            <RotateCcw size={12} /> Retry
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {contextItems.length > 0 && files.length > 0 && <p className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Event files</p>}
                 {files.map((file) => (
                   <button type="button" key={file.id} onClick={() => openFile(file)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900">
                     <FileText size={17} className="shrink-0 text-zinc-500" />
                     <div className="min-w-0"><p className="truncate text-sm text-zinc-300">{file.name}</p><p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p></div>
                   </button>
                 ))}
-                {files.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No Event files yet.</p>}
+                {files.length === 0 && contextItems.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No Event files or context sources yet.</p>}
               </div>
             )}
 
