@@ -22,6 +22,8 @@ def _utc_payload(value: datetime | None) -> str | None:
 
 
 def event_payload(event: Event) -> dict[str, Any]:
+    cover = dict((event.metadata_ or {}).get("cover") or {})
+    cover_status = str(cover.get("status") or "none")
     return {
         "id": event.id,
         "type": event.type,
@@ -32,6 +34,12 @@ def event_payload(event: Event) -> dict[str, Any]:
         "is_life": event.is_life,
         "conversation_id": event.primary_conversation_id,
         "origin_conversation_id": (event.metadata_ or {}).get("origin_conversation_id"),
+        "cover": {
+            "status": cover_status,
+            "source": str(cover.get("source") or "none"),
+            "alt_text": str(cover.get("alt_text") or ""),
+            "url": f"/events/{event.id}/cover" if cover_status == "ready" else None,
+        },
         "created_at": event.created_at,
         "updated_at": event.updated_at,
     }

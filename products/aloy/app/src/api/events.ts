@@ -1,4 +1,4 @@
-import { apiFetch, apiStreamFetch } from './client';
+import { apiBlobFetch, apiFetch, apiStreamFetch, apiUploadFile } from './client';
 
 export interface EventSummary {
   id: string;
@@ -10,6 +10,12 @@ export interface EventSummary {
   is_life: boolean;
   conversation_id: string | null;
   origin_conversation_id: string | null;
+  cover: {
+    status: 'none' | 'queued' | 'generating' | 'ready' | 'failed' | string;
+    source: 'none' | 'automatic' | 'user_upload' | string;
+    alt_text: string;
+    url: string | null;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -176,11 +182,21 @@ export function createEvent(data: {
   phase?: string;
   notes?: string;
   origin_conversation_id?: string | null;
+  cover_mode?: 'automatic' | 'none';
+  setup_mode?: 'simple' | 'assisted';
 }) {
   return apiFetch<EventSummary>('/events', {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+export function uploadEventCover(eventId: string, file: File, onProgress?: (pct: number) => void) {
+  return apiUploadFile<EventSummary>(`/events/${eventId}/cover`, file, onProgress);
+}
+
+export function getEventCoverBlob(eventId: string) {
+  return apiBlobFetch(`/events/${eventId}/cover`);
 }
 
 export function getEventSurface(eventId: string) {

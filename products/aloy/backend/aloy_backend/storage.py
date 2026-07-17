@@ -58,6 +58,26 @@ def upload_key(
     )
 
 
+def event_cover_key(
+    organization_id: str, event_id: str, file_id: str, name: str
+) -> str:
+    """Tenant-contained key for the current host-owned Event cover."""
+    return (
+        f"org/{_segment(organization_id)}/events/{_segment(event_id)}"
+        f"/covers/{_segment(file_id)}/{safe_name(name)}"
+    )
+
+
+def event_setup_file_key(
+    organization_id: str, draft_id: str, item_id: str, name: str
+) -> str:
+    """Tenant-contained blob staged before its Event exists."""
+    return (
+        f"org/{_segment(organization_id)}/event-drafts/{_segment(draft_id)}"
+        f"/context/{_segment(item_id)}/{safe_name(name)}"
+    )
+
+
 def surface_bundle_key(
     organization_id: str,
     event_id: str,

@@ -8,9 +8,8 @@ import {
   LoaderCircle,
   Play,
 } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
-  createEvent,
   decideEventProposal,
   getToday,
   workOnEventTask,
@@ -28,12 +27,10 @@ import { getProfile, updateProfile } from '@/api/profile';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
 import { ChatIcon, EventIcon } from '@/components/icons';
+import { EventCover } from '@/components/events/EventCover';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatRelativeTime } from '@/lib/time';
 import type { ConversationResponse, UserProfileResponse } from '@/types';
-
-const INPUT =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-accent-500 focus:outline-none';
 
 type TaskItem = {
   group: TodayEventGroup;
@@ -92,14 +89,9 @@ function uniqueTasks(items: TaskItem[]) {
 export function TodayPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [today, setToday] = useState<TodayResponse | null>(null);
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [lifeConversations, setLifeConversations] = useState<ConversationResponse[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [title, setTitle] = useState('');
-  const [summary, setSummary] = useState('');
-  const [saving, setSaving] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [reviewingProposalId, setReviewingProposalId] = useState<string | null>(null);
@@ -197,17 +189,6 @@ export function TodayPage() {
     needsEventCount > 0 || workingTasks.length > 0
       ? `${needsEventCount || 'No'} Event${needsEventCount === 1 ? '' : 's'} need${needsEventCount === 1 ? 's' : ''} you; Aloy is working on ${workingTasks.length} item${workingTasks.length === 1 ? '' : 's'}.`
       : 'Nothing urgent. Your Events are ready when you are.';
-  const showEventCreator = creating || searchParams.get('new') === 'event';
-
-  function toggleEventCreator() {
-    if (searchParams.get('new') === 'event') {
-      setSearchParams({});
-      setCreating(false);
-      return;
-    }
-    setCreating((value) => !value);
-  }
-
   async function startConversation() {
     setCreatingConversation(true);
     setError('');
@@ -218,24 +199,6 @@ export function TodayPage() {
       setError(cause instanceof Error ? cause.message : 'Could not start a conversation');
     } finally {
       setCreatingConversation(false);
-    }
-  }
-
-  async function saveEvent() {
-    if (!title.trim()) return;
-    setSaving(true);
-    setError('');
-    try {
-      const event = await createEvent({
-        title: title.trim(),
-        summary: summary.trim(),
-        phase: 'planning',
-      });
-      navigate(`/events/${event.id}`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -327,7 +290,7 @@ export function TodayPage() {
               {creatingConversation ? <LoaderCircle size={16} className="animate-spin" /> : <ChatIcon size={17} />}
               New conversation
             </Button>
-            <Button variant="outline" onClick={toggleEventCreator} className="border-accent-700 text-accent-700">
+            <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700 text-accent-700">
               <EventIcon size={17} /> New Event
             </Button>
           </div>
@@ -337,27 +300,6 @@ export function TodayPage() {
           <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600">
             {error}
           </div>
-        )}
-
-        {showEventCreator && (
-          <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-700">
-                <EventIcon size={18} />
-              </span>
-              <div>
-                <h2 className="font-display text-lg font-semibold text-zinc-100">Start a durable Event</h2>
-                <p className="mt-0.5 text-sm text-zinc-500">One continuous conversation with its own work, files, decisions, evidence, and Surface.</p>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1.5fr_auto]">
-              <input className={INPUT} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Event name" autoFocus />
-              <input className={INPUT} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="What does success look like?" />
-              <Button disabled={saving || !title.trim()} onClick={() => void saveEvent()}>
-                {saving ? 'Creating…' : 'Create Event'}
-              </Button>
-            </div>
-          </section>
         )}
 
         {!today ? (
@@ -486,7 +428,7 @@ export function TodayPage() {
                   ))}
                   {comingUpTasks.length === 0 && quietGroups.map((group) => (
                     <button key={group.event.id} type="button" onClick={() => navigate(`/events/${group.event.id}`)} className="flex w-full items-center justify-between gap-4 py-4 text-left">
-                      <div><p className="font-medium text-zinc-200">{group.event.title}</p><p className="mt-1 text-sm text-zinc-500">{group.event.summary || 'No work needs attention.'}</p></div>
+                      <div className="flex min-w-0 items-center gap-3"><EventCover event={group.event} className="h-11 w-16 shrink-0 rounded-lg border border-zinc-800" /><div className="min-w-0"><p className="truncate font-medium text-zinc-200">{group.event.title}</p><p className="mt-1 truncate text-sm text-zinc-500">{group.event.summary || 'No work needs attention.'}</p></div></div>
                       <span className="flex items-center gap-1 text-sm font-medium text-accent-700">Open <ArrowRight size={14} /></span>
                     </button>
                   ))}

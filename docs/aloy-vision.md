@@ -1,6 +1,6 @@
 # Aloy — product vision
 
-_Canonical product definition, version 3.1, revised 2026-07-16. This document
+_Canonical product definition, version 3.3, revised 2026-07-17. This document
 defines what Aloy is, how its core product concepts fit together, and what V1
 must prove. Detailed contracts live in the linked child specifications; live
 implementation status lives in [`.agent/progress/current.md`](../.agent/progress/current.md)._
@@ -84,13 +84,14 @@ The product has two equally important entry points:
 ```text
 New conversation → fresh Life Conversation
 
-New Event → dedicated Event + its lifetime Conversation
+New Event → explicit setup → dedicated Event + its lifetime Conversation
 ```
 
 A conversation does not automatically become a dedicated Event. An Event is a
 deliberate commitment to durable context and an outcome. Aloy may suggest that
 a Life Conversation deserves an Event later, but it never silently moves or
-reclassifies the user's work.
+reclassifies the user's work. The user always reviews the setup and explicitly
+creates the Event.
 
 ## 3. The primitives
 
@@ -113,6 +114,18 @@ progress over time:
 An Event is not a page, a folder of chats, or a permanently running model. The
 UI is a lens over it. The Event remains authoritative when its screen is closed
 and when no agent process is active.
+
+The first-use product explanation is benefit-led rather than architectural:
+
+> **An Event is a dedicated, ongoing space where Aloy helps you manage
+> something important over time.**
+
+The practical test is whether the subject will still matter tomorrow and Aloy
+should keep track without the user explaining it again. A question such as
+“Explain recursion” belongs in a Life Conversation; “Help me succeed this
+university semester” can justify a University Event. In Aloy, Event therefore
+means an ongoing goal, responsibility, journey, or life chapter—not merely a
+calendar appointment.
 
 The lifecycle is intentionally small:
 
@@ -505,17 +518,58 @@ sandbox scratch file becomes an artifact only when the finalizer stores it
 durably, records provenance, and adds the semantic Trail entry. Files can link
 to Tasks, Runs, Proposals, receipts, and Surface records.
 
-Memory is an index over durable truth:
+Memory is a curated index over durable truth, not a copy of every message and
+not a substitute for canonical state. Aloy has four distinct context layers:
 
-- **Global memory:** identity and stable preferences;
-- **Life/Event memory:** accepted facts, decisions, summaries, results, and
-  file pointers scoped to the owner;
-- **Transcript history:** durable messages retrieved on demand, not treated as
-  automatically accepted facts.
+1. **Global user memory:** stable identity, preferences, and constraints that
+   may be useful across Life and dedicated Events;
+2. **Event memory:** accepted facts, decisions, routines, learned terminology,
+   important episodes, unresolved questions, and Event-specific preferences;
+3. **Canonical Event state:** Tasks, Proposals, receipts, files, connections,
+   Trail, Surface data, and lifecycle truth loaded directly rather than
+   remembered approximately;
+4. **Transcript history:** durable messages and summaries retrieved on demand,
+   not automatically promoted into accepted memory.
 
-Receipts and provider evidence outrank model memory. Tenant and Event scope is
-applied before ranking or semantic retrieval. Cross-Event retrieval remains
-deferred until zero-leakage isolation is proven.
+Event memory is isolated by tenant, user, and Event before ranking or semantic
+retrieval. A Run inside one Event may receive permitted global memory plus the
+owning Event's memory; it never retrieves another Event's memory. Life follows
+the same rule and cannot silently read dedicated-Event memory. Cross-Event
+retrieval remains prohibited until a future explicit sharing mechanism proves
+zero-leakage isolation.
+
+Memory has two independent scope dimensions:
+
+```text
+ownership:    personal > team > organisation
+situation:    Event > global
+```
+
+Within an Event, Event-specific accepted memory wins over conflicting global
+memory. Personal knowledge wins over team or organisation knowledge at the
+same situational scope. Promotion from Event memory into global memory is an
+explicit, inspectable policy decision; useful facts do not leak merely because
+the model observed them inside an Event.
+
+Every memory record carries kind (`semantic`, `episodic`, or `procedural`),
+scope, confidence, sensitivity, retention, provenance, and optional conflict
+identity. Corrections supersede earlier records without destroying their
+history. Source evidence, committed provider state, receipts, and current
+canonical Event rows always outrank model memory.
+
+On each Run, Aloy assembles a bounded context from global memory, relevant
+Event memory, current canonical Event state, recent Conversation turns,
+retrieved older Event history, and compaction summaries. The permanent Event
+Conversation may therefore continue for months without placing its complete
+transcript in every model prompt.
+
+Memory consolidation runs only after meaningful evidence: a confirmed user
+statement, accepted correction, important decision, completed phase, durable
+result, or explicit **remember this** request. It does not turn casual model
+inference into fact. The user can inspect what Aloy remembers for an Event,
+see its source and scope, correct it, forget it, or explicitly promote it.
+Archiving freezes active consolidation and triggers while retaining memory for
+reopening; deletion follows the Event's retention and deletion policy.
 
 ### 3.10 Triggers — explicit reasons Aloy wakes
 
@@ -628,7 +682,151 @@ not a second button styled exactly like conversation creation. Its identity
 uses Aloy's own Event language and iconography rather than a generic AI sparkle
 or “intelligence” symbol.
 
-### 5.2 Flexible workspace behavior
+### 5.2 Event creation and setup
+
+**New Event** opens a dedicated creation page; it does not immediately open a
+chat or create a partially configured Event. The page teaches the first-use
+mental model in one short sentence:
+
+> **Create an Event.** Give something important its own ongoing space. Aloy
+> remembers its context, work, and decisions until you finish it.
+
+Creation has two deliberate modes.
+
+#### Start simple — the default
+
+The default page is a small host-owned setup, not an AI interview. The user:
+
+1. provides an Event name;
+2. may give Aloy a head start through one flexible context composer by typing
+   background, dropping files, pasting links, or granting narrowly scoped
+   access to an existing connection;
+3. explicitly selects **Create Event**.
+
+A simple creation atomically creates the dedicated Event and its lifetime
+Conversation, transfers accepted draft context, and opens a minimal Workbench.
+Ingestion, a first Surface, Tasks, richer structure, and the generated cover
+may arrive later; none of them block creation.
+
+The Event name field contains one quiet trailing assistance action using
+Aloy's own mark:
+
+> **Ask Aloy**
+
+Selecting **Ask Aloy for help** changes the existing setup draft into assisted
+mode. It preserves the name and all supplied context and never creates the
+Event merely because the user entered the assistant flow. The creation page is
+about useful grounding, not asking the user to design a cover or application.
+
+#### Ask Aloy for help — assisted setup
+
+Assisted setup begins with **What should Aloy help you make happen?** The user
+may describe a clear outcome, describe a situation without knowing the right
+structure, attach useful context, or ask Aloy to help them work it out. Aloy
+asks only necessary clarifying questions and proposes:
+
+- the Event's name, purpose, and time horizon;
+- missing or useful context sources;
+- a conservative starting Surface brief;
+- initial work and missing context;
+- proposed autonomy and approval boundaries.
+
+The proposal remains editable through the setup conversation. The user can
+return to **Set up myself** without losing the draft. Only the explicit,
+host-owned **Create Event** action promotes the draft into the Event, its
+lifetime Conversation, its accepted context grants, and any accepted initial
+Tasks. The assisted setup transcript becomes the beginning of that lifetime
+Conversation. Surface and cover generation remain asynchronous system work,
+not design choices required from the user.
+
+An Event setup draft is not an active Event and is not the deferred
+**Emerging** lifecycle state. It is a resumable host-owned creation record with
+no Event Triggers, autonomous work, or external-action authority. Drafting may
+use bounded model Runs, but those Runs cannot act as the future Event.
+
+Life provides a contextual entry into the same assisted setup. Aloy may say
+that a long-lived subject could benefit from its own Event, but the user must
+accept the suggestion, review the draft, choose what context to bring, and
+explicitly create it. V1 performs no automatic Conversation-to-Event transfer.
+
+#### Setup context and Event bootstrap
+
+An `EventSetupDraft` owns temporary `ContextItem` records before the Event
+exists. A context item may be a user note, uploaded file, pasted link, selected
+template seed, or Event-scoped connection grant. Each item has explicit
+`pending`, `ingesting`, `ready`, or `failed` state and retains source,
+freshness, sensitivity, and provenance. A connection grant references a
+globally managed credential plus the narrow calendar, folder, page,
+repository, account, or other source the Event may access; generated Surface
+code receives neither credentials nor unrestricted connection access.
+
+Explicit creation atomically creates the Event and canonical Conversation and
+transfers the draft context. Source ingestion continues asynchronously. When
+enough evidence is ready, an idempotent Event-bootstrap Run produces a typed,
+versioned `EventBrief` containing purpose, outcomes, time horizon, important
+entities and dates, recurring work, available sources, unknowns, and the user
+jobs a first Surface should support. Every important assertion links to
+evidence; inaccessible sources and unknown facts remain visible rather than
+being invented.
+
+A host-owned readiness gate controls expensive bootstrap work:
+
+- **name only:** create the Event, keep Conversation primary, and ask at most
+  one useful question; do not generate a speculative Surface;
+- **little context:** identify unknowns and wait for or request only context
+  that materially changes the first Surface;
+- **sufficient context:** generate the Event Brief, starting work, cover brief,
+  and a deliberately small first Surface asynchronously;
+- **rich context:** build from the same general pipeline with stronger evidence,
+  never through domain-specific University, travel, or career conditionals.
+
+Before a Surface exists, the trusted Workbench remains fully usable through
+Conversation, Tasks, Files, Trail, and context status. It may say **Your
+Surface will take shape as Aloy understands this Event**. A published first
+Surface contains only evidence-supported views and actions and passes the same
+build, capability, Critic, and last-good publication gates as every later
+revision.
+
+New sources update the Event Brief incrementally. They do not rebuild the
+Surface after every message. A new revision is considered only after a
+meaningful source, goal, phase, user request, or demonstrated usability gap.
+Pinned regions and user preferences survive accepted redesigns.
+
+#### Event cover identity
+
+The cover is a durable host-managed Event media asset, separate from generated
+Surface code. A dedicated cover-generation profile and skill turn the accepted
+Event understanding into a constrained visual brief; a developer-selected
+image model renders the choices. The Surface Builder does not generate or own
+the cover.
+
+The cover is not a required creation decision. The Event starts with a quiet
+host-owned placeholder. Once sufficient permitted context exists, Aloy creates
+a sanitized visual brief from the Event Brief and queues cover generation in
+the background. Raw sensitive files and unrestricted memory are never sent to
+the image model. The user may later upload their own cover, request another,
+or continue with the placeholder. Image generation may take longer than Event
+creation and must never delay, halt, roll back, or make the Event unusable.
+
+The placeholder reserves the final aspect ratio so completion causes no layout
+jump. Cover state is explicit (`queued`, `generating`, `ready`, or `failed`),
+and the Event's live transport updates Home/Today and the open Workbench when a
+quality-gated image becomes ready. The host fades the cover into the reserved
+region without stealing focus. Failure leaves the Event and placeholder intact
+and offers a bounded retry.
+
+Generated artwork contains no baked-in Event title, invented personal
+likeness, or fake institution/provider logo. Host UI places readable text and
+status over or beside the image. The stored asset includes an original, alt
+text, focal-point metadata, palette hints, and responsive crops for Home/Today
+thumbnails and the Event Workbench header. Publication uses compare-and-set
+against the Event's current cover version: a late background result never
+overwrites a cover the user uploaded, removed, or regenerated while the job was
+running. The accepted identity remains stable; Aloy may stage a new candidate
+after a meaningful Event phase change, but it never churns the visible cover
+after ordinary messages.
+
+### 5.3 Flexible workspace behavior
 
 Conversation and Workbench are composable peers. The user may choose:
 
@@ -653,7 +851,7 @@ tabs inside the viewer. **Ask Aloy about this file** reveals Conversation beside
 the document and attaches a trusted file reference to the next turn. Generated
 Surface code never receives unrestricted file access.
 
-### 5.3 Conversation-to-Surface handoff
+### 5.4 Conversation-to-Surface handoff
 
 When Aloy produces a new successful Surface revision while the Surface is not
 visible, the trusted Conversation host places a compact **Surface ready** card
@@ -670,7 +868,7 @@ The card:
 This makes the Surface discoverable without forcing it open or interrupting the
 Conversation.
 
-### 5.4 Entry loops
+### 5.5 Entry loops
 
 The first-use loops stay intentionally small:
 
@@ -680,6 +878,10 @@ New conversation
 → optionally create a loose Task or deliberately create an Event
 
 New Event
+→ understand what an Event is
+→ start simple or deliberately ask Aloy for help
+→ review the setup draft
+→ explicitly create the Event
 → enter a deliberate premium workspace
 → continue one lifetime Conversation
 → create a Task
@@ -690,7 +892,7 @@ New Event
 → inspect the receipt
 ```
 
-### 5.5 Speed and continuity
+### 5.6 Speed and continuity
 
 Aloy should feel immediate even when meaningful work is long-running:
 
@@ -780,7 +982,8 @@ Aloy.
 V1 includes:
 
 - one permanent Life Event with multiple user-started Conversations;
-- manually created dedicated Events with one continuous Conversation each;
+- explicitly created dedicated Events, through simple or Aloy-assisted setup,
+  with one continuous Conversation each;
 - executable Tasks with explicit initiation, durable worker execution,
   Stop/Retry/Resume, and bounded budgets;
 - sandboxed model-authored Event Surfaces with revisioned source, isolated

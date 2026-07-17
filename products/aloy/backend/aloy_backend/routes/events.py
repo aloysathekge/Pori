@@ -9,13 +9,23 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import col, select
-from starlette.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import RedirectResponse, StreamingResponse
 
 from ..database import get_session
 from ..event_presenters import (
@@ -42,6 +52,7 @@ from ..proposal_executor import (
     execute_proposal,
 )
 from ..rate_limit import rate_limited_permission
+from ..storage import event_cover_key, get_object_store, safe_name
 from ..task_execution import (
     TaskExecutionError,
     queue_task_run,
@@ -72,6 +83,8 @@ class EventCreateBody(BaseModel):
     phase: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=50_000)
     origin_conversation_id: str | None = None
+    cover_mode: Literal["automatic", "none"] = "automatic"
+    setup_mode: Literal["simple", "assisted"] = "simple"
 
 
 class TaskCreateBody(BaseModel):
@@ -288,6 +301,12 @@ async def create_event(
         summary=body.summary.strip(),
         metadata_={
             "notes": body.notes,
+            "setup": {"mode": body.setup_mode},
+            "cover": {
+                "status": "queued" if body.cover_mode == "automatic" else "none",
+                "source": "automatic" if body.cover_mode == "automatic" else "none",
+                "version": 0,
+            },
             **({"origin_conversation_id": origin.id} if origin is not None else {}),
         },
     )
@@ -317,6 +336,134 @@ async def create_event(
     return event_payload(event)
 
 
+_EVENT_COVER_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _valid_event_cover_signature(content_type: str, prefix: bytes) -> bool:
+    if content_type == "image/png":
+        return prefix.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/jpeg":
+        return prefix.startswith(b"\xff\xd8\xff")
+    if content_type == "image/webp":
+        return len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP"
+    return False
+
+
+@router.post("/{event_id}/cover", status_code=201)
+async def upload_event_cover(
+    event_id: str,
+    file: UploadFile = File(...),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Set a user-selected cover without allowing a late generator to replace it."""
+    import hashlib
+
+    event = await _load_event(session, context, event_id)
+    if event.is_life:
+        raise HTTPException(status_code=409, detail="Life does not have an Event cover")
+    content_type = (file.content_type or "").lower()
+    if content_type not in _EVENT_COVER_TYPES:
+        raise HTTPException(
+            status_code=415, detail="Cover must be a PNG, JPEG, or WebP image"
+        )
+    body = file.file
+    body.seek(0, 2)
+    size = body.tell()
+    body.seek(0)
+    if size == 0:
+        raise HTTPException(status_code=422, detail="Empty cover image")
+    if size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Cover exceeds the 10MB limit")
+    prefix = body.read(16)
+    body.seek(0)
+    if not _valid_event_cover_signature(content_type, prefix):
+        raise HTTPException(
+            status_code=422, detail="Cover bytes do not match its image type"
+        )
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: body.read(1024 * 1024), b""):
+        digest.update(chunk)
+    body.seek(0)
+    name = safe_name(file.filename or "cover")
+    record = StoredFile(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+        conversation_id=event.primary_conversation_id,
+        origin_session_id=event.primary_conversation_id,
+        kind="event_cover",
+        name=name,
+        content_type=content_type,
+        size_bytes=size,
+        sha256=digest.hexdigest(),
+        storage_key="",
+    )
+    record.storage_key = event_cover_key(
+        context.organization_id, event.id, record.id, name
+    )
+    await run_in_threadpool(
+        get_object_store().put, record.storage_key, body, content_type=content_type
+    )
+    previous = dict((event.metadata_ or {}).get("cover") or {})
+    metadata = dict(event.metadata_ or {})
+    metadata["cover"] = {
+        "status": "ready",
+        "source": "user_upload",
+        "version": int(previous.get("version") or 0) + 1,
+        "file_id": record.id,
+        "storage_key": record.storage_key,
+        "content_type": content_type,
+        "alt_text": event.title,
+    }
+    event.metadata_ = metadata
+    event.updated_at = datetime.now(timezone.utc)
+    session.add(record)
+    session.add(
+        EventTrailEntry(
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+            actor_id=context.user_id,
+            kind="event_cover_changed",
+            summary="Updated the Event cover",
+            evidence_refs=[{"file_id": record.id}],
+            payload={"source": "user_upload"},
+        )
+    )
+    await session.commit()
+    await session.refresh(event)
+    return event_payload(event)
+
+
+@router.get("/{event_id}/cover")
+async def get_event_cover(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+):
+    event = await _load_event(session, context, event_id)
+    cover = dict((event.metadata_ or {}).get("cover") or {})
+    if cover.get("status") != "ready" or not cover.get("storage_key"):
+        raise HTTPException(status_code=404, detail="Event cover is not ready")
+    store = get_object_store()
+    if url := store.url(str(cover["storage_key"])):
+        return RedirectResponse(url)
+    try:
+        body = await run_in_threadpool(store.open, str(cover["storage_key"]))
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="Event cover is not available"
+        ) from exc
+    return StreamingResponse(
+        body, media_type=str(cover.get("content_type") or "image/jpeg")
+    )
+
+
 @router.get("")
 async def list_events(
     context: OrganizationContext = Depends(
@@ -324,7 +471,7 @@ async def list_events(
     ),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    life = await ensure_life_event(
+    await ensure_life_event(
         session,
         organization_id=context.organization_id,
         user_id=context.user_id,

@@ -57,3 +57,47 @@ Code verification is green but does not substitute for design QA.
    Mark all read, notification toggle, and narrow reflow.
 
 final result: blocked (accepted for this merge; signed-in visual capture remains follow-up work)
+
+---
+
+# Event setup design QA
+
+- Source visual truth: `C:\Users\sathe\.codex\generated_images\019f61c8-b311-7972-9b39-85e3f722aa20\exec-0b19e96c-6f33-4572-b669-6915c71cd5f0.png`
+- Implementation route: `http://localhost:5173/events/new`
+- Target state: Start simple by default; Ask Aloy changes the prompting posture
+  while the same model-independent context composer remains usable.
+- Implementation screenshot: blocked — the browser runtime failed before a tab could be captured.
+
+## Findings
+
+- [P1] Rendered comparison evidence is missing. The production build and
+  interaction contracts pass, but spacing, focus states, drag/drop feedback,
+  connection selection, and exact visual fidelity still require a signed-in
+  capture against the source.
+- [P2] The selected reference depicts a model-populated assisted proposal. With
+  no setup model configured, the implementation keeps the same durable context
+  composer usable instead of hardcoding University content or fake suggestions.
+
+## Required next visual pass
+
+1. Capture default simple mode at 1440 × 1000.
+2. Exercise file drop/select, link entry, connection selection, item removal,
+   and server-backed refresh recovery.
+3. Switch to Ask Aloy and verify that context remains intact.
+4. Create a name-only Event and a context-rich Event; inspect Today and
+   Workbench placeholders while asynchronous cover work remains queued.
+5. Fix all P0/P1/P2 visible drift and capture again.
+
+final result: blocked
+
+### Feedback iteration — 2026-07-17
+
+- Removed the automatic-cover timing explanation from the creation action.
+- Moved **Ask Aloy** beside the Event name input so the two setup paths are visible at the same decision point.
+- Compressed the header, context composer, and actions so the default desktop
+  creation path keeps **Create Event** visible without scrolling.
+- Rendered verification remains blocked until browser control can capture the authenticated route.
+- Embedded **Ask Aloy** inside the Event name field as a quiet trailing assistance action and removed generic sparkle iconography in favor of Aloy's own mark.
+- Removed cover design from setup. Files, links, notes, and existing connections
+  now provide the useful context from which later bootstrap and cover work can
+  be derived.
