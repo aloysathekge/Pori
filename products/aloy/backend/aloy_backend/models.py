@@ -147,6 +147,7 @@ class EventSetupContextItem(SQLModel, table=True):
     connection_id: str | None = Field(
         default=None, foreign_key="oauth_connections.id", index=True
     )
+    event_id: str | None = Field(default=None, foreign_key="events.id", index=True)
     access_scope: dict = Field(
         default_factory=dict, sa_column=Column(JSON, nullable=False)
     )
@@ -155,6 +156,23 @@ class EventSetupContextItem(SQLModel, table=True):
     size_bytes: int = 0
     sha256: str = ""
     error: str | None = None
+    sensitivity: str = Field(default="internal", index=True)
+    attempt_count: int = 0
+    max_attempts: int = 3
+    lease_owner: str | None = Field(default=None, index=True)
+    lease_expires_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    next_attempt_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    retrieved_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    ingested_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    knowledge_entry_id: str | None = Field(default=None, index=True)
     metadata_: dict = Field(
         default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
     )

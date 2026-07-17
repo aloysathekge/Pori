@@ -29,6 +29,7 @@ from starlette.responses import RedirectResponse, StreamingResponse
 
 from ..database import get_session
 from ..event_presenters import (
+    context_item_payload,
     event_payload,
     file_payload,
     proposal_payload,
@@ -40,6 +41,7 @@ from ..models import (
     ActionProposal,
     Conversation,
     Event,
+    EventSetupContextItem,
     EventTrailEntry,
     Run,
     StoredFile,
@@ -559,6 +561,21 @@ async def get_event_surface(
         .scalars()
         .all()
     )
+    context_items = list(
+        (
+            await session.execute(
+                select(EventSetupContextItem)
+                .where(
+                    EventSetupContextItem.event_id == event.id,
+                    EventSetupContextItem.organization_id == context.organization_id,
+                    EventSetupContextItem.user_id == context.user_id,
+                )
+                .order_by(col(EventSetupContextItem.created_at))
+            )
+        )
+        .scalars()
+        .all()
+    )
     all_proposals = (
         (
             await session.execute(
@@ -620,6 +637,10 @@ async def get_event_surface(
                     "kind": "files",
                     "files": [file_payload(file) for file in files],
                 },
+                {
+                    "kind": "context",
+                    "items": [context_item_payload(item) for item in context_items],
+                },
             ],
             "proposals": [proposal_payload(proposal) for proposal in proposals],
             "execution_groups": _execution_groups(
@@ -627,6 +648,63 @@ async def get_event_surface(
             ),
         },
     }
+
+
+@router.post("/{event_id}/context/{item_id}/retry", status_code=202)
+async def retry_event_context(
+    event_id: str,
+    item_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    await _load_event(session, context, event_id)
+    item = await session.get(EventSetupContextItem, item_id)
+    if (
+        item is None
+        or item.event_id != event_id
+        or item.organization_id != context.organization_id
+        or item.user_id != context.user_id
+    ):
+        raise HTTPException(status_code=404, detail="Event context source not found")
+    if item.kind not in {"file", "link"}:
+        raise HTTPException(
+            status_code=409, detail="This context source is not ingestible"
+        )
+    if item.status == "ready":
+        raise HTTPException(
+            status_code=409, detail="This context source is already ready"
+        )
+    if item.status in {"pending", "ingesting"}:
+        return context_item_payload(item)
+    now = datetime.now(timezone.utc)
+    item.status = "pending"
+    item.error = None
+    item.attempt_count = 0
+    item.next_attempt_at = now
+    item.lease_owner = None
+    item.lease_expires_at = None
+    item.updated_at = now
+    metadata = dict(item.metadata_ or {})
+    metadata["ingestion"] = {"status": "queued", "requested_by": context.user_id}
+    item.metadata_ = metadata
+    session.add(item)
+    session.add(
+        EventTrailEntry(
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event_id,
+            actor_id=context.user_id,
+            kind="context_ingestion_retried",
+            summary=f"Retried context source {item.label}",
+            evidence_refs=[{"context_item_id": item.id}],
+            payload={"kind": item.kind},
+        )
+    )
+    await session.commit()
+    await session.refresh(item)
+    return context_item_payload(item)
 
 
 @router.get("/{event_id}/trail")

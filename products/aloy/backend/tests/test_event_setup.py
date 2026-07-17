@@ -66,7 +66,7 @@ async def test_event_setup_is_resumable_tenant_scoped_and_promotes_once(
         files={"file": ("course-guide.pdf", b"course guide", "application/pdf")},
     )
     assert uploaded.status_code == 201
-    assert uploaded.json()["status"] == "ready"
+    assert uploaded.json()["status"] == "pending"
 
     async with db_session_maker() as session:
         session.add(
@@ -117,6 +117,20 @@ async def test_event_setup_is_resumable_tenant_scoped_and_promotes_once(
         assert draft is not None
         assert draft.status == "promoted"
         assert draft.created_event_id == event_id
+
+        context_items = list(
+            (
+                await session.execute(
+                    select(EventSetupContextItem).where(
+                        EventSetupContextItem.event_id == event_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(context_items) == 3
+        assert all(item.event_id == event_id for item in context_items)
 
         files = list(
             (

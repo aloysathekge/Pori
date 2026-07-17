@@ -6,12 +6,19 @@ export type EventSetupMode = 'simple' | 'assisted';
 
 export interface EventSetupContextItem {
   id: string;
+  event_id: string | null;
   kind: 'file' | 'link' | 'connection' | 'template';
   status: 'pending' | 'ingesting' | 'ready' | 'failed';
   label: string;
   source_url: string | null;
   content_type: string | null;
   size_bytes: number;
+  sensitivity: string;
+  attempt_count: number;
+  max_attempts: number;
+  next_attempt_at: string | null;
+  retrieved_at: string | null;
+  ingested_at: string | null;
   error: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
@@ -98,4 +105,11 @@ export function promoteEventDraft(draftId: string) {
   return apiFetch<EventSummary>(`/event-drafts/${draftId}/promote`, {
     method: 'POST',
   });
+}
+
+export function retryEventContext(eventId: string, itemId: string) {
+  return apiFetch<EventSetupContextItem>(
+    `/events/${eventId}/context/${itemId}/retry`,
+    { method: 'POST' },
+  );
 }

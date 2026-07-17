@@ -1,4 +1,5 @@
 import { apiBlobFetch, apiFetch, apiStreamFetch, apiUploadFile } from './client';
+import type { EventSetupContextItem } from './eventSetup';
 
 export interface EventSummary {
   id: string;
@@ -135,6 +136,7 @@ export interface EventSurfaceResponse {
       | { kind: 'activity'; entries: EventTrailEntry[]; next_cursor: string | null }
       | { kind: 'notes'; notes: string }
       | { kind: 'files'; files: EventFile[] }
+      | { kind: 'context'; items: EventSetupContextItem[] }
     >;
     proposals: EventProposal[];
     execution_groups: EventExecutionGroup[];

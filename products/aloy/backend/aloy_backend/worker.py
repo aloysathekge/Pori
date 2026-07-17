@@ -15,6 +15,7 @@ from sqlmodel import col, select
 
 from .background import execute_claimed_run
 from .config import settings
+from .context_ingestion import run_next_context_ingestion
 from .cron import tick_cron_jobs
 from .database import async_session
 from .models import Event, Organization, Run
@@ -180,6 +181,8 @@ async def run_once(worker_id: str | None = None) -> bool:
     await reconcile_stale_executions()
     proposal_result = await execute_next_approved_proposal()
     if proposal_result is not None:
+        return True
+    if await run_next_context_ingestion(resolved_worker_id):
         return True
     run_id = await claim_next_run(resolved_worker_id)
     if run_id is None:
