@@ -111,7 +111,7 @@ export function AppLayout() {
 
   function startEvent() {
     closeMobile();
-    navigate('/today?new=event');
+    navigate('/events/new');
   }
 
   return (

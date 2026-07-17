@@ -98,6 +98,106 @@ class Event(SQLModel, table=True):
     )
 
 
+class EventSetupDraft(SQLModel, table=True):
+    """Resumable, non-active setup state before explicit Event creation."""
+
+    __tablename__ = "event_setup_drafts"
+    __table_args__ = (
+        UniqueConstraint("created_event_id", name="uq_event_setup_draft_event"),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"edraft_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    mode: str = Field(default="simple", index=True)
+    status: str = Field(default="open", index=True)
+    title: str = ""
+    description: str = ""
+    created_event_id: str | None = Field(
+        default=None, foreign_key="events.id", index=True
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventSetupContextItem(SQLModel, table=True):
+    """One typed source staged under an Event setup draft."""
+
+    __tablename__ = "event_setup_context_items"
+
+    id: str = Field(
+        default_factory=lambda: f"ectx_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    draft_id: str = Field(foreign_key="event_setup_drafts.id", index=True)
+    kind: str = Field(index=True)
+    status: str = Field(default="pending", index=True)
+    label: str = ""
+    content: str = ""
+    source_url: str | None = None
+    connection_id: str | None = Field(
+        default=None, foreign_key="oauth_connections.id", index=True
+    )
+    access_scope: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    storage_key: str | None = None
+    content_type: str | None = None
+    size_bytes: int = 0
+    sha256: str = ""
+    error: str | None = None
+    metadata_: dict = Field(
+        default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventConnectionGrant(SQLModel, table=True):
+    """An existing account connection explicitly granted to one Event."""
+
+    __tablename__ = "event_connection_grants"
+    __table_args__ = (
+        UniqueConstraint("event_id", "connection_id", name="uq_event_connection_grant"),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"egrant_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    connection_id: str = Field(foreign_key="oauth_connections.id", index=True)
+    provider: str = Field(index=True)
+    access_scope: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    status: str = Field(default="active", index=True)
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class SurfaceProject(SQLModel, table=True):
     """One model-authored application project owned by one Event."""
 

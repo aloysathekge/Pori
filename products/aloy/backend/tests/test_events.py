@@ -7,6 +7,45 @@ from sqlmodel import select
 from aloy_backend.models import ActionProposal, Event, EventTrailEntry, Task
 
 
+async def test_event_creation_queues_cover_without_blocking_and_upload_can_replace_it(
+    client, monkeypatch, tmp_path
+):
+    from aloy_backend import config as config_mod
+    from aloy_backend import storage as storage_mod
+
+    monkeypatch.setattr(config_mod.settings, "storage_dir", str(tmp_path / "storage"))
+    monkeypatch.setattr(storage_mod, "_STORE", None)
+
+    created = await client.post(
+        "/v1/events",
+        json={"title": "University", "setup_mode": "simple"},
+    )
+    assert created.status_code == 201
+    assert created.json()["cover"] == {
+        "status": "queued",
+        "source": "automatic",
+        "alt_text": "",
+        "url": None,
+    }
+
+    event_id = created.json()["id"]
+    uploaded = await client.post(
+        f"/v1/events/{event_id}/cover",
+        files={"file": ("campus.png", b"\x89PNG\r\n\x1a\ncover-body", "image/png")},
+    )
+    assert uploaded.status_code == 201
+    assert uploaded.json()["cover"]["status"] == "ready"
+    assert uploaded.json()["cover"]["source"] == "user_upload"
+    assert uploaded.json()["cover"]["url"] == f"/events/{event_id}/cover"
+
+    response = await client.get(f"/v1/events/{event_id}/cover")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content == b"\x89PNG\r\n\x1a\ncover-body"
+
+    monkeypatch.setattr(storage_mod, "_STORE", None)
+
+
 async def test_reading_life_does_not_create_an_empty_conversation(client):
     events = await client.get("/v1/events")
     life = next(row for row in events.json() if row["is_life"])

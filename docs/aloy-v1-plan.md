@@ -1,6 +1,6 @@
 # Aloy V1 — reset delivery plan
 
-_Active plan, revised 2026-07-16 after the model-authored Surface review. This
+_Active plan, revised 2026-07-17 after the Event bootstrap and scoped-memory review. This
 plan begins from the Event, Proposal, workspace, and initial Surface foundation
 already built on `aloy-v1`. It supersedes the
 remaining phase order in `aloy-wedge-spec.md`. Product decisions come from
@@ -305,6 +305,62 @@ Gate:
 - live updates preserve focus and local interaction state in all three
   workspace modes and at narrow widths.
 
+### R5.5 — Event setup, context bootstrap, and scoped memory
+
+**Branch:** `aloy-v1-event-setup`
+
+**R5.5a shipped on the branch:** durable tenant/user-scoped setup drafts;
+autosaved name, description, and mode; typed file, link, template, and existing
+connection context; object-store staging; idempotent promotion into one Event
+and canonical Conversation; Event-scoped knowledge/provenance, file-library
+transfer, connection grants, and Trail; context ingestion failure cannot block
+creation. The remaining bullets are R5.5b onward.
+
+Scope:
+
+- add a resumable, host-owned `EventSetupDraft` with typed notes, files, links,
+  template seeds, and narrowly scoped connection grants;
+- keep explicit Event creation available with only a name while transferring
+  accepted draft context atomically into the Event and canonical Conversation;
+- ingest setup sources asynchronously with visible status, provenance,
+  sensitivity, freshness, failure, revocation, and retry semantics;
+- produce a typed, versioned, evidence-linked `EventBrief` only after a
+  host-owned readiness gate finds sufficient context;
+- use name-only and little-context fallbacks that keep Conversation primary,
+  ask at most one material question at a time, and never generate a confident
+  but speculative Surface;
+- invoke the existing Surface Builder and quality/publication pipeline for a
+  deliberately small first Surface derived from the Event Brief;
+- generate the Event cover asynchronously from a sanitized visual brief rather
+  than asking the user to design it or sending raw sensitive context to the
+  image model;
+- formalize global versus Event memory, require tenant/user/Event isolation,
+  and encode Event-over-global plus personal-over-team-over-organisation
+  conflict precedence;
+- consolidate evidence-backed semantic, episodic, and procedural memory with
+  provenance, confidence, sensitivity, retention, and supersession;
+- add host-owned Event memory controls for inspect, correct, forget, and
+  explicit promotion to global memory;
+- update the Event Brief incrementally and consider Surface evolution only
+  after meaningful source, goal, phase, user-request, or usability changes.
+
+Gate:
+
+- an Event created with only a name is immediately usable and produces no
+  invented Surface facts;
+- a file, link, user note, or scoped connection can survive draft promotion,
+  ingestion, restart, and provenance inspection;
+- sufficient context creates an evidence-linked Event Brief and one
+  quality-gated starting Surface without University/travel/career branching;
+- one Event cannot retrieve another Event's memory, files, connection data, or
+  transcript history under direct, semantic, or adversarial retrieval tests;
+- canonical Tasks, receipts, files, provider evidence, and current Event state
+  override conflicting model memory;
+- corrections supersede earlier memory without erasing provenance, and the
+  user can inspect and forget the accepted record;
+- cover and Surface work remain asynchronous, idempotent, recoverable, and
+  unable to block or roll back Event creation.
+
 ### R6 — sourced web research and artifacts
 
 **Branch:** `aloy-v1-r6-research-tools`
@@ -432,7 +488,8 @@ filesystem, and Surface persistence slices are merged through PR #175. The
 isolated build + diagnostics + preview-metadata slice is implemented on
 `aloy-v1-r5-surface-build-preview`.
 
-Continue R5 in security-first slices: sandboxed iframe host and immutable
-bundle delivery, SDK/interaction transport, independent Critic and publication
-gate, then the University + Madrid north-star proofs. Do not add provider-
-specific research or Gmail behavior to R5.
+Complete R5.5 on `aloy-v1-event-setup`: draft context, scoped ingestion,
+EventBrief readiness, Event-memory isolation and consolidation, and the first
+evidence-grounded bootstrap Surface. Then create the University showcase
+through that ordinary path, followed by the reviewed widget phase and Madrid.
+Do not add provider-specific research or Gmail behavior to this phase.

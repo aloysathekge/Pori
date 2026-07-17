@@ -1,6 +1,97 @@
 # Current State
 
-_Last updated: 2026-07-16 (Today and Life reimagination)._
+_Last updated: 2026-07-17 (R5.5a durable Event setup context)._
+
+## NEW: R5.5a durable Event setup context (2026-07-17)
+
+The active `aloy-v1-event-setup` branch now implements the model-independent
+first slice of the revised Event-creation contract. Setup is a tenant- and
+user-scoped server draft instead of browser-local state. It autosaves the Event
+name, description, and simple/assisted mode and owns typed context items for
+files, links, template seeds, and grants to existing account connections.
+
+The setup page is now a compact context composer. **Ask Aloy** remains embedded
+inside the name field, but neither mode requires model access. The user may
+describe the Event, drop or select files, add a link, or grant an already
+connected account to the Event. Cover selection is no longer part of default
+setup: the host queues later cover generation from richer accepted context.
+
+Explicit **Create Event** promotes the draft once and is idempotent. It creates
+the dedicated Event and permanent Conversation, transfers staged files into
+the Event library, records description/link/template context as Event-scoped
+knowledge with provenance, persists narrow connection grants, adds semantic
+Trail, and leaves cover/bootstrap work queued. Pending or failed ingestion
+cannot block or roll back Event creation. Sequential retry returns the same
+Event, and cross-user draft reads are rejected.
+
+Focused verification: 4 Event-setup backend tests and the 57-test related
+Event/connection/upload/file regression set pass, including resumability,
+tenant isolation, file/link/connection transfer, idempotent promotion,
+migration round-trip, and failed-ingestion tolerance. All 4 app tests pass;
+backend Ruff is clean; Aloy app ESLint and the production TypeScript/Vite build
+pass. The full backend suite exceeded the five-minute local verification
+window without reporting a failure. Remaining R5.5 work is asynchronous
+ingestion and readiness, the typed EventBrief/bootstrap Run, exact memory
+precedence and user controls, and the evidence-grounded starting Surface.
+
+## NEW: Event bootstrap and scoped-memory contract (2026-07-17)
+
+The parent vision and active delivery plan now make setup context—not cover
+design—the useful optional work during Event creation. A resumable
+`EventSetupDraft` may own notes, files, links, template seeds, and narrowly
+scoped connection grants. Explicit creation stays available with only a name;
+accepted context transfers into the Event while ingestion continues without
+blocking the permanent Conversation or Workbench.
+
+After a host-owned readiness gate finds sufficient evidence, an idempotent
+bootstrap Run produces a typed, evidence-linked `EventBrief`. The same general
+brief drives a deliberately small first Surface through the existing quality
+and publication pipeline and a sanitized cover brief through the background
+image path. Name-only and little-context Events remain Conversation-first and
+must not receive speculative generated UI.
+
+Memory is now explicitly specified as global user memory plus isolated Event
+memory, alongside canonical Event state and retrieved transcript history.
+Event memory is evidence-backed, typed, provenance-bearing, confidence- and
+sensitivity-aware, supersedable, inspectable, correctable, forgettable, and
+promoted to global scope only through explicit policy. Required precedence is
+Event over global and personal over team over organisation. The current kernel
+and backend already carry `event_id` through memory scope and load only global
+plus owning-Event knowledge; the remaining work is consolidation, exact
+precedence, user controls, bootstrap ingestion, retention behavior, and
+zero-leakage adversarial evaluation.
+
+## Earlier Event creation foundation (superseded by R5.5a, 2026-07-17)
+
+The active `aloy-v1-event-setup` branch now documents and implements the first
+model-independent Event creation slice. **New Event** opens a dedicated setup page whose default
+is a small host-owned **Start simple** flow: name, optional cover, and explicit
+creation. Only **Ask Aloy for help** transitions that draft into the assisted
+experience, where Aloy may clarify the intent and propose the cover, Surface,
+initial work, and boundaries before the user confirms.
+
+The setup draft is not yet an active Event and has no Event Triggers or action
+authority. Simple and assisted paths both require an explicit host-owned create
+action. Assisted setup becomes the beginning of the lifetime Conversation only
+after confirmation. Generated covers are stable host-managed Event media made
+through a dedicated cover profile and image model, not Surface Builder code;
+the same asset supplies responsive Home/Today and Workbench crops. If creation
+commits without a cover, the Event opens immediately with a reserved
+placeholder while a durable background image job runs. Its quality-gated
+result appears through live Event updates and cannot overwrite a cover the user
+chose while generation was in flight; cover latency or failure never blocks or
+rolls back Event creation.
+
+The app now persists an unfinished setup draft locally, creates through an
+explicit confirmation, supports validated PNG/JPEG/WebP cover upload, and
+shows host-owned cover placeholders/thumbnails on Today and in the Workbench.
+The backend exposes tenant-scoped cover upload/read routes, stores cover media
+through the existing object-store seam, records semantic Trail, and marks a
+no-cover Event as queued for automatic generation without delaying creation.
+The assisted setup panel is intentionally provider-empty while model access is
+unavailable; it states what will be proposed instead of faking intelligence.
+The next slice is the durable cover worker/provider and assisted-setup model
+profile, followed by live fade-in and responsive full cover treatments.
 
 ## NEW: Today and Life product experience (2026-07-16)
 

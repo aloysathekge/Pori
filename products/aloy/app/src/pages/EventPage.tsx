@@ -41,6 +41,7 @@ import {
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
 import { ProposalCard } from '@/components/events/ProposalCard';
+import { EventCover } from '@/components/events/EventCover';
 import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
 import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/workbench/EventWorkbench';
 import { Button } from '@/components/ui/Button';
@@ -512,6 +513,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
       <section className="flex min-w-0 flex-1 flex-col">
         <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-zinc-800 px-4 lg:px-5">
+          {!data.event.is_life && <EventCover event={data.event} className="h-9 w-12 shrink-0 rounded-lg border border-zinc-800" />}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate font-display text-base font-semibold text-zinc-100">
