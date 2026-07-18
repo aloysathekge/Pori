@@ -388,6 +388,15 @@ Event-specific interactions. Requests such as “add a grade calculator” chang
 the Surface code. Updates such as “the exam is on Friday” change Event data.
 Code revision, data revision, and local presentation state remain separate.
 
+V1 has one **App Surface** runtime. A simple timetable, summary, checklist, or
+dashboard is a small React Surface; a sophisticated workspace uses more React
+components and trusted SDK widgets. Aloy does not maintain a parallel raw-HTML
+or "Surface Lite" runtime. Two runtimes would duplicate the SDK, sandbox,
+security, accessibility, quality, and migration contracts before measurements
+show that React compilation is a material bottleneck. If production telemetry
+later disproves this decision, a declarative rendering mode may be reconsidered
+without changing the Event or publication model.
+
 Most Surface interactions do not call a model:
 
 - filtering, sorting, opening, and changing local tabs stay local;
@@ -432,6 +441,23 @@ opportunity or request
 → publish
 → monitor and improve
 ```
+
+The Builder submits one complete candidate revision. It does not orchestrate
+the mechanical lifecycle by calling persist, build, preview, publish, and
+answer tools in sequence. The trusted host owns that sequence atomically,
+returns structured diagnostics when repair is required, and grants at most a
+bounded number of candidate resubmissions. This keeps model behavior focused on
+authoring while publication correctness remains deterministic.
+
+Compilation happens only when source changes, never when an Event or published
+Surface is reopened. The fixed toolchain contains React, the Surface SDK,
+approved design assets, compiler, preview browser, and quality tools; generated
+projects never install packages. Warm isolated builders, content-addressed
+builds, immutable runtime documents, and private authenticated caching target
+sub-second reopening and a small non-model build budget. Aloy records routing,
+model generation, sandbox acquisition, validation, compilation, preview,
+quality, storage, and publication timings independently so optimization follows
+evidence rather than assuming React is slow.
 
 Deterministic gates validate the manifest, types, imports, build, bundle
 limits, capability declarations, and forbidden authority. Visual gates render

@@ -9,7 +9,7 @@ from aloy_backend.skills import _load_bundled_skill_catalog
 from aloy_backend.tools.surface_builds import SURFACE_BUILD_TOOL_NAMES
 from aloy_backend.tools.surface_requests import SURFACE_REQUEST_TOOL_NAME
 from aloy_backend.tools.surfaces import SURFACE_AUTHORING_TOOL_NAMES
-from pori import MemoryFileBackend, RunProfile
+from pori import LLMConfig, MemoryFileBackend, RunProfile
 
 
 def test_build_orchestrator_threads_product_and_user_run_contract(monkeypatch):
@@ -113,3 +113,34 @@ def test_default_operator_model_still_obeys_organization_policy(monkeypatch):
 
     with pytest.raises(ValueError, match="Model denied"):
         orchestrator_module.build_orchestrator(allowed_models=("gpt-5",))
+
+
+def test_product_owned_llm_config_never_inherits_user_agent_preferences(monkeypatch):
+    llm = object()
+    monkeypatch.setattr(orchestrator_module, "create_llm", lambda _config: llm)
+    purpose_config = LLMConfig(
+        provider="openai",
+        model="frontier-builder",
+        temperature=0.1,
+    )
+
+    orchestrator = orchestrator_module.build_orchestrator(
+        llm_config=purpose_config,
+        run_profile=SURFACE_BUILDER_RUN_PROFILE,
+        skill_catalog=_load_bundled_skill_catalog(),
+        file_backend=MemoryFileBackend(),
+    )
+
+    assert orchestrator.llm is llm
+    assert orchestrator.system_prompt == SURFACE_BUILDER_RUN_PROFILE.system_prompt
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        orchestrator_module.build_orchestrator(
+            llm_config=purpose_config,
+            agent_config=AgentConfig(
+                organization_id="org-1",
+                user_id="alice",
+                name="Personal",
+                provider="openai",
+                model="personal-model",
+            ),
+        )

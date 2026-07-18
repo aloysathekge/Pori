@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     context_ingestion_max_link_bytes: int = 2 * 1024 * 1024
     context_ingestion_max_text_chars: int = 200_000
 
+    # Aloy-owned specialist model assignments. The YAML contains provider/model
+    # ids and qualification evidence only; credentials remain environment vars.
+    aloy_model_roles_path: str = "aloy.models.yaml"
+
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.
     telegram_bot_token: str = ""

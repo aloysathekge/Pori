@@ -251,6 +251,45 @@ profile and skill. Only that Run receives scoped Event files, current draft,
 and author/build/preview/publish tools. Completion requires an exact live
 publication receipt; the Conversation card reads only the published runtime.
 
+R5 keeps one React App Surface runtime; there is no separate HTML/Surface Lite
+lane in V1. Simple experiences are small React projects using the same SDK,
+sandbox, publication, and quality contract as rich experiences. Delivery is
+split into the following independently merged branches:
+
+1. **`aloy-v1-r5-builder-control-plane`** - developer-owned Surface Builder and
+   Surface Critic model roles kept independent from ordinary Conversation
+   AgentConfig; immutable assignment provenance; capability/policy checks;
+   skill version; model usage, cost, and timing diagnostics. A Builder role
+   must be explicitly configured and qualified before it can receive a Run.
+2. **`aloy-v1-r5-host-build-pipeline`** - replace model-orchestrated file,
+   build, preview, publish, and answer calls with one complete candidate
+   submission. The host persists, validates, builds, previews, quality-checks,
+   and publishes atomically, returning structured repair diagnostics.
+3. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
+   image, warm isolated sandbox strategy, no per-Surface dependency install,
+   content-addressed build reuse, and remote build benchmarks.
+4. **`aloy-v1-r5-live-surface-ux`** - immediate native building/repair/failure
+   states, Event SSE progress, automatic published-Surface handoff, last-good
+   continuity, immutable runtime preparation, and authenticated private cache.
+5. **`aloy-v1-r5-surface-quality`** - deterministic authority/build checks,
+   required viewport/state captures, accessibility and overflow checks,
+   independent Critic, primary-job simulation, bounded repair, feedback,
+   pinning, revision history, and rollback.
+6. **`aloy-v1-r5-university-proof`** - repeatable natural-language University
+   generation without the word Surface, fake Tasks, or hardcoded domain logic;
+   later revision such as a grade calculator; at least twenty benchmark prompts
+   with routing, build, repair, latency, quality, and cost results.
+7. **`aloy-v1-r5-widgets-madrid`** - trusted maps and other high-value widgets,
+   then the Madrid showcase through the same ordinary Surface pipeline and
+   protected action boundary.
+
+Performance targets are evidence gates, not promises hidden in prose: an
+existing published Surface should reopen under `500 ms` P50; warm sandbox
+acquisition under `800 ms` P50; React compilation under `2 s` P50; and the
+complete non-model candidate pipeline under `5 s` P50. The user receives a
+real host-owned building state within one second even when frontier-model
+generation takes longer.
+
 Scope:
 
 - implement Event-owned Surface Project, immutable source Revision, isolated

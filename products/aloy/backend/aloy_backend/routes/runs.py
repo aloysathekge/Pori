@@ -43,6 +43,7 @@ def _run_response(run: Run) -> RunResponse:
         prompt_fingerprint=run.prompt_fingerprint,
         tool_surface_fingerprint=run.tool_surface_fingerprint,
         execution_receipts=run.execution_receipts,
+        model_assignment=run.model_assignment,
         selected_skills=run.selected_skills,
         artifacts=run.artifacts,
         plan=run.plan,

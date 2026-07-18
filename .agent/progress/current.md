@@ -2,8 +2,9 @@
 
 ## Active Task
 
-Finish and review `aloy-v1-surface-requests`: the model-native handoff from an
-ordinary Event Conversation to a capability-isolated Surface Builder Run.
+Implement `aloy-v1-r5-builder-control-plane`: developer-owned specialist model
+allocation, qualification, provenance, and diagnostics for Surface Builder and
+future Surface Critic Runs.
 
 ## Decisions Made
 
@@ -17,6 +18,11 @@ ordinary Event Conversation to a capability-isolated Surface Builder Run.
   build, preview, or publication tools.
 - Schedule/display/navigation records remain Surface data; they are not Tasks
   unless they represent genuine actionable work with a definition of done.
+- V1 has one React App Surface runtime. Simple Surfaces remain small React
+  projects; no parallel HTML/Surface Lite runtime is planned without telemetry
+  proving the fixed React compiler is the bottleneck.
+- The Builder will submit one complete candidate; the host will own persistence,
+  validation, build, preview, quality, publication, and repair diagnostics.
 
 ## Important Discoveries
 
@@ -70,19 +76,27 @@ ordinary Event Conversation to a capability-isolated Surface Builder Run.
   the new test, which has been corrected; backend mypy passes across `105`
   source files; changed-file Ruff passes; Aloy app lint and production build
   pass with the existing large-chunk warning.
+- The R5 Builder control plane separates developer-owned Surface Builder and
+  Critic roles from ordinary Conversation AgentConfig. A Surface request now
+  resolves a qualified role, freezes its credential-free assignment and
+  fingerprint on the Run, and the worker validates that assignment before
+  constructing the specialist model. Provider/model/skill provenance,
+  assignment resolution time, total elapsed time, tokens, and cost flow into
+  Run metrics and execution receipts without persisting credentials.
+- Verification for the Builder control-plane branch: backend full suite `318
+  passed`; focused Surface regressions `49 passed`; backend mypy passes across
+  `107` source files; changed-file Ruff, full Black/isort checks, lockfile
+  validation, and migration round-trip tests pass.
 
 ## Blockers
 
-- The request and safety handoff are working, but no configured model has yet
-  passed the complete live Surface author/build/preview/publish path. Kimi K2.6
-  is useful for the Event conversation/router but should not be the production
-  Builder based on the live smoke.
+- No specialist model is yet configured and qualified for the Surface Builder
+  role. The Phase 1 control plane deliberately fails closed until the developer
+  supplies that assignment; qualification against the complete live pipeline
+  follows in the University proof phase.
 
 ## Next Session Should Start With
 
-Read `AGENTS.md`, the archived handoff, and the current diff. Merge the verified
-Surface-request and completion-safety slice. Then add product-owned Builder
-model allocation and qualify a stronger coding/tool-use model against the live
-author/build/preview/publish path before enabling automatic publication.
-Afterward implement memory inspect/correct/forget/promote controls, connection
-refresh/revocation, and the evidence-grounded bootstrap Surface/cover work.
+Finish the Builder control-plane branch and merge it into `aloy-v1`. Then start
+`aloy-v1-r5-host-build-pipeline`, replacing the fragile multi-tool Builder
+workflow with one candidate submission and a deterministic host-owned pipeline.

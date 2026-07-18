@@ -21,6 +21,11 @@ from sqlmodel import col, select
 from pori import RunContext
 
 from .database import async_session
+from .model_roles import (
+    ModelAssignment,
+    ModelRole,
+    resolve_model_assignment,
+)
 from .models import (
     Event,
     EventTrailEntry,
@@ -30,6 +35,7 @@ from .models import (
     SurfacePublication,
 )
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
+from .skills import SURFACE_BUILDER_SKILL_ID
 from .tenancy import OrganizationPolicy
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
@@ -134,10 +140,12 @@ class SurfaceRequestHandler:
         run_context: RunContext,
         session_factory: Any = async_session,
         owner_loop: asyncio.AbstractEventLoop | None = None,
+        model_assignment_resolver: Any = resolve_model_assignment,
     ) -> None:
         self._run_context = run_context
         self._session_factory = session_factory
         self._owner_loop = owner_loop
+        self._model_assignment_resolver = model_assignment_resolver
 
     async def _request(self, params: SurfaceRequestParams) -> dict[str, Any]:
         event_id = self._run_context.event_id
@@ -187,6 +195,16 @@ class SurfaceRequestHandler:
                     ),
                 }
 
+            assignment: ModelAssignment = self._model_assignment_resolver(
+                ModelRole.SURFACE_BUILDER,
+                required_capabilities=(
+                    SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities
+                ),
+                expected_skill_id=SURFACE_BUILDER_SKILL_ID,
+                allowed_provider_profiles=(policy.allowed_provider_profiles or None),
+                allowed_models=policy.allowed_models or None,
+            )
+
             conversation_id = event.primary_conversation_id
             run = Run(
                 organization_id=event.organization_id,
@@ -200,6 +218,7 @@ class SurfaceRequestHandler:
                 idempotency_key=idempotency_key,
                 run_kind=SURFACE_BUILDER_RUN_KIND,
                 run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
+                model_assignment=assignment.descriptor(),
                 task=_builder_task(params),
                 max_steps=min(40, policy.max_steps_per_run),
                 timeout_seconds=min(900, policy.run_timeout_seconds),
@@ -226,6 +245,13 @@ class SurfaceRequestHandler:
                         "goal": params.goal,
                         "experience": params.experience,
                         "profile": SURFACE_BUILDER_RUN_PROFILE.descriptor(),
+                        "model_assignment": {
+                            "role": assignment.role.value,
+                            "provider": assignment.provider,
+                            "model": assignment.model,
+                            "skill_id": assignment.skill_id,
+                            "config_fingerprint": assignment.config_fingerprint,
+                        },
                     },
                 )
             )

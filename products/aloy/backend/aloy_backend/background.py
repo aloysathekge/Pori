@@ -22,6 +22,7 @@ from .event_bootstrap import (
     EVENT_BOOTSTRAP_RUN_KIND,
     execute_claimed_event_bootstrap,
 )
+from .model_roles import ModelAssignment, ModelRole
 from .models import (
     AgentConfig,
     Conversation,
@@ -44,7 +45,7 @@ from .run_outcome import (
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
-from .skills import load_skill_catalog
+from .skills import SURFACE_BUILDER_SKILL_ID, load_skill_catalog
 from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
@@ -70,6 +71,32 @@ from .tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
 from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
+
+
+def _metrics_with_model_assignment(
+    metrics: dict | None,
+    assignment: ModelAssignment | None,
+    started_at: datetime | None,
+) -> dict | None:
+    normalized = json_safe(metrics) or {}
+    if assignment is None:
+        return normalized or None
+    normalized_started = started_at
+    if normalized_started is not None and normalized_started.tzinfo is None:
+        normalized_started = normalized_started.replace(tzinfo=timezone.utc)
+    return {
+        **normalized,
+        "aloy_model_assignment": assignment.descriptor(),
+        "aloy_run_elapsed_ms": (
+            round(
+                (datetime.now(timezone.utc) - normalized_started).total_seconds()
+                * 1000,
+                3,
+            )
+            if normalized_started is not None
+            else None
+        ),
+    }
 
 
 def kernel_task_id_for_run(run_id: str) -> str:
@@ -206,6 +233,8 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
 
         is_surface_builder = run.run_kind == SURFACE_BUILDER_RUN_KIND
         surface_receipt: dict | None = None
+        builder_assignment: ModelAssignment | None = None
+        metrics: dict | None = None
 
         task: Task | None = None
         task_started = False
@@ -260,6 +289,30 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         conversation: Conversation | None = None
 
         try:
+            if is_surface_builder:
+                if run.model_assignment is None:
+                    raise ValueError("Surface Builder model assignment is unavailable")
+                builder_assignment = ModelAssignment.model_validate(
+                    run.model_assignment
+                )
+                builder_assignment.verify_fingerprint()
+                if builder_assignment.role != ModelRole.SURFACE_BUILDER:
+                    raise ValueError(
+                        "Surface Builder model assignment has the wrong role"
+                    )
+                missing_capabilities = (
+                    SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities
+                    - frozenset(builder_assignment.capabilities)
+                )
+                if missing_capabilities:
+                    raise ValueError(
+                        "Surface Builder model assignment lacks capabilities: "
+                        + ", ".join(sorted(missing_capabilities))
+                    )
+                if builder_assignment.skill_id != SURFACE_BUILDER_SKILL_ID:
+                    raise ValueError("Surface Builder skill assignment is unavailable")
+                if run.team_config_id is not None:
+                    raise ValueError("Surface Builder Runs cannot use a TeamConfig")
             if (
                 is_surface_builder
                 and run.run_profile != SURFACE_BUILDER_RUN_PROFILE.descriptor()
@@ -312,7 +365,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     or conversation.organization_id != run.organization_id
                 ):
                     raise ValueError("Conversation is unavailable")
-                if conversation.agent_config_id:
+                if conversation.agent_config_id and not is_surface_builder:
                     agent_config = await session.get(
                         AgentConfig, conversation.agent_config_id
                     )
@@ -376,6 +429,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 # denials. (It used to build runs without any of them: the
                 # drift the 2026-07-11 audit flagged.)
                 if is_surface_builder:
+                    assert builder_assignment is not None
                     authoring_runtime = await resolve_surface_authoring_runtime(
                         session,
                         run_context=run_context,
@@ -390,7 +444,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     )
                     orchestrator = build_orchestrator(
                         shared_memory=execution_memory,
-                        agent_config=agent_config,
+                        llm_config=builder_assignment.llm_config(),
                         allowed_provider_profiles=(
                             policy.allowed_provider_profiles or None
                         ),
@@ -542,7 +596,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             # json_safe everything destined for JSON columns — rich objects
             # (TokenUsage etc.) otherwise throw at flush and lose the message
             # (the drift class the run_outcome refactor exists to prevent).
-            run.metrics = json_safe(metrics)
+            run.metrics = _metrics_with_model_assignment(
+                metrics,
+                builder_assignment,
+                run.started_at,
+            )
             run.selected_skills = json_safe(result.get("selected_skills")) or []
             run.artifacts = json_safe(result.get("artifacts")) or []
             run.plan = json_safe(result.get("plan")) or []
@@ -559,6 +617,14 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
+            if builder_assignment is not None:
+                run.execution_receipts = [
+                    *run.execution_receipts,
+                    {
+                        "kind": "model_assignment",
+                        **builder_assignment.descriptor(),
+                    },
+                ]
             if surface_receipt is not None:
                 run.execution_receipts = [
                     *run.execution_receipts,
@@ -735,6 +801,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 return
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
+            run.metrics = _metrics_with_model_assignment(
+                metrics,
+                builder_assignment,
+                run.started_at,
+            )
             if (
                 is_surface_builder
                 and run.status == "pending"

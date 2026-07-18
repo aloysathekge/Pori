@@ -38,6 +38,20 @@ CORS_ORIGINS=http://localhost:5173
 ANTHROPIC_API_KEY=sk-ant-...                       # or GOOGLE_API_KEY=... to match your model
 ```
 
+For model-authored Event Surfaces, copy the credential-free specialist-role
+example beside `.env`:
+
+```bash
+cp aloy.models.example.yaml aloy.models.yaml
+```
+
+Set the Builder and future Critic provider/model IDs there and keep their API
+keys in `.env`. Ordinary Conversation AgentConfig remains independent. Surface
+generation fails closed while `surface_builder.qualification.status` is
+`unqualified`; change it to `qualified` only with the evaluation suite and
+evidence that justified promotion. Restart the API and worker after changing
+the role file. Set `ALOY_MODEL_ROLES_PATH` only when the file lives elsewhere.
+
 Then install, migrate, run:
 
 ```bash
