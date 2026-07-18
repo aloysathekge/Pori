@@ -96,9 +96,9 @@ def test_ordinary_event_agent_can_request_but_cannot_author_a_surface(monkeypatc
     assert "Do this even when the user does not know or say the term Surface" in (
         orchestrator.system_prompt or ""
     )
-    assert not (
-        SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES
-    ).intersection(orchestrator.tools_registry.tools)
+    assert not (SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES).intersection(
+        orchestrator.tools_registry.tools
+    )
 
 
 def test_default_operator_model_still_obeys_organization_policy(monkeypatch):

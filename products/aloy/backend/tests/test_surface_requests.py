@@ -83,17 +83,11 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
     assert replayed["replayed"] is True
     async with db_session_maker() as session:
         runs = list(
-            (
-                await session.execute(
-                    select(Run).where(Run.event_id == event["id"])
-                )
-            )
+            (await session.execute(select(Run).where(Run.event_id == event["id"])))
             .scalars()
             .all()
         )
-        builder_runs = [
-            run for run in runs if run.run_kind == SURFACE_BUILDER_RUN_KIND
-        ]
+        builder_runs = [run for run in runs if run.run_kind == SURFACE_BUILDER_RUN_KIND]
         assert len(builder_runs) == 1
         run = builder_runs[0]
         assert run.run_profile == SURFACE_BUILDER_RUN_PROFILE.descriptor()

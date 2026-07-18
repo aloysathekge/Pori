@@ -144,9 +144,7 @@ class SurfaceRequestHandler:
         if not event_id:
             raise ValueError("An Event is required to request a Surface")
         fingerprint = _request_fingerprint(params)
-        idempotency_key = (
-            f"surface-request:{self._run_context.run_id}:{fingerprint}"
-        )
+        idempotency_key = f"surface-request:{self._run_context.run_id}:{fingerprint}"
         async with self._session_factory() as session:
             event = await session.get(Event, event_id)
             if (
@@ -222,9 +220,7 @@ class SurfaceRequestHandler:
                     run_id=run.id,
                     evidence_refs=[
                         {"conversation_run_id": self._run_context.run_id},
-                        *(
-                            [{"source_ref": ref} for ref in params.source_refs[:10]]
-                        ),
+                        *([{"source_ref": ref} for ref in params.source_refs[:10]]),
                     ],
                     payload={
                         "goal": params.goal,
