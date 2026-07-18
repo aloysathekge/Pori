@@ -10,16 +10,18 @@ Model slugs use the ``accounts/<account>/models/<model>`` form, e.g.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel
 
 from .openai import ChatOpenAI
+from .structured_output import StructuredOutputPolicy
 
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+FIREWORKS_UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {"minLength", "maxLength", "minItems", "maxItems", "pattern"}
+)
 
 
 class ChatFireworks(ChatOpenAI):
@@ -51,39 +53,16 @@ class ChatFireworks(ChatOpenAI):
             base_url=resolved_base,
         )
 
-    def _prepare_structured_messages(
-        self,
-        messages: list[dict[str, Any]],
-        output_format: type[BaseModel],
-    ) -> list[dict[str, Any]]:
-        """Give Fireworks models the schema they enforce during generation.
-
-        Fireworks recommends including the JSON schema in both the prompt and
-        ``response_format``. Kimi otherwise may spend its content channel
-        describing a schema it cannot see instead of returning the JSON body.
-        """
-        prepared = [dict(message) for message in messages]
-        schema_instruction = (
-            "\n\nReturn only JSON matching this required schema:\n"
-            + json.dumps(
-                output_format.model_json_schema(),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
+    def _structured_output_policy(self) -> StructuredOutputPolicy:
+        """Declare Fireworks' schema dialect and model-family request behavior."""
+        model = self.model.lower()
+        request_options = (
+            {"reasoning_effort": "none"}
+            if any(family in model for family in ("kimi-k2p6", "glm-5p2"))
+            else {}
         )
-        for message in reversed(prepared):
-            if message.get("role") == "user" and isinstance(
-                message.get("content"), str
-            ):
-                message["content"] += schema_instruction
-                return prepared
-        prepared.append({"role": "user", "content": schema_instruction.lstrip()})
-        return prepared
-
-    def _structured_request_options(self) -> dict[str, Any]:
-        # Kimi K2.6 can otherwise place its analysis in the normal content
-        # channel. Fireworks supports `none` for this family (including Turbo),
-        # while some other hosted families reject it, so keep this targeted.
-        if "kimi-k2p6" in self.model.lower():
-            return {"reasoning_effort": "none"}
-        return {}
+        return StructuredOutputPolicy(
+            unsupported_schema_keywords=FIREWORKS_UNSUPPORTED_SCHEMA_KEYWORDS,
+            include_schema_in_prompt=True,
+            request_options=request_options,
+        )

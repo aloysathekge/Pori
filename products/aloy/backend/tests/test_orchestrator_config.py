@@ -44,33 +44,11 @@ def test_build_orchestrator_threads_product_and_user_run_contract(monkeypatch):
     assert orchestrator.run_profile == profile
 
 
-def test_surface_builder_orchestrator_is_explicit_and_file_scoped(monkeypatch):
-    llm = object()
-    monkeypatch.setattr(orchestrator_module, "create_llm", lambda _config: llm)
-    agent_config = AgentConfig(
-        organization_id="org-1",
-        user_id="alice",
-        name="Surface Builder",
-        provider="openai",
-        model="gpt-4o",
-    )
-    file_backend = MemoryFileBackend()
-
-    orchestrator = orchestrator_module.build_orchestrator(
-        agent_config=agent_config,
-        run_profile=SURFACE_BUILDER_RUN_PROFILE,
-        skill_catalog=_load_bundled_skill_catalog(),
-        file_backend=file_backend,
-    )
-
-    assert SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES <= set(
-        orchestrator.tools_registry.tools
-    )
-    assert "gmail_send" not in orchestrator.tools_registry.tools
-    assert SURFACE_REQUEST_TOOL_NAME not in orchestrator.tools_registry.tools
-    assert orchestrator.file_backend is file_backend
-    assert "only after this exact Run" in (
-        orchestrator.tools_registry.get_tool("answer").description
+def test_surface_builder_profile_exposes_no_model_tools():
+    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset()
+    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == frozenset()
+    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset(
+        {"structured_output"}
     )
 
 

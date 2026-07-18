@@ -2,9 +2,9 @@
 
 ## Active Task
 
-Implement `aloy-v1-r5-builder-control-plane`: developer-owned specialist model
-allocation, qualification, provenance, and diagnostics for Surface Builder and
-future Surface Critic Runs.
+Implement `aloy-v1-r5-host-build-pipeline`: no-tool structured Surface
+generation followed by host-owned persistence, validation, build, inspection,
+bounded repair, and atomic last-good publication.
 
 ## Decisions Made
 
@@ -23,6 +23,9 @@ future Surface Critic Runs.
   proving the fixed React compiler is the bottleneck.
 - The Builder will submit one complete candidate; the host will own persistence,
   validation, build, preview, quality, publication, and repair diagnostics.
+- The Builder receives no lifecycle or filesystem tools. It returns a complete
+  candidate through provider structured output; Aloy grants one bounded full
+  repair submission from trusted diagnostics.
 
 ## Important Discoveries
 
@@ -87,16 +90,181 @@ future Surface Critic Runs.
   passed`; focused Surface regressions `49 passed`; backend mypy passes across
   `107` source files; changed-file Ruff, full Black/isort checks, lockfile
   validation, and migration round-trip tests pass.
+- Builder control plane merged into `aloy-v1` through PR #188 at `7c84bd2`.
+- The active host-pipeline branch now dispatches `surface_builder` Runs away
+  from the general agent loop. The dedicated executor supplies the exact skill
+  and bounded Event/current-source context to a structured-output model, while
+  `SurfaceHostPipeline` alone replaces the draft, builds, inspects, and
+  publishes. Candidate fingerprints, per-stage timings, token usage, zero tool
+  calls, repair diagnostics, and publication receipts remain durable.
+- Phase 2 verification passes `52` focused Surface regressions and the complete
+  backend suite (`324 passed`); backend mypy passes across `109` source files.
+  Changed-file Ruff, Black/isort, and diff checks pass.
+- A live Fireworks Kimi K2.6 structured-output smoke returned one schema-valid
+  University candidate with six complete files, five primary jobs, `0` tool
+  calls, and `5,721` tokens in `47.6s`. This directly resolves the prior
+  lifecycle-tool failure mode; an Event-driven end-to-end host build and
+  publication remains the final acceptance smoke.
+- The local ordinary Conversation and Surface Builder assignments have now
+  moved to Fireworks GLM 5.2 after Kimi conversation failures. GLM passed a
+  live normal-response smoke and a provider-enforced structured-output smoke;
+  both backend processes were restarted with the new configuration.
+- The local schema is at migration head and the API, durable worker, and Vite
+  app have been restarted from the active Phase 2 branch.
+- Phase 2 now exposes pre-build Surface activity instead of waiting for the
+  first build row. Five-second generation heartbeats and host-stage updates
+  feed a tenant-scoped status route; Conversation shows a compact progress
+  card and the Workbench shows Generate, Validate, Build, and Publish with
+  elapsed time, retries, terminal failure, and overdue state. Trail fallback
+  keeps coarse status visible during a rolling local backend update.
+- Live GLM 5.2 Career OS acceptance exposed a qualification failure: three
+  worker attempts each completed the Fireworks call but returned no
+  schema-valid `SurfaceCandidate`. The Run failed safely after about 21 minutes
+  with zero project, build, or publication rows. This confirms the progress UX
+  and retry safety, but GLM is not yet qualified for the full Builder schema.
+- Verification after the progress work: focused Surface regressions `21
+  passed`; complete backend suite `326 passed`; backend mypy passes across
+  `109` source files; changed-file Ruff/Black/isort pass; Aloy app ESLint and
+  production build pass with the pre-existing large-chunk warning.
+- Rejected structured output now retains an owner-scoped bounded diagnostic
+  receipt across worker retries: exact parse error, usage, response length,
+  SHA-256, truncation flag, React-source signal, and raw head/tail. The generic
+  failure no longer erases the evidence or reports zero tokens merely because
+  parsing failed. Post-fix focused tests pass (`9` Builder/status/pipeline plus
+  `2` kernel structured-output tests); kernel and backend mypy remain clean.
+- The GLM failure was traced to a provider-contract mismatch rather than weak
+  React authoring: Pydantic emitted schema constraints Fireworks does not
+  support, and GLM reasoning was not disabled for schema-bound calls. Pori now
+  owns a reusable structured-output policy that adapts the provider request
+  dialect while leaving full host validation intact. Builder assignments also
+  freeze a per-generation deadline; malformed or timed-out responses fail
+  closed instead of triggering three identical expensive worker attempts.
+- A live smoke using the exact production `SurfaceCandidate` schema and the
+  local Fireworks `accounts/fireworks/routers/glm-5p2-fast` Builder assignment
+  returned a valid two-file React candidate in `6.98s` (`1,501` total tokens,
+  no tools). The local assignment now allows up to `100,000` output tokens with
+  a `300s` frozen generation deadline; these are ceilings, not targets. API and
+  worker were restarted healthy with that assignment.
+- Post-change verification: kernel structured/native tests `27 passed`; focused
+  Aloy model-role/Builder/pipeline/request/status tests `16 passed`; kernel
+  mypy `109` files and backend mypy `109` files pass; changed-file Ruff and
+  diff checks pass. Concurrent full kernel/backend suites produced no reported
+  failure but hit the `300s` orchestration timeout, so they are not claimed as
+  passing in this entry.
+- Candidate parsing now separates the provider-facing envelope from Aloy's
+  authoritative source contract. Host-invalid files such as model-authored
+  `index.html` produce bounded deterministic diagnostics and use the existing
+  one-repair submission instead of terminating before the repair loop. The
+  exact regression passes alongside Builder/pipeline/status tests (`10
+  passed`), and backend mypy remains clean across `109` files.
+- An explicit `SURFACE_BUILD_BACKEND=local_dev` path now compiles generated
+  source with the repository-pinned Vite, React, and Surface SDK in an
+  ephemeral directory using one host-owned command/config. It emits only the
+  existing `surface.js`/optional `surface.css` ZIP contract; generated HTML,
+  packages, plugins, config, dependencies, and commands remain forbidden.
+  Production still defaults to isolated/fail-closed. A live local smoke built
+  and runtime-validated a React/CSS bundle in `1.64s`; focused Surface tests
+  pass (`19 passed`) and backend mypy remains clean across `109` files.
+- The first full GLM Career OS acceptance produced valid React source twice and
+  the fixed local compiler completed both bundles in about `1.7s`; publication
+  failed only because the canonical local-storage destination was `279`
+  characters and Windows rejected the atomic rename under legacy `MAX_PATH`.
+  `LocalDiskObjectStore` now uses extended-length syscall paths without
+  changing logical object keys. The exact retained revision compiles in
+  `1.59s`, and its `182,540`-byte bundle round-trips through the real
+  `288`-character storage path.
+- Surface pipeline outcomes now distinguish candidate-repairable failures from
+  `host_failed` infrastructure failures. Storage, sandbox availability, and
+  runner-contract faults stop immediately and retain diagnostics instead of
+  consuming the model's bounded repair submission. Focused storage/build/
+  pipeline/Builder/status verification passes (`29 passed`); backend mypy is
+  clean across `109` files and changed-file Ruff passes.
+- The recovered bundle exposed a second host-toolchain defect in the iframe:
+  React's CommonJS entrypoint retained `process.env.NODE_ENV`, but browser
+  Surfaces have no Node.js `process` global. The fixed local Vite contract now
+  defines production mode at compile time, and deterministic source validation
+  rejects model-authored Node globals. The retained Career OS revision was
+  rebuilt in `604ms` to a `69,459`-byte browser-safe bundle and atomically
+  republished; the stored script contains no unresolved `process.env.NODE_ENV`.
+  The local build/source regression suite passes (`10 passed`).
+- The next live load exposed a generated-SDK shadowing failure: GLM created
+  local `sdk.ts`/`sdk-runtime.ts` files and a fake `window.postMessage`
+  protocol instead of importing `@aloy/surface`, so the host bridge correctly
+  refused to acknowledge it and showed reconnect attempts. The fixed compiler
+  now always bootstraps the trusted SDK, source validation rejects direct fake
+  bridge code, and interactive manifests require a real `@aloy/surface`
+  import. The retained Career OS source was corrected through a new immutable
+  revision and republished as build `sbuild_2ec0d0b73a9b4ac7bb5a6604ba09f756`;
+  bundle inspection confirms the secure bridge is present, the fake protocol
+  is absent, and browser-unsafe Node environment access is absent. The focused
+  build suite passes (`11 passed`).
+- Live interaction then exposed a render-time data contract bug: the Surface
+  treated a durable `career.stage_changed` patch as a complete Application and
+  dereferenced missing presentation metadata. Static checks and compilation
+  cannot catch that class of defect. Local preview now mounts the exact built
+  runtime in headless Chrome, injects the exact current Event context through
+  the production MessageChannel bridge, and rejects uncaught exceptions,
+  missing bridge acknowledgement, or an empty React root before publication.
+  Trusted preview context may inspect an unpublished succeeded build; public
+  runtime context remains restricted to the atomic published pointer. The
+  Career OS source now merges partial durable records into complete seeded
+  entities, passed the browser gate with its real current Event data, and is
+  live as revision `srev_72a4355497414ebda8ed5214b58f53d7` / build
+  `sbuild_006bfc22d8284296a75c8617876f2538`. Focused build/pipeline/SDK tests
+  pass (`23 passed`); backend mypy is clean across `110` files.
+  Browser exceptions and empty/failed mounts now return bounded candidate
+  diagnostics for the Builder's one repair submission, while unavailable or
+  broken inspection infrastructure returns `host_failed` and never wastes a
+  model repair call.
+  Publication also fails closed when an isolated builder provides no trusted
+  browser-inspection receipt, so the future E2B toolchain must run the same
+  gate before it can publish. Every compiled runtime is additionally wrapped
+  in a host-owned React error boundary: unforeseen future-state failures show
+  a safe repair view instead of a blank crash and expose a deterministic fault
+  marker to inspection. The hardened Career OS build
+  `sbuild_e10594eb9a454b30bf18994f73b58ba7` passed the real-context browser gate
+  and is the current live publication.
+- The next Career OS acceptance exposed a behavior-quality gap rather than a
+  bridge outage: the generated Add form could emit its SDK request, but kept
+  the form open, hid the resulting row below the visible pane, claimed local
+  success before persistence, and swallowed every SDK rejection. Surface
+  manifests now declare accessible `interaction_checks` for each durable
+  intent. Local preview executes those user paths in the real browser runtime,
+  verifies the expected SDK method/name and schema-valid payload, and rejects
+  missing, disabled, throwing, or unwired controls. Static validation also
+  rejects uncovered intents and swallowed Promise failures. Builder guidance
+  requires awaited writes, visible pending/error states, and canonical
+  reconciliation. Career OS was repaired to await Save, preserve input on
+  failure, close only after host confirmation, and replace complete records on
+  status changes; both Add/Save and status-change checks passed before revision
+  `srev_365098d7779f491dbbc7cc70c99cf65a` / build
+  `sbuild_b4c1f82ebaaf469ba96f34d4788b5e2a` became live. Focused Builder,
+  build, pipeline, and SDK verification passes (`33 passed`); backend mypy is
+  clean across `110` files and changed-file Ruff/Black checks pass.
+- The founder's E2B Hobby allowance (`20` concurrent, one-hour sessions, up to
+  `8` vCPU/`8GB`) is sufficient for development Surface builds. It was not the
+  cause of the local failure. Remote builds remain intentionally disabled
+  until the optional E2B SDK is installed and a pinned E2B template provides
+  `/opt/aloy-surface-toolchain/bin/build-surface`; the default E2B image does
+  not currently contain Aloy's host-owned compiler contract.
 
 ## Blockers
 
-- No specialist model is yet configured and qualified for the Surface Builder
-  role. The Phase 1 control plane deliberately fails closed until the developer
-  supplies that assignment; qualification against the complete live pipeline
-  follows in the University proof phase.
+- GLM 5.2 Fast remains temporarily allowed only in the local gitignored
+  model-role file. The exact production-schema smoke now passes, but production
+  qualification still requires the governed Builder evaluation and a complete
+  Event-driven build/preview/publication acceptance.
+- E2B account capacity is available, but the repository still needs the pinned
+  Surface toolchain template and template-aware provider configuration before
+  `SURFACE_BUILD_BACKEND=isolated` can be accepted end to end.
 
 ## Next Session Should Start With
 
-Finish the Builder control-plane branch and merge it into `aloy-v1`. Then start
-`aloy-v1-r5-host-build-pipeline`, replacing the fragile multi-tool Builder
-workflow with one candidate submission and a deterministic host-owned pipeline.
+Merge this verified host-build phase into `aloy-v1`, then start
+`aloy-v1-r5-surface-command-runtime`. Introduce the versioned host-owned
+Surface entity/command contract behind V1 compatibility, canonical
+Surface-to-Conversation state projection, Event-scoped detailed-state read
+tool, explicit wake policies, and host-generated command tests. Migrate Career
+OS through that contract before fast-build, showcase, or widget work continues;
+do not solve further interaction failures by patching individual generated
+applications.

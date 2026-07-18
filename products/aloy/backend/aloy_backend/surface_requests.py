@@ -119,13 +119,12 @@ def _builder_task(params: SurfaceRequestParams) -> str:
     request = json.dumps(params.model_dump(mode="json"), indent=2, sort_keys=True)
     return (
         "Create or revise the Event's durable interactive Surface for the "
-        "product request below. Read the trusted /event projection and the "
-        "current /workspace draft before deciding what to change. Build the "
-        "smallest coherent experience that satisfies the request. Persist all "
-        "final source through surface_write_files; filesystem writes are not a "
-        "durable revision. Then build, preview, and publish it. Do not answer or "
-        "stop until surface_publish returns the current live publication. Never "
-        "convert schedule rows, display sections, or navigation "
+        "product request below. Use the trusted Event context and current draft "
+        "supplied by the host. Return one complete React candidate containing "
+        "every source file required by the experience; do not describe or claim "
+        "a publication. Aloy's host persists, validates, builds, previews, and "
+        "publishes the candidate. Never convert schedule rows, display sections, "
+        "or navigation "
         "items into canonical Tasks unless the request explicitly requires real "
         "actionable work.\n\nSurface request:\n" + request
     )

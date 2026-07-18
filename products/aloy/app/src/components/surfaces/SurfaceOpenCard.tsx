@@ -5,6 +5,8 @@ import {
   surfaceSeenKey,
   type SurfaceBuild,
 } from '@/api/surfaces';
+import { useSurfaceActivity } from '@/hooks/useSurfaceActivity';
+import { SurfaceActivityStatus } from './SurfaceActivityStatus';
 
 interface SurfaceOpenCardProps {
   eventId: string;
@@ -22,6 +24,7 @@ export function SurfaceOpenCard({
   onOpen,
 }: SurfaceOpenCardProps) {
   const [build, setBuild] = useState<SurfaceBuild | null>(null);
+  const { activity } = useSurfaceActivity(eventId, refreshKey, visible);
 
   useEffect(() => {
     if (!visible) return;
@@ -44,9 +47,38 @@ export function SurfaceOpenCard({
     return () => {
       cancelled = true;
     };
-  }, [eventId, refreshKey, visible]);
+  }, [activity?.status, eventId, refreshKey, visible]);
 
-  if (!visible || !build) return null;
+  const showActivity = activity
+    && (activity.active || ['failed', 'cancelled', 'overdue'].includes(activity.status))
+    ? activity
+    : null;
+  if (!visible || (!build && !showActivity)) return null;
+
+  if (!build && showActivity) {
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent-600">
+              Surface activity
+            </p>
+            <SurfaceActivityStatus activity={showActivity} compact />
+          </div>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-zinc-700 px-3.5 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-zinc-600 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+          >
+            <PanelRightOpen size={16} />
+            View progress
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!build) return null;
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-sm">

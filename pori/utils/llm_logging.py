@@ -31,14 +31,17 @@ async def ainvoke_structured(
         structured = llm.with_structured_output(output_model, include_raw=include_raw)
         resp = await structured.ainvoke(messages)
         elapsed = time.perf_counter() - start
-        _llm_logger.info(
-            "LLM call success",
+        wrapped = isinstance(resp, dict)
+        has_parsed = resp.get("parsed") is not None if wrapped else True
+        log = _llm_logger.info if has_parsed else _llm_logger.warning
+        log(
+            "LLM call success" if has_parsed else "LLM structured output rejected",
             extra={
                 "meta": {
                     **meta,
                     "elapsed_s": round(elapsed, 3),
-                    "has_parsed": bool(resp.get("parsed")),
-                    "has_raw": "raw" in resp,
+                    "has_parsed": has_parsed,
+                    "has_raw": wrapped and "raw" in resp,
                 }
             },
         )

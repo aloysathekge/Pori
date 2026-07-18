@@ -52,6 +52,7 @@ class ModelRoleConfig(BaseModel):
     model: str = Field(min_length=1, max_length=300)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=1)
+    generation_timeout_seconds: int = Field(default=120, ge=15, le=600)
     reasoning_mode: Literal["native", "tagged", "none"] = "none"
     required_capabilities: frozenset[str] = frozenset()
     skill_id: str | None = Field(default=None, max_length=200)
@@ -76,6 +77,7 @@ class ModelAssignment(BaseModel):
     model: str
     temperature: float
     max_tokens: int | None = None
+    generation_timeout_seconds: int = 120
     reasoning_mode: Literal["native", "tagged", "none"] = "none"
     capabilities: tuple[str, ...] = ()
     skill_id: str | None = None
@@ -94,6 +96,7 @@ class ModelAssignment(BaseModel):
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "generation_timeout_seconds": self.generation_timeout_seconds,
             "reasoning_mode": self.reasoning_mode,
             "capabilities": list(self.capabilities),
             "skill_id": self.skill_id,
@@ -219,6 +222,7 @@ def resolve_model_assignment(
         "model": selection.model,
         "temperature": selection.temperature,
         "max_tokens": selection.max_tokens,
+        "generation_timeout_seconds": selection.generation_timeout_seconds,
         "reasoning_mode": selection.reasoning_mode,
         "capabilities": tuple(sorted(diagnostic.capabilities)),
         "skill_id": selection.skill_id,

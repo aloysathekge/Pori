@@ -9,8 +9,11 @@ roles:
     provider: anthropic
     model: your-qualified-frontier-coding-model
     temperature: 0.1
+    max_tokens: 16000
+    # One opaque model call may not consume the whole durable Run budget.
+    generation_timeout_seconds: 120
     reasoning_mode: none
-    required_capabilities: [tools]
+    required_capabilities: [structured_output]
     skill_id: surface-builder@1
     qualification:
       # Change only after the model passes the governed Builder evaluation.

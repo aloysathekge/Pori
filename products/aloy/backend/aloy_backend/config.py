@@ -6,6 +6,8 @@ singleton rather than instantiating ``Settings`` again.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
@@ -54,6 +56,12 @@ class Settings(BaseSettings):
     # {workspace,uploads,outputs}. Always plumbed (even with the shell sandbox
     # disabled) so file tools never write to the host process cwd.
     sandbox_base_dir: str = ".aloy_sandbox"
+
+    # Generated Surface compilation is a separate authority boundary from
+    # agent shell execution. Production defaults to an isolated provider.
+    # `local_dev` runs only Aloy's fixed compiler command on the host and is
+    # intended solely for a developer workstation without remote sandbox access.
+    surface_build_backend: Literal["isolated", "local_dev"] = "isolated"
 
     # Object storage — durable blobs (agent artifacts now; uploads in Phase 2).
     # 'local' = disk under storage_dir (dev default); 's3' arrives in Phase 3.

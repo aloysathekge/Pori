@@ -13,6 +13,29 @@ export interface SurfaceBuild {
   completed_at: string | null;
 }
 
+export interface SurfaceActivity {
+  run_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'overdue' | string;
+  stage:
+    | 'queued'
+    | 'generating_candidate'
+    | 'validating_candidate'
+    | 'building_bundle'
+    | 'inspecting_preview'
+    | 'publishing_surface'
+    | 'repairing_candidate'
+    | string;
+  message: string;
+  submission: number;
+  attempt_count: number;
+  max_attempts: number;
+  started_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  elapsed_seconds: number;
+  active: boolean;
+}
+
 export interface SurfaceRuntimeContext {
   protocol_version: '1';
   sdk_version: '1';
@@ -80,6 +103,10 @@ export interface SurfacePublication {
 
 export function listSurfaceBuilds(eventId: string) {
   return apiFetch<SurfaceBuild[]>(`/events/${eventId}/surface/builds`);
+}
+
+export function getSurfaceActivity(eventId: string) {
+  return apiFetch<SurfaceActivity | null>(`/events/${eventId}/surface/status`);
 }
 
 export function getPublishedSurfaceRuntime(eventId: string) {

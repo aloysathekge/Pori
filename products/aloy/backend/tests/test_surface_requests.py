@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from sqlmodel import select
@@ -28,9 +27,6 @@ from aloy_backend.surface_requests import (
     SurfaceRequestParams,
     verified_surface_publication,
 )
-from aloy_backend.tools.surface_builds import SURFACE_BUILD_CONTEXT_KEY
-from aloy_backend.tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
-from aloy_backend.tools.surfaces import SURFACE_AUTHORING_CONTEXT_KEY
 from pori import stable_fingerprint
 
 
@@ -42,6 +38,7 @@ def _builder_assignment() -> ModelAssignment:
         "model": "frontier-builder",
         "temperature": 0.1,
         "max_tokens": 16000,
+        "generation_timeout_seconds": 120,
         "reasoning_mode": "none",
         "capabilities": ("structured_output", "tools", "vision"),
         "skill_id": "surface-builder@1",
@@ -247,67 +244,20 @@ async def test_surface_ready_receipt_requires_this_runs_live_publication(
         assert await guard.require_publication() == receipt
 
 
-async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
+async def test_worker_dispatches_builder_to_no_tool_host_pipeline(
     db_session_maker,
     monkeypatch,
 ):
     monkeypatch.setattr(background_module, "async_session", db_session_maker)
-    captured: dict = {}
-    scoped_files = object()
-    authoring_handler = object()
-    build_handler = object()
+    captured: dict[str, str] = {}
     assignment = _builder_assignment()
 
-    async def fake_authoring_runtime(*_args, **_kwargs):
-        return SimpleNamespace(
-            file_backend=scoped_files,
-            tool_context_extra={
-                SURFACE_AUTHORING_CONTEXT_KEY: authoring_handler,
-                SURFACE_BUILD_CONTEXT_KEY: build_handler,
-            },
-        )
-
-    class FakeOrchestrator:
-        async def execute_task(self, **kwargs):
-            captured["execution"] = kwargs
-            return {
-                "success": True,
-                "steps_taken": 4,
-                "agent": None,
-                "result": {"metrics": None},
-                "trace": {"execution_receipts": []},
-            }
-
-    def fake_orchestrator(**kwargs):
-        captured["orchestrator"] = kwargs
-        return FakeOrchestrator()
-
-    async def fake_receipt(*_args, **_kwargs):
-        return {
-            "project_id": "surface-university",
-            "publication_id": "publication-university",
-            "revision_id": "revision-university",
-            "build_id": "build-university",
-        }
-
-    async def forbidden_general_surface(*_args, **_kwargs):
-        raise AssertionError("builder must not resolve ordinary agent capabilities")
+    async def fake_builder(run_id: str, worker_id: str) -> bool:
+        captured.update({"run_id": run_id, "worker_id": worker_id})
+        return True
 
     monkeypatch.setattr(
-        background_module,
-        "resolve_surface_authoring_runtime",
-        fake_authoring_runtime,
-    )
-    monkeypatch.setattr(background_module, "build_orchestrator", fake_orchestrator)
-    monkeypatch.setattr(
-        background_module,
-        "verified_surface_publication",
-        fake_receipt,
-    )
-    monkeypatch.setattr(
-        background_module,
-        "resolve_run_surface",
-        forbidden_general_surface,
+        background_module, "execute_claimed_surface_builder", fake_builder
     )
 
     async with db_session_maker() as session:
@@ -354,38 +304,4 @@ async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
 
     await background_module.execute_claimed_run(run_id, "worker-a")
 
-    assert captured["orchestrator"]["run_profile"] == SURFACE_BUILDER_RUN_PROFILE
-    assert captured["orchestrator"]["llm_config"] == assignment.llm_config()
-    assert "agent_config" not in captured["orchestrator"]
-    assert captured["orchestrator"]["file_backend"] is scoped_files
-    builder_context = captured["execution"]["tool_context_extra"]
-    assert builder_context[SURFACE_AUTHORING_CONTEXT_KEY] is authoring_handler
-    assert builder_context[SURFACE_BUILD_CONTEXT_KEY] is build_handler
-    assert isinstance(
-        builder_context[SURFACE_COMPLETION_CONTEXT_KEY],
-        SurfaceBuilderCompletionGuard,
-    )
-    assert captured["execution"]["mcp_servers"] == []
-    async with db_session_maker() as session:
-        completed = await session.get(Run, run_id)
-        assert completed is not None
-        assert completed.status == "completed"
-        assert completed.final_answer == (
-            "Your Event Surface is ready. Open it beside this conversation to "
-            "use the new visual workspace."
-        )
-        assert completed.metrics is not None
-        assert completed.metrics["aloy_model_assignment"] == assignment.descriptor()
-        assert completed.execution_receipts == [
-            {
-                "kind": "model_assignment",
-                **assignment.descriptor(),
-            },
-            {
-                "kind": "surface_publication",
-                "project_id": "surface-university",
-                "publication_id": "publication-university",
-                "revision_id": "revision-university",
-                "build_id": "build-university",
-            },
-        ]
+    assert captured == {"run_id": run_id, "worker_id": "worker-a"}

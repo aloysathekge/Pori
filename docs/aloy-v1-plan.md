@@ -247,9 +247,11 @@ Gate:
 `aloy-v1-surface-requests`:** an ordinary Event model may submit a structured
 Surface experience brief based on request meaning and durable product value.
 The host queues an idempotent `surface_builder` Run with the product-owned
-profile and skill. Only that Run receives scoped Event files, current draft,
-and author/build/preview/publish tools. Completion requires an exact live
-publication receipt; the Conversation card reads only the published runtime.
+profile and skill. That Run receives bounded Event context and the current
+draft as trusted prompt input, then returns one complete structured candidate
+with no model-visible tools. The host owns persistence, build, inspection, and
+publication. Completion requires an exact live publication receipt; the
+Conversation card reads only the published runtime.
 
 R5 keeps one React App Surface runtime; there is no separate HTML/Surface Lite
 lane in V1. Simple experiences are small React projects using the same SDK,
@@ -263,23 +265,59 @@ split into the following independently merged branches:
    must be explicitly configured and qualified before it can receive a Run.
 2. **`aloy-v1-r5-host-build-pipeline`** - replace model-orchestrated file,
    build, preview, publish, and answer calls with one complete candidate
-   submission. The host persists, validates, builds, previews, quality-checks,
-   and publishes atomically, returning structured repair diagnostics.
-3. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
+   submission through provider structured output and an empty model tool
+   surface. The host persists, validates, builds, inspects, and publishes,
+   returning structured repair diagnostics for one bounded full resubmission.
+   Publication alone advances the live pointer atomically; failed candidates
+   remain inspectable drafts/builds and never replace last-good. Long
+   non-streaming generation writes a durable heartbeat, every host stage updates
+   the Run, and the Conversation card plus Surface Workbench expose queued,
+   generation, validation, compilation, inspection, repair, publication, and
+   terminal failure before a build row exists. A provider response that fails
+   candidate parsing retains its exact error, usage, length, hash, React-source
+   signal, and bounded raw head/tail across retries without storing an
+   unbounded model response in the Run row. Structured-output compatibility is
+   a kernel provider contract rather than Surface-specific prompting: each
+   provider declares its accepted JSON Schema dialect, prompt-envelope needs,
+   strictness, and model-family request options. The frozen Builder assignment
+   also carries a per-generation deadline independent from the larger durable
+   Run budget. Schema-invalid or timed-out submissions fail closed instead of
+   repeating the same expensive request through an unchanged model assignment.
+   Provider parsing accepts only the candidate envelope shape; Aloy's host then
+   applies authoritative path, file, size, manifest, and source policy. A
+   shape-valid candidate that violates those rules receives deterministic
+   diagnostics through the same bounded repair submission rather than failing
+   before repair. Host-owned files such as `index.html` remain forbidden.
+3. **`aloy-v1-r5-surface-command-runtime`** - introduce the versioned
+   host-owned Surface command contract behind V1 compatibility. Define typed
+   entities and explicit `create`/`replace`/`merge`/`delete` semantics;
+   host-owned query and command hooks with pending/error/conflict/retry states;
+   one canonical data projection shared by Surface and Event Conversation; an
+   Event-scoped detailed-state read tool; and validated `local`, `state`,
+   `reasoning`, `external_action`, `automation`, and `source_change` routing.
+   Host-generated interaction tests, rather than model-authored checks alone,
+   must cover success, rejection, stale revision, reconnect, empty, populated,
+   partial, and permission-denied states. Migrate Career OS first and remove
+   model-owned persistence wrappers before other showcase work continues.
+4. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
    image, warm isolated sandbox strategy, no per-Surface dependency install,
-   content-addressed build reuse, and remote build benchmarks.
-4. **`aloy-v1-r5-live-surface-ux`** - immediate native building/repair/failure
-   states, Event SSE progress, automatic published-Surface handoff, last-good
-   continuity, immutable runtime preparation, and authenticated private cache.
-5. **`aloy-v1-r5-surface-quality`** - deterministic authority/build checks,
+   content-addressed build reuse, and remote build benchmarks. Developer
+   workstations may explicitly select a fixed host-local compiler while remote
+   sandboxes are unavailable; it accepts no model-owned command, dependency,
+   plugin, config, or HTML shell and is forbidden as a hosted default.
+5. **`aloy-v1-r5-live-surface-ux`** - upgrade the durable polled Builder state
+   from Phase 2 to Event SSE progress; add automatic published-Surface handoff,
+   richer diagnostics, last-good continuity, immutable runtime preparation,
+   and authenticated private cache.
+6. **`aloy-v1-r5-surface-quality`** - deterministic authority/build checks,
    required viewport/state captures, accessibility and overflow checks,
    independent Critic, primary-job simulation, bounded repair, feedback,
    pinning, revision history, and rollback.
-6. **`aloy-v1-r5-university-proof`** - repeatable natural-language University
+7. **`aloy-v1-r5-university-proof`** - repeatable natural-language University
    generation without the word Surface, fake Tasks, or hardcoded domain logic;
    later revision such as a grade calculator; at least twenty benchmark prompts
    with routing, build, repair, latency, quality, and cost results.
-7. **`aloy-v1-r5-widgets-madrid`** - trusted maps and other high-value widgets,
+8. **`aloy-v1-r5-widgets-madrid`** - trusted maps and other high-value widgets,
    then the Madrid showcase through the same ordinary Surface pipeline and
    protected action boundary.
 

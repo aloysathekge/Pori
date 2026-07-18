@@ -12,6 +12,8 @@ SURFACE_PROTOCOL_VERSION: Literal["1"] = "1"
 SURFACE_SDK_VERSION: Literal["1"] = "1"
 MAX_INTENTS = 100
 MAX_SCHEMA_DEPTH = 8
+MAX_INTERACTION_CHECKS = 100
+MAX_INTERACTION_CHECK_STEPS = 20
 
 _CAPABILITY = re.compile(
     r"^(?:event|tasks|files|proposals|receipts|trail|ask_aloy|data:[a-z][a-z0-9_.-]{0,63})$"
@@ -71,6 +73,48 @@ class SurfaceIntentDeclaration(BaseModel):
         return self
 
 
+class SurfaceInteractionCheckStep(BaseModel):
+    """One accessible user action executed by Aloy's browser publication gate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["click", "fill", "select"]
+    role: Literal["button", "textbox", "combobox"]
+    name: str = Field(min_length=1, max_length=200)
+    value: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_value(self) -> "SurfaceInteractionCheckStep":
+        if self.action in {"fill", "select"} and self.value is None:
+            raise ValueError(f"{self.action} interaction steps require a value")
+        if self.action == "click" and self.value is not None:
+            raise ValueError("click interaction steps cannot declare a value")
+        if self.action == "fill" and self.role != "textbox":
+            raise ValueError("fill interaction steps require role textbox")
+        if self.action == "select" and self.role != "combobox":
+            raise ValueError("select interaction steps require role combobox")
+        return self
+
+
+class SurfaceInteractionCheckExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["dispatch", "askAloy", "requestAction"]
+    name: str = Field(min_length=1, max_length=128)
+
+
+class SurfaceInteractionCheck(BaseModel):
+    """A semantic UI path that must reach the host SDK before publication."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    steps: list[SurfaceInteractionCheckStep] = Field(
+        min_length=1, max_length=MAX_INTERACTION_CHECK_STEPS
+    )
+    expect: SurfaceInteractionCheckExpectation
+
+
 class SurfaceManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +123,9 @@ class SurfaceManifest(BaseModel):
     sdk_version: Literal["1"] = SURFACE_SDK_VERSION
     capabilities: list[str] = Field(default_factory=list, max_length=50)
     intents: dict[str, SurfaceIntentDeclaration] = Field(default_factory=dict)
+    interaction_checks: list[SurfaceInteractionCheck] = Field(
+        default_factory=list, max_length=MAX_INTERACTION_CHECKS
+    )
     widgets: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("capabilities")
@@ -112,6 +159,27 @@ class SurfaceManifest(BaseModel):
                 if capability not in granted:
                     raise ValueError(
                         f"Intent {name} writes {declaration.write.namespace} without {capability}"
+                    )
+        for check in self.interaction_checks:
+            expectation = check.expect
+            if expectation.method == "askAloy":
+                if expectation.name != "aloy.ask":
+                    raise ValueError("askAloy checks must expect aloy.ask")
+                if "ask_aloy" not in granted:
+                    raise ValueError("askAloy check requires ask_aloy capability")
+            else:
+                checked_declaration = self.intents.get(expectation.name)
+                if checked_declaration is None:
+                    raise ValueError(
+                        f"Interaction check references undeclared intent {expectation.name}"
+                    )
+                expected_method = {
+                    "durable_selection": "dispatch",
+                    "external_action": "requestAction",
+                }.get(checked_declaration.interaction_class)
+                if expectation.method != expected_method:
+                    raise ValueError(
+                        f"Interaction check uses the wrong SDK method for {expectation.name}"
                     )
         return self
 
@@ -241,6 +309,7 @@ def _validate_value(schema: dict[str, Any], value: Any, *, path: str) -> None:
 __all__ = [
     "SURFACE_PROTOCOL_VERSION",
     "SURFACE_SDK_VERSION",
+    "SurfaceInteractionCheck",
     "SurfaceIntentDeclaration",
     "SurfaceManifest",
     "parse_surface_manifest",

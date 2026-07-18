@@ -25,6 +25,21 @@ from .config import settings
 _SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _filesystem_path(path: Path, *, windows: bool | None = None) -> str:
+    """Return a syscall path that supports canonical long keys on Windows.
+
+    The extended-length prefix changes only the local filesystem call. Logical
+    object keys and their directory layout remain identical across backends.
+    """
+    raw = os.path.abspath(os.fspath(path))
+    use_windows_paths = os.name == "nt" if windows is None else windows
+    if not use_windows_paths or raw.startswith("\\\\?\\"):
+        return raw
+    if raw.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + raw[2:]
+    return "\\\\?\\" + raw
+
+
 def safe_name(name: str) -> str:
     """A filename reduced to one safe path segment (no separators/traversal)."""
     base = os.path.basename(name.replace("\\", "/")).strip() or "file"
@@ -123,16 +138,18 @@ class LocalDiskObjectStore:
 
     def put(self, key: str, data: BinaryIO, *, content_type: str) -> int:
         target = self._path(key)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target_path = _filesystem_path(target)
+        parent_path = _filesystem_path(target.parent)
+        os.makedirs(parent_path, exist_ok=True)
         # Atomic: write a temp file next to the target, then rename — a crash
         # mid-write can't leave a torn blob at the final key.
-        fd, tmp = tempfile.mkstemp(dir=target.parent, suffix=".part")
+        fd, tmp = tempfile.mkstemp(dir=parent_path, suffix=".part")
         written = 0
         try:
             with os.fdopen(fd, "wb") as out:
                 shutil.copyfileobj(data, out)
                 written = out.tell()
-            os.replace(tmp, target)
+            os.replace(tmp, target_path)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -142,11 +159,11 @@ class LocalDiskObjectStore:
         return written
 
     def open(self, key: str) -> BinaryIO:
-        return self._path(key).open("rb")
+        return open(_filesystem_path(self._path(key)), "rb")
 
     def delete(self, key: str) -> None:
         try:
-            self._path(key).unlink()
+            os.unlink(_filesystem_path(self._path(key)))
         except FileNotFoundError:
             pass
 
