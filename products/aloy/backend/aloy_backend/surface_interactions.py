@@ -33,6 +33,7 @@ from .models import (
     Run,
     StoredFile,
     SurfaceBuild,
+    SurfaceCommandAttempt,
     SurfaceDataRecord,
     SurfaceInteraction,
     SurfaceProject,
@@ -61,10 +62,28 @@ MAX_INTERACTION_PAYLOAD_BYTES = 128 * 1024
 
 
 class SurfaceInteractionError(ValueError):
-    def __init__(self, status_code: int, detail: str):
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        *,
+        code: str | None = None,
+        retryable: bool = False,
+        attempt_id: str | None = None,
+    ):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+        self.code = code or {
+            403: "permission_denied",
+            409: "conflict",
+            422: "invalid",
+            429: "rate_limited",
+            501: "unsupported",
+            503: "unavailable",
+        }.get(status_code, "failed")
+        self.retryable = retryable
+        self.attempt_id = attempt_id
 
 
 class SurfaceInteractionRequest(BaseModel):
@@ -131,6 +150,28 @@ def interaction_payload(interaction: SurfaceInteraction) -> dict[str, Any]:
         "error": interaction.error,
         "created_at": interaction.created_at,
         "updated_at": interaction.updated_at,
+    }
+
+
+def command_attempt_payload(attempt: SurfaceCommandAttempt) -> dict[str, Any]:
+    return {
+        "id": attempt.id,
+        "event_id": attempt.event_id,
+        "build_id": attempt.build_id,
+        "code_revision_id": attempt.code_revision_id,
+        "interaction_id": attempt.interaction_id,
+        "method": attempt.method,
+        "name": attempt.name,
+        "interaction_class": attempt.interaction_class,
+        "component_id": attempt.component_id,
+        "base_data_revision": attempt.base_data_revision,
+        "observed_data_revision": attempt.observed_data_revision,
+        "status": attempt.status,
+        "error_code": attempt.error_code,
+        "error": attempt.error,
+        "http_status": attempt.http_status,
+        "retryable": attempt.retryable,
+        "created_at": attempt.created_at,
     }
 
 
@@ -220,8 +261,26 @@ async def surface_runtime_context(
         .scalars()
         .all()
     )
+    command_attempts = list(
+        (
+            await session.execute(
+                select(SurfaceCommandAttempt)
+                .where(
+                    SurfaceCommandAttempt.organization_id == context.organization_id,
+                    SurfaceCommandAttempt.user_id == context.user_id,
+                    SurfaceCommandAttempt.event_id == event.id,
+                    SurfaceCommandAttempt.project_id == project.id,
+                )
+                .order_by(col(SurfaceCommandAttempt.created_at).desc())
+                .limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
     data: dict[str, Any] = {
-        "interactions": [interaction_payload(row) for row in interactions]
+        "interactions": [interaction_payload(row) for row in interactions],
+        "command_attempts": [command_attempt_payload(row) for row in command_attempts],
     }
     if "event" in capabilities:
         data["event"] = event_payload(event)
@@ -392,7 +451,12 @@ def _declaration_for(
     try:
         command = resolve_surface_command(request.name, declaration)
     except SurfaceCommandError as exc:
-        raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
+        raise SurfaceInteractionError(
+            exc.status_code,
+            exc.detail,
+            code=exc.code,
+            retryable=exc.retryable,
+        ) from exc
     expected_effect = {
         "dispatch": "state",
         "request_action": "external_action",
@@ -410,6 +474,114 @@ def _declaration_for(
     return declaration
 
 
+def _attempt_class(
+    manifest: SurfaceManifest,
+    request: SurfaceInteractionRequest,
+) -> str:
+    if request.method == "ask_aloy":
+        return "reasoning"
+    declaration = manifest.intents.get(request.name)
+    if declaration is None:
+        return "unknown"
+    try:
+        return resolve_surface_command(request.name, declaration).effect
+    except SurfaceCommandError:
+        return declaration.interaction_class
+
+
+def _accepted_command_attempt(
+    *,
+    context: OrganizationContext,
+    event: Event,
+    project: SurfaceProject,
+    revision: SurfaceRevision,
+    build: SurfaceBuild,
+    request: SurfaceInteractionRequest,
+    interaction: SurfaceInteraction,
+    command: ResolvedSurfaceCommand,
+    fingerprint: str,
+    now: datetime,
+) -> SurfaceCommandAttempt:
+    return SurfaceCommandAttempt(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+        project_id=project.id,
+        build_id=build.id,
+        code_revision_id=revision.id,
+        interaction_id=interaction.id,
+        method=request.method,
+        name=request.name,
+        interaction_class=command.effect,
+        component_id=request.component_id,
+        actor_id=context.user_id,
+        idempotency_key=request.idempotency_key,
+        request_fingerprint=fingerprint,
+        base_data_revision=request.data_revision,
+        observed_data_revision=(
+            interaction.result_data_revision
+            if interaction.result_data_revision is not None
+            else project.data_revision
+        ),
+        status=interaction.status,
+        error_code=None,
+        error=None,
+        http_status=202,
+        retryable=False,
+        created_at=now,
+    )
+
+
+async def record_surface_interaction_rejection(
+    session: AsyncSession,
+    *,
+    context: OrganizationContext,
+    event_id: str,
+    request: SurfaceInteractionRequest,
+    error: SurfaceInteractionError,
+) -> SurfaceCommandAttempt | None:
+    """Persist a safe rejected-attempt receipt after the request transaction rolls back."""
+    try:
+        event, project, revision, build, manifest = await _runtime_scope(
+            session,
+            context=context,
+            event_id=event_id,
+            build_id=request.build_id,
+        )
+    except SurfaceInteractionError:
+        await session.rollback()
+        return None
+    attempt = SurfaceCommandAttempt(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+        project_id=project.id,
+        build_id=build.id,
+        code_revision_id=revision.id,
+        interaction_id=None,
+        method=request.method,
+        name=request.name,
+        interaction_class=_attempt_class(manifest, request),
+        component_id=request.component_id,
+        actor_id=context.user_id,
+        idempotency_key=request.idempotency_key,
+        request_fingerprint=_fingerprint(request),
+        base_data_revision=request.data_revision,
+        observed_data_revision=project.data_revision,
+        status="conflict" if error.status_code == 409 else "rejected",
+        error_code=error.code,
+        error=error.detail[:4000],
+        http_status=error.status_code,
+        retryable=error.retryable,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(attempt)
+    await session.commit()
+    await session.refresh(attempt)
+    error.attempt_id = attempt.id
+    return attempt
+
+
 async def handle_surface_interaction(
     session: AsyncSession,
     *,
@@ -422,7 +594,12 @@ async def handle_surface_interaction(
     )
     project_id = project.id
     if request.code_revision_id != revision.id:
-        raise SurfaceInteractionError(409, "Surface code revision changed")
+        raise SurfaceInteractionError(
+            409,
+            "Surface code revision changed",
+            code="surface_republished",
+            retryable=True,
+        )
     fingerprint = _fingerprint(request)
     replay = await _existing_interaction(
         session, project_id=project.id, idempotency_key=request.idempotency_key
@@ -430,7 +607,9 @@ async def handle_surface_interaction(
     if replay is not None:
         if replay.request_fingerprint != fingerprint:
             raise SurfaceInteractionError(
-                409, "idempotency_key was already used for another interaction"
+                409,
+                "idempotency_key was already used for another interaction",
+                code="idempotency_mismatch",
             )
         payload = interaction_payload(replay)
         payload["replayed"] = True
@@ -447,7 +626,12 @@ async def handle_surface_interaction(
         try:
             command = resolve_surface_command(request.name, declaration)
         except SurfaceCommandError as exc:
-            raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
+            raise SurfaceInteractionError(
+                exc.status_code,
+                exc.detail,
+                code=exc.code,
+                retryable=exc.retryable,
+            ) from exc
     interaction = SurfaceInteraction(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -472,7 +656,12 @@ async def handle_surface_interaction(
 
     if command.effect == "state":
         if request.data_revision != project.data_revision:
-            raise SurfaceInteractionError(409, "Surface data revision changed")
+            raise SurfaceInteractionError(
+                409,
+                "Surface data revision changed",
+                code="stale_data_revision",
+                retryable=True,
+            )
         assert declaration is not None
         try:
             mutation = await apply_state_command(
@@ -488,7 +677,12 @@ async def handle_surface_interaction(
                 now=now,
             )
         except SurfaceCommandError as exc:
-            raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
+            raise SurfaceInteractionError(
+                exc.status_code,
+                exc.detail,
+                code=exc.code,
+                retryable=exc.retryable,
+            ) from exc
         interaction.status = "committed"
         interaction.result_data_revision = mutation.data_revision
         interaction.result = {
@@ -563,7 +757,12 @@ async def handle_surface_interaction(
             max(1, settings.max_concurrent_runs),
         )
         if account_active >= account_cap:
-            raise SurfaceInteractionError(429, "Account Run limit reached")
+            raise SurfaceInteractionError(
+                429,
+                "Account Run limit reached",
+                code="rate_limited",
+                retryable=True,
+            )
         snapshot, _pack, _created = await refresh_event_context_snapshot(
             session,
             organization_id=context.organization_id,
@@ -722,6 +921,20 @@ async def handle_surface_interaction(
     interaction.updated_at = now
     session.add(event)
     session.add(interaction)
+    session.add(
+        _accepted_command_attempt(
+            context=context,
+            event=event,
+            project=project,
+            revision=revision,
+            build=build,
+            request=request,
+            interaction=interaction,
+            command=command,
+            fingerprint=fingerprint,
+            now=now,
+        )
+    )
     try:
         await session.commit()
     except IntegrityError as exc:
@@ -736,7 +949,10 @@ async def handle_surface_interaction(
             payload["replayed"] = True
             return payload
         raise SurfaceInteractionError(
-            409, "Surface interaction conflicted with another update"
+            409,
+            "Surface interaction conflicted with another update",
+            code="concurrent_update",
+            retryable=True,
         ) from exc
     await session.refresh(interaction)
     payload = interaction_payload(interaction)
@@ -745,9 +961,11 @@ async def handle_surface_interaction(
 
 
 __all__ = [
+    "command_attempt_payload",
     "SurfaceInteractionError",
     "SurfaceInteractionRequest",
     "handle_surface_interaction",
     "interaction_payload",
+    "record_surface_interaction_rejection",
     "surface_runtime_context",
 ]

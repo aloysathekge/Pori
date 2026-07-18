@@ -2,6 +2,23 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/v1'
 
 let getToken: (() => Promise<string | null>) | null = null;
 
+function apiError(status: number, body: unknown, fallback: string): ApiError {
+  const value = body && typeof body === 'object' && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : {};
+  const detail = value.detail;
+  const detailValue = detail && typeof detail === 'object' && !Array.isArray(detail)
+    ? detail as Record<string, unknown>
+    : null;
+  const message =
+    (detailValue && typeof detailValue.message === 'string'
+      ? detailValue.message
+      : typeof detail === 'string'
+        ? detail
+        : fallback);
+  return new ApiError(status, message, detailValue ?? detail);
+}
+
 export function setTokenGetter(fn: () => Promise<string | null>) {
   getToken = fn;
 }
@@ -29,7 +46,7 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || 'Unknown error');
+    throw apiError(res.status, body, 'Unknown error');
   }
 
   return res.json() as Promise<T>;
@@ -46,7 +63,7 @@ export async function apiTextFetch(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || 'Unknown error');
+    throw apiError(res.status, body, 'Unknown error');
   }
   return res.text();
 }
@@ -62,7 +79,7 @@ export async function apiBlobFetch(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || 'Unknown error');
+    throw apiError(res.status, body, 'Unknown error');
   }
   return res.blob();
 }
@@ -83,7 +100,7 @@ export async function apiStreamFetch(
 
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, errBody.detail || 'Stream error');
+    throw apiError(res.status, errBody, 'Stream error');
   }
 
   return res;
@@ -109,13 +126,13 @@ export async function apiUploadFile<T>(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText) as T);
       } else {
-        let detail = 'Upload failed';
+        let error = new ApiError(xhr.status, 'Upload failed');
         try {
-          detail = JSON.parse(xhr.responseText).detail || detail;
+          error = apiError(xhr.status, JSON.parse(xhr.responseText), 'Upload failed');
         } catch {
           // keep the fallback message
         }
-        reject(new ApiError(xhr.status, detail));
+        reject(error);
       }
     };
     xhr.onerror = () => reject(new ApiError(0, 'Network error during upload'));
@@ -127,9 +144,11 @@ export async function apiUploadFile<T>(
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  details: unknown;
+  constructor(status: number, message: string, details?: unknown) {
     super(message);
     this.status = status;
+    this.details = details;
     this.name = 'ApiError';
   }
 }

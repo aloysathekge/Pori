@@ -48,6 +48,26 @@ export interface SurfaceInteraction {
   updated_at: string;
 }
 
+export interface SurfaceCommandAttempt {
+  id: string;
+  event_id: string;
+  build_id: string;
+  code_revision_id: string;
+  interaction_id: string | null;
+  method: string;
+  name: string;
+  interaction_class: string;
+  component_id: string;
+  base_data_revision: number;
+  observed_data_revision: number;
+  status: string;
+  error_code: string | null;
+  error: string | null;
+  http_status: number;
+  retryable: boolean;
+  created_at: string;
+}
+
 export interface SurfaceContext {
   protocol_version: '1';
   command_contract_version: '1';
@@ -67,6 +87,7 @@ export interface SurfaceContext {
     receipts?: Array<Record<string, unknown>>;
     trail?: Array<Record<string, unknown>>;
     interactions: SurfaceInteraction[];
+    command_attempts?: SurfaceCommandAttempt[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
   };
 }
@@ -150,6 +171,8 @@ interface BridgeResponse {
   result?: unknown;
   error?: string;
   errorCode?: SurfaceRequestErrorCode;
+  serverCode?: string;
+  attemptId?: string;
   statusCode?: number;
   retryable?: boolean;
 }
@@ -170,6 +193,8 @@ export class SurfaceRequestError extends Error {
   readonly retryable: boolean;
   readonly statusCode?: number;
   readonly idempotencyKey?: string;
+  readonly serverCode?: string;
+  readonly attemptId?: string;
 
   constructor(
     message: string,
@@ -179,6 +204,8 @@ export class SurfaceRequestError extends Error {
       retryable?: boolean;
       statusCode?: number;
       idempotencyKey?: string;
+      serverCode?: string;
+      attemptId?: string;
     },
   ) {
     super(message);
@@ -188,6 +215,8 @@ export class SurfaceRequestError extends Error {
     this.retryable = options.retryable ?? false;
     this.statusCode = options.statusCode;
     this.idempotencyKey = options.idempotencyKey;
+    this.serverCode = options.serverCode;
+    this.attemptId = options.attemptId;
   }
 }
 
@@ -379,6 +408,8 @@ function onPortMessage(event: MessageEvent<unknown>) {
         code: response.errorCode,
         retryable: response.retryable,
         statusCode: response.statusCode,
+        serverCode: response.serverCode,
+        attemptId: response.attemptId,
         idempotencyKey:
           typeof request.params.idempotencyKey === 'string'
             ? request.params.idempotencyKey
@@ -501,6 +532,10 @@ export function useTasks(): Array<Record<string, unknown>> {
 
 export function useInteractions(): SurfaceInteraction[] {
   return useSurfaceContext()?.data.interactions ?? [];
+}
+
+export function useCommandAttempts(): SurfaceCommandAttempt[] {
+  return useSurfaceContext()?.data.command_attempts ?? [];
 }
 
 export function dispatch<T = Record<string, unknown>>(

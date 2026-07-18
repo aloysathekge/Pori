@@ -95,11 +95,14 @@ manifest is:
 }
 ```
 
-Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`, and `useInteractions`
-for reactive reads. Interaction records are the durable way to render queued,
-running, approval, execution, committed, rejected, failed, or indeterminate
-outcomes after the original SDK Promise has resolved; never invent completion
-from local component state.
+Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`, `useInteractions`, and
+`useCommandAttempts` for reactive reads. Interaction records are the durable
+way to render accepted commands through queued, running, approval, execution,
+committed, rejected, failed, or indeterminate outcomes. Command-attempt records
+retain host conflicts and policy/validation rejections even when no interaction
+was accepted. Match a caught `SurfaceRequestError.attemptId` when present and
+use its `serverCode`/`retryable` fields for specific recovery copy; never invent
+completion from local component state.
 Use `useSurfaceCommand(name, {componentId})` for every user-facing host-owned
 state or reasoning control. Call its `execute(input)` method, disable repeated
 submission with `pending`, and render one visible non-empty status/error element

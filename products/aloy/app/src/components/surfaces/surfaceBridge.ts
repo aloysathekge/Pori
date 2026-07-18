@@ -106,7 +106,18 @@ function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
+function apiErrorDetails(cause: unknown): Record<string, unknown> {
+  return cause instanceof ApiError
+    && cause.details
+    && typeof cause.details === 'object'
+    && !Array.isArray(cause.details)
+    ? cause.details as Record<string, unknown>
+    : {};
+}
+
 function retryableFailure(cause: unknown, controller: AbortController): boolean {
+  const declared = apiErrorDetails(cause).retryable;
+  if (typeof declared === 'boolean') return declared;
   return (
     controller.signal.aborted
     || cause instanceof TypeError
@@ -374,6 +385,8 @@ export class SurfaceBridgeHost {
           ok: false;
           error: string;
           errorCode: SurfaceBridgeErrorCode;
+          serverCode?: string;
+          attemptId?: string;
           statusCode?: number;
           retryable?: boolean;
         },
@@ -496,7 +509,13 @@ export class SurfaceBridgeHost {
         controller.signal,
       );
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 409 && this.port) {
+      const details = apiErrorDetails(cause);
+      const hasDurableAttempt = typeof details.attempt_id === 'string';
+      if (
+        cause instanceof ApiError
+        && (cause.status === 409 || hasDurableAttempt)
+        && this.port
+      ) {
         try {
           this.context = await this.loadContext();
           this.port.postMessage({
@@ -514,6 +533,14 @@ export class SurfaceBridgeHost {
         ok: false,
         error: errorMessage(cause, 'Surface request timed out'),
         errorCode: failureCode(cause, controller),
+        serverCode:
+          typeof details.code === 'string'
+            ? String(details.code)
+            : undefined,
+        attemptId:
+          typeof details.attempt_id === 'string'
+            ? String(details.attempt_id)
+            : undefined,
         statusCode: cause instanceof ApiError ? cause.status : undefined,
         retryable: retryableFailure(cause, controller),
       });

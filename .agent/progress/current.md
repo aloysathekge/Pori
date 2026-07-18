@@ -274,6 +274,22 @@ and model wake policy while retaining published V1 compatibility.
   Verification: `23` focused Surface build/SDK backend tests and `5` host-bridge
   tests pass; backend mypy is clean across `113` files; SDK TypeScript, app
   lint, and the app production build pass with only the existing chunk warning.
+- Surface commands now have an append-only attempt ledger beside the accepted
+  interaction ledger. Every accepted command records its initial host outcome;
+  stale revisions, idempotency conflicts, validation failures, and policy
+  denials survive the request rollback with safe error code, retryability,
+  requested/observed data revisions, and a durable attempt ID. The iframe
+  context exposes bounded attempt receipts without rejected payloads, while
+  `SurfaceRequestError` and `useCommandAttempts()` let generated React match
+  immediate errors to their durable record. The host refreshes canonical
+  context before returning either an accepted command or a durable rejection.
+  Host tests cover structured conflict, non-retryable permission denial, and a
+  commit whose context refresh fails and recovers only after reconnect. Focused
+  backend command/migration tests pass; the combined Surface SDK/build set
+  passed `24` tests with one known headless-browser handshake race, whose exact
+  unchanged assertion passed immediately on rerun. Backend mypy is clean across
+  `113` files; `7` bridge tests, SDK TypeScript, app lint, and production build
+  pass with only the existing chunk warning.
 
 ## Blockers
 
@@ -287,10 +303,8 @@ and model wake policy while retaining published V1 compatibility.
 
 ## Next Session Should Start With
 
-Finish `aloy-v1-r5-surface-command-runtime`: add durable structured conflict and
-rejection outcomes, enable governed `source_change` and `automation` routes,
-generate the remaining reconnect/permission host tests, then rebuild Career OS
-through the normal Builder using `useSurfaceCommand()` and explicit entity
-operations.
+Finish `aloy-v1-r5-surface-command-runtime`: rebuild Career OS through the
+normal Builder using `useSurfaceCommand()` and explicit entity operations, then
+enable the separately governed `source_change` and `automation` routes.
 Do not patch individual generated applications or continue showcase/widget work
 until the command runtime owns their persistence and wake behavior.

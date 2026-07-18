@@ -222,7 +222,11 @@ describe('SurfaceBridgeHost', () => {
           data_revision: ++contextReads,
         }),
         createInteraction: async () => {
-          throw new ApiError(409, 'Surface data revision changed');
+          throw new ApiError(409, 'Surface data revision changed', {
+            code: 'stale_data_revision',
+            retryable: true,
+            attempt_id: 'scat-conflict-1',
+          });
         },
       },
     );
@@ -268,6 +272,8 @@ describe('SurfaceBridgeHost', () => {
     await expect(response).resolves.toMatchObject({
       ok: false,
       errorCode: 'conflict',
+      serverCode: 'stale_data_revision',
+      attemptId: 'scat-conflict-1',
       statusCode: 409,
       retryable: true,
     });
@@ -275,6 +281,173 @@ describe('SurfaceBridgeHost', () => {
       receivedTypes.indexOf('response'),
     );
     expect(contextReads).toBe(2);
+    bridge.disconnect(false);
+  });
+
+  test('returns a durable permission rejection without retrying it', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    let calls = 0;
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      {},
+      {
+        getContext: async () => context,
+        createInteraction: async () => {
+          calls += 1;
+          throw new ApiError(403, 'Surface action tool is denied by policy', {
+            code: 'permission_denied',
+            retryable: false,
+            attempt_id: 'scat-permission-1',
+          });
+        },
+      },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (event.data.type === 'ping') {
+          surfacePort?.postMessage({
+            protocol: '1',
+            type: 'pong',
+            sessionId,
+            nonce: event.data.nonce,
+          });
+        } else if (event.data.type === 'response') {
+          resolve(event.data);
+        }
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-permission',
+        method: 'requestAction',
+        params: {
+          action: { name: 'career.send_email', payload: {} },
+          componentId: 'send-email',
+          idempotencyKey: 'interaction-permission-1',
+        },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for host response')), 500);
+    });
+
+    await expect(response).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'permission_denied',
+      serverCode: 'permission_denied',
+      attemptId: 'scat-permission-1',
+      statusCode: 403,
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+    bridge.disconnect(false);
+  });
+
+  test('withholds success until canonical refresh recovers on reconnect', async () => {
+    let contextReads = 0;
+    let interactionCalls = 0;
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    const statuses: string[] = [];
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      { onStatus: ({ status }) => statuses.push(status) },
+      {
+        getContext: async () => {
+          contextReads += 1;
+          if (contextReads === 2) throw new TypeError('refresh unavailable');
+          return { ...context, data_revision: contextReads };
+        },
+        createInteraction: async () => {
+          interactionCalls += 1;
+          return { ...interaction, replayed: interactionCalls > 1 };
+        },
+      },
+    );
+    const runtimeFrame = frame((message, port) => {
+      surfacePort = port;
+      sessionId = message.sessionId;
+      responsivePort(message, port);
+    });
+    await bridge.connect(runtimeFrame);
+    let falseAcknowledgement = false;
+    if (!surfacePort) throw new Error('Surface port is unavailable');
+    surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+      if (event.data.type === 'ping') {
+        surfacePort?.postMessage({
+          protocol: '1',
+          type: 'pong',
+          sessionId,
+          nonce: event.data.nonce,
+        });
+      } else if (event.data.type === 'response') {
+        falseAcknowledgement = true;
+      }
+    };
+    surfacePort.postMessage({
+      protocol: '1',
+      type: 'request',
+      sessionId,
+      requestId: 'request-before-reconnect',
+      method: 'command',
+      params: {
+        name: 'career.create',
+        payload: { id: 'app-1' },
+        componentId: 'add-application',
+        idempotencyKey: 'interaction-reconnect-1',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(falseAcknowledgement).toBe(false);
+    expect(bridge.currentStatus).toBe('degraded');
+
+    await bridge.connect(runtimeFrame);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const recovered = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (event.data.type === 'ping') {
+          surfacePort?.postMessage({
+            protocol: '1',
+            type: 'pong',
+            sessionId,
+            nonce: event.data.nonce,
+          });
+        } else if (event.data.type === 'response') {
+          resolve(event.data);
+        }
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-after-reconnect',
+        method: 'command',
+        params: {
+          name: 'career.create',
+          payload: { id: 'app-1' },
+          componentId: 'add-application',
+          idempotencyKey: 'interaction-reconnect-1',
+        },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for recovery')), 500);
+    });
+
+    await expect(recovered).resolves.toMatchObject({ ok: true });
+    expect(interactionCalls).toBe(2);
+    expect(statuses).toContain('degraded');
+    expect(bridge.currentStatus).toBe('healthy');
     bridge.disconnect(false);
   });
 });
