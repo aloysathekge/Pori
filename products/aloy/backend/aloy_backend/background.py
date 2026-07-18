@@ -41,10 +41,11 @@ from .run_outcome import (
     make_usage_record,
     store_run_artifacts,
 )
-from .run_surface import resolve_run_surface
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
+from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
+from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
     SurfaceBuilderCompletionGuard,
@@ -55,7 +56,6 @@ from .surface_requests import (
     verified_surface_publication,
 )
 from .surface_workspace import resolve_surface_authoring_runtime
-from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .task_execution import (
     DurableClarificationRecorder,
     add_task_lifecycle_message,
@@ -66,8 +66,8 @@ from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import TaskMutationHandler
-from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 from .tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
+from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
 

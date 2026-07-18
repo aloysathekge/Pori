@@ -8,8 +8,8 @@ from sqlmodel import select
 
 from aloy_backend import background as background_module
 from aloy_backend.models import (
-    EventTrailEntry,
     Event,
+    EventTrailEntry,
     Organization,
     OrganizationMembership,
     Run,
