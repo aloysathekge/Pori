@@ -34,11 +34,11 @@ from .surface_build_runner import (
     configured_surface_build_runner,
     validate_surface_source,
 )
+from .surface_manifest import SurfaceManifest
 from .surface_publication import (
     SurfacePublicationParams,
     change_surface_publication,
 )
-from .surface_manifest import SurfaceManifest
 from .surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 from .surface_runtime_inspection import inspect_surface_runtime
 

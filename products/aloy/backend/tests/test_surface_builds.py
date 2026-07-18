@@ -35,12 +35,12 @@ from aloy_backend.surface_builds import (
     SurfaceBuildParams,
     SurfacePreviewParams,
 )
+from aloy_backend.surface_manifest import SurfaceManifest
 from aloy_backend.surface_runtime import (
     InvalidSurfaceBundle,
     build_surface_runtime_document,
 )
 from aloy_backend.surface_runtime_inspection import inspect_surface_runtime
-from aloy_backend.surface_manifest import SurfaceManifest
 from pori import LocalSandboxProvider
 
 
