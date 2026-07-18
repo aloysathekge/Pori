@@ -96,7 +96,22 @@ manifest is:
 ```
 
 Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`, `useInteractions`, and
-`useCommandAttempts` for reactive reads. Interaction records are the durable
+`useCommandAttempts` for reactive reads. Their exact V1 shapes are:
+
+```ts
+useEvent<T>(): T | null
+useTasks(): Array<Record<string, unknown>>
+useSurfaceData<T>(namespace: string): Array<SurfaceDataRecord<T>>
+useInteractions(): SurfaceInteraction[]
+useCommandAttempts(): SurfaceCommandAttempt[]
+useSurfaceRuntime(): { status: 'disconnected' | 'healthy' | 'degraded'; message?: string }
+```
+
+`useSurfaceData` returns an array directly. Read each entity from
+`record.data`, use `record.key` as its canonical identity, and never destructure
+it as `{data, status, error}`. `useCommandAttempts` takes no namespace argument;
+filter its returned records by `name` only when the view needs a subset.
+Interaction records are the durable
 way to render accepted commands through queued, running, approval, execution,
 committed, rejected, failed, or indeterminate outcomes. Command-attempt records
 retain host conflicts and policy/validation rejections even when no interaction
@@ -106,7 +121,53 @@ completion from local component state.
 Use `useSurfaceCommand(name, {componentId})` for every user-facing host-owned
 state or reasoning control. Call its `execute(input)` method, disable repeated
 submission with `pending`, and render one visible non-empty status/error element
-with the returned `feedbackProps`. The host publication gate exercises each
+with the returned `feedbackProps`. `feedbackProps` contains DOM attributes
+(`role`, `aria-live`, `data-aloy-command-name`, and
+`data-aloy-command-status`); it is not a status object. Read lifecycle state
+from the controller's `status`, `pending`, `error`, and `retry` members, and
+spread `feedbackProps` onto a persistently mounted element:
+
+```tsx
+const save = useSurfaceCommand<ApplicationInput>(
+  'career.application_created',
+  { componentId: 'add-application' },
+);
+const applications = useSurfaceData<Application>('career');
+
+async function submit(input: ApplicationInput) {
+  try {
+    await save.execute(input);
+  } catch {
+    // Keep the form input. The persistent region below renders save.error.
+  }
+}
+
+async function retry() {
+  try {
+    await save.retry();
+  } catch {
+    // The same persistent region continues to render the actionable error.
+  }
+}
+
+return <>
+  {applications.map(record => <ApplicationRow
+    key={record.key}
+    application={record.data}
+  />)}
+  <div {...save.feedbackProps}>
+    {save.pending
+      ? 'Saving…'
+      : save.status === 'committed'
+        ? 'Application saved.'
+        : save.error?.message ?? 'Ready'}
+    {save.error?.retryable && <button onClick={retry}>Retry</button>}
+  </div>
+</>;
+```
+
+Keep that feedback element mounted when a dialog closes or a canonical record
+changes identity. The host publication gate exercises each
 declared command and rejects a Surface unless refreshed canonical context is
 delivered before the committed/accepted feedback becomes visible. Use the
 lower-level `command(name, input)` only outside React hooks or for carefully

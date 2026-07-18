@@ -291,8 +291,38 @@ and model wake policy while retaining published V1 compatibility.
   `113` files; `7` bridge tests, SDK TypeScript, app lint, and production build
   pass with only the existing chunk warning.
 
+- Live Career OS migration exposed three host-boundary reliability gaps. Safe
+  `/src` and `/surface.json` candidate shorthand and overlong descriptive
+  summaries are now canonicalized before authoritative validation instead of
+  consuming the model's single semantic repair. The browser interaction gate
+  now applies declared `create`/`replace`/`merge`/`delete` semantics to its
+  canonical smoke context, so a committed Add can expose the exact row used by
+  subsequent Status/Edit/Delete checks. A real two-command headless-browser
+  regression covers this sequential reconciliation.
+- The retained Career OS source then proved that Vite transpilation alone is
+  insufficient: GLM destructured `useSurfaceData()` as an object, passed an
+  argument to `useCommandAttempts()`, read a nonexistent runtime `connected`
+  property, and treated DOM-only `feedbackProps` as controller state. The
+  host-owned Surface toolchain v2 now runs strict TypeScript contract checking
+  before Vite, returns bounded file/line `typescript_contract_error`
+  diagnostics, records separate typecheck/compile timings, and requires the
+  isolated toolchain command to run the same check. The Builder skill now
+  includes exact SDK signatures and a persistently mounted feedback pattern.
+  The bad retained revision is rejected in `1.86s` with `13` exact diagnostics;
+  focused pipeline/build/browser verification passes (`25 passed`).
+- The final normal Builder smoke produced a much closer candidate and the new
+  gate returned five precise assignability errors, but Fireworks rejected the
+  reserved repair with HTTP `412`: the account is suspended or spend-limited.
+  The last live Career OS pointer remains revision 7 / build
+  `sbuild_55b34dc8a23f4b5191a608c5b20a7807`, and canonical data revision remains
+  `6`; no generated application was patched and no Event data was reset.
+
 ## Blockers
 
+- Fireworks currently returns HTTP `412` for the local GLM Builder assignment
+  because the account is suspended or spend-limited. Restore provider access
+  (or configure another qualified Builder) before rerunning the retained
+  Career OS type-diagnostic repair and live publication acceptance.
 - GLM 5.2 Fast remains temporarily allowed only in the local gitignored
   model-role file. The exact production-schema smoke now passes, but production
   qualification still requires the governed Builder evaluation and a complete
@@ -303,8 +333,9 @@ and model wake policy while retaining published V1 compatibility.
 
 ## Next Session Should Start With
 
-Finish `aloy-v1-r5-surface-command-runtime`: rebuild Career OS through the
-normal Builder using `useSurfaceCommand()` and explicit entity operations, then
-enable the separately governed `source_change` and `automation` routes.
+Restore qualified Builder provider access, then rebuild the retained Career OS
+draft through the normal Builder and verify the typecheck, sequential browser
+checks, Save feedback, canonical data preservation, and atomic publication.
+After that, enable the separately governed `source_change` and `automation` routes.
 Do not patch individual generated applications or continue showcase/widget work
 until the command runtime owns their persistence and wake behavior.

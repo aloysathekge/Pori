@@ -158,12 +158,22 @@ def inspect_surface_runtime(
                 smoke_commands = json.dumps(
                     {
                         name: {
-                            "effect": declaration.interaction_class,
+                            "effect": (
+                                "state"
+                                if declaration.interaction_class
+                                in {"state", "durable_selection"}
+                                else declaration.interaction_class
+                            ),
                             "status": (
                                 "committed"
                                 if declaration.interaction_class
                                 in {"state", "durable_selection"}
                                 else "queued"
+                            ),
+                            "write": (
+                                declaration.write.model_dump(mode="json")
+                                if declaration.write is not None
+                                else None
                             ),
                         }
                         for name, declaration in (
@@ -179,20 +189,51 @@ def inspect_surface_runtime(
                     "const commands=" + smoke_commands + ";"
                     "window.__aloySmokeMessages = [];"
                     "window.__aloySmokePort = channel.port1;"
+                    "const applyState=(base,outcome,params,nextRevision)=>{"
+                    "const write=outcome.write;if(!write)return base;"
+                    "const payload=params?.payload&&typeof params.payload==='object'?params.payload:{};"
+                    "const key=write.key||payload[write.key_field];"
+                    "if(typeof key!=='string'||!key)return base;"
+                    "const namespace=write.namespace;"
+                    "const surface={...((base.data||{}).surface||{})};"
+                    "const records=[...(surface[namespace]||[])];"
+                    "const index=records.findIndex(item=>item?.key===key);"
+                    "if(write.operation==='delete'){if(index>=0)records.splice(index,1);}"
+                    "else{const current=index>=0?records[index]:null;"
+                    "const data=write.operation==='merge'?{...(current?.data||{}),...payload}:{...payload};"
+                    "const now=new Date().toISOString();"
+                    "const record={id:current?.id||`smoke:${namespace}:${key}`,namespace,key,data,"
+                    "revision:nextRevision,posture:write.posture||'user_reported',"
+                    "actor_id:'runtime-inspector',provenance:{command_name:params.name},"
+                    "evidence_refs:[],created_at:current?.created_at||now,updated_at:now};"
+                    "if(index>=0)records[index]=record;else records.push(record);}"
+                    "surface[namespace]=records;return {...base,data:{...(base.data||{}),surface}};};"
                     "channel.port1.onmessage = event => {"
                     "const message=event.data;window.__aloySmokeMessages.push(message);"
                     "if(message?.protocol==='1'&&message?.type==='request'){"
-                    "const commandName=message.params?.name||message.params?.action?.name||'surface.command';"
+                    "const params=message.params||{};"
+                    "const commandName=params.name||params.action?.name||'surface.command';"
                     "const outcome=commands[commandName]||{effect:'intent',status:'committed'};"
-                    "const interaction={id:'interaction-smoke',event_id:currentContext.event_id,"
+                    "const nextRevision=Number(currentContext.data_revision||0)+(outcome.effect==='state'?1:0);"
+                    "const interaction={id:`interaction-${message.requestId}`,event_id:currentContext.event_id,"
                     "build_id:currentContext.build_id,code_revision_id:currentContext.code_revision_id,"
                     "name:commandName,interaction_class:outcome.effect,"
-                    "component_id:message.params?.componentId||'surface',status:outcome.status,"
+                    "component_id:params.componentId||'surface',status:outcome.status,"
                     "handling_run_id:null,proposal_id:null,request_message_id:null,"
                     "outcome_message_id:null,result:{},error:null,created_at:new Date().toISOString(),"
                     "updated_at:new Date().toISOString()};"
-                    "currentContext={...currentContext,data_revision:Number(currentContext.data_revision||0)+1,"
-                    "data:{...(currentContext.data||{}),interactions:[...((currentContext.data||{}).interactions||[]),interaction]}};"
+                    "const attempt={id:`attempt-${message.requestId}`,event_id:currentContext.event_id,"
+                    "build_id:currentContext.build_id,code_revision_id:currentContext.code_revision_id,"
+                    "interaction_id:interaction.id,method:message.method,name:commandName,"
+                    "interaction_class:outcome.effect,component_id:interaction.component_id,"
+                    "base_data_revision:Number(currentContext.data_revision||0),"
+                    "observed_data_revision:nextRevision,status:outcome.status,error_code:null,error:null,"
+                    "http_status:200,retryable:false,created_at:new Date().toISOString()};"
+                    "const projected=applyState(currentContext,outcome,params,nextRevision);"
+                    "currentContext={...projected,data_revision:nextRevision,"
+                    "data:{...(projected.data||{}),"
+                    "interactions:[...((projected.data||{}).interactions||[]),interaction],"
+                    "command_attempts:[...((projected.data||{}).command_attempts||[]),attempt]}};"
                     "channel.port1.postMessage({protocol:'1',type:'context',"
                     "sessionId:'runtime-smoke',context:currentContext});"
                     "channel.port1.postMessage({protocol:'1',type:'response',"
@@ -205,9 +246,8 @@ def inspect_surface_runtime(
                     + json.dumps(
                         str(context.get("code_revision_id") or "revision-smoke")
                     )
-                    + ",status:outcome.status,data_revision:"
-                    + str(int(context.get("data_revision") or 0) + 1)
-                    + ",proposal_id:null,handling_run_id:null,replayed:false}});}};"
+                    + ",status:outcome.status,data_revision:currentContext.data_revision,"
+                    "proposal_id:null,handling_run_id:null,replayed:false}});}};"
                     "channel.port1.start();"
                     "window.postMessage({protocol:'1',type:'aloy.surface.connect',"
                     "sessionId:'runtime-smoke',context:"

@@ -20,12 +20,12 @@ from pori import LocalSandboxProvider, SandboxProvider, get_sandbox_provider
 
 from .surface_manifest import SurfaceManifest
 
-SURFACE_TOOLCHAIN_VERSION = "aloy-surface-toolchain@1"
+SURFACE_TOOLCHAIN_VERSION = "aloy-surface-toolchain@2"
 MAX_SURFACE_BUNDLE_BYTES = 2 * 1024 * 1024
 MAX_SURFACE_BUILD_LOG_CHARS = 100_000
 _FIXED_BUILD_COMMAND = (
     "timeout 60s /opt/aloy-surface-toolchain/bin/build-surface "
-    "--source /workspace --output /output"
+    "--typecheck --source /workspace --output /output"
 )
 
 _ALLOWED_IMPORTS = {
@@ -122,6 +122,40 @@ def _diagnostic(
         "path": path,
         "line": line,
     }
+
+
+def _typescript_diagnostics(log: str, *, source: Path) -> list[dict[str, Any]]:
+    """Convert host TypeScript output into bounded model-repair diagnostics."""
+    pattern = re.compile(
+        r"^(?P<path>.+)\((?P<line>\d+),(?P<column>\d+)\): "
+        r"error (?P<code>TS\d+): (?P<message>.*)$",
+        re.MULTILINE,
+    )
+    diagnostics: list[dict[str, Any]] = []
+    for match in pattern.finditer(log):
+        raw_path = Path(match.group("path"))
+        candidate = raw_path if raw_path.is_absolute() else source.parent / raw_path
+        surface_path: str | None = None
+        try:
+            surface_path = "/" + candidate.resolve().relative_to(source).as_posix()
+        except ValueError:
+            surface_path = None
+        diagnostics.append(
+            _diagnostic(
+                "typescript_contract_error",
+                f"{match.group('code')}: {match.group('message')}",
+                path=surface_path,
+                line=int(match.group("line")),
+            )
+        )
+        if len(diagnostics) >= 100:
+            break
+    return diagnostics or [
+        _diagnostic(
+            "typescript_contract_error",
+            "The host TypeScript contract check rejected the generated source",
+        )
+    ]
 
 
 def validate_surface_source(
@@ -331,6 +365,15 @@ class LocalDevelopmentSurfaceBuildRunner:
             / "aloy-surface"
             / "dist"
             / "index.js",
+            "sdk_types": self._repository_root
+            / "packages"
+            / "aloy-surface"
+            / "dist"
+            / "index.d.ts",
+            "typescript": app_modules / "typescript" / "bin" / "tsc",
+            "react_types": app_modules / "@types" / "react" / "index.d.ts",
+            "react_jsx_types": app_modules / "@types" / "react" / "jsx-runtime.d.ts",
+            "react_dom_types": app_modules / "@types" / "react-dom" / "client.d.ts",
         }
         return paths if all(path.is_file() for path in paths.values()) else None
 
@@ -412,6 +455,100 @@ class LocalDevelopmentSurfaceBuildRunner:
                     "React.createElement(AloySurfaceErrorBoundary, null, React.createElement(App))));\n",
                     encoding="utf-8",
                 )
+                declarations = source / ".aloy-types.d.ts"
+                declarations.write_text(
+                    "declare module '*.css' { const value: string; export default value; }\n"
+                    "declare module '*.svg' { const value: string; export default value; }\n",
+                    encoding="utf-8",
+                )
+                typecheck_config = root / "tsconfig.surface.json"
+                typecheck_config.write_text(
+                    json.dumps(
+                        {
+                            "compilerOptions": {
+                                "target": "ES2022",
+                                "lib": ["ES2022", "DOM", "DOM.Iterable"],
+                                "module": "ESNext",
+                                "moduleResolution": "Bundler",
+                                "jsx": "react-jsx",
+                                "strict": True,
+                                "noEmit": True,
+                                "allowJs": True,
+                                "checkJs": True,
+                                "skipLibCheck": True,
+                                "allowSyntheticDefaultImports": True,
+                                "esModuleInterop": True,
+                                "resolveJsonModule": True,
+                                "forceConsistentCasingInFileNames": True,
+                                "baseUrl": str(source),
+                                "paths": {
+                                    "@aloy/surface": [str(toolchain["sdk_types"])],
+                                    "react": [str(toolchain["react_types"])],
+                                    "react/jsx-runtime": [
+                                        str(toolchain["react_jsx_types"])
+                                    ],
+                                    "react-dom/client": [
+                                        str(toolchain["react_dom_types"])
+                                    ],
+                                },
+                            },
+                            "files": [
+                                str(declarations),
+                                *[
+                                    str((source / path.lstrip("/")).resolve())
+                                    for path in sorted(files)
+                                    if path.endswith((".js", ".jsx", ".ts", ".tsx"))
+                                ],
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                typecheck_started = time.perf_counter()
+                try:
+                    checked = subprocess.run(
+                        [
+                            node,
+                            str(toolchain["typescript"]),
+                            "--project",
+                            str(typecheck_config),
+                            "--pretty",
+                            "false",
+                        ],
+                        cwd=root,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    return SurfaceBuildRunnerResult(
+                        status="failed",
+                        diagnostics=[
+                            _diagnostic(
+                                "typecheck_timeout",
+                                "The host TypeScript contract check exceeded 30 seconds",
+                            )
+                        ],
+                    )
+                typecheck_ms = (time.perf_counter() - typecheck_started) * 1000
+                typecheck_log = (checked.stdout + checked.stderr)[
+                    -MAX_SURFACE_BUILD_LOG_CHARS:
+                ]
+                if checked.returncode != 0:
+                    return SurfaceBuildRunnerResult(
+                        status="failed",
+                        build_log=typecheck_log,
+                        diagnostics=_typescript_diagnostics(
+                            typecheck_log,
+                            source=source,
+                        ),
+                        resource_metrics={
+                            "backend": "local_dev",
+                            "typecheck_ms": round(typecheck_ms, 3),
+                        },
+                    )
                 config = root / "vite.config.mjs"
                 config.write_text(
                     "export default "
@@ -458,6 +595,7 @@ class LocalDevelopmentSurfaceBuildRunner:
                     ),
                     encoding="utf-8",
                 )
+                compile_started = time.perf_counter()
                 completed = subprocess.run(
                     [
                         node,
@@ -477,6 +615,7 @@ class LocalDevelopmentSurfaceBuildRunner:
                 log = (completed.stdout + completed.stderr)[
                     -MAX_SURFACE_BUILD_LOG_CHARS:
                 ]
+                compile_ms = (time.perf_counter() - compile_started) * 1000
                 if completed.returncode != 0:
                     return SurfaceBuildRunnerResult(
                         status="failed",
@@ -512,6 +651,8 @@ class LocalDevelopmentSurfaceBuildRunner:
                     resource_metrics={
                         "backend": "local_dev",
                         "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                        "typecheck_ms": round(typecheck_ms, 3),
+                        "compile_ms": round(compile_ms, 3),
                         "bundle_bytes": len(bundle),
                     },
                 )
