@@ -1,0 +1,30 @@
+# Aloy product model roles. Copy to aloy.models.yaml; never put API keys here.
+# Provider credentials remain environment variables owned by the deployment.
+version: 1
+
+roles:
+  # Conversation AgentConfig rows remain independent. Privileged Surface roles
+  # never inherit their provider, model, prompt, tools, or temperature.
+  surface_builder:
+    provider: anthropic
+    model: your-qualified-frontier-coding-model
+    temperature: 0.1
+    reasoning_mode: none
+    required_capabilities: [tools]
+    skill_id: surface-builder@1
+    qualification:
+      # Change only after the model passes the governed Builder evaluation.
+      status: unqualified
+      suite: aloy-surface-builder-v1
+      evidence: ""
+
+  surface_critic:
+    provider: openai
+    model: your-qualified-critic-model
+    temperature: 0.0
+    reasoning_mode: none
+    required_capabilities: [vision, structured_output]
+    qualification:
+      status: unqualified
+      suite: aloy-surface-critic-v1
+      evidence: ""

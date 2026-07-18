@@ -7,6 +7,7 @@ import pytest
 from sqlmodel import select
 
 from aloy_backend import background as background_module
+from aloy_backend.model_roles import ModelAssignment, ModelRole
 from aloy_backend.models import (
     Event,
     EventTrailEntry,
@@ -30,6 +31,39 @@ from aloy_backend.surface_requests import (
 from aloy_backend.tools.surface_builds import SURFACE_BUILD_CONTEXT_KEY
 from aloy_backend.tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
 from aloy_backend.tools.surfaces import SURFACE_AUTHORING_CONTEXT_KEY
+from pori import stable_fingerprint
+
+
+def _builder_assignment() -> ModelAssignment:
+    values = {
+        "config_version": 1,
+        "role": ModelRole.SURFACE_BUILDER,
+        "provider": "openai",
+        "model": "frontier-builder",
+        "temperature": 0.1,
+        "max_tokens": 16000,
+        "reasoning_mode": "none",
+        "capabilities": ("structured_output", "tools", "vision"),
+        "skill_id": "surface-builder@1",
+        "qualification_status": "qualified",
+        "qualification_suite": "aloy-surface-builder-v1",
+        "qualification_evidence": "eval:builder-2026-07",
+    }
+    fingerprint = stable_fingerprint(
+        {
+            **values,
+            "role": ModelRole.SURFACE_BUILDER.value,
+            "capabilities": list(values["capabilities"]),
+        }
+    )
+    return ModelAssignment.model_validate(
+        {
+            **values,
+            "config_fingerprint": fingerprint,
+            "resolution_ms": 1.25,
+            "resolved_at": datetime.now(timezone.utc),
+        }
+    )
 
 
 async def _create_event(client) -> dict:
@@ -63,9 +97,11 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
     db_session_maker,
 ):
     event = await _create_event(client)
+    assignment = _builder_assignment()
     handler = SurfaceRequestHandler(
         run_context=_run_context(event["id"]),
         session_factory=db_session_maker,
+        model_assignment_resolver=lambda *_args, **_kwargs: assignment,
     )
     params = SurfaceRequestParams(
         goal="Help me understand and use my semester timetable",
@@ -91,6 +127,7 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert len(builder_runs) == 1
         run = builder_runs[0]
         assert run.run_profile == SURFACE_BUILDER_RUN_PROFILE.descriptor()
+        assert run.model_assignment == assignment.descriptor()
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
         assert "Never convert schedule rows" in run.task
@@ -114,9 +151,11 @@ async def test_surface_ready_receipt_requires_this_runs_live_publication(
     db_session_maker,
 ):
     event = await _create_event(client)
+    assignment = _builder_assignment()
     handler = SurfaceRequestHandler(
         run_context=_run_context(event["id"]),
         session_factory=db_session_maker,
+        model_assignment_resolver=lambda *_args, **_kwargs: assignment,
     )
     queued = await handler.request(
         SurfaceRequestParams(
@@ -217,6 +256,7 @@ async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
     scoped_files = object()
     authoring_handler = object()
     build_handler = object()
+    assignment = _builder_assignment()
 
     async def fake_authoring_runtime(*_args, **_kwargs):
         return SimpleNamespace(
@@ -301,6 +341,7 @@ async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
             session_id="evt-builder",
             run_kind=SURFACE_BUILDER_RUN_KIND,
             run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
+            model_assignment=assignment.descriptor(),
             task="Build the timetable Surface",
             status="running",
             attempt_count=1,
@@ -314,6 +355,8 @@ async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
     await background_module.execute_claimed_run(run_id, "worker-a")
 
     assert captured["orchestrator"]["run_profile"] == SURFACE_BUILDER_RUN_PROFILE
+    assert captured["orchestrator"]["llm_config"] == assignment.llm_config()
+    assert "agent_config" not in captured["orchestrator"]
     assert captured["orchestrator"]["file_backend"] is scoped_files
     builder_context = captured["execution"]["tool_context_extra"]
     assert builder_context[SURFACE_AUTHORING_CONTEXT_KEY] is authoring_handler
@@ -331,12 +374,18 @@ async def test_worker_executes_builder_with_only_scoped_surface_capabilities(
             "Your Event Surface is ready. Open it beside this conversation to "
             "use the new visual workspace."
         )
+        assert completed.metrics is not None
+        assert completed.metrics["aloy_model_assignment"] == assignment.descriptor()
         assert completed.execution_receipts == [
+            {
+                "kind": "model_assignment",
+                **assignment.descriptor(),
+            },
             {
                 "kind": "surface_publication",
                 "project_id": "surface-university",
                 "publication_id": "publication-university",
                 "revision_id": "revision-university",
                 "build_id": "build-university",
-            }
+            },
         ]

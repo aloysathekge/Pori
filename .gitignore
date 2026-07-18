@@ -9,6 +9,7 @@ packages/**/package-lock.json
 
 # Local runtime state — create config.yaml from config.example.yaml
 /config.yaml
+/products/aloy/backend/aloy.models.yaml
 /debug.log
 
 # Python

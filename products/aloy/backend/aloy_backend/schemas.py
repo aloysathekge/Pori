@@ -87,6 +87,7 @@ class RunResponse(BaseModel):
     prompt_fingerprint: str | None = None
     tool_surface_fingerprint: str | None = None
     execution_receipts: list[dict] | None = None
+    model_assignment: dict | None = None
     selected_skills: list[str] | None = None
     artifacts: list[dict] | None = None
     plan: list[dict] | None = None

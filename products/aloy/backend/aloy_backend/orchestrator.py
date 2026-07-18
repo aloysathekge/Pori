@@ -75,6 +75,7 @@ def configure_sandbox() -> None:
 def build_orchestrator(
     shared_memory: Optional[AgentMemory] = None,
     agent_config: Optional[AgentConfig] = None,
+    llm_config: Optional[LLMConfig] = None,
     allowed_tools: Optional[tuple[str, ...]] = None,
     denied_tools: tuple[str, ...] = (),
     allowed_capability_groups: Optional[tuple[str, ...]] = None,
@@ -91,14 +92,24 @@ def build_orchestrator(
     Args:
         shared_memory: Optional AgentMemory seeded with conversation history.
         agent_config: Optional per-user agent config (provider, model, tools, etc).
+        llm_config: Optional product-owned purpose model. Mutually exclusive
+            with a user's AgentConfig.
     """
     if not os.getenv("PORI_PROMPTS_DIR"):
         local_prompts = Path(__file__).resolve().parent / "prompts"
         if local_prompts.exists():
             set_prompts_dir(local_prompts)
 
-    # Use agent config if provided, otherwise fall back to default config
-    if agent_config:
+    if agent_config is not None and llm_config is not None:
+        raise ValueError("agent_config and llm_config are mutually exclusive")
+
+    # Product purpose models are explicit and never inherit user prompt/tool
+    # preferences. Ordinary Runs keep the existing AgentConfig/default path.
+    if llm_config is not None:
+        llm = create_llm(llm_config)
+        provider = llm_config.provider
+        model = llm_config.model
+    elif agent_config:
         llm_config = LLMConfig(
             provider=agent_config.provider,
             model=agent_config.model,
