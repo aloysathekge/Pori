@@ -302,9 +302,18 @@ split into the following independently merged branches:
    The first slice establishes command contract v1, strict state operations, a
    compatibility-only legacy dispatch path, fixed effect-to-wake mapping, the
    shared bounded Event-context projection, an Event-scoped detailed read
-   tool, and snapshot-bound trusted reasoning triggers. The next slice makes
-   conflict/rejection outcomes durable, enables governed automation and source
-   change routing, and migrates Career OS to the new `command()` SDK.
+   tool, and snapshot-bound trusted reasoning triggers. The second slice makes
+   generated controls use a host-owned `useSurfaceCommand()` lifecycle with
+   duplicate-submit suppression, immutable exact-action retry, structured
+   conflict and
+   failure states, and accessible feedback metadata. The trusted host delivers
+   refreshed canonical context before resolving a committed command, while the
+   browser publication gate now rejects command paths that merely emit an SDK
+   message without visibly rendering the acknowledged outcome. Existing
+   immutable publications remain unchanged until rebuilt through the normal
+   Builder pipeline. The remaining slice makes conflict/rejection attempts
+   durable, enables governed automation and source-change routing, and migrates
+   Career OS from its old generated wrappers to the new command lifecycle.
 4. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
    image, warm isolated sandbox strategy, no per-Surface dependency install,
    content-addressed build reuse, and remote build benchmarks. Developer

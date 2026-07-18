@@ -154,17 +154,50 @@ def inspect_surface_runtime(
                     return message_id
 
                 send("Runtime.enable")
+                smoke_context = json.dumps(context, ensure_ascii=True, default=str)
+                smoke_commands = json.dumps(
+                    {
+                        name: {
+                            "effect": declaration.interaction_class,
+                            "status": (
+                                "committed"
+                                if declaration.interaction_class
+                                in {"state", "durable_selection"}
+                                else "queued"
+                            ),
+                        }
+                        for name, declaration in (
+                            manifest.intents.items() if manifest is not None else []
+                        )
+                    },
+                    ensure_ascii=True,
+                )
                 expression = (
                     "(() => {"
                     "const channel = new MessageChannel();"
+                    "let currentContext=" + smoke_context + ";"
+                    "const commands=" + smoke_commands + ";"
                     "window.__aloySmokeMessages = [];"
                     "window.__aloySmokePort = channel.port1;"
                     "channel.port1.onmessage = event => {"
                     "const message=event.data;window.__aloySmokeMessages.push(message);"
                     "if(message?.protocol==='1'&&message?.type==='request'){"
+                    "const commandName=message.params?.name||message.params?.action?.name||'surface.command';"
+                    "const outcome=commands[commandName]||{effect:'intent',status:'committed'};"
+                    "const interaction={id:'interaction-smoke',event_id:currentContext.event_id,"
+                    "build_id:currentContext.build_id,code_revision_id:currentContext.code_revision_id,"
+                    "name:commandName,interaction_class:outcome.effect,"
+                    "component_id:message.params?.componentId||'surface',status:outcome.status,"
+                    "handling_run_id:null,proposal_id:null,request_message_id:null,"
+                    "outcome_message_id:null,result:{},error:null,created_at:new Date().toISOString(),"
+                    "updated_at:new Date().toISOString()};"
+                    "currentContext={...currentContext,data_revision:Number(currentContext.data_revision||0)+1,"
+                    "data:{...(currentContext.data||{}),interactions:[...((currentContext.data||{}).interactions||[]),interaction]}};"
+                    "channel.port1.postMessage({protocol:'1',type:'context',"
+                    "sessionId:'runtime-smoke',context:currentContext});"
                     "channel.port1.postMessage({protocol:'1',type:'response',"
                     "sessionId:'runtime-smoke',requestId:message.requestId,ok:true,"
-                    "result:{id:'interaction-smoke',event_id:"
+                    "result:{...interaction,event_id:"
                     + json.dumps(str(context.get("event_id") or "event-smoke"))
                     + ",build_id:"
                     + json.dumps(str(context.get("build_id") or "build-smoke"))
@@ -172,9 +205,9 @@ def inspect_surface_runtime(
                     + json.dumps(
                         str(context.get("code_revision_id") or "revision-smoke")
                     )
-                    + ",status:'committed',data_revision:"
+                    + ",status:outcome.status,data_revision:"
                     + str(int(context.get("data_revision") or 0) + 1)
-                    + ",proposal_id:null,handling_run_id:null}});}};"
+                    + ",proposal_id:null,handling_run_id:null,replayed:false}});}};"
                     "channel.port1.start();"
                     "window.postMessage({protocol:'1',type:'aloy.surface.connect',"
                     "sessionId:'runtime-smoke',context:"
@@ -472,6 +505,62 @@ def _execute_interaction_check(
                     f"Interaction check {check.name!r} sent an invalid payload: {exc}",
                 )
             ]
+        if expected.method == "command":
+            expected_status = (
+                "committed" if declaration.interaction_class == "state" else "accepted"
+            )
+            feedback_expression = (
+                "(() => {"
+                f"const name={json.dumps(expected.name, ensure_ascii=True)};"
+                f"const status={json.dumps(expected_status)};"
+                "const candidates=[...document.querySelectorAll('[data-aloy-command-name]')];"
+                "const named=candidates.filter(item=>item.getAttribute('data-aloy-command-name')===name);"
+                "if(!named.length)return {ok:false,error:`No command feedback for ${name}`};"
+                "const settled=named.filter(item=>item.getAttribute('data-aloy-command-status')===status);"
+                "if(!settled.length)return {ok:false,error:`Command feedback stayed ${named.map(item=>item.getAttribute('data-aloy-command-status')||'unknown').join(', ')}`};"
+                "const element=settled.find(item=>{const style=getComputedStyle(item);"
+                "const rect=item.getBoundingClientRect();const text=String(item.textContent||'').replace(/\\s+/g,' ').trim();"
+                "return style.visibility!=='hidden'&&style.display!=='none'&&rect.width>0&&rect.height>0&&Boolean(text);});"
+                "if(!element)"
+                "return {ok:false,error:'Command feedback is not visibly rendered'};"
+                "return {ok:true};})()"
+            )
+            feedback: Any = None
+            feedback_exceptions: list[str] = []
+            feedback_deadline = min(deadline, time.monotonic() + 1.5)
+            while time.monotonic() < feedback_deadline:
+                feedback_id = send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": feedback_expression,
+                        "returnByValue": True,
+                    },
+                )
+                feedback, feedback_exceptions = _receive_evaluation(
+                    socket,
+                    result_id=feedback_id,
+                    deadline=min(feedback_deadline, time.monotonic() + 0.4),
+                )
+                if feedback_exceptions:
+                    return [
+                        _diagnostic("runtime_exception", item)
+                        for item in feedback_exceptions[:20]
+                    ]
+                if isinstance(feedback, dict) and feedback.get("ok"):
+                    break
+                time.sleep(0.05)
+            if not isinstance(feedback, dict) or not feedback.get("ok"):
+                message = (
+                    str(feedback.get("error"))
+                    if isinstance(feedback, dict)
+                    else "Command feedback did not render"
+                )
+                return [
+                    _diagnostic(
+                        "runtime_command_feedback_missing",
+                        f"Interaction check {check.name!r} failed: {message}",
+                    )
+                ]
     return []
 
 

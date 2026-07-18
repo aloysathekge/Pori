@@ -100,7 +100,14 @@ for reactive reads. Interaction records are the durable way to render queued,
 running, approval, execution, committed, rejected, failed, or indeterminate
 outcomes after the original SDK Promise has resolved; never invent completion
 from local component state.
-Use `command(name, input)` for every host-owned state or reasoning command.
+Use `useSurfaceCommand(name, {componentId})` for every user-facing host-owned
+state or reasoning control. Call its `execute(input)` method, disable repeated
+submission with `pending`, and render one visible non-empty status/error element
+with the returned `feedbackProps`. The host publication gate exercises each
+declared command and rejects a Surface unless refreshed canonical context is
+delivered before the committed/accepted feedback becomes visible. Use the
+lower-level `command(name, input)` only outside React hooks or for carefully
+composed internal helpers that provide the same lifecycle UI.
 State intents must declare exactly one of `create`, `replace`, `merge`, or
 `delete`; choose the real entity lifecycle operation instead of simulating an
 upsert in component state. `dispatch(name, payload)` remains compatibility-only
@@ -112,6 +119,9 @@ tabs, disclosure, and temporary form state stay local and require no intent.
 Import these APIs directly from `@aloy/surface`. Await every durable SDK
 Promise, show a pending state while it is in flight, show an actionable error
 when it rejects, and reconcile the UI from refreshed canonical Surface data.
+When an event handler catches `execute()` solely to prevent an unhandled React
+Promise, keep the hook's visible error output mounted and offer `retry()` for a
+retryable failure; never replace that error with silent local success.
 Never wrap SDK writes in a `void` helper, swallow `.catch(...)`, clear a form
 before persistence succeeds, or claim success from optimistic local state.
 

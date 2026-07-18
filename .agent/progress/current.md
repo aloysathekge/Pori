@@ -261,6 +261,19 @@ and model wake policy while retaining published V1 compatibility.
   three import-boundary contracts kept; focused command/state regressions `9
   passed`; Surface bridge tests `4 passed`; Aloy app lint and production build
   pass with only the existing large-chunk warning.
+- The command runtime now supplies `useSurfaceCommand()` as the standard React
+  lifecycle for generated controls. It suppresses duplicate submissions,
+  preserves an immutable JSON snapshot and idempotency key for exact-action
+  retry, exposes typed
+  `pending`/`committed`/`accepted`/`conflict`/`failed` states and structured
+  errors, and provides accessible feedback metadata. The host now sends
+  refreshed canonical context before its success acknowledgement. The browser
+  gate simulates that ordered commit/context flow and rejects a command whose
+  acknowledged outcome is not visibly rendered. Legacy `dispatch()` remains
+  compatible, and the existing immutable Career OS bundle has not been patched.
+  Verification: `23` focused Surface build/SDK backend tests and `5` host-bridge
+  tests pass; backend mypy is clean across `113` files; SDK TypeScript, app
+  lint, and the app production build pass with only the existing chunk warning.
 
 ## Blockers
 
@@ -276,7 +289,8 @@ and model wake policy while retaining published V1 compatibility.
 
 Finish `aloy-v1-r5-surface-command-runtime`: add durable structured conflict and
 rejection outcomes, enable governed `source_change` and `automation` routes,
-generate the remaining reconnect/permission host tests, then migrate Career OS
-from its model-owned wrappers to `command()` with explicit entity operations.
+generate the remaining reconnect/permission host tests, then rebuild Career OS
+through the normal Builder using `useSurfaceCommand()` and explicit entity
+operations.
 Do not patch individual generated applications or continue showcase/widget work
 until the command runtime owns their persistence and wake behavior.

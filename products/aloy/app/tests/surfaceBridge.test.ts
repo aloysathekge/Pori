@@ -3,6 +3,7 @@ import type {
   SurfaceInteractionResponse,
   SurfaceRuntimeContext,
 } from '../src/api/surfaces';
+import { ApiError } from '../src/api/client';
 import { SurfaceBridgeHost } from '../src/components/surfaces/surfaceBridge';
 
 const context: SurfaceRuntimeContext = {
@@ -21,10 +22,10 @@ const context: SurfaceRuntimeContext = {
 
 const interaction: SurfaceInteractionResponse = {
   id: 'interaction-1',
-  status: 'completed',
+  status: 'committed',
   name: 'trip.select_flight',
   interaction_class: 'intent',
-  data_revision: null,
+  data_revision: 2,
   handling_run_id: null,
   proposal_id: null,
   request_message_id: null,
@@ -135,12 +136,17 @@ describe('SurfaceBridgeHost', () => {
     let sessionId = '';
     let receivedIdempotencyKey = '';
     let receivedMethod = '';
+    let contextReads = 0;
+    const receivedTypes: string[] = [];
     const bridge = new SurfaceBridgeHost(
       'event-1',
       'build-1',
       {},
       {
-        getContext: async () => context,
+        getContext: async () => ({
+          ...context,
+          data_revision: ++contextReads,
+        }),
         createInteraction: async (_eventId, request) => {
           receivedIdempotencyKey = request.idempotency_key;
           receivedMethod = request.method;
@@ -159,6 +165,7 @@ describe('SurfaceBridgeHost', () => {
     const response = new Promise<Record<string, unknown>>((resolve, reject) => {
       if (!surfacePort) throw new Error('Surface port is unavailable');
       surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (typeof event.data.type === 'string') receivedTypes.push(event.data.type);
         if (event.data.type === 'ping') {
           surfacePort?.postMessage({
             protocol: '1',
@@ -192,6 +199,82 @@ describe('SurfaceBridgeHost', () => {
     });
     expect(receivedIdempotencyKey).toBe('interaction-key-1');
     expect(receivedMethod).toBe('command');
+    expect(receivedTypes.indexOf('context')).toBeGreaterThan(-1);
+    expect(receivedTypes.indexOf('context')).toBeLessThan(
+      receivedTypes.indexOf('response'),
+    );
+    expect(contextReads).toBe(2);
+    bridge.disconnect(false);
+  });
+
+  test('returns a structured conflict after refreshing canonical context', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    let contextReads = 0;
+    const receivedTypes: string[] = [];
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      {},
+      {
+        getContext: async () => ({
+          ...context,
+          data_revision: ++contextReads,
+        }),
+        createInteraction: async () => {
+          throw new ApiError(409, 'Surface data revision changed');
+        },
+      },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (typeof event.data.type === 'string') receivedTypes.push(event.data.type);
+        if (event.data.type === 'ping') {
+          surfacePort?.postMessage({
+            protocol: '1',
+            type: 'pong',
+            sessionId,
+            nonce: event.data.nonce,
+          });
+        } else if (event.data.type === 'response') {
+          resolve(event.data);
+        }
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-conflict',
+        method: 'command',
+        params: {
+          name: 'trip.select_flight',
+          payload: {},
+          componentId: 'flight-card',
+          idempotencyKey: 'interaction-conflict-1',
+        },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for host response')), 500);
+    });
+
+    await expect(response).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'conflict',
+      statusCode: 409,
+      retryable: true,
+    });
+    expect(receivedTypes.indexOf('context')).toBeLessThan(
+      receivedTypes.indexOf('response'),
+    );
+    expect(contextReads).toBe(2);
     bridge.disconnect(false);
   });
 });

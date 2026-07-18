@@ -175,7 +175,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
             "capabilities": ["data:career"],
             "intents": {
                 "career.application_created": {
-                    "class": "durable_selection",
+                    "class": "state",
                     "schema": {
                         "type": "object",
                         "properties": {
@@ -187,6 +187,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
                     },
                     "write": {
                         "namespace": "career",
+                        "operation": "create",
                         "key_field": "applicationId",
                     },
                 }
@@ -204,7 +205,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
                         {"action": "click", "role": "button", "name": "Save"},
                     ],
                     "expect": {
-                        "method": "dispatch",
+                        "method": "command",
                         "name": "career.application_created",
                     },
                 }
@@ -214,13 +215,17 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { dispatch } from "@aloy/surface"; '
+            'import { useSurfaceCommand } from "@aloy/surface"; '
             "export default function App(){const [company,setCompany]=useState('');"
-            "return <form onSubmit={async event=>{event.preventDefault();await dispatch("
-            "'career.application_created',{applicationId:'smoke',company});}}>"
+            "const save=useSurfaceCommand('career.application_created',{componentId:'add-application'});"
+            "return <form onSubmit={async event=>{event.preventDefault();try{await save.execute("
+            "{applicationId:'smoke',company});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
-            "<button type='submit'>Save</button></form>}"
+            "<button type='submit' disabled={save.pending}>Save</button>"
+            "<p {...save.feedbackProps}>{save.status==='pending'?'Saving':"
+            "save.status==='committed'?'Application saved':save.error?.message||'Ready'}</p>"
+            "</form>}"
         )
     }
     result = await LocalDevelopmentSurfaceBuildRunner().build(
@@ -252,6 +257,32 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         )
         == []
     )
+
+    no_feedback_result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="missing-command-feedback-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import React, { useState } from "react"; '
+                'import { command } from "@aloy/surface"; '
+                "export default function App(){const [company,setCompany]=useState('');"
+                "return <form onSubmit={async event=>{event.preventDefault();await command("
+                "'career.application_created',{applicationId:'smoke',company});}}>"
+                "<label>Company<input aria-label='Company' value={company} "
+                "onChange={event=>setCompany(event.target.value)}/></label>"
+                "<button type='submit'>Save</button></form>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    assert no_feedback_result.bundle is not None
+    no_feedback_diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(no_feedback_result.bundle),
+        context,
+        manifest=manifest,
+    )
+    assert {item["code"] for item in no_feedback_diagnostics} == {
+        "runtime_command_feedback_missing"
+    }
 
     broken = SurfaceManifest.model_validate(
         manifest.model_dump(mode="json", by_alias=True)

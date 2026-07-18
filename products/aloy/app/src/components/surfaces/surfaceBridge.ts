@@ -17,6 +17,16 @@ export type SurfaceBridgeStatus =
   | 'degraded'
   | 'disconnected';
 
+type SurfaceBridgeErrorCode =
+  | 'conflict'
+  | 'permission_denied'
+  | 'invalid'
+  | 'rate_limited'
+  | 'unavailable'
+  | 'timeout'
+  | 'disconnected'
+  | 'failed';
+
 export interface SurfaceBridgeStatusUpdate {
   status: SurfaceBridgeStatus;
   message?: string;
@@ -102,6 +112,21 @@ function retryableFailure(cause: unknown, controller: AbortController): boolean 
     || cause instanceof TypeError
     || (cause instanceof ApiError && [409, 429, 503].includes(cause.status))
   );
+}
+
+function failureCode(
+  cause: unknown,
+  controller: AbortController,
+): SurfaceBridgeErrorCode {
+  if (controller.signal.aborted) return 'timeout';
+  if (cause instanceof TypeError) return 'unavailable';
+  if (!(cause instanceof ApiError)) return 'failed';
+  if (cause.status === 409) return 'conflict';
+  if (cause.status === 401 || cause.status === 403) return 'permission_denied';
+  if (cause.status === 422) return 'invalid';
+  if (cause.status === 429) return 'rate_limited';
+  if (cause.status === 503) return 'unavailable';
+  return 'failed';
 }
 
 export class SurfaceBridgeHost {
@@ -345,7 +370,13 @@ export class SurfaceBridgeHost {
     requestId: string,
     response:
       | { ok: true; result: unknown }
-      | { ok: false; error: string; retryable?: boolean },
+      | {
+          ok: false;
+          error: string;
+          errorCode: SurfaceBridgeErrorCode;
+          statusCode?: number;
+          retryable?: boolean;
+        },
   ): void {
     if (!this.port || !this.sessionId) return;
     this.port.postMessage({
@@ -395,6 +426,7 @@ export class SurfaceBridgeHost {
       this.respond(request.requestId, {
         ok: false,
         error: 'Too many Surface requests',
+        errorCode: 'rate_limited',
       });
       return;
     }
@@ -481,6 +513,8 @@ export class SurfaceBridgeHost {
       this.respond(request.requestId, {
         ok: false,
         error: errorMessage(cause, 'Surface request timed out'),
+        errorCode: failureCode(cause, controller),
+        statusCode: cause instanceof ApiError ? cause.status : undefined,
         retryable: retryableFailure(cause, controller),
       });
       return;
@@ -489,14 +523,19 @@ export class SurfaceBridgeHost {
       this.inFlight.delete(request.requestId);
     }
 
-    this.respond(request.requestId, { ok: true, result });
     if (result.data_revision !== null || result.proposal_id || result.handling_run_id) {
       try {
         await this.refresh();
       } catch {
-        // The interaction is already durable and acknowledged. Runtime status
-        // reports the refresh failure; never send a contradictory second reply.
+        // The interaction is durable, but the generated UI must not claim a
+        // reconciled outcome from stale context. Keep its request pending so
+        // the normal reconnect can replay the same idempotency key safely.
+        return;
       }
     }
+    // MessageChannel preserves sender order: canonical context is delivered
+    // before this acknowledgement, so a resolved SDK Promise never races the
+    // refreshed Event data on the normal path.
+    this.respond(request.requestId, { ok: true, result });
   }
 }
