@@ -175,7 +175,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
             "capabilities": ["data:career"],
             "intents": {
                 "career.application_created": {
-                    "class": "durable_selection",
+                    "class": "state",
                     "schema": {
                         "type": "object",
                         "properties": {
@@ -187,6 +187,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
                     },
                     "write": {
                         "namespace": "career",
+                        "operation": "create",
                         "key_field": "applicationId",
                     },
                 }
@@ -204,7 +205,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
                         {"action": "click", "role": "button", "name": "Save"},
                     ],
                     "expect": {
-                        "method": "dispatch",
+                        "method": "command",
                         "name": "career.application_created",
                     },
                 }
@@ -214,13 +215,17 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { dispatch } from "@aloy/surface"; '
+            'import { useSurfaceCommand } from "@aloy/surface"; '
             "export default function App(){const [company,setCompany]=useState('');"
-            "return <form onSubmit={async event=>{event.preventDefault();await dispatch("
-            "'career.application_created',{applicationId:'smoke',company});}}>"
+            "const save=useSurfaceCommand('career.application_created',{componentId:'add-application'});"
+            "return <form onSubmit={async event=>{event.preventDefault();try{await save.execute("
+            "{applicationId:'smoke',company});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
-            "<button type='submit'>Save</button></form>}"
+            "<button type='submit' disabled={save.pending}>Save</button>"
+            "<p {...save.feedbackProps}>{save.status==='pending'?'Saving':"
+            "save.status==='committed'?'Application saved':save.error?.message||'Ready'}</p>"
+            "</form>}"
         )
     }
     result = await LocalDevelopmentSurfaceBuildRunner().build(
@@ -253,6 +258,32 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         == []
     )
 
+    no_feedback_result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="missing-command-feedback-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import React, { useState } from "react"; '
+                'import { command } from "@aloy/surface"; '
+                "export default function App(){const [company,setCompany]=useState('');"
+                "return <form onSubmit={async event=>{event.preventDefault();await command("
+                "'career.application_created',{applicationId:'smoke',company});}}>"
+                "<label>Company<input aria-label='Company' value={company} "
+                "onChange={event=>setCompany(event.target.value)}/></label>"
+                "<button type='submit'>Save</button></form>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    assert no_feedback_result.bundle is not None
+    no_feedback_diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(no_feedback_result.bundle),
+        context,
+        manifest=manifest,
+    )
+    assert {item["code"] for item in no_feedback_diagnostics} == {
+        "runtime_command_feedback_missing"
+    }
+
     broken = SurfaceManifest.model_validate(
         manifest.model_dump(mode="json", by_alias=True)
     )
@@ -268,6 +299,171 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         manifest=broken,
     )
     assert {item["code"] for item in diagnostics} == {"runtime_interaction_step_failed"}
+
+
+async def test_local_browser_gate_projects_accepted_state_between_checks():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["data:career"],
+            "intents": {
+                "career.application_created": {
+                    "class": "state",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "applicationId": {"type": "string"},
+                            "company": {"type": "string"},
+                            "stage": {"type": "string"},
+                        },
+                        "required": ["applicationId", "company", "stage"],
+                        "additionalProperties": False,
+                    },
+                    "write": {
+                        "namespace": "career",
+                        "operation": "create",
+                        "key_field": "applicationId",
+                    },
+                },
+                "career.stage_changed": {
+                    "class": "state",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "applicationId": {"type": "string"},
+                            "stage": {"type": "string"},
+                        },
+                        "required": ["applicationId", "stage"],
+                        "additionalProperties": False,
+                    },
+                    "write": {
+                        "namespace": "career",
+                        "operation": "merge",
+                        "key_field": "applicationId",
+                    },
+                },
+            },
+            "interaction_checks": [
+                {
+                    "name": "Add an application",
+                    "steps": [
+                        {
+                            "action": "fill",
+                            "role": "textbox",
+                            "name": "Company",
+                            "value": "Aloy Verification",
+                        },
+                        {"action": "click", "role": "button", "name": "Save"},
+                    ],
+                    "expect": {
+                        "method": "command",
+                        "name": "career.application_created",
+                    },
+                },
+                {
+                    "name": "Move the new application",
+                    "steps": [
+                        {
+                            "action": "select",
+                            "role": "combobox",
+                            "name": "Status for Aloy Verification",
+                            "value": "interview",
+                        }
+                    ],
+                    "expect": {
+                        "method": "command",
+                        "name": "career.stage_changed",
+                    },
+                },
+            ],
+        }
+    )
+    files = {
+        "/src/App.tsx": (
+            'import React, { useState } from "react"; '
+            'import { useSurfaceCommand, useSurfaceData } from "@aloy/surface"; '
+            "type Application={applicationId:string;company:string;stage:string};"
+            "export default function App(){const [company,setCompany]=useState('');"
+            "const applications=useSurfaceData<Application>('career');"
+            "const create=useSurfaceCommand<Application>('career.application_created');"
+            "const move=useSurfaceCommand<{applicationId:string;stage:string}>('career.stage_changed');"
+            "return <div><form onSubmit={async event=>{event.preventDefault();try{await create.execute("
+            "{applicationId:'smoke',company,stage:'applied'});}catch{}}}>"
+            "<label>Company<input aria-label='Company' value={company} "
+            "onChange={event=>setCompany(event.target.value)}/></label>"
+            "<button type='submit' disabled={create.pending}>Save</button></form>"
+            "<p {...create.feedbackProps}>{create.status}</p>"
+            "{applications.map(record=><select key={record.key} "
+            "aria-label={`Status for ${record.data.company}`} value={record.data.stage} "
+            "onChange={async event=>{try{await move.execute({applicationId:record.data.applicationId,"
+            "stage:event.target.value});}catch{}}}>"
+            "<option value='applied'>Applied</option><option value='interview'>Interview</option>"
+            "</select>)}<p {...move.feedbackProps}>{move.status}</p></div>}"
+        )
+    }
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="canonical-state-projection-local-toolchain",
+        files=files,
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "command_contract_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["data:career"],
+            "widgets": [],
+            "data": {
+                "interactions": [],
+                "command_attempts": [],
+                "surface": {"career": []},
+            },
+        },
+        manifest=manifest,
+    )
+
+    assert diagnostics == []
+
+
+async def test_local_development_builder_typechecks_surface_sdk_contract():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="invalid-sdk-types-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceCommand, useSurfaceData } from "@aloy/surface"; '
+                "export default function App(){"
+                "const {data}=useSurfaceData('career');"
+                "const save=useSurfaceCommand('career.application_created');"
+                "return <p>{String(data)} {save.feedbackProps.status}</p>}"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+
+    assert result.status == "failed"
+    assert result.bundle is None
+    assert {item["code"] for item in result.diagnostics} == {
+        "typescript_contract_error"
+    }
+    assert all(item["path"] == "/src/App.tsx" for item in result.diagnostics)
+    messages = " ".join(item["message"] for item in result.diagnostics)
+    assert "data" in messages
+    assert "status" in messages
 
 
 def test_configured_surface_builder_requires_explicit_local_dev_mode(monkeypatch):

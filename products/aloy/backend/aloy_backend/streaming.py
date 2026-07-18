@@ -44,6 +44,8 @@ from .event_log import EventLogCollector
 from .surface_requests import SurfaceRequestHandler
 from .tools import (
     GOOGLE_WRITE_TOOLS,
+    SURFACE_STATE_CONTEXT_KEY,
+    SurfaceStateReader,
     TaskMutationHandler,
     gmail_draft_preview,
 )
@@ -127,6 +129,10 @@ async def stream_agent_execution(
             owner_loop=serving_loop,
         )
         merged_tool_context[SURFACE_REQUEST_CONTEXT_KEY] = SurfaceRequestHandler(
+            run_context=run_context,
+            owner_loop=serving_loop,
+        )
+        merged_tool_context[SURFACE_STATE_CONTEXT_KEY] = SurfaceStateReader(
             run_context=run_context,
             owner_loop=serving_loop,
         )

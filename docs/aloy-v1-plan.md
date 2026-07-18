@@ -299,12 +299,37 @@ split into the following independently merged branches:
    must cover success, rejection, stale revision, reconnect, empty, populated,
    partial, and permission-denied states. Migrate Career OS first and remove
    model-owned persistence wrappers before other showcase work continues.
-4. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
-   image, warm isolated sandbox strategy, no per-Surface dependency install,
-   content-addressed build reuse, and remote build benchmarks. Developer
-   workstations may explicitly select a fixed host-local compiler while remote
-   sandboxes are unavailable; it accepts no model-owned command, dependency,
-   plugin, config, or HTML shell and is forbidden as a hosted default.
+   The first slice establishes command contract v1, strict state operations, a
+   compatibility-only legacy dispatch path, fixed effect-to-wake mapping, the
+   shared bounded Event-context projection, an Event-scoped detailed read
+   tool, and snapshot-bound trusted reasoning triggers. The second slice makes
+   generated controls use a host-owned `useSurfaceCommand()` lifecycle with
+   duplicate-submit suppression, immutable exact-action retry, structured
+   conflict and
+   failure states, and accessible feedback metadata. The trusted host delivers
+   refreshed canonical context before resolving a committed command, while the
+   browser publication gate now rejects command paths that merely emit an SDK
+   message without visibly rendering the acknowledged outcome. Existing
+   immutable publications remain unchanged until rebuilt through the normal
+   Builder pipeline. The remaining slice makes conflict/rejection attempts
+   durable, enables governed automation and source-change routing, and migrates
+   Career OS from its old generated wrappers to the new command lifecycle.
+4. **`aloy-v1-r5-fast-build-runtime`** - run every candidate in a fresh,
+   short-lived Surface Build Sandbox created from a pinned E2B template with
+   the fixed React compiler, Aloy SDK, and browser gate already installed. The
+   host uploads validated source, invokes one fixed compile-and-inspect command,
+   retrieves immutable bundles, diagnostics, captures, and receipts, and then
+   releases the sandbox. Record the template identity, limits, readiness,
+   acquisition/compile/inspection timings, hashes, and termination reason. No
+   per-Surface dependency install, public sandbox URL, sandbox credential,
+   model-owned command, plugin, config, or HTML shell is allowed. Add
+   content-addressed build reuse and remote cold/warm benchmarks; introduce a
+   warm pool only if measured acquisition misses the target. Developer
+   workstations may explicitly select the same fixed host-local compiler while
+   remote sandboxes are unavailable, but local execution is forbidden as a
+   hosted default. This slice does not create a long-lived sandbox per Event;
+   the richer future Event Execution Workspace is a separate provider-neutral
+   runtime with its own capabilities and security policy.
 5. **`aloy-v1-r5-live-surface-ux`** - upgrade the durable polled Builder state
    from Phase 2 to Event SSE progress; add automatic published-Surface handoff,
    richer diagnostics, last-good continuity, immutable runtime preparation,
@@ -327,6 +352,17 @@ acquisition under `800 ms` P50; React compilation under `2 s` P50; and the
 complete non-model candidate pipeline under `5 s` P50. The user receives a
 real host-owned building state within one second even when frontier-model
 generation takes longer.
+
+The initial E2B Hobby test environment is sufficient for correctness and
+latency exercises: its documented/current dashboard limits include twenty
+concurrent sandboxes, twenty concurrent template builds, up to 8 vCPU and 8 GB
+RAM, 10 GB sandbox disk, and a one-hour maximum continuous sandbox lifetime,
+with pause/resume available and usage billed per second. The current account
+also has the provider's one-time USD 100 credit. These are observed test
+capacity, not Aloy architecture constants: deployment reads provider limits
+from configuration and monitoring, and Event longevity never depends on an
+individual sandbox lifetime. Reconfirm changing limits against the [E2B
+documentation](https://e2b.dev/docs) before capacity or cost decisions.
 
 Scope:
 
@@ -590,6 +626,8 @@ Gate:
 - emergent Event detection;
 - Auto/Notify routing;
 - push notifications and learned attention budgets;
+- authenticated browser connections, user login/takeover, private-account
+  monitoring, adaptive browser control, and browser-submitted external actions;
 - arbitrary npm dependencies, full-stack generated services, direct generated
   network/provider access, user-installed Surface plugins, and unsandboxed
   model-generated code;
@@ -597,6 +635,40 @@ Gate:
 - shared cross-user Events;
 - unrestricted concurrent Runs per Event or account;
 - desktop local-folder integration and native mobile clients.
+
+### Post-V1 browser delivery track
+
+Authenticated browser work is deliberately outside the current R0-R8 release
+gate. Its architecture and provider research live in
+[`aloy-browser-agent-spec.md`](./aloy-browser-agent-spec.md). It may be promoted
+into an active release only through an explicit scope decision; current Surface
+work must not absorb browser credentials or general web authority.
+
+The planned sequence is:
+
+1. **B0 — contracts and fake provider:** provider-neutral browser Session,
+   Context, evidence, action, and error contracts; durable connection/grant/Run
+   state; injection, concurrency, and crash tests.
+2. **B1 — Browserbase connection and read-only Session:** Context creation,
+   exclusive connection leases, backend-mediated Live View, login/takeover,
+   reauthentication, and one allowlisted deterministic read canary.
+3. **B2 — research ladder and authenticated observations:** API/Search/Fetch
+   routing before browser allocation, typed Stagehand atomic operations,
+   read-only monitoring, evidence, and Today attention.
+4. **B3 — adaptive reliability:** reviewed recipes, page fingerprints, repair
+   limits, checkpoints, reconnect, provider queues, budgets, privacy, proxy,
+   and prompt-injection gates.
+5. **B4 — staged external actions:** Proposal-bound stage/execute/reconcile
+   flow, frozen action fingerprints, and one reversible non-payment write
+   canary with effectively-once drills.
+6. **B5 — hardened release:** controlled file transfer, quarantine, retention,
+   multi-site evals, and measured reliability, latency, cost, and support gates.
+
+Browserbase is the first provider, but Aloy owns the agent loop. The hosted
+Browserbase Agents abstraction is not the canonical executor because it owns a
+parallel model/tool loop and currently couples browser access with fixed shell
+and filesystem tools. The initial path uses Browserbase Sessions plus
+deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 ## 8. Immediate next action
 

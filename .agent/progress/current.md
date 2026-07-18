@@ -2,9 +2,9 @@
 
 ## Active Task
 
-Implement `aloy-v1-r5-host-build-pipeline`: no-tool structured Surface
-generation followed by host-owned persistence, validation, build, inspection,
-bounded repair, and atomic last-good publication.
+Implement `aloy-v1-r5-surface-command-runtime`: make Aloy's host own canonical
+Surface entities, exact mutation semantics, command routing, state projection,
+and model wake policy while retaining published V1 compatibility.
 
 ## Decisions Made
 
@@ -247,9 +247,82 @@ bounded repair, and atomic last-good publication.
   until the optional E2B SDK is installed and a pinned E2B template provides
   `/opt/aloy-surface-toolchain/bin/build-surface`; the default E2B image does
   not currently contain Aloy's host-owned compiler contract.
+- PR #189 merged the verified host-owned build pipeline into `aloy-v1`. The
+  command-runtime branch now introduces command contract v1, strict
+  `create`/`replace`/`merge`/`delete` entity semantics, a legacy `dispatch`
+  compatibility seam, fixed wake-policy classification, a bounded canonical
+  Surface-state Event-context projection, and an Event-scoped detailed-state
+  read tool. Reasoning commands create a host-rendered trigger containing the
+  exact Event, data revision, and context snapshot fingerprint; arbitrary
+  Surface payload is retained as data but is not interpolated into the Run
+  instruction.
+- Command-runtime slice verification: complete Aloy backend suite `346 passed`;
+  backend mypy clean across `113` source files; backend Black/isort clean; all
+  three import-boundary contracts kept; focused command/state regressions `9
+  passed`; Surface bridge tests `4 passed`; Aloy app lint and production build
+  pass with only the existing large-chunk warning.
+- The command runtime now supplies `useSurfaceCommand()` as the standard React
+  lifecycle for generated controls. It suppresses duplicate submissions,
+  preserves an immutable JSON snapshot and idempotency key for exact-action
+  retry, exposes typed
+  `pending`/`committed`/`accepted`/`conflict`/`failed` states and structured
+  errors, and provides accessible feedback metadata. The host now sends
+  refreshed canonical context before its success acknowledgement. The browser
+  gate simulates that ordered commit/context flow and rejects a command whose
+  acknowledged outcome is not visibly rendered. Legacy `dispatch()` remains
+  compatible, and the existing immutable Career OS bundle has not been patched.
+  Verification: `23` focused Surface build/SDK backend tests and `5` host-bridge
+  tests pass; backend mypy is clean across `113` files; SDK TypeScript, app
+  lint, and the app production build pass with only the existing chunk warning.
+- Surface commands now have an append-only attempt ledger beside the accepted
+  interaction ledger. Every accepted command records its initial host outcome;
+  stale revisions, idempotency conflicts, validation failures, and policy
+  denials survive the request rollback with safe error code, retryability,
+  requested/observed data revisions, and a durable attempt ID. The iframe
+  context exposes bounded attempt receipts without rejected payloads, while
+  `SurfaceRequestError` and `useCommandAttempts()` let generated React match
+  immediate errors to their durable record. The host refreshes canonical
+  context before returning either an accepted command or a durable rejection.
+  Host tests cover structured conflict, non-retryable permission denial, and a
+  commit whose context refresh fails and recovers only after reconnect. Focused
+  backend command/migration tests pass; the combined Surface SDK/build set
+  passed `24` tests with one known headless-browser handshake race, whose exact
+  unchanged assertion passed immediately on rerun. Backend mypy is clean across
+  `113` files; `7` bridge tests, SDK TypeScript, app lint, and production build
+  pass with only the existing chunk warning.
+
+- Live Career OS migration exposed three host-boundary reliability gaps. Safe
+  `/src` and `/surface.json` candidate shorthand and overlong descriptive
+  summaries are now canonicalized before authoritative validation instead of
+  consuming the model's single semantic repair. The browser interaction gate
+  now applies declared `create`/`replace`/`merge`/`delete` semantics to its
+  canonical smoke context, so a committed Add can expose the exact row used by
+  subsequent Status/Edit/Delete checks. A real two-command headless-browser
+  regression covers this sequential reconciliation.
+- The retained Career OS source then proved that Vite transpilation alone is
+  insufficient: GLM destructured `useSurfaceData()` as an object, passed an
+  argument to `useCommandAttempts()`, read a nonexistent runtime `connected`
+  property, and treated DOM-only `feedbackProps` as controller state. The
+  host-owned Surface toolchain v2 now runs strict TypeScript contract checking
+  before Vite, returns bounded file/line `typescript_contract_error`
+  diagnostics, records separate typecheck/compile timings, and requires the
+  isolated toolchain command to run the same check. The Builder skill now
+  includes exact SDK signatures and a persistently mounted feedback pattern.
+  The bad retained revision is rejected in `1.86s` with `13` exact diagnostics;
+  focused pipeline/build/browser verification passes (`25 passed`).
+- The final normal Builder smoke produced a much closer candidate and the new
+  gate returned five precise assignability errors, but Fireworks rejected the
+  reserved repair with HTTP `412`: the account is suspended or spend-limited.
+  The last live Career OS pointer remains revision 7 / build
+  `sbuild_55b34dc8a23f4b5191a608c5b20a7807`, and canonical data revision remains
+  `6`; no generated application was patched and no Event data was reset.
 
 ## Blockers
 
+- Fireworks currently returns HTTP `412` for the local GLM Builder assignment
+  because the account is suspended or spend-limited. Restore provider access
+  (or configure another qualified Builder) before rerunning the retained
+  Career OS type-diagnostic repair and live publication acceptance.
 - GLM 5.2 Fast remains temporarily allowed only in the local gitignored
   model-role file. The exact production-schema smoke now passes, but production
   qualification still requires the governed Builder evaluation and a complete
@@ -260,11 +333,9 @@ bounded repair, and atomic last-good publication.
 
 ## Next Session Should Start With
 
-Merge this verified host-build phase into `aloy-v1`, then start
-`aloy-v1-r5-surface-command-runtime`. Introduce the versioned host-owned
-Surface entity/command contract behind V1 compatibility, canonical
-Surface-to-Conversation state projection, Event-scoped detailed-state read
-tool, explicit wake policies, and host-generated command tests. Migrate Career
-OS through that contract before fast-build, showcase, or widget work continues;
-do not solve further interaction failures by patching individual generated
-applications.
+Restore qualified Builder provider access, then rebuild the retained Career OS
+draft through the normal Builder and verify the typecheck, sequential browser
+checks, Save feedback, canonical data preservation, and atomic publication.
+After that, enable the separately governed `source_change` and `automation` routes.
+Do not patch individual generated applications or continue showcase/widget work
+until the command runtime owns their persistence and wake behavior.

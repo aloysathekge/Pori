@@ -67,6 +67,28 @@ class SurfaceCandidateFile(BaseModel):
         description="The complete UTF-8 file content, never a patch or diff.",
     )
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def normalize_model_path(cls, value: Any) -> Any:
+        """Canonicalize safe project-root shorthand before authority checks.
+
+        Provider-enforced structured output does not reliably preserve the
+        virtual ``/workspace`` prefix even when it appears in the schema. The
+        host can add that prefix without changing which project file the model
+        selected. All other paths still fail the existing workspace/toolchain
+        allow-list validation below.
+        """
+        if not isinstance(value, str):
+            return value
+        normalized = value.replace("\\", "/")
+        if normalized == "/surface.json" or normalized.startswith("/src/"):
+            return f"/workspace{normalized}"
+        if normalized == "surface.json" or normalized.startswith("src/"):
+            return f"/workspace/{normalized}"
+        if normalized.startswith("workspace/"):
+            return f"/{normalized}"
+        return normalized
+
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
@@ -131,6 +153,19 @@ class SurfaceCandidate(BaseModel):
         min_length=1,
         max_length=MAX_SURFACE_FILES,
     )
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def normalize_summary(cls, value: Any) -> Any:
+        """Bound descriptive metadata without spending a model repair.
+
+        The summary is display metadata, not executable source or authority.
+        Collapsing whitespace and applying the documented limit is therefore a
+        deterministic host normalization; an empty summary still fails closed.
+        """
+        if not isinstance(value, str):
+            return value
+        return " ".join(value.split())[:1000]
 
     @field_validator("primary_jobs")
     @classmethod

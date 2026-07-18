@@ -543,6 +543,43 @@ class SurfaceInteraction(SQLModel, table=True):
     )
 
 
+class SurfaceCommandAttempt(SQLModel, table=True):
+    """Append-only outcome for each host handling attempt from a Surface."""
+
+    __tablename__ = "surface_command_attempts"
+
+    id: str = Field(
+        default_factory=lambda: f"scat_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    build_id: str = Field(foreign_key="surface_builds.id", index=True)
+    code_revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    interaction_id: str | None = Field(
+        default=None, foreign_key="surface_interactions.id", index=True
+    )
+    method: str = Field(index=True)
+    name: str = Field(index=True)
+    interaction_class: str = Field(index=True)
+    component_id: str
+    actor_id: str = Field(index=True)
+    idempotency_key: str = Field(index=True)
+    request_fingerprint: str = Field(index=True)
+    base_data_revision: int
+    observed_data_revision: int
+    status: str = Field(index=True)
+    error_code: str | None = Field(default=None, index=True)
+    error: str | None = None
+    http_status: int
+    retryable: bool = False
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Task(SQLModel, table=True):
     """Durable executable work owned by an Event."""
 

@@ -7,6 +7,7 @@ through the authenticated internal product-tool boundary.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,6 +28,7 @@ from ..surface_interactions import (
     SurfaceInteractionError,
     SurfaceInteractionRequest,
     handle_surface_interaction,
+    record_surface_interaction_rejection,
     surface_runtime_context,
 )
 from ..surface_publication import (
@@ -39,6 +41,7 @@ from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_docume
 from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
+logger = logging.getLogger("aloy_backend.routes.surfaces")
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
 
@@ -53,7 +56,15 @@ _SURFACE_STAGE_MESSAGES = {
 
 
 def _surface_error(exc: SurfaceInteractionError) -> HTTPException:
-    return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={
+            "message": exc.detail,
+            "code": exc.code,
+            "retryable": exc.retryable,
+            "attempt_id": exc.attempt_id,
+        },
+    )
 
 
 async def _owned_event(
@@ -416,6 +427,17 @@ async def create_surface_interaction(
         )
     except SurfaceInteractionError as exc:
         await session.rollback()
+        try:
+            await record_surface_interaction_rejection(
+                session,
+                context=context,
+                event_id=event_id,
+                request=body,
+                error=exc,
+            )
+        except Exception:
+            await session.rollback()
+            logger.exception("Failed to persist rejected Surface command attempt")
         raise _surface_error(exc) from exc
 
 

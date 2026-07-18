@@ -267,3 +267,19 @@ def test_candidate_is_complete_unique_and_workspace_scoped():
         value = _candidate().model_dump(mode="json")
         value["files"][0]["path"] = "/tmp/surface.json"
         SurfaceCandidate.model_validate(value)
+
+
+def test_candidate_normalizes_safe_project_paths_and_bounded_summary():
+    value = _candidate().model_dump(mode="json")
+    value["summary"] = "  " + ("Useful career workspace.  " * 100) + "  "
+    value["files"][0]["path"] = "/surface.json"
+    value["files"][1]["path"] = "src/App.tsx"
+
+    candidate = SurfaceCandidate.model_validate(value)
+
+    assert len(candidate.summary) == 1000
+    assert "  " not in candidate.summary
+    assert [item.path for item in candidate.files] == [
+        "/workspace/surface.json",
+        "/workspace/src/App.tsx",
+    ]

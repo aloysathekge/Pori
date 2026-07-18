@@ -38,6 +38,7 @@ export interface SurfaceActivity {
 
 export interface SurfaceRuntimeContext {
   protocol_version: '1';
+  command_contract_version: '1';
   sdk_version: '1';
   event_id: string;
   project_id: string;
@@ -49,7 +50,11 @@ export interface SurfaceRuntimeContext {
   data: Record<string, unknown>;
 }
 
-export type SurfaceInteractionMethod = 'dispatch' | 'ask_aloy' | 'request_action';
+export type SurfaceInteractionMethod =
+  | 'command'
+  | 'dispatch'
+  | 'ask_aloy'
+  | 'request_action';
 
 export interface SurfaceInteractionRequest {
   build_id: string;

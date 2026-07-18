@@ -1087,6 +1087,43 @@ Aloy should feel immediate even when meaningful work is long-running:
 - reopening an Event restores its Conversation and workspace rather than
   starting over.
 
+### 5.7 Authenticated browser work
+
+Aloy may eventually use a user's authenticated web accounts to perform Event
+work that an API, Search, or Fetch cannot complete: checking a private flight
+booking, reading an account, monitoring a portal, completing a form, or staging
+an external action. This is a post-V1 capability, not part of the current R5
+Surface runtime.
+
+The Event remains durable while browser Sessions are disposable leases. A
+globally managed browser connection owns one user's identity for one site and
+login; an Event receives a narrower revocable grant over that connection.
+Login, CAPTCHA, two-factor authentication, and credential entry occur through
+a trusted embedded browser takeover. Credentials, provider Contexts, raw CDP,
+and vendor Live View capabilities never enter Conversation, model input,
+generated Surface code, or general Event memory.
+
+Aloy remains the agent and authority. Browser infrastructure may provide
+Sessions, persistent browser profiles, proxies, observability, and adaptive DOM
+operations, but Pori/Aloy owns the Task and Run loop, budgets, permission
+checks, Proposal boundary, success verification, recovery, Trail, and Receipt.
+Browser work follows the least-powerful ladder: official connection/API,
+Search, Fetch, deterministic Playwright recipe, bounded adaptive DOM operation,
+visual fallback, then human takeover.
+
+Consequential browser actions are staged and approved before execution. Aloy
+freezes the account, target, material values, page evidence, and action
+fingerprint in a Proposal, revalidates them immediately before the one approved
+submission, and commits success only from a typed external Receipt. A timeout
+or disconnect after submission becomes an indeterminate outcome that must be
+reconciled read-only; it is never blindly retried.
+
+The authenticated browser is distinct from both the Surface publication
+browser and the sandbox that compiles generated Surface code. Its complete
+provider-neutral architecture, security boundary, recovery protocol, UX, and
+delivery gates live in
+[`aloy-browser-agent-spec.md`](./aloy-browser-agent-spec.md).
+
 ## 6. Product proofs
 
 ### 6.1 Career OS — the V1 end-to-end proof
@@ -1230,6 +1267,60 @@ must exercise the remote path so latency, recovery, and cost are understood;
 it must never fall back to executing generated Surface builds as a host-local
 subprocess.
 
+### 8.1 Sandbox roles and durable workspace identity
+
+A sandbox is a disposable execution unit, not the Event itself and not a
+source of durable truth. An Event can remain active for months or years while
+its physical sandboxes are created, leased, paused, replaced, or reconstructed
+as work requires. Event memory, canonical records, files, artifacts, Trail,
+receipts, Run state, and environment provenance remain in Aloy's durable data
+plane outside the sandbox.
+
+Aloy has two intentionally separate sandbox classes:
+
+| Sandbox class | Purpose | Lifetime and authority |
+| --- | --- | --- |
+| **Surface Build Sandbox** | Compile and inspect one model-authored React candidate with the pinned Aloy SDK and browser gate. | Short-lived and least-privileged. The host uploads validated source, invokes one fixed build/inspect command, retrieves immutable outputs and receipts, then destroys the sandbox. It receives no credentials, provider tokens, arbitrary model-owned shell command, dependency installation, direct production data access, or public runtime URL. |
+| **Event Execution Workspace** | Future isolated execution for Tasks that genuinely need a filesystem, repository, services, data tools, or longer-running processes. | Leased on demand under an Event-scoped logical workspace identity. Its physical machine may pause or be reconstructed from a declared environment plus durable inputs. Capabilities, network policy, budgets, approvals, and retention are assigned per Run; they are never inherited from the Surface Builder. |
+
+This separation prevents the fast Surface path from growing into a general
+remote computer and prevents richer agent execution from weakening Surface
+isolation. A published Surface still runs as an opaque-origin iframe inside
+the trusted Aloy host; it is never served to the user from a sandbox preview
+URL.
+
+The workspace infrastructure follows four planes:
+
+1. **Control plane:** schedules leases, selects a versioned environment,
+   reports readiness, enforces deadlines, and may maintain measured warm pools.
+2. **Execution plane:** provides the exact filesystem, compiler, browser, and
+   other declared tools for that sandbox class.
+3. **Security and network plane:** starts secretless, denies network access by
+   default, and routes allowed external capabilities through host-owned
+   gateways where credentials can be injected outside the sandbox and governed
+   by permissions, Proposals, idempotency, and receipts.
+4. **Data plane:** supplies a reproducible starting state and persists canonical
+   outputs, execution traces, and health evidence outside the disposable VM.
+
+Every lease records provider, template or image version, resource limits,
+input and output hashes, readiness and stage timings, termination reason, and
+the Run or Build it served. Execution traces stream to Aloy's durable Trail and
+Run evidence rather than existing only in sandbox logs. Warm pools and
+intent-based prewarming are latency optimizations introduced only when
+telemetry justifies their cost; correctness and recovery must work from a cold,
+fresh sandbox.
+
+Pori exposes the provider-neutral lease, lifecycle, policy, artifact, and trace
+contracts. Aloy selects the product-specific sandbox class and capabilities.
+E2B is the first remote Surface Build provider because its versioned templates,
+isolated Linux VMs, lifecycle controls, and per-second usage fit the fixed-build
+flow; Daytona or another provider must remain replaceable behind the same
+contract. The design draws on the [E2B sandbox and template
+model](https://e2b.dev/docs) and NeoSigma's [control, execution, security, and
+data-plane workspace architecture](https://neosigma.ai/blog/agent-workspaces),
+without importing a general autonomous workspace into the least-privileged
+Surface Builder.
+
 ## 9. Delivery and document map
 
 The active delivery sequence and acceptance gates live in
@@ -1244,6 +1335,9 @@ detail but must not redefine its primitives or invariants:
 - [`aloy-v1-plan.md`](./aloy-v1-plan.md) — active delivery sequence and gates;
 - [`aloy-surface-spec.md`](./aloy-surface-spec.md) — generated Surface project,
   SDK, isolation, interaction, quality, and publication contract;
+- [`aloy-browser-agent-spec.md`](./aloy-browser-agent-spec.md) — authenticated
+  browser identity, execution ladder, permission, recovery, and provider
+  contract;
 - [`aloy-wedge-spec.md`](./aloy-wedge-spec.md) — implemented Event, Proposal,
   file, Trail, and initial workspace foundation;
 - [`Aloy.md`](./Aloy.md) — monorepo and product architecture;
