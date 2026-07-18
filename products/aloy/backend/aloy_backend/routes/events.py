@@ -28,7 +28,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse, StreamingResponse
 
 from ..database import get_session
-from ..event_context import context_status_payload, refresh_event_context_snapshot
+from ..event_bootstrap import (
+    event_bootstrap_status_payload,
+    latest_event_bootstrap_run,
+    queue_event_bootstrap_if_ready,
+)
+from ..event_context import context_status_payload
 from ..event_presenters import (
     context_item_payload,
     event_payload,
@@ -334,6 +339,12 @@ async def create_event(
             },
         )
     )
+    await queue_event_bootstrap_if_ready(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+    )
     await session.commit()
     await session.refresh(event)
     return event_payload(event)
@@ -610,12 +621,19 @@ async def get_event_surface(
         .scalars()
         .all()
     )
-    context_snapshot, _context_pack, _created = await refresh_event_context_snapshot(
+    context_snapshot, bootstrap_run, _queued = await queue_event_bootstrap_if_ready(
         session,
         organization_id=context.organization_id,
         user_id=context.user_id,
         event_id=event.id,
     )
+    if bootstrap_run is None:
+        bootstrap_run = await latest_event_bootstrap_run(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+        )
     await session.commit()
     return {
         "event": event_payload(event),
@@ -651,7 +669,13 @@ async def get_event_surface(
                 },
                 {
                     "kind": "context_status",
-                    "status": context_status_payload(context_snapshot),
+                    "status": context_status_payload(
+                        context_snapshot,
+                        bootstrap=event_bootstrap_status_payload(
+                            bootstrap_run,
+                            snapshot=context_snapshot,
+                        ),
+                    ),
                 },
             ],
             "proposals": [proposal_payload(proposal) for proposal in proposals],
@@ -660,6 +684,33 @@ async def get_event_surface(
             ),
         },
     }
+
+
+@router.post("/{event_id}/bootstrap", status_code=202)
+async def retry_event_bootstrap(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    await _load_event(session, context, event_id)
+    snapshot, run, _changed = await queue_event_bootstrap_if_ready(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event_id,
+        force=True,
+    )
+    if run is None:
+        run = await latest_event_bootstrap_run(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event_id,
+        )
+    await session.commit()
+    return event_bootstrap_status_payload(run, snapshot=snapshot)
 
 
 @router.post("/{event_id}/context/{item_id}/retry", status_code=202)

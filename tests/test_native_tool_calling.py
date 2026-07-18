@@ -2,6 +2,8 @@
 
 import asyncio
 
+from pydantic import BaseModel
+
 from pori.agent import Agent, AgentSettings
 from pori.llm import (
     AssistantMessage,
@@ -315,6 +317,49 @@ def test_fireworks_inherits_native_tool_calling():
         )
     )
     assert turn.tool_calls[0].name == "write_file"
+
+
+class _StructuredSmoke(BaseModel):
+    status: str
+
+
+def test_fireworks_kimi_structured_output_includes_schema_and_disables_reasoning():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/models/kimi-k2p6")
+    llm._client = _OAIClient(
+        _OAIResp([_OAIChoice(_OAIMessage(content='{"status":"ready"}'))])
+    )
+
+    result = asyncio.run(
+        llm.with_structured_output(_StructuredSmoke).ainvoke(
+            [UserMessage(content="Return the status")]
+        )
+    )
+
+    assert result.status == "ready"
+    sent = llm._client.chat.completions.last_kwargs
+    assert sent["reasoning_effort"] == "none"
+    assert '"status"' in sent["messages"][-1]["content"]
+    assert sent["response_format"]["type"] == "json_schema"
+
+
+def test_fireworks_does_not_force_unsupported_reasoning_option_on_other_models():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/models/gpt-oss-120b")
+    llm._client = _OAIClient(
+        _OAIResp([_OAIChoice(_OAIMessage(content='{"status":"ready"}'))])
+    )
+
+    asyncio.run(
+        llm.with_structured_output(_StructuredSmoke).ainvoke(
+            [UserMessage(content="Return the status")]
+        )
+    )
+
+    sent = llm._client.chat.completions.last_kwargs
+    assert "reasoning_effort" not in sent
 
 
 def test_gemini_schema_sanitizer_strips_unsupported_keys():

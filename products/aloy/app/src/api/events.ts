@@ -154,6 +154,23 @@ export interface EventSurfaceResponse {
             };
             provider_cache_allowed: boolean;
             active_brief: { id: string; version: number } | null;
+            bootstrap: {
+              status:
+                | 'idle'
+                | 'not_applicable'
+                | 'waiting_for_context'
+                | 'queued'
+                | 'running'
+                | 'ready'
+                | 'failed'
+                | 'cancelled'
+                | string;
+              run_id: string | null;
+              snapshot_id: string | null;
+              attempt_count: number;
+              max_attempts: number;
+              can_retry: boolean;
+            } | null;
             created_at: string;
           };
         }
@@ -223,6 +240,12 @@ export function getEventCoverBlob(eventId: string) {
 
 export function getEventSurface(eventId: string) {
   return apiFetch<EventSurfaceResponse>(`/events/${eventId}`);
+}
+
+export function retryEventBootstrap(eventId: string) {
+  return apiFetch<NonNullable<
+    Extract<EventSurfaceResponse['surface']['sections'][number], { kind: 'context_status' }>['status']['bootstrap']
+  >>(`/events/${eventId}/bootstrap`, { method: 'POST' });
 }
 
 export function getEventTrail(eventId: string, cursor: string, limit = 50) {

@@ -85,6 +85,18 @@ class ChatOpenAI:
         # to env defaults via getattr in ainvoke.
         self._retry_config = RetryConfig.from_env()
 
+    def _prepare_structured_messages(
+        self,
+        messages: list[dict[str, Any]],
+        output_format: type[BaseModel],
+    ) -> list[dict[str, Any]]:
+        """Provider hook for structured-output prompt compatibility."""
+        return messages
+
+    def _structured_request_options(self) -> dict[str, Any]:
+        """Provider hook for structured-output request compatibility."""
+        return {}
+
     async def ainvoke(
         self,
         messages: list[BaseMessage],
@@ -94,6 +106,11 @@ class ChatOpenAI:
         openai_messages = [
             {"role": m.role, "content": _to_openai_content(m.content)} for m in messages
         ]
+        if output_format is not None:
+            openai_messages = self._prepare_structured_messages(
+                openai_messages,
+                output_format,
+            )
 
         request: dict[str, Any] = {
             "model": self.model,
@@ -131,6 +148,7 @@ class ChatOpenAI:
                     "schema": output_format.model_json_schema(),
                 },
             }
+            request.update(self._structured_request_options())
             response = await retry_async(
                 lambda: self._client.chat.completions.create(**request),
                 getattr(self, "_retry_config", None),
