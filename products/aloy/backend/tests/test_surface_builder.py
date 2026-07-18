@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -22,6 +23,21 @@ from aloy_backend.surface_pipeline import (
 )
 from aloy_backend.surface_requests import SURFACE_BUILDER_RUN_KIND
 from pori import stable_fingerprint
+
+
+async def test_progress_heartbeat_stop_handles_pre_start_cancellation() -> None:
+    started = False
+
+    async def heartbeat() -> None:
+        nonlocal started
+        started = True
+        await asyncio.sleep(60)
+
+    task = asyncio.create_task(heartbeat())
+    await builder_module._stop_progress_heartbeat(task)
+
+    assert not started
+    assert task.cancelled()
 
 
 def _assignment() -> ModelAssignment:

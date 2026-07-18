@@ -335,6 +335,18 @@ async def _progress_heartbeat(
         return
 
 
+async def _stop_progress_heartbeat(heartbeat: asyncio.Task[None]) -> None:
+    """Cancel and join a heartbeat even when cancellation wins task startup."""
+    heartbeat.cancel()
+    try:
+        await heartbeat
+    except asyncio.CancelledError:
+        # A task cancelled before its coroutine starts cannot handle the
+        # cancellation inside ``_progress_heartbeat``. Cancellation is the
+        # expected shutdown path here, so the owner must absorb it as well.
+        return
+
+
 async def execute_claimed_surface_builder(
     run_id: str,
     worker_id: str,
@@ -506,8 +518,7 @@ async def execute_claimed_surface_builder(
                             f"{generation_timeout:g} seconds"
                         ) from exc
                 finally:
-                    heartbeat.cancel()
-                    await heartbeat
+                    await _stop_progress_heartbeat(heartbeat)
                 generation_ms += (perf_counter() - started) * 1000
                 raw_usage = normalize_usage(getattr(llm, "last_usage", None))
                 total_usage += TokenUsage(
