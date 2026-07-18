@@ -4,7 +4,13 @@ import io
 
 import pytest
 
-from aloy_backend.storage import LocalDiskObjectStore, artifact_key, safe_name
+from aloy_backend.storage import (
+    LocalDiskObjectStore,
+    _filesystem_path,
+    artifact_key,
+    safe_name,
+    surface_bundle_key,
+)
 
 
 def test_put_open_roundtrip(tmp_path):
@@ -60,6 +66,32 @@ def test_personal_org_ids_make_valid_keys(tmp_path):
     store.put(key, io.BytesIO(b"print()"), content_type="text/x-python")
     with store.open(key) as fh:
         assert fh.read() == b"print()"
+
+
+def test_long_surface_bundle_key_roundtrips_without_changing_object_key(tmp_path):
+    """Real Surface keys exceed legacy MAX_PATH on Windows local development."""
+    store = LocalDiskObjectStore(str(tmp_path))
+    key = surface_bundle_key(
+        "user:bb22cd19-63a0-4b96-81f8-b8a35febd3d7",
+        "57231f85d37045f192f9878cae43c714",
+        "sbuild_19c82486ac84400fb08b2f695d7cb269",
+        "a" * 64,
+    )
+    target = store._path(key)
+    assert len(str(target)) > 260
+
+    store.put(key, io.BytesIO(b"surface bundle"), content_type="application/zip")
+    with store.open(key) as fh:
+        assert fh.read() == b"surface bundle"
+    store.delete(key)
+    with pytest.raises(FileNotFoundError):
+        store.open(key)
+
+
+def test_windows_filesystem_path_uses_extended_length_prefix(tmp_path):
+    extended = _filesystem_path(tmp_path / "bundle.zip", windows=True)
+    assert extended.startswith("\\\\?\\")
+    assert extended.endswith("bundle.zip")
 
 
 def test_safe_name_strips_separators_and_traversal():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import io
+import shutil
 import zipfile
 
 import pytest
@@ -12,7 +13,7 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
 from sqlmodel import select
 
-from aloy_backend.models import EventTrailEntry, SurfaceBuild, SurfaceProject
+from aloy_backend.models import EventTrailEntry, SurfaceBuild
 from aloy_backend.runtime import authenticated_run_context
 from aloy_backend.surface_authoring import (
     SurfaceAuthoringHandler,
@@ -22,9 +23,11 @@ from aloy_backend.surface_authoring import (
 from aloy_backend.surface_build_runner import (
     MAX_SURFACE_BUNDLE_BYTES,
     SURFACE_TOOLCHAIN_VERSION,
+    LocalDevelopmentSurfaceBuildRunner,
     SandboxSurfaceBuildRunner,
     SurfaceBuildRunnerResult,
     UnavailableSurfaceBuildRunner,
+    configured_surface_build_runner,
     validate_surface_source,
 )
 from aloy_backend.surface_builds import (
@@ -32,10 +35,12 @@ from aloy_backend.surface_builds import (
     SurfaceBuildParams,
     SurfacePreviewParams,
 )
+from aloy_backend.surface_manifest import SurfaceManifest
 from aloy_backend.surface_runtime import (
     InvalidSurfaceBundle,
     build_surface_runtime_document,
 )
+from aloy_backend.surface_runtime_inspection import inspect_surface_runtime
 from pori import LocalSandboxProvider
 
 
@@ -70,6 +75,209 @@ class MemoryObjectStore:
     def url(self, key, *, expires_s=300):
         del key, expires_s
         return None
+
+
+async def test_local_development_builder_fails_closed_without_pinned_toolchain(
+    tmp_path,
+):
+    result = await LocalDevelopmentSurfaceBuildRunner(repository_root=tmp_path).build(
+        build_id="missing-local-toolchain",
+        files={"/src/App.tsx": "export default () => <main />"},
+        manifest={},
+    )
+
+    assert result.status == "blocked"
+    assert result.diagnostics[0]["code"] == "local_toolchain_unavailable"
+
+
+async def test_local_development_bundle_is_browser_safe():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="browser-safe-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import React from "react"; '
+                "export default () => <main>Aloy Surface</main>"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+
+    assert result.status == "succeeded"
+    assert result.bundle is not None
+    with zipfile.ZipFile(io.BytesIO(result.bundle)) as archive:
+        script = archive.read("surface.js").decode("utf-8")
+    assert "process.env.NODE_ENV" not in script
+    assert "process is not defined" not in script
+    assert "aloy.surface.connect" in script
+    runtime = build_surface_runtime_document(result.bundle)
+    diagnostics = inspect_surface_runtime(
+        runtime,
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": [],
+            "widgets": [],
+            "data": {"interactions": []},
+        },
+    )
+    assert diagnostics == []
+
+
+async def test_local_browser_gate_rejects_render_exception():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="runtime-exception-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                "export default function App() { " "throw new Error('render failed'); }"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": [],
+            "widgets": [],
+            "data": {"interactions": []},
+        },
+    )
+    assert {item["code"] for item in diagnostics} == {"runtime_exception"}
+    assert "render failed" in diagnostics[0]["message"]
+
+
+async def test_local_browser_gate_executes_accessible_interaction_checks():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["data:career"],
+            "intents": {
+                "career.application_created": {
+                    "class": "durable_selection",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "applicationId": {"type": "string"},
+                            "company": {"type": "string"},
+                        },
+                        "required": ["applicationId", "company"],
+                        "additionalProperties": False,
+                    },
+                    "write": {
+                        "namespace": "career",
+                        "key_field": "applicationId",
+                    },
+                }
+            },
+            "interaction_checks": [
+                {
+                    "name": "Add an application",
+                    "steps": [
+                        {
+                            "action": "fill",
+                            "role": "textbox",
+                            "name": "Company",
+                            "value": "Aloy Verification",
+                        },
+                        {"action": "click", "role": "button", "name": "Save"},
+                    ],
+                    "expect": {
+                        "method": "dispatch",
+                        "name": "career.application_created",
+                    },
+                }
+            ],
+        }
+    )
+    files = {
+        "/src/App.tsx": (
+            'import React, { useState } from "react"; '
+            'import { dispatch } from "@aloy/surface"; '
+            "export default function App(){const [company,setCompany]=useState('');"
+            "return <form onSubmit={async event=>{event.preventDefault();await dispatch("
+            "'career.application_created',{applicationId:'smoke',company});}}>"
+            "<label>Company<input aria-label='Company' value={company} "
+            "onChange={event=>setCompany(event.target.value)}/></label>"
+            "<button type='submit'>Save</button></form>}"
+        )
+    }
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="interactive-local-toolchain",
+        files=files,
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    context = {
+        "protocol_version": "1",
+        "sdk_version": "1",
+        "event_id": "event-smoke",
+        "project_id": "project-smoke",
+        "build_id": "build-smoke",
+        "code_revision_id": "revision-smoke",
+        "data_revision": 0,
+        "capabilities": ["data:career"],
+        "widgets": [],
+        "data": {"interactions": [], "surface": {"career": []}},
+    }
+    assert (
+        inspect_surface_runtime(
+            build_surface_runtime_document(result.bundle),
+            context,
+            manifest=manifest,
+        )
+        == []
+    )
+
+    broken = SurfaceManifest.model_validate(
+        manifest.model_dump(mode="json", by_alias=True)
+    )
+    broken_result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="broken-interactive-local-toolchain",
+        files={"/src/App.tsx": "export default () => <button>Save</button>"},
+        manifest=broken.model_dump(mode="json", by_alias=True),
+    )
+    assert broken_result.bundle is not None
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(broken_result.bundle),
+        context,
+        manifest=broken,
+    )
+    assert {item["code"] for item in diagnostics} == {"runtime_interaction_step_failed"}
+
+
+def test_configured_surface_builder_requires_explicit_local_dev_mode(monkeypatch):
+    from aloy_backend.config import settings
+
+    monkeypatch.setattr(settings, "surface_build_backend", "local_dev")
+    assert isinstance(
+        configured_surface_build_runner(),
+        LocalDevelopmentSurfaceBuildRunner,
+    )
 
 
 def _runtime_bundle(
@@ -147,6 +355,7 @@ def test_surface_source_validation_is_deterministic_and_sdk_scoped():
             '@import "https://example.com/theme.css";\n'
             "main { background: url(//example.com/image.png); }"
         ),
+        "/src/node.ts": "const mode = process.env.NODE_ENV;",
     }
     diagnostics = validate_surface_source(invalid, manifest)
     assert {
@@ -155,9 +364,64 @@ def test_surface_source_validation_is_deterministic_and_sdk_scoped():
         "host_escape",
         "css_import",
         "external_asset",
+        "node_global",
     } <= {item["code"] for item in diagnostics}
     assert all(item["line"] is not None for item in diagnostics)
     assert diagnostics == validate_surface_source(invalid, manifest)
+
+
+def test_interactive_surface_must_use_host_sdk_and_cannot_fake_bridge():
+    manifest = {
+        "entrypoint": "/src/App.tsx",
+        "sdk_version": "1",
+        "capabilities": ["event"],
+    }
+    diagnostics = validate_surface_source(
+        {
+            "/src/App.tsx": (
+                "window.postMessage({ type: 'fake-ready' }, '*'); "
+                "export default () => <main />"
+            )
+        },
+        manifest,
+    )
+    assert {item["code"] for item in diagnostics} == {
+        "direct_bridge",
+        "missing_surface_sdk",
+    }
+
+
+def test_durable_surface_intents_require_checks_and_visible_sdk_failures():
+    manifest = {
+        "entrypoint": "/src/App.tsx",
+        "sdk_version": "1",
+        "capabilities": ["data:career"],
+        "intents": {
+            "career.application_created": {
+                "class": "durable_selection",
+                "schema": {"type": "object"},
+                "write": {
+                    "namespace": "career",
+                    "key_field": "applicationId",
+                },
+            }
+        },
+    }
+    diagnostics = validate_surface_source(
+        {
+            "/src/App.tsx": (
+                'import { dispatch as hostDispatch } from "@aloy/surface"; '
+                "export default () => <button onClick={() => "
+                "hostDispatch('career.application_created', {})"
+                ".catch(() => undefined)}>Save</button>"
+            )
+        },
+        manifest,
+    )
+    assert {item["code"] for item in diagnostics} == {
+        "missing_interaction_check",
+        "swallowed_surface_failure",
+    }
 
 
 async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
@@ -190,7 +454,10 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
                 },
                 {"kind": "bad-size", "size_bytes": "not-an-int"},
             ],
-            resource_metrics={"duration_ms": 12},
+            resource_metrics={
+                "duration_ms": 12,
+                "runtime_inspection": "passed",
+            },
         )
     )
     store = MemoryObjectStore()
@@ -225,7 +492,7 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
 
     preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
     assert preview["preview_ready"] is True
-    assert preview["execution_available"] is False
+    assert preview["execution_available"] is True
 
     async with db_session_maker() as session:
         persisted = await session.get(SurfaceBuild, built["id"])
@@ -336,6 +603,42 @@ async def test_surface_build_rejects_source_before_runner_execution(
     assert result["bundle_available"] is False
     assert {item["code"] for item in result["diagnostics"]} == {"direct_network"}
     assert runner.calls == []
+
+
+async def test_preview_fails_closed_without_browser_inspection_receipt(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Uninspected")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content="export default () => <main>Uninspected</main>",
+    )
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=FakeBuildRunner(
+            SurfaceBuildRunnerResult(
+                status="succeeded",
+                bundle=_runtime_bundle(),
+            )
+        ),
+        object_store=MemoryObjectStore(),
+        session_factory=db_session_maker,
+    )
+    built = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-uninspected-0001",
+        )
+    )
+    preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
+
+    assert preview["preview_ready"] is False
+    assert preview["execution_available"] is False
+    assert preview["runtime_diagnostics"][0]["code"] == (
+        "runtime_inspector_unavailable"
+    )
 
 
 async def test_surface_build_is_blocked_without_isolation_and_rejects_large_bundle(

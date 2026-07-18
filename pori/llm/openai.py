@@ -20,6 +20,7 @@ from .messages import (
 )
 from .reasoning import StreamingThinkScrubber
 from .retry import RetryConfig, retry_async
+from .structured_output import StructuredOutputPolicy
 
 
 def _to_openai_content(content: MessageContent) -> Any:
@@ -85,17 +86,9 @@ class ChatOpenAI:
         # to env defaults via getattr in ainvoke.
         self._retry_config = RetryConfig.from_env()
 
-    def _prepare_structured_messages(
-        self,
-        messages: list[dict[str, Any]],
-        output_format: type[BaseModel],
-    ) -> list[dict[str, Any]]:
-        """Provider hook for structured-output prompt compatibility."""
-        return messages
-
-    def _structured_request_options(self) -> dict[str, Any]:
-        """Provider hook for structured-output request compatibility."""
-        return {}
+    def _structured_output_policy(self) -> StructuredOutputPolicy:
+        """Return the structured-output contract for this provider/model."""
+        return StructuredOutputPolicy()
 
     async def ainvoke(
         self,
@@ -106,10 +99,16 @@ class ChatOpenAI:
         openai_messages = [
             {"role": m.role, "content": _to_openai_content(m.content)} for m in messages
         ]
+        output_schema: dict[str, Any] | None = None
+        structured_policy: StructuredOutputPolicy | None = None
         if output_format is not None:
-            openai_messages = self._prepare_structured_messages(
+            structured_policy = self._structured_output_policy()
+            output_schema = structured_policy.adapt_schema(
+                output_format.model_json_schema()
+            )
+            openai_messages = structured_policy.prepare_messages(
                 openai_messages,
-                output_format,
+                output_schema,
             )
 
         request: dict[str, Any] = {
@@ -140,15 +139,12 @@ class ChatOpenAI:
             return response.choices[0].message.content or ""
         else:
             # Use response_format for structured output
-            request["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "output",
-                    "strict": True,
-                    "schema": output_format.model_json_schema(),
-                },
-            }
-            request.update(self._structured_request_options())
+            assert output_schema is not None
+            assert structured_policy is not None
+            request["response_format"] = structured_policy.response_format(
+                output_schema
+            )
+            request.update(structured_policy.request_options)
             response = await retry_async(
                 lambda: self._client.chat.completions.create(**request),
                 getattr(self, "_retry_config", None),

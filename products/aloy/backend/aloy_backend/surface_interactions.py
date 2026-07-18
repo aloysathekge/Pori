@@ -142,6 +142,7 @@ async def _runtime_scope(
     context: OrganizationContext,
     event_id: str,
     build_id: str,
+    require_published: bool = True,
 ) -> tuple[Event, SurfaceProject, SurfaceRevision, SurfaceBuild, SurfaceManifest]:
     event = await session.get(Event, event_id)
     if (
@@ -150,7 +151,7 @@ async def _runtime_scope(
         or event.user_id != context.user_id
     ):
         raise SurfaceInteractionError(404, "Event not found")
-    result = await session.execute(
+    query = (
         select(SurfaceBuild, SurfaceProject, SurfaceRevision)
         .join(SurfaceProject, col(SurfaceProject.id) == col(SurfaceBuild.project_id))
         .join(SurfaceRevision, col(SurfaceRevision.id) == col(SurfaceBuild.revision_id))
@@ -164,13 +165,17 @@ async def _runtime_scope(
             SurfaceProject.organization_id == context.organization_id,
             SurfaceProject.user_id == context.user_id,
             SurfaceProject.event_id == event.id,
-            SurfaceProject.published_build_id == SurfaceBuild.id,
-            SurfaceProject.published_revision_id == SurfaceRevision.id,
             SurfaceRevision.organization_id == context.organization_id,
             SurfaceRevision.user_id == context.user_id,
             SurfaceRevision.event_id == event.id,
         )
     )
+    if require_published:
+        query = query.where(
+            SurfaceProject.published_build_id == SurfaceBuild.id,
+            SurfaceProject.published_revision_id == SurfaceRevision.id,
+        )
+    result = await session.execute(query)
     row = result.first()
     if row is None:
         raise SurfaceInteractionError(404, "Renderable Surface build not found")
@@ -190,9 +195,14 @@ async def surface_runtime_context(
     context: OrganizationContext,
     event_id: str,
     build_id: str,
+    require_published: bool = True,
 ) -> dict[str, Any]:
     event, project, revision, build, manifest = await _runtime_scope(
-        session, context=context, event_id=event_id, build_id=build_id
+        session,
+        context=context,
+        event_id=event_id,
+        build_id=build_id,
+        require_published=require_published,
     )
     capabilities = set(manifest.capabilities)
     interactions = list(

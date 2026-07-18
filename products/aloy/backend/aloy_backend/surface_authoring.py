@@ -83,7 +83,12 @@ class SurfaceFilePatch(BaseModel):
 class SurfaceWriteFilesParams(BaseModel):
     expected_revision: str | None = None
     idempotency_key: str = Field(min_length=8, max_length=200)
-    patches: list[SurfaceFilePatch] = Field(min_length=1, max_length=100)
+    # A complete host-owned candidate replacement may write the maximum file
+    # set while deleting every path from the previous draft in one mutation.
+    patches: list[SurfaceFilePatch] = Field(
+        min_length=1,
+        max_length=MAX_SURFACE_FILES * 2,
+    )
 
     @field_validator("idempotency_key")
     @classmethod
@@ -125,6 +130,11 @@ def _project_source_path(path: str) -> str:
     if PurePosixPath(source_path).suffix.lower() not in _ALLOWED_SOURCE_EXTENSIONS:
         raise ValueError(f"Unsupported Surface source extension: {source_path}")
     return source_path
+
+
+def surface_source_path(path: str) -> str:
+    """Validate a model-authored workspace path and return its source path."""
+    return _project_source_path(path)
 
 
 def _request_fingerprint(params: SurfaceWriteFilesParams) -> str:
@@ -538,5 +548,6 @@ __all__ = [
     "SurfaceFilePatch",
     "SurfaceReadProjectParams",
     "SurfaceWriteFilesParams",
+    "surface_source_path",
     "surface_project_snapshot",
 ]

@@ -34,10 +34,13 @@ from .surface_build_runner import (
     configured_surface_build_runner,
     validate_surface_source,
 )
+from .surface_manifest import SurfaceManifest
 from .surface_publication import (
     SurfacePublicationParams,
     change_surface_publication,
 )
+from .surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
+from .surface_runtime_inspection import inspect_surface_runtime
 
 
 class SurfaceBuildParams(BaseModel):
@@ -475,12 +478,103 @@ class SurfaceBuildHandler:
                 build = result.scalars().first()
             if build is None:
                 raise SurfaceAuthoringError("Surface build is unavailable")
+            revision = await session.get(SurfaceRevision, build.revision_id)
+            if revision is None or revision.project_id != project.id:
+                raise SurfaceAuthoringError("Surface revision is unavailable")
+            manifest = SurfaceManifest.model_validate(revision.manifest)
             payload = surface_build_payload(build, include_log=True)
-            payload["preview_ready"] = build.status == "succeeded"
-            payload["execution_available"] = False
+            preview_ready = build.status == "succeeded"
+            runtime_diagnostics: list[dict[str, Any]] = []
+            runtime_proven = False
+            if preview_ready and build.resource_metrics.get("backend") == "local_dev":
+                from .surface_interactions import surface_runtime_context
+                from .tenancy import OrganizationContext, OrganizationPolicy
+
+                if not build.bundle_key:
+                    runtime_diagnostics = [
+                        {
+                            "stage": "runtime",
+                            "code": "runtime_bundle_unavailable",
+                            "severity": "error",
+                            "message": "The Surface runtime bundle is unavailable",
+                        }
+                    ]
+                else:
+                    object_store = self._object_store or get_object_store()
+
+                    def read_bundle() -> bytes:
+                        with object_store.open(build.bundle_key or "") as stream:
+                            return stream.read()
+
+                    try:
+                        bundle = await asyncio.to_thread(read_bundle)
+                        document = build_surface_runtime_document(bundle)
+                        runtime_context = await surface_runtime_context(
+                            session,
+                            context=OrganizationContext(
+                                organization_id=event.organization_id,
+                                user_id=event.user_id,
+                                role="member",
+                                permissions=(),
+                                policy=OrganizationPolicy(),
+                            ),
+                            event_id=event.id,
+                            build_id=build.id,
+                            require_published=False,
+                        )
+                        runtime_diagnostics = await asyncio.to_thread(
+                            inspect_surface_runtime,
+                            document,
+                            runtime_context,
+                            manifest=manifest,
+                        )
+                    except (FileNotFoundError, InvalidSurfaceBundle) as exc:
+                        runtime_diagnostics = [
+                            {
+                                "stage": "runtime",
+                                "code": "runtime_bundle_invalid",
+                                "severity": "error",
+                                "message": str(exc),
+                            }
+                        ]
+                preview_ready = not runtime_diagnostics
+                runtime_proven = preview_ready
+            elif (
+                preview_ready
+                and build.resource_metrics.get("runtime_inspection") == "passed"
+                and (
+                    not manifest.interaction_checks
+                    or build.resource_metrics.get("interaction_inspection") == "passed"
+                )
+            ):
+                runtime_proven = True
+            elif preview_ready:
+                runtime_diagnostics = [
+                    {
+                        "stage": "runtime",
+                        "code": "runtime_inspector_unavailable",
+                        "severity": "error",
+                        "message": (
+                            "The build produced no trusted browser runtime inspection receipt"
+                        ),
+                    }
+                ]
+                preview_ready = False
+            payload["preview_ready"] = preview_ready
+            payload["execution_available"] = runtime_proven
+            payload["runtime_diagnostics"] = runtime_diagnostics
+            payload["diagnostics"] = [
+                *list(payload.get("diagnostics") or []),
+                *runtime_diagnostics,
+            ]
             payload["message"] = (
-                "Preview artifacts are retained but executable hosting is not "
-                "enabled in this phase"
+                "Surface mounted successfully with current Event context"
+                if preview_ready and payload["execution_available"]
+                else (
+                    "Surface runtime inspection failed"
+                    if runtime_diagnostics
+                    else "Executable runtime inspection is unavailable"
+                )
             )
             return payload
 

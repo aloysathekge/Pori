@@ -30,7 +30,7 @@ def _load_bundled_skill_catalog() -> SkillCatalog:
                 "provenance": "aloy-bundled",
                 "trust_level": "product",
                 "source": f"aloy-bundled:{manifest.slug}",
-                "required_model_capabilities": frozenset({"tools"}),
+                "required_model_capabilities": frozenset({"structured_output"}),
                 "model_invocation_disabled": True,
             }
         )
@@ -40,6 +40,12 @@ def _load_bundled_skill_catalog() -> SkillCatalog:
             root_path=_PRODUCT_SKILLS_DIR / manifest.slug,
         )
     return catalog
+
+
+def surface_builder_instructions() -> str:
+    """Return the exact bundled Builder skill used by structured generation."""
+    skill = _load_bundled_skill_catalog().load(SURFACE_BUILDER_SKILL_ID)
+    return skill.instructions
 
 
 async def load_skill_catalog(
@@ -113,4 +119,8 @@ async def load_skill_catalog(
     return catalog
 
 
-__all__ = ["SURFACE_BUILDER_SKILL_ID", "load_skill_catalog"]
+__all__ = [
+    "SURFACE_BUILDER_SKILL_ID",
+    "load_skill_catalog",
+    "surface_builder_instructions",
+]

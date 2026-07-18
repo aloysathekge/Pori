@@ -27,6 +27,7 @@ roles:
     model: frontier-builder
     temperature: 0.1
     max_tokens: 16000
+    generation_timeout_seconds: 90
     reasoning_mode: none
     required_capabilities: [tools]
     skill_id: surface-builder@1
@@ -65,6 +66,7 @@ def test_qualified_model_role_resolves_to_tamper_evident_assignment(tmp_path):
     assert assignment.provider == "openai"
     assert assignment.model == "frontier-builder"
     assert assignment.skill_id == "surface-builder@1"
+    assert assignment.generation_timeout_seconds == 90
     assert assignment.qualification_suite == "aloy-surface-builder-v1"
     assert assignment.resolution_ms >= 0
     assignment.verify_fingerprint()

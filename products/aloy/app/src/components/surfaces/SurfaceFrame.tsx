@@ -11,6 +11,8 @@ import {
   type SurfacePublication,
 } from '@/api/surfaces';
 import { Spinner } from '@/components/ui/Spinner';
+import { useSurfaceActivity } from '@/hooks/useSurfaceActivity';
+import { SurfaceActivityStatus } from './SurfaceActivityStatus';
 import { SurfaceBridgeHost } from './surfaceBridge';
 
 interface SurfaceFrameProps {
@@ -48,6 +50,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   const currentBuildId = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
+  const {
+    activity,
+    refresh: refreshActivity,
+  } = useSurfaceActivity(eventId, refreshKey);
 
   const clearReconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -102,6 +108,11 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     // eslint-disable-next-line react-hooks/set-state-in-effect -- build identity drives an authenticated runtime reload
     void load();
   }, [load, reload]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- terminal publication replaces the empty frame with its authenticated runtime
+    if (activity?.status === 'completed') void load();
+  }, [activity?.run_id, activity?.status, load]);
 
   useEffect(() => {
     if (!refreshKey || !currentBuildId.current) return;
@@ -236,14 +247,24 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
       return true;
     });
   }, [history, state]);
+  const activityFailed = activity
+    ? ['failed', 'cancelled', 'overdue'].includes(activity.status)
+    : false;
+  const headerBadge = state.kind === 'ready'
+    ? { label: 'Live', classes: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500' }
+    : activity?.active
+      ? { label: 'Building', classes: 'border-accent-600/20 bg-accent-600/10 text-accent-600' }
+      : activityFailed
+        ? { label: 'Needs attention', classes: 'border-red-500/20 bg-red-500/10 text-red-400' }
+        : { label: 'Surface', classes: 'border-zinc-700 bg-zinc-900 text-zinc-500' };
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
       <div className="relative z-20 flex h-11 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-xs font-semibold text-zinc-200">Surface</span>
-          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-500">
-            Live
+          <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${headerBadge.classes}`}>
+            {headerBadge.label}
           </span>
           {buildLabel && (
             <span className="truncate font-mono text-[10px] text-zinc-600">{buildLabel}</span>
@@ -278,7 +299,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           )}
           <button
             type="button"
-            onClick={() => setReload((value) => value + 1)}
+            onClick={() => {
+              setReload((value) => value + 1);
+              void refreshActivity();
+            }}
             className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
             aria-label="Reload live Surface"
             title="Reload live Surface"
@@ -335,21 +359,25 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
         )}
         {state.kind === 'empty' && (
           <div className="flex h-full items-center justify-center px-8 text-center">
-            <div className="max-w-sm">
-              <div className="mx-auto mb-4 h-10 w-10 rounded-2xl border border-zinc-800 bg-zinc-900 shadow-inner" />
-              <h2 className="font-display text-base font-semibold text-zinc-200">
-                {state.latest?.status === 'running' || state.latest?.status === 'pending'
-                  ? 'Aloy is building this Surface'
-                  : `No Surface for ${eventTitle} yet`}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                {state.latest
-                  ? state.latest.status === 'succeeded'
-                    ? 'Aloy has a successful draft. It will appear here after it passes publication.'
-                    : `The latest build is ${state.latest.status}. The live Surface remains unchanged until a successful publication.`
-                  : 'When Aloy creates, validates, and publishes a useful interface for this Event, it will appear here.'}
-              </p>
-            </div>
+            {activity ? (
+              <SurfaceActivityStatus activity={activity} />
+            ) : (
+              <div className="max-w-sm">
+                <div className="mx-auto mb-4 h-10 w-10 rounded-2xl border border-zinc-800 bg-zinc-900 shadow-inner" />
+                <h2 className="font-display text-base font-semibold text-zinc-200">
+                  {state.latest?.status === 'running' || state.latest?.status === 'pending'
+                    ? 'Aloy is building this Surface'
+                    : `No Surface for ${eventTitle} yet`}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-500">
+                  {state.latest
+                    ? state.latest.status === 'succeeded'
+                      ? 'Aloy has a successful draft. It will appear here after it passes publication.'
+                      : `The latest build is ${state.latest.status}. The live Surface remains unchanged until a successful publication.`
+                    : 'When Aloy creates, validates, and publishes a useful interface for this Event, it will appear here.'}
+                </p>
+              </div>
+            )}
           </div>
         )}
         {state.kind === 'error' && (

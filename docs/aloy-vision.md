@@ -358,11 +358,14 @@ publication tools, and a queued request is never presented as a finished
 Surface.
 
 The dedicated Builder receives the accepted brief, a bounded read-only
-projection of Event truth and relevant text artifacts, the current writable
-Surface draft, the Surface Builder skill, and only the authoring/build tool
-contract. A Surface is **ready** only when the host verifies that this exact Run
-owns the current live publication receipt. A successful draft or a model claim
-is insufficient. Failed attempts retain the last-good published Surface.
+projection of Event truth and relevant text artifacts, the current Surface
+draft, and the exact Surface Builder skill. It receives **no model-visible
+tools**. It returns one schema-validated complete source candidate through the
+provider's structured-output contract. A Surface is **ready** only when the
+trusted host persists, validates, builds, inspects, publishes, and verifies that
+this exact Run owns the current live publication receipt. A generated candidate
+or a model claim is insufficient. Failed attempts retain the last-good
+published Surface.
 
 Surface generation is a product-owned specialist role. Aloy's developers and
 operators choose the Builder model, its versioned skill, budgets, and the
@@ -371,8 +374,8 @@ Conversation model may be optimized for latency and dialogue while the Builder
 is allocated to a model proven to author and repair constrained React projects.
 Changing either model is an operator configuration change, not University,
 travel, or other domain logic inside Aloy. A model is promoted into the Builder
-role only after it passes the Surface tool-use, build, repair, interaction, and
-quality evaluation suite.
+role only after it passes the Surface structured-generation, build, repair,
+interaction, and quality evaluation suite.
 
 Surface structure is not Task structure. Timetable entries, itinerary rows,
 dashboard sections, navigation items, map markers, and similar display records
@@ -405,6 +408,73 @@ Most Surface interactions do not call a model:
   turns and start a Run;
 - booking, sending, paying, publishing, or deleting stages a Proposal;
 - requests for new UI capability start the source/build/quality/publish loop.
+
+#### Canonical Surface state and command routing
+
+The model designs the experience; Aloy's host owns state, commands,
+persistence, authority, and verification. Generated React never makes its DOM,
+component state, or iframe storage the source of truth. It renders a scoped
+projection of canonical Event state and sends typed commands through the
+host-owned SDK:
+
+```text
+generated React
+-> typed host SDK command
+-> schema, permission, revision, and idempotency validation
+-> host-owned command executor
+-> canonical Event state plus append-only interaction evidence
+-> reactive Surface projection and Event Conversation context
+```
+
+The versioned Surface contract declares entities, payload schemas, and explicit
+write semantics such as `create`, `replace`, `merge`, and `delete`. Generated
+code may choose a button's presentation and placement, but it does not invent
+persistence behavior, reducers, retries, completion claims, or approval
+authority. Host-owned command hooks expose pending, committed, failed,
+conflicted, and retryable states and reconcile the interface from canonical
+data. V1 contracts remain readable while the stricter command contract is
+introduced and existing Surfaces are migrated deliberately.
+
+Aloy accesses Surface changes through the Event, not by inspecting the iframe.
+Every committed command advances `data_revision`, records actor, provenance,
+and semantic Trail evidence, and invalidates the old Event context snapshot.
+The next Event Run receives a bounded Surface-state projection automatically;
+larger or detailed state remains available through a tenant- and Event-scoped
+read tool. Surface and Conversation therefore answer from the same snapshot,
+while prompt context stays bounded and cacheable.
+
+Every meaningful control declares one host-validated effect and wake policy:
+
+- `local`: tabs, filters, sorting, disclosure, and temporary form input remain
+  inside the Surface and produce no durable interaction;
+- `state`: save, select, move, annotate, or mark changes canonical Event state
+  without starting a model Run;
+- `reasoning`: review, compare, explain, plan, or prepare starts an immediate
+  Run in the Event's canonical Conversation with selected entity references and
+  the exact committed `data_revision`;
+- `external_action`: send, book, pay, publish, or delete stages a Proposal and
+  follows approval, execution, receipt, and reconciliation rails;
+- `automation`: a user-enabled schedule or approved incoming-data rule creates
+  a durable background wake rather than an implicit model call on every edit;
+- `source_change`: requests for a new view or capability queue the separate
+  Surface Builder lifecycle.
+
+Generated code may propose which declared command a control needs, but the host
+determines whether that command is allowed, whether it may wake Aloy, and which
+approval policy applies. A normal card move never starts a model. A deliberate
+**Review my pipeline** action does. A payment receipt may trigger a configured
+follow-up, but only through an explicit Event automation. Immediate and
+background wakes carry a trusted host-rendered envelope containing Event,
+command, selected entity references, state revision, and snapshot fingerprint;
+Surface payloads remain structured data and cannot inject hidden system
+instructions.
+
+Trigger execution is idempotent, rate-limited, depth-limited, and deduplicated.
+An agent-originated state change cannot recursively wake itself without an
+explicit workflow edge. Runtime and publication gates are generated from the
+host contract across success, rejection, stale revision, reconnect, empty,
+populated, partial, and permission-denied states; model-authored UX checks may
+add coverage but are never the sole authority for correctness.
 
 Generated code is untrusted. It executes in an opaque-origin sandboxed iframe,
 has no host credentials or direct authenticated API access, and has no arbitrary
@@ -448,6 +518,47 @@ answer tools in sequence. The trusted host owns that sequence atomically,
 returns structured diagnostics when repair is required, and grants at most a
 bounded number of candidate resubmissions. This keeps model behavior focused on
 authoring while publication correctness remains deterministic.
+
+The Builder path is therefore not an agent tool loop. It is a bounded
+structured-generation loop: candidate, trusted host diagnostics, and at most
+one complete repair candidate in V1. Aloy records each candidate fingerprint
+and stage receipt; the model cannot directly mutate a draft, launch a compiler,
+or advance the live publication pointer.
+
+Structured generation may take minutes and does not stream partial source.
+That must never look like inactivity. The Builder writes a durable heartbeat
+while waiting for the complete candidate, and every host-owned transition
+updates the Run: queued, generating, validating, compiling, inspecting,
+repairing, publishing, ready, failed, or overdue. Conversation shows a compact
+activity card after the assistant queues the work; opening it reveals the same
+state in the Surface Workbench with elapsed time and bounded retry count. The
+user may keep talking while this background work continues.
+
+A provider-level success is not a valid candidate until schema validation
+succeeds. Rejected output remains diagnosable: Aloy records the exact parser
+error, token usage, response length and hash, whether React-like source was
+present, and a bounded head/tail excerpt. Retry attempts preserve earlier
+rejection receipts. Raw failure evidence is bounded and owner-scoped; it is not
+silently discarded or mistaken for a successful build.
+
+Provider compatibility belongs below Aloy in the Pori model layer. A
+structured-output policy declares the provider's supported JSON Schema
+dialect, whether the schema must also be present in the prompt, strictness, and
+model-family request controls. Product schemas remain complete Pydantic
+contracts and host validation remains unchanged; only the request schema is
+adapted to the selected provider. The immutable Builder assignment also freezes
+a short per-generation deadline. That deadline is separate from the durable
+Run's wider pipeline budget, so one opaque model call cannot consume the full
+build lifecycle. Invalid structured output and generation timeout do not cause
+blind identical retries; failover requires an explicitly configured and
+qualified alternate Builder assignment.
+
+Provider shape validation and host authority validation are separate gates.
+The provider must return a complete candidate envelope with summary, primary
+jobs, and files. Aloy then validates paths, file types, sizes, manifests, SDK
+authority, and compiler ownership. A valid envelope containing a forbidden
+file such as `index.html` becomes trusted repair feedback and may consume the
+single bounded repair submission; the file is never accepted or published.
 
 Compilation happens only when source changes, never when an Event or published
 Surface is reopened. The fixed toolchain contains React, the Surface SDK,

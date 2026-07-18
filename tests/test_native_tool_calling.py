@@ -1,8 +1,9 @@
 """Phase B native tool-calling: type/schema foundations + native path (B.1, B.2)."""
 
 import asyncio
+import json
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from pori.agent import Agent, AgentSettings
 from pori.llm import (
@@ -323,6 +324,12 @@ class _StructuredSmoke(BaseModel):
     status: str
 
 
+class _ConstrainedStructuredSmoke(BaseModel):
+    labels: list[str] = Field(min_length=1, max_length=3)
+    code: str = Field(min_length=2, max_length=10, pattern=r"^[a-z]+$")
+    pattern: str = "kept-as-a-property-name"
+
+
 def test_fireworks_kimi_structured_output_includes_schema_and_disables_reasoning():
     from pori.llm.fireworks import ChatFireworks
 
@@ -342,6 +349,44 @@ def test_fireworks_kimi_structured_output_includes_schema_and_disables_reasoning
     assert sent["reasoning_effort"] == "none"
     assert '"status"' in sent["messages"][-1]["content"]
     assert sent["response_format"]["type"] == "json_schema"
+
+
+def test_fireworks_glm_structured_output_uses_provider_schema_contract():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/routers/glm-5p2-fast")
+    llm._client = _OAIClient(
+        _OAIResp(
+            [
+                _OAIChoice(
+                    _OAIMessage(
+                        content=(
+                            '{"labels":["ready"],"code":"ok",'
+                            '"pattern":"kept-as-a-property-name"}'
+                        )
+                    )
+                )
+            ]
+        )
+    )
+
+    result = asyncio.run(
+        llm.with_structured_output(_ConstrainedStructuredSmoke).ainvoke(
+            [UserMessage(content="Return the status")]
+        )
+    )
+
+    assert result.code == "ok"
+    sent = llm._client.chat.completions.last_kwargs
+    schema = sent["response_format"]["json_schema"]["schema"]
+    assert sent["reasoning_effort"] == "none"
+    assert "pattern" in schema["properties"]
+    assert "pattern" not in schema["properties"]["code"]
+    assert "minLength" not in schema["properties"]["code"]
+    assert "maxLength" not in schema["properties"]["code"]
+    assert "minItems" not in schema["properties"]["labels"]
+    assert "maxItems" not in schema["properties"]["labels"]
+    assert json.dumps(schema, separators=(",", ":")) in sent["messages"][-1]["content"]
 
 
 def test_fireworks_does_not_force_unsupported_reasoning_option_on_other_models():

@@ -11,22 +11,24 @@ all use the same runtime and safety contract.
 
 ## Workflow
 
-1. Inspect the Event brief, permanent Session context, canonical records,
-   current Surface revision, diagnostics, and user request before editing.
+1. Inspect the supplied Event brief, permanent Session context, canonical
+   records, current Surface revision, diagnostics, and user request.
 2. State the Surface's primary jobs, important entities, evidence sources,
    uncertainty, required states, viewports, and interaction intents.
-3. Generate or patch the React source using only the provided Surface SDK and
-   approved dependencies, then persist every final file with
-   `surface_write_files`. The virtual filesystem is for reading trusted Event
-   context and the current draft; a filesystem write is scratch work and does
-   not create a durable revision. Do not access host APIs, ambient credentials,
-   arbitrary network endpoints, or parent-frame internals.
-4. Call `surface_build` for the immutable revision with a fresh idempotency
-   key. Treat `failed` diagnostics as source/toolchain problems to repair and
-   `blocked` as unavailable isolation—not permission to execute locally.
-5. Call `surface_preview` to inspect the retained build log and preview
-   artifact metadata. A successful build is not automatically live and is not
-   permission to claim that the application has passed visual review.
+3. Return one schema-valid, complete replacement candidate containing every
+   required source file. Use only the provided Surface SDK and approved
+   dependencies. Do not access host APIs, ambient credentials, arbitrary
+   network endpoints, or parent-frame internals.
+   Aloy owns the application shell and fixed compiler: never return
+   `index.html`, package manifests, lockfiles, compiler configuration,
+   dependencies, or other toolchain files. Return only model-owned React,
+   TypeScript, JavaScript, CSS, JSON, Markdown, and SVG source.
+4. Do not call authoring, filesystem, build, preview, publication, rollback, or
+   answer tools. Aloy's trusted host owns those operations and the model-visible
+   tool surface is intentionally empty.
+5. When the host returns deterministic diagnostics, return a new complete
+   candidate that repairs every finding. Never return a partial patch. The host
+   grants only a bounded number of candidate submissions.
 6. Bind displayed facts to canonical Event data. Label each important value as
    user-reported, verified, estimated, pending, or indeterminate; never present
    a plan or estimate as completed reality.
@@ -36,20 +38,19 @@ all use the same runtime and safety contract.
    - reasoning requests return to the permanent Event Session;
    - consequential actions create a Proposal and require the applicable rail;
    - source-changing actions create a new Surface revision.
-8. Preview loading, empty, populated, partial, stale, error, and permission-
+8. Implement loading, empty, populated, partial, stale, error, and permission-
    denied states at the required desktop and compact viewports.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
-   diagnostics before responding to visual or usefulness critique.
-10. Publish only through `surface_publish` after required checks pass. Supply
-    the successful build id, both current published pointers returned by
-    `surface_read_project`, and a fresh idempotency key. Publication verifies
-    the retained artifact and atomically changes the exact live build.
-    Do not call `answer` or stop the Run until this publish call returns the
-    current live publication.
-11. Use `surface_rollback` only when restoring a previously published
-    last-good build. Rollback changes Surface code, never canonical Event data.
-    Preserve the current live build on every build, validation, artifact, or
-    publication failure.
+   diagnostics in the next complete candidate.
+   Every declared intent must include an accessible executable
+   `interaction_checks` path in `surface.json`. Aloy's host runs those paths in
+   a real browser against the exact Event context and refuses publication when
+   a visible control is missing, disabled, throws, sends the wrong SDK method,
+   or produces a payload that violates the declared schema.
+10. Never describe a candidate as built, previewed, published, or live. Only
+    Aloy's host may make those claims after a verified publication receipt.
+11. Preserve the last-good design and Event truth when revising an existing
+    Surface. A failed candidate must remain safe to discard.
 
 ## SDK contract
 
@@ -80,6 +81,15 @@ manifest is:
       }
     }
   },
+  "interaction_checks": [
+    {
+      "name": "Select a course",
+      "steps": [
+        {"action": "click", "role": "button", "name": "Select Algorithms"}
+      ],
+      "expect": {"method": "dispatch", "name": "academic.course_selected"}
+    }
+  ],
   "widgets": []
 }
 ```
@@ -94,6 +104,11 @@ Use `dispatch(name, payload)` only for declared durable selections,
 `requestAction({name, payload, reason})` only for a declared external action
 whose manifest entry names the exact host tool. Local sorting, filtering,
 tabs, disclosure, and temporary form state stay local and require no intent.
+Import these APIs directly from `@aloy/surface`. Await every durable SDK
+Promise, show a pending state while it is in flight, show an actionable error
+when it rejects, and reconcile the UI from refreshed canonical Surface data.
+Never wrap SDK writes in a `void` helper, swallow `.catch(...)`, clear a form
+before persistence succeeds, or claim success from optimistic local state.
 
 SDK writes are revision-bound and idempotent. Reuse an idempotency key only
 when retrying the exact same user action. A user-originated Surface write may
@@ -123,5 +138,5 @@ host remains responsible for reconnect and recovery controls.
 - Never mutate durable Event truth by editing generated source.
 - Never bypass proposal, approval, receipt, validation, or publication rails.
 - Never overwrite the last-good revision in place.
-- Never describe a successful draft build as live before `surface_publish`
-  returns it as the current published build.
+- Never describe generated source as live; the host communicates publication
+  only after it verifies the exact retained build and atomic live pointer.

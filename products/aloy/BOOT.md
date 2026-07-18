@@ -52,6 +52,13 @@ generation fails closed while `surface_builder.qualification.status` is
 evidence that justified promotion. Restart the API and worker after changing
 the role file. Set `ALOY_MODEL_ROLES_PATH` only when the file lives elsewhere.
 
+Surface compilation requires an isolated sandbox in hosted environments. For
+single-developer local testing without E2B, start both API and worker with
+`SURFACE_BUILD_BACKEND=local_dev`. This uses only Aloy's pinned Vite, React,
+and Surface SDK toolchain in an ephemeral directory; generated source cannot
+supply commands, dependencies, plugins, configuration, or the HTML shell.
+Never enable `local_dev` on a hosted or multi-user deployment.
+
 Then install, migrate, run:
 
 ```bash

@@ -93,6 +93,7 @@ from .llm.messages import (
     SystemMessage,
     TextBlock,
     UserMessage,
+    normalize_usage,
 )
 
 # The MCP client seam (a product supplies per-run server configs).
@@ -125,6 +126,7 @@ from .memory_contracts import (
     RetrievalEvaluation,
     evaluate_retrieval,
 )
+from .metrics import TokenUsage, estimate_llm_call_cost
 
 # The streaming event contract (products relay PoriEvents as SSE/websockets).
 from .observability import (
@@ -225,6 +227,7 @@ from .tools.registry import (
 
 # Tool registrations + the protected kernel tool set (policy code needs it).
 from .tools.standard import STANDARD_KERNEL_TOOLS, register_all_tools
+from .utils.llm_logging import ainvoke_structured
 
 # Prompt-directory override (an embedding application points the loader at its
 # own prompts after loading config).
@@ -355,6 +358,10 @@ __all__ = [
     "ImageBlock",
     "DocumentBlock",
     "TextBlock",
+    "normalize_usage",
+    "TokenUsage",
+    "estimate_llm_call_cost",
+    "ainvoke_structured",
     "McpServerConfig",
     "McpSessionSet",
     "PoriEvent",

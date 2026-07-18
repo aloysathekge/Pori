@@ -22,7 +22,6 @@ from .event_bootstrap import (
     EVENT_BOOTSTRAP_RUN_KIND,
     execute_claimed_event_bootstrap,
 )
-from .model_roles import ModelAssignment, ModelRole
 from .models import (
     AgentConfig,
     Conversation,
@@ -42,21 +41,15 @@ from .run_outcome import (
     make_usage_record,
     store_run_artifacts,
 )
-from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
-from .skills import SURFACE_BUILDER_SKILL_ID, load_skill_catalog
+from .skills import load_skill_catalog
+from .surface_builder import execute_claimed_surface_builder
 from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
-    SurfaceBuilderCompletionGuard,
-    SurfacePublicationRequiredError,
     SurfaceRequestHandler,
-    record_surface_builder_failure,
-    record_surface_builder_started,
-    verified_surface_publication,
 )
-from .surface_workspace import resolve_surface_authoring_runtime
 from .task_execution import (
     DurableClarificationRecorder,
     add_task_lifecycle_message,
@@ -67,36 +60,9 @@ from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import TaskMutationHandler
-from .tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
 from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
-
-
-def _metrics_with_model_assignment(
-    metrics: dict | None,
-    assignment: ModelAssignment | None,
-    started_at: datetime | None,
-) -> dict | None:
-    normalized = json_safe(metrics) or {}
-    if assignment is None:
-        return normalized or None
-    normalized_started = started_at
-    if normalized_started is not None and normalized_started.tzinfo is None:
-        normalized_started = normalized_started.replace(tzinfo=timezone.utc)
-    return {
-        **normalized,
-        "aloy_model_assignment": assignment.descriptor(),
-        "aloy_run_elapsed_ms": (
-            round(
-                (datetime.now(timezone.utc) - normalized_started).total_seconds()
-                * 1000,
-                3,
-            )
-            if normalized_started is not None
-            else None
-        ),
-    }
 
 
 def kernel_task_id_for_run(run_id: str) -> str:
@@ -230,10 +196,14 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             await session.rollback()
             await execute_claimed_event_bootstrap(run_id, worker_id)
             return
+        if run.run_kind == SURFACE_BUILDER_RUN_KIND:
+            # Surface source is one structured model output. The dedicated
+            # executor gives the model zero lifecycle tools and hands its
+            # complete candidate to Aloy's trusted host pipeline.
+            await session.rollback()
+            await execute_claimed_surface_builder(run_id, worker_id)
+            return
 
-        is_surface_builder = run.run_kind == SURFACE_BUILDER_RUN_KIND
-        surface_receipt: dict | None = None
-        builder_assignment: ModelAssignment | None = None
         metrics: dict | None = None
 
         task: Task | None = None
@@ -289,35 +259,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         conversation: Conversation | None = None
 
         try:
-            if is_surface_builder:
-                if run.model_assignment is None:
-                    raise ValueError("Surface Builder model assignment is unavailable")
-                builder_assignment = ModelAssignment.model_validate(
-                    run.model_assignment
-                )
-                builder_assignment.verify_fingerprint()
-                if builder_assignment.role != ModelRole.SURFACE_BUILDER:
-                    raise ValueError(
-                        "Surface Builder model assignment has the wrong role"
-                    )
-                missing_capabilities = (
-                    SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities
-                    - frozenset(builder_assignment.capabilities)
-                )
-                if missing_capabilities:
-                    raise ValueError(
-                        "Surface Builder model assignment lacks capabilities: "
-                        + ", ".join(sorted(missing_capabilities))
-                    )
-                if builder_assignment.skill_id != SURFACE_BUILDER_SKILL_ID:
-                    raise ValueError("Surface Builder skill assignment is unavailable")
-                if run.team_config_id is not None:
-                    raise ValueError("Surface Builder Runs cannot use a TeamConfig")
-            if (
-                is_surface_builder
-                and run.run_profile != SURFACE_BUILDER_RUN_PROFILE.descriptor()
-            ):
-                raise ValueError("Surface Builder Run profile is unavailable or stale")
             if await mark_surface_run_started(session, run=run):
                 # Surface reasoning has its own semantic start transition so
                 # Event SSE can refresh generated UI while the Run works.
@@ -341,9 +282,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 user_id=run.user_id,
                 role=membership.role,
             )
-            if is_surface_builder:
-                await record_surface_builder_started(session, run=run)
-                await session.commit()
             run_context = authenticated_run_context(
                 user_id=run.user_id,
                 organization_id=run.organization_id,
@@ -365,7 +303,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     or conversation.organization_id != run.organization_id
                 ):
                     raise ValueError("Conversation is unavailable")
-                if conversation.agent_config_id and not is_surface_builder:
+                if conversation.agent_config_id:
                     agent_config = await session.get(
                         AgentConfig, conversation.agent_config_id
                     )
@@ -428,89 +366,53 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 # chat path — connections, MCP servers, file library, gated
                 # denials. (It used to build runs without any of them: the
                 # drift the 2026-07-11 audit flagged.)
-                if is_surface_builder:
-                    assert builder_assignment is not None
-                    authoring_runtime = await resolve_surface_authoring_runtime(
-                        session,
+                surface = await resolve_run_surface(
+                    session,
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    policy=policy,
+                )
+                execution_memory = memory
+                orchestrator = build_orchestrator(
+                    shared_memory=memory,
+                    agent_config=agent_config,
+                    allowed_tools=policy.allowed_tools or None,
+                    denied_tools=surface.denied_tools,
+                    allowed_capability_groups=(
+                        policy.allowed_capability_groups or None
+                    ),
+                    allowed_provider_profiles=(
+                        policy.allowed_provider_profiles or None
+                    ),
+                    allowed_models=policy.allowed_models or None,
+                    skill_catalog=skill_catalog,
+                    enable_surface_requests=bool(run.event_id),
+                )
+                proposal_handler, proposal_config = proposal_write_gate(
+                    run_context=run_context,
+                    tools_registry=getattr(
+                        orchestrator, "tools_registry", tool_registry()
+                    ),
+                    session_factory=async_session,
+                )
+                tool_context = {
+                    **surface.tool_context_extra,
+                    "task_mutator": TaskMutationHandler(
                         run_context=run_context,
                         session_factory=async_session,
-                    )
-                    execution_memory = AgentMemory(
-                        organization_id=run.organization_id,
-                        user_id=run.user_id,
-                        event_id=run.event_id,
-                        agent_id=run.agent_id,
-                        session_id=run.session_id,
-                    )
-                    orchestrator = build_orchestrator(
-                        shared_memory=execution_memory,
-                        llm_config=builder_assignment.llm_config(),
-                        allowed_provider_profiles=(
-                            policy.allowed_provider_profiles or None
-                        ),
-                        allowed_models=policy.allowed_models or None,
-                        skill_catalog=skill_catalog,
-                        run_profile=SURFACE_BUILDER_RUN_PROFILE,
-                        file_backend=authoring_runtime.file_backend,
-                    )
-                    tool_context = {
-                        **authoring_runtime.tool_context_extra,
-                        SURFACE_COMPLETION_CONTEXT_KEY: SurfaceBuilderCompletionGuard(
-                            run_context=run_context,
-                            session_factory=async_session,
-                        ),
-                    }
-                    mcp_servers: list = []
-                    proposal_handler = None
-                    proposal_config = None
-                else:
-                    surface = await resolve_run_surface(
-                        session,
-                        organization_id=run.organization_id,
-                        user_id=run.user_id,
-                        policy=policy,
-                    )
-                    execution_memory = memory
-                    orchestrator = build_orchestrator(
-                        shared_memory=memory,
-                        agent_config=agent_config,
-                        allowed_tools=policy.allowed_tools or None,
-                        denied_tools=surface.denied_tools,
-                        allowed_capability_groups=(
-                            policy.allowed_capability_groups or None
-                        ),
-                        allowed_provider_profiles=(
-                            policy.allowed_provider_profiles or None
-                        ),
-                        allowed_models=policy.allowed_models or None,
-                        skill_catalog=skill_catalog,
-                        enable_surface_requests=bool(run.event_id),
-                    )
-                    proposal_handler, proposal_config = proposal_write_gate(
-                        run_context=run_context,
-                        tools_registry=getattr(
-                            orchestrator, "tools_registry", tool_registry()
-                        ),
-                        session_factory=async_session,
-                    )
-                    tool_context = {
-                        **surface.tool_context_extra,
-                        "task_mutator": TaskMutationHandler(
-                            run_context=run_context,
-                            session_factory=async_session,
-                        ),
-                        **(
-                            {
-                                SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
-                                    run_context=run_context,
-                                    session_factory=async_session,
-                                )
-                            }
-                            if run.event_id
-                            else {}
-                        ),
-                    }
-                    mcp_servers = surface.mcp_servers
+                    ),
+                    **(
+                        {
+                            SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
+                                run_context=run_context,
+                                session_factory=async_session,
+                            )
+                        }
+                        if run.event_id
+                        else {}
+                    ),
+                }
+                mcp_servers = surface.mcp_servers
                 # Resume-not-restart: run under a stable kernel task id. A
                 # first attempt creates it; a re-claim after a crash/expired
                 # lease injects the persisted checkpoint and continues from
@@ -561,25 +463,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         ),
                     }
 
-                if is_surface_builder:
-                    async with async_session() as receipt_session:
-                        surface_receipt = await verified_surface_publication(
-                            receipt_session,
-                            run=run,
-                        )
-                    if surface_receipt is None:
-                        raise SurfacePublicationRequiredError(
-                            "Surface Builder finished without publishing a verified build"
-                        )
-                    result["success"] = True
-                    final = {
-                        "final_answer": (
-                            "Your Event Surface is ready. Open it beside this "
-                            "conversation to use the new visual workspace."
-                        ),
-                        "reasoning": "Host-verified Surface publication receipt.",
-                    }
-
             # Stop is written by the API through a different session while the
             # agent is running. Refresh the cancellation bit before deciding
             # the terminal Run/Task state.
@@ -596,11 +479,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             # json_safe everything destined for JSON columns — rich objects
             # (TokenUsage etc.) otherwise throw at flush and lose the message
             # (the drift class the run_outcome refactor exists to prevent).
-            run.metrics = _metrics_with_model_assignment(
-                metrics,
-                builder_assignment,
-                run.started_at,
-            )
+            run.metrics = json_safe(metrics)
             run.selected_skills = json_safe(result.get("selected_skills")) or []
             run.artifacts = json_safe(result.get("artifacts")) or []
             run.plan = json_safe(result.get("plan")) or []
@@ -617,19 +496,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
-            if builder_assignment is not None:
-                run.execution_receipts = [
-                    *run.execution_receipts,
-                    {
-                        "kind": "model_assignment",
-                        **builder_assignment.descriptor(),
-                    },
-                ]
-            if surface_receipt is not None:
-                run.execution_receipts = [
-                    *run.execution_receipts,
-                    {"kind": "surface_publication", **surface_receipt},
-                ]
             if run.artifacts:
                 store_run_artifacts(
                     session,
@@ -749,15 +615,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                                 if task is not None
                                 else {}
                             ),
-                            **(
-                                {
-                                    "kind": "surface_build_result",
-                                    "status": "published",
-                                    "surface_receipt": surface_receipt,
-                                }
-                                if surface_receipt is not None
-                                else {}
-                            ),
                         },
                     )
                     session.add(surface_outcome_message)
@@ -792,7 +649,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 outcome_message=surface_outcome_message,
             )
 
-        except Exception as exc:
+        except Exception:
             logger.exception("Background run %s failed", run_id)
             await session.rollback()
             run = await session.get(Run, run_id)
@@ -801,46 +658,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 return
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
-            run.metrics = _metrics_with_model_assignment(
-                metrics,
-                builder_assignment,
-                run.started_at,
-            )
-            if (
-                is_surface_builder
-                and run.status == "pending"
-                and isinstance(exc, SurfacePublicationRequiredError)
-            ):
-                # A completed-but-unpublished attempt is not a crash checkpoint.
-                # Start the next attempt from the durable draft/publication truth.
-                run.progress = None
-                run.steps_taken = 0
-            if is_surface_builder:
-                await record_surface_builder_failure(
-                    session,
-                    run=run,
-                    terminal=run.status == "failed",
-                )
-                if run.status == "failed" and run.conversation_id:
-                    conversation = await session.get(Conversation, run.conversation_id)
-                    if conversation is not None:
-                        session.add(
-                            Message(
-                                conversation_id=conversation.id,
-                                role="assistant",
-                                content=(
-                                    "I could not safely publish the new Event Surface. "
-                                    "Your last working Surface is unchanged."
-                                ),
-                                metadata_={
-                                    "kind": "surface_build_result",
-                                    "status": "failed",
-                                    "run_id": run.id,
-                                },
-                            )
-                        )
-                        conversation.updated_at = datetime.now(timezone.utc)
-                        session.add(conversation)
+            run.metrics = json_safe(metrics)
             if run.status == "failed" and run.task_id:
                 task = await synchronize_task_after_run(session, run=run)
                 if task is not None and run.conversation_id:

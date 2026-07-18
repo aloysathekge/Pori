@@ -7,13 +7,14 @@ through the authenticated internal product-tool boundary.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from ..database import get_session
-from ..models import Event, SurfaceBuild, SurfaceProject
+from ..models import Event, Run, SurfaceBuild, SurfaceProject
 from ..rate_limit import rate_limited_permission
 from ..storage import get_object_store
 from ..surface_authoring import (
@@ -39,6 +40,17 @@ from ..tenancy import OrganizationContext, Permission
 
 router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
 
+SURFACE_BUILDER_RUN_KIND = "surface_builder"
+
+_SURFACE_STAGE_MESSAGES = {
+    "generating_candidate": "Designing and writing your Surface",
+    "validating_candidate": "Checking the generated application",
+    "building_bundle": "Compiling the Surface",
+    "inspecting_preview": "Checking that the Surface opens correctly",
+    "publishing_surface": "Publishing the new Surface",
+    "repairing_candidate": "Repairing the Surface",
+}
+
 
 def _surface_error(exc: SurfaceInteractionError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.detail)
@@ -57,6 +69,52 @@ async def _owned_event(
     ):
         raise HTTPException(status_code=404, detail="Event not found")
     return event
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def _surface_activity_payload(run: Run) -> dict:
+    now = datetime.now(timezone.utc)
+    progress = dict(run.progress or {})
+    stage = str(progress.get("stage") or "queued")
+    lease_expires_at = _aware(run.lease_expires_at)
+    overdue = (
+        run.status == "running"
+        and lease_expires_at is not None
+        and lease_expires_at < now
+    )
+    status = "overdue" if overdue else run.status
+    if status == "pending":
+        message = "Waiting for the Surface Builder"
+    elif status == "completed" and run.success:
+        message = "Your Surface is ready"
+    elif status == "overdue":
+        message = "The Surface Builder stopped reporting progress"
+    elif status in {"failed", "cancelled"}:
+        message = "The Surface could not be completed"
+    else:
+        message = _SURFACE_STAGE_MESSAGES.get(stage, "Building your Surface")
+    started_at = _aware(run.started_at or run.created_at)
+    return {
+        "run_id": run.id,
+        "status": status,
+        "stage": stage,
+        "message": message,
+        "submission": int(progress.get("submission") or 1),
+        "attempt_count": run.attempt_count,
+        "max_attempts": run.max_attempts,
+        "started_at": started_at,
+        "updated_at": progress.get("updated_at") or started_at,
+        "completed_at": _aware(run.completed_at),
+        "elapsed_seconds": (
+            max(0, int((now - started_at).total_seconds())) if started_at else 0
+        ),
+        "active": status in {"pending", "running"},
+    }
 
 
 @router.get("/project")
@@ -103,6 +161,36 @@ async def list_surface_builds(
         .all()
     )
     return [surface_build_payload(build, include_log=False) for build in rows]
+
+
+@router.get("/status")
+async def get_surface_activity(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict | None:
+    """Return the latest durable Builder state, including pre-build work."""
+    event = await _owned_event(session, context, event_id)
+    run = (
+        (
+            await session.execute(
+                select(Run)
+                .where(
+                    Run.organization_id == context.organization_id,
+                    Run.user_id == context.user_id,
+                    Run.event_id == event.id,
+                    Run.run_kind == SURFACE_BUILDER_RUN_KIND,
+                )
+                .order_by(col(Run.created_at).desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return _surface_activity_payload(run) if run is not None else None
 
 
 @router.get("/runtime")

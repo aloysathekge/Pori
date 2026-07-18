@@ -28,13 +28,9 @@ from aloy_backend.surface_authoring import (
     SurfaceWriteFilesParams,
 )
 from aloy_backend.surface_workspace import resolve_surface_authoring_runtime
-from aloy_backend.tools.surface_builds import (
-    SURFACE_BUILD_CONTEXT_KEY,
-    SURFACE_BUILD_TOOL_NAMES,
-)
+from aloy_backend.tools.surface_builds import SURFACE_BUILD_CONTEXT_KEY
 from aloy_backend.tools.surfaces import (
     SURFACE_AUTHORING_CONTEXT_KEY,
-    SURFACE_AUTHORING_TOOL_NAMES,
     register_surface_authoring_tools,
 )
 from pori import FileErrorCode
@@ -399,10 +395,12 @@ def test_surface_source_schema_guards_toolchain_and_workspace_paths():
         )
 
 
-def test_surface_builder_profile_explicitly_requires_surface_tools():
-    required = SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES
-    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == required
-    assert required.issubset(SURFACE_BUILDER_RUN_PROFILE.allowed_tools or frozenset())
+def test_surface_builder_profile_reserves_lifecycle_tools_for_the_host():
+    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == frozenset()
+    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset()
+    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset(
+        {"structured_output"}
+    )
 
 
 def test_surface_migration_creates_and_removes_revision_tables(tmp_path):

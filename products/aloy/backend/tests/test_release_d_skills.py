@@ -20,7 +20,7 @@ async def test_catalog_always_includes_bundled_surface_builder(db_session_maker)
     selected = catalog.select(
         "Build this Event Surface",
         registry.snapshot(),
-        model_capabilities=frozenset({"tools"}),
+        model_capabilities=frozenset({"structured_output"}),
         explicit_skill_ids=[SURFACE_BUILDER_SKILL_ID],
     )
     loaded = catalog.load_selected(selected)

@@ -92,6 +92,7 @@ class SurfaceAuthoringRuntime:
     authoring_handler: SurfaceAuthoringHandler
     build_handler: SurfaceBuildHandler
     project_snapshot: dict[str, Any]
+    prompt_context: dict[str, Any]
 
     @property
     def tool_context_extra(self) -> dict[str, Any]:
@@ -282,6 +283,16 @@ async def resolve_surface_authoring_runtime(
             owner_loop=owner_loop,
         ),
         project_snapshot=project,
+        prompt_context={
+            "event": event_payload(event),
+            "brief": brief.payload if brief is not None else {},
+            "tasks": [task_payload(task) for task in tasks],
+            "proposals": [proposal_payload(proposal) for proposal in proposals],
+            "files": file_manifest,
+            "file_excerpts": mounted_files,
+            "trail": [trail_payload(entry) for entry in trail],
+            "surface": project,
+        },
     )
 
 
