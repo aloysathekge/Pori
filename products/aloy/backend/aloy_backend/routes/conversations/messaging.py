@@ -61,7 +61,11 @@ from ...streaming import stream_agent_execution
 from ...surface_requests import SurfaceRequestHandler
 from ...team_execution import build_team_from_config
 from ...tenancy import OrganizationContext, Permission
-from ...tools import TaskMutationHandler
+from ...tools import (
+    SURFACE_STATE_CONTEXT_KEY,
+    SurfaceStateReader,
+    TaskMutationHandler,
+)
 from ...tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 from ._helpers import _load_conv, _maybe_generate_title, _render_file_block
 
@@ -696,6 +700,10 @@ async def _run_blocking(
         tool_context = {
             **surface.tool_context_extra,
             "task_mutator": TaskMutationHandler(
+                run_context=run_context,
+                session_factory=async_session,
+            ),
+            SURFACE_STATE_CONTEXT_KEY: SurfaceStateReader(
                 run_context=run_context,
                 session_factory=async_session,
             ),

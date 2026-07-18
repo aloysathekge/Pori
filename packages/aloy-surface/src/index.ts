@@ -44,6 +44,7 @@ export interface SurfaceInteraction {
 
 export interface SurfaceContext {
   protocol_version: '1';
+  command_contract_version: '1';
   sdk_version: '1';
   event_id: string;
   project_id: string;
@@ -68,6 +69,11 @@ export interface SurfaceAction {
   name: string;
   payload: Record<string, unknown>;
   reason?: string;
+}
+
+export interface SurfaceCommandOptions {
+  componentId?: string;
+  idempotencyKey?: string;
 }
 
 export type SurfaceRuntimeStatus = 'disconnected' | 'healthy' | 'degraded';
@@ -362,6 +368,20 @@ export function dispatch<T = Record<string, unknown>>(
   return request<T>('dispatch', {
     name,
     payload,
+    componentId: componentId(options.componentId),
+    idempotencyKey: idempotencyKey(options.idempotencyKey),
+  });
+}
+
+/** Send a manifest-declared command to Aloy's host-owned command runtime. */
+export function command<T = Record<string, unknown>>(
+  name: string,
+  input: Record<string, unknown>,
+  options: SurfaceCommandOptions = {},
+): Promise<T> {
+  return request<T>('command', {
+    name,
+    payload: input,
     componentId: componentId(options.componentId),
     idempotencyKey: idempotencyKey(options.idempotencyKey),
   });

@@ -2,9 +2,9 @@
 
 ## Active Task
 
-Implement `aloy-v1-r5-host-build-pipeline`: no-tool structured Surface
-generation followed by host-owned persistence, validation, build, inspection,
-bounded repair, and atomic last-good publication.
+Implement `aloy-v1-r5-surface-command-runtime`: make Aloy's host own canonical
+Surface entities, exact mutation semantics, command routing, state projection,
+and model wake policy while retaining published V1 compatibility.
 
 ## Decisions Made
 
@@ -247,6 +247,20 @@ bounded repair, and atomic last-good publication.
   until the optional E2B SDK is installed and a pinned E2B template provides
   `/opt/aloy-surface-toolchain/bin/build-surface`; the default E2B image does
   not currently contain Aloy's host-owned compiler contract.
+- PR #189 merged the verified host-owned build pipeline into `aloy-v1`. The
+  command-runtime branch now introduces command contract v1, strict
+  `create`/`replace`/`merge`/`delete` entity semantics, a legacy `dispatch`
+  compatibility seam, fixed wake-policy classification, a bounded canonical
+  Surface-state Event-context projection, and an Event-scoped detailed-state
+  read tool. Reasoning commands create a host-rendered trigger containing the
+  exact Event, data revision, and context snapshot fingerprint; arbitrary
+  Surface payload is retained as data but is not interpolated into the Run
+  instruction.
+- Command-runtime slice verification: complete Aloy backend suite `346 passed`;
+  backend mypy clean across `113` source files; backend Black/isort clean; all
+  three import-boundary contracts kept; focused command/state regressions `9
+  passed`; Surface bridge tests `4 passed`; Aloy app lint and production build
+  pass with only the existing large-chunk warning.
 
 ## Blockers
 
@@ -260,11 +274,9 @@ bounded repair, and atomic last-good publication.
 
 ## Next Session Should Start With
 
-Merge this verified host-build phase into `aloy-v1`, then start
-`aloy-v1-r5-surface-command-runtime`. Introduce the versioned host-owned
-Surface entity/command contract behind V1 compatibility, canonical
-Surface-to-Conversation state projection, Event-scoped detailed-state read
-tool, explicit wake policies, and host-generated command tests. Migrate Career
-OS through that contract before fast-build, showcase, or widget work continues;
-do not solve further interaction failures by patching individual generated
-applications.
+Finish `aloy-v1-r5-surface-command-runtime`: add durable structured conflict and
+rejection outcomes, enable governed `source_change` and `automation` routes,
+generate the remaining reconnect/permission host tests, then migrate Career OS
+from its model-owned wrappers to `command()` with explicit entity operations.
+Do not patch individual generated applications or continue showcase/widget work
+until the command runtime owns their persistence and wake behavior.

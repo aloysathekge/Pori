@@ -428,7 +428,7 @@ def _execute_interaction_check(
             and isinstance(item.get("params"), dict)
             and (
                 item["params"].get("name") == expected.name
-                if expected.method == "dispatch"
+                if expected.method in {"command", "dispatch"}
                 else (
                     expected.name == "aloy.ask"
                     if expected.method == "askAloy"
@@ -455,12 +455,12 @@ def _execute_interaction_check(
                 f"{expected.method} {expected.name!r}; observed {observed}",
             )
         ]
-    if expected.method in {"dispatch", "requestAction"}:
+    if expected.method in {"command", "dispatch", "requestAction"}:
         declaration = manifest.intents[expected.name]
         params = dict(matching.get("params") or {})
         payload = (
             params.get("payload")
-            if expected.method == "dispatch"
+            if expected.method in {"command", "dispatch"}
             else dict(params.get("action") or {}).get("payload")
         )
         try:

@@ -67,7 +67,7 @@ manifest is:
   "capabilities": ["event", "tasks", "data:academic", "ask_aloy"],
   "intents": {
     "academic.course_selected": {
-      "class": "durable_selection",
+      "class": "state",
       "schema": {
         "type": "object",
         "properties": {"courseId": {"type": "string", "maxLength": 100}},
@@ -76,6 +76,7 @@ manifest is:
       },
       "write": {
         "namespace": "academic",
+        "operation": "create",
         "key_field": "courseId",
         "posture": "user_reported"
       }
@@ -87,7 +88,7 @@ manifest is:
       "steps": [
         {"action": "click", "role": "button", "name": "Select Algorithms"}
       ],
-      "expect": {"method": "dispatch", "name": "academic.course_selected"}
+      "expect": {"method": "command", "name": "academic.course_selected"}
     }
   ],
   "widgets": []
@@ -99,8 +100,12 @@ for reactive reads. Interaction records are the durable way to render queued,
 running, approval, execution, committed, rejected, failed, or indeterminate
 outcomes after the original SDK Promise has resolved; never invent completion
 from local component state.
-Use `dispatch(name, payload)` only for declared durable selections,
-`askAloy(message, context)` for an explicit reasoning turn, and
+Use `command(name, input)` for every host-owned state or reasoning command.
+State intents must declare exactly one of `create`, `replace`, `merge`, or
+`delete`; choose the real entity lifecycle operation instead of simulating an
+upsert in component state. `dispatch(name, payload)` remains compatibility-only
+for already-published V1 Surfaces. Use `askAloy(message, context)` for a legacy
+free-form explicit reasoning turn, and
 `requestAction({name, payload, reason})` only for a declared external action
 whose manifest entry names the exact host tool. Local sorting, filtering,
 tabs, disclosure, and temporary form state stay local and require no intent.

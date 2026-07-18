@@ -25,10 +25,18 @@ from .models import (
     StoredFile,
     Task,
 )
+from .surface_state import surface_state_context_projection
 
 ReadinessLevel = Literal["not_applicable", "name_only", "little", "sufficient", "rich"]
 EvidenceKind = Literal[
-    "event", "knowledge_entry", "context_item", "task", "proposal", "file", "trail"
+    "event",
+    "knowledge_entry",
+    "context_item",
+    "task",
+    "proposal",
+    "file",
+    "trail",
+    "surface_entity",
 ]
 MAX_BOOTSTRAP_EVIDENCE_CHARS = 100_000
 MAX_BOOTSTRAP_EVIDENCE_ITEM_CHARS = 16_000
@@ -303,6 +311,12 @@ async def refresh_event_context_snapshot(
         .scalars()
         .first()
     )
+    surface_state = await surface_state_context_projection(
+        session,
+        organization_id=owner[0],
+        user_id=owner[1],
+        event_id=owner[2],
+    )
 
     readiness = _readiness(
         event, knowledge, context_items, connections, has_brief=active_brief is not None
@@ -321,6 +335,13 @@ async def refresh_event_context_snapshot(
     evidence_refs += [{"kind": "proposal", "id": item.id} for item in proposals]
     evidence_refs += [{"kind": "file", "id": item.id} for item in files]
     evidence_refs += [{"kind": "trail", "id": item.id} for item in trails]
+    evidence_refs += [
+        {
+            "kind": "surface_entity",
+            "id": f"{item['namespace']}:{item['key']}",
+        }
+        for item in (surface_state or {}).get("records", [])
+    ]
 
     sensitive = any(
         entry.sensitivity in {"confidential", "restricted"} for entry in knowledge
@@ -372,6 +393,7 @@ async def refresh_event_context_snapshot(
             }
             for item in trails
         ],
+        "surface_state": surface_state,
     }
     catalog = [
         {

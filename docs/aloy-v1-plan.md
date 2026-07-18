@@ -299,6 +299,12 @@ split into the following independently merged branches:
    must cover success, rejection, stale revision, reconnect, empty, populated,
    partial, and permission-denied states. Migrate Career OS first and remove
    model-owned persistence wrappers before other showcase work continues.
+   The first slice establishes command contract v1, strict state operations, a
+   compatibility-only legacy dispatch path, fixed effect-to-wake mapping, the
+   shared bounded Event-context projection, an Event-scoped detailed read
+   tool, and snapshot-bound trusted reasoning triggers. The next slice makes
+   conflict/rejection outcomes durable, enables governed automation and source
+   change routing, and migrates Career OS to the new `command()` SDK.
 4. **`aloy-v1-r5-fast-build-runtime`** - versioned fixed React/SDK compiler
    image, warm isolated sandbox strategy, no per-Surface dependency install,
    content-addressed build reuse, and remote build benchmarks. Developer

@@ -143,6 +143,7 @@ def build_orchestrator(
         register_library_tools,
         register_surface_authoring_tools,
         register_surface_build_tools,
+        register_surface_state_tools,
         register_task_tools,
     )
     from .tools.surface_requests import register_surface_request_tool
@@ -150,11 +151,13 @@ def build_orchestrator(
     register_google_tools(registry)
     register_library_tools(registry)
     register_task_tools(registry)
+    register_surface_state_tools(registry)
     product_denied_tools = set(denied_tools)
     if enable_surface_requests:
         register_surface_request_tool(registry)
     else:
         product_denied_tools.add("request_event_surface")
+        product_denied_tools.add("surface_state_read")
     if run_profile and run_profile.profile_id == "aloy.surface-builder":
         register_surface_authoring_tools(registry)
         register_surface_build_tools(registry)

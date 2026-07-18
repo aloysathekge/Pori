@@ -26,6 +26,7 @@ class SurfaceDataWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     namespace: str
+    operation: Literal["create", "replace", "merge", "delete"] = "replace"
     key: str | None = Field(default=None, min_length=1, max_length=200)
     key_field: str | None = Field(default=None, min_length=1, max_length=100)
     posture: Literal["user_reported"] = "user_reported"
@@ -48,6 +49,11 @@ class SurfaceIntentDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     interaction_class: Literal[
+        "local",
+        "state",
+        "reasoning",
+        "automation",
+        "source_change",
         "durable_selection",
         "reasoning_request",
         "external_action",
@@ -62,10 +68,11 @@ class SurfaceIntentDeclaration(BaseModel):
     @model_validator(mode="after")
     def validate_route(self) -> "SurfaceIntentDeclaration":
         _validate_schema_shape(self.schema_)
-        if self.interaction_class == "durable_selection" and self.write is None:
-            raise ValueError("durable_selection intents require a data write")
-        if self.interaction_class != "durable_selection" and self.write is not None:
-            raise ValueError("Only durable_selection intents may write Surface data")
+        state_classes = {"state", "durable_selection"}
+        if self.interaction_class in state_classes and self.write is None:
+            raise ValueError("State intents require an explicit data mutation")
+        if self.interaction_class not in state_classes and self.write is not None:
+            raise ValueError("Only state intents may mutate Surface data")
         if self.interaction_class == "external_action" and not self.tool:
             raise ValueError("external_action intents require a host tool")
         if self.interaction_class != "external_action" and self.tool is not None:
@@ -99,7 +106,7 @@ class SurfaceInteractionCheckStep(BaseModel):
 class SurfaceInteractionCheckExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    method: Literal["dispatch", "askAloy", "requestAction"]
+    method: Literal["command", "dispatch", "askAloy", "requestAction"]
     name: str = Field(min_length=1, max_length=128)
 
 
@@ -175,7 +182,11 @@ class SurfaceManifest(BaseModel):
                     )
                 expected_method = {
                     "durable_selection": "dispatch",
+                    "state": "command",
+                    "reasoning": "command",
                     "external_action": "requestAction",
+                    "automation": "command",
+                    "source_change": "command",
                 }.get(checked_declaration.interaction_class)
                 if expectation.method != expected_method:
                     raise ValueError(

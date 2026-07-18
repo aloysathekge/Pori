@@ -6,6 +6,7 @@ import {
   type SurfaceInteractionResponse,
   type SurfaceRuntimeContext,
 } from '../../api/surfaces';
+import { ApiError } from '../../api/client';
 
 const PROTOCOL = '1' as const;
 const MAX_IN_FLIGHT = 8;
@@ -51,7 +52,7 @@ type BridgeRequest = {
   type: 'request';
   sessionId: string;
   requestId: string;
-  method: 'getContext' | 'dispatch' | 'askAloy' | 'requestAction';
+  method: 'getContext' | 'command' | 'dispatch' | 'askAloy' | 'requestAction';
   params?: unknown;
 };
 
@@ -96,7 +97,11 @@ function errorMessage(cause: unknown, fallback: string): string {
 }
 
 function retryableFailure(cause: unknown, controller: AbortController): boolean {
-  return controller.signal.aborted || cause instanceof TypeError;
+  return (
+    controller.signal.aborted
+    || cause instanceof TypeError
+    || (cause instanceof ApiError && [409, 429, 503].includes(cause.status))
+  );
 }
 
 export class SurfaceBridgeHost {
@@ -420,8 +425,8 @@ export class SurfaceBridgeHost {
       let bodyPayload: Record<string, unknown>;
       let message: string | undefined;
       let reason: string | undefined;
-      if (request.method === 'dispatch') {
-        method = 'dispatch';
+      if (request.method === 'command' || request.method === 'dispatch') {
+        method = request.method;
         name = string(params.name, 'intent name', 128);
         bodyPayload = payload(params.payload);
       } else if (request.method === 'askAloy') {
@@ -459,6 +464,20 @@ export class SurfaceBridgeHost {
         controller.signal,
       );
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409 && this.port) {
+        try {
+          this.context = await this.loadContext();
+          this.port.postMessage({
+            protocol: PROTOCOL,
+            type: 'context',
+            sessionId: this.sessionId,
+            context: this.context,
+          });
+        } catch {
+          // The original conflict remains authoritative. A reconnect or
+          // publication change is reported by the normal runtime lifecycle.
+        }
+      }
       this.respond(request.requestId, {
         ok: false,
         error: errorMessage(cause, 'Surface request timed out'),

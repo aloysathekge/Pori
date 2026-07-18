@@ -7,6 +7,7 @@ import { SurfaceBridgeHost } from '../src/components/surfaces/surfaceBridge';
 
 const context: SurfaceRuntimeContext = {
   protocol_version: '1',
+  command_contract_version: '1',
   sdk_version: '1',
   event_id: 'event-1',
   project_id: 'project-1',
@@ -133,6 +134,7 @@ describe('SurfaceBridgeHost', () => {
     let surfacePort: MessagePort | null = null;
     let sessionId = '';
     let receivedIdempotencyKey = '';
+    let receivedMethod = '';
     const bridge = new SurfaceBridgeHost(
       'event-1',
       'build-1',
@@ -141,6 +143,7 @@ describe('SurfaceBridgeHost', () => {
         getContext: async () => context,
         createInteraction: async (_eventId, request) => {
           receivedIdempotencyKey = request.idempotency_key;
+          receivedMethod = request.method;
           return interaction;
         },
       },
@@ -172,7 +175,7 @@ describe('SurfaceBridgeHost', () => {
         type: 'request',
         sessionId,
         requestId: 'request-1',
-        method: 'dispatch',
+        method: 'command',
         params: {
           name: 'trip.select_flight',
           payload: {},
@@ -188,6 +191,7 @@ describe('SurfaceBridgeHost', () => {
       requestId: 'request-1',
     });
     expect(receivedIdempotencyKey).toBe('interaction-key-1');
+    expect(receivedMethod).toBe('command');
     bridge.disconnect(false);
   });
 });

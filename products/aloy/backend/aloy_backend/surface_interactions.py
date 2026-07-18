@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import func, update
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -16,6 +16,7 @@ from sqlmodel import col, select
 from pori import stable_fingerprint
 
 from .config import settings
+from .event_context import refresh_event_context_snapshot
 from .event_presenters import (
     event_payload,
     file_payload,
@@ -39,6 +40,13 @@ from .models import (
     Task,
 )
 from .proposal_executor import proposal_tool_registry
+from .surface_commands import (
+    SURFACE_COMMAND_CONTRACT_VERSION,
+    ResolvedSurfaceCommand,
+    SurfaceCommandError,
+    apply_state_command,
+    resolve_surface_command,
+)
 from .surface_lifecycle import stage_surface_action_message
 from .surface_manifest import (
     SURFACE_PROTOCOL_VERSION,
@@ -46,6 +54,7 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_state import surface_record_payload
 from .tenancy import OrganizationContext
 
 MAX_INTERACTION_PAYLOAD_BYTES = 128 * 1024
@@ -64,7 +73,7 @@ class SurfaceInteractionRequest(BaseModel):
     build_id: str = Field(min_length=1, max_length=200)
     code_revision_id: str = Field(min_length=1, max_length=200)
     data_revision: int = Field(ge=0)
-    method: Literal["dispatch", "ask_aloy", "request_action"]
+    method: Literal["command", "dispatch", "ask_aloy", "request_action"]
     name: str = Field(min_length=1, max_length=128)
     component_id: str = Field(default="surface", min_length=1, max_length=200)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -97,25 +106,14 @@ def _fingerprint(request: SurfaceInteractionRequest) -> str:
 
 
 def _record_payload(record: SurfaceDataRecord) -> dict[str, Any]:
-    return {
-        "id": record.id,
-        "namespace": record.namespace,
-        "key": record.record_key,
-        "data": record.data,
-        "revision": record.revision,
-        "posture": record.posture,
-        "actor_id": record.actor_id,
-        "provenance": record.provenance,
-        "evidence_refs": record.evidence_refs,
-        "created_at": record.created_at.isoformat(),
-        "updated_at": record.updated_at.isoformat(),
-    }
+    return surface_record_payload(record)
 
 
 def interaction_payload(interaction: SurfaceInteraction) -> dict[str, Any]:
     return {
         "id": interaction.id,
         "protocol_version": SURFACE_PROTOCOL_VERSION,
+        "command_contract_version": SURFACE_COMMAND_CONTRACT_VERSION,
         "event_id": interaction.event_id,
         "build_id": interaction.build_id,
         "code_revision_id": interaction.code_revision_id,
@@ -348,6 +346,7 @@ async def surface_runtime_context(
 
     return {
         "protocol_version": SURFACE_PROTOCOL_VERSION,
+        "command_contract_version": SURFACE_COMMAND_CONTRACT_VERSION,
         "sdk_version": manifest.sdk_version,
         "event_id": event.id,
         "project_id": project.id,
@@ -390,12 +389,20 @@ def _declaration_for(
     declaration = manifest.intents.get(request.name)
     if declaration is None:
         raise SurfaceInteractionError(403, "Surface intent is not declared")
-    expected = {
-        "dispatch": "durable_selection",
+    try:
+        command = resolve_surface_command(request.name, declaration)
+    except SurfaceCommandError as exc:
+        raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
+    expected_effect = {
+        "dispatch": "state",
         "request_action": "external_action",
-    }[request.method]
-    if declaration.interaction_class != expected:
-        raise SurfaceInteractionError(422, "Surface intent uses the wrong method")
+    }.get(request.method)
+    if expected_effect is not None and command.effect != expected_effect:
+        raise SurfaceInteractionError(422, "Surface intent uses the wrong SDK method")
+    if request.method == "command" and command.effect == "local":
+        raise SurfaceInteractionError(
+            422, "Local Surface controls must stay inside the iframe"
+        )
     try:
         validate_intent_payload(declaration.schema_, request.payload)
     except ValueError as exc:
@@ -432,10 +439,15 @@ async def handle_surface_interaction(
     declaration = _declaration_for(manifest, request)
     now = datetime.now(timezone.utc)
     if request.method == "ask_aloy":
-        interaction_class = "reasoning_request"
+        command = ResolvedSurfaceCommand(
+            name="aloy.ask", effect="reasoning", wake_policy="immediate"
+        )
     else:
         assert declaration is not None
-        interaction_class = declaration.interaction_class
+        try:
+            command = resolve_surface_command(request.name, declaration)
+        except SurfaceCommandError as exc:
+            raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
     interaction = SurfaceInteraction(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -445,7 +457,7 @@ async def handle_surface_interaction(
         code_revision_id=revision.id,
         conversation_id=event.primary_conversation_id,
         name=request.name,
-        interaction_class=interaction_class,
+        interaction_class=command.effect,
         component_id=request.component_id,
         payload=request.payload,
         actor_id=context.user_id,
@@ -458,86 +470,37 @@ async def handle_surface_interaction(
     )
     session.add(interaction)
 
-    if request.method == "dispatch":
+    if command.effect == "state":
         if request.data_revision != project.data_revision:
             raise SurfaceInteractionError(409, "Surface data revision changed")
-        assert declaration is not None and declaration.write is not None
-        write = declaration.write
-        key_value: Any = write.key
-        if write.key_field:
-            key_value = request.payload.get(write.key_field)
-        if not isinstance(key_value, str) or not key_value.strip():
-            raise SurfaceInteractionError(422, "Surface data record key is invalid")
-        key = key_value.strip()[:200]
-        next_revision = project.data_revision + 1
-        claimed = await session.execute(
-            update(SurfaceProject)
-            .where(
-                col(SurfaceProject.id) == project.id,
-                col(SurfaceProject.data_revision) == project.data_revision,
-            )
-            .values(data_revision=next_revision, updated_at=now)
-        )
-        if claimed.rowcount != 1:  # type: ignore[attr-defined]
-            await session.rollback()
-            replay = await _existing_interaction(
+        assert declaration is not None
+        try:
+            mutation = await apply_state_command(
                 session,
-                project_id=project_id,
-                idempotency_key=request.idempotency_key,
-            )
-            if replay is not None and replay.request_fingerprint == fingerprint:
-                payload = interaction_payload(replay)
-                payload["replayed"] = True
-                return payload
-            raise SurfaceInteractionError(409, "Surface data changed concurrently")
-        record = (
-            (
-                await session.execute(
-                    select(SurfaceDataRecord).where(
-                        SurfaceDataRecord.project_id == project.id,
-                        SurfaceDataRecord.namespace == write.namespace,
-                        SurfaceDataRecord.record_key == key,
-                    )
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if record is None:
-            record = SurfaceDataRecord(
-                organization_id=context.organization_id,
-                user_id=context.user_id,
-                event_id=event.id,
-                project_id=project.id,
-                namespace=write.namespace,
-                record_key=key,
-                data=request.payload,
-                revision=next_revision,
-                posture=write.posture,
+                project=project,
+                interaction=interaction,
+                declaration=declaration,
+                command=command,
+                payload=request.payload,
                 actor_id=context.user_id,
-                provenance={
-                    "surface_interaction_id": interaction.id,
-                    "code_revision_id": revision.id,
-                    "build_id": build.id,
-                },
-                created_at=now,
-                updated_at=now,
+                code_revision_id=revision.id,
+                build_id=build.id,
+                now=now,
             )
-        else:
-            record.data = request.payload
-            record.revision = next_revision
-            record.posture = write.posture
-            record.actor_id = context.user_id
-            record.provenance = {
-                "surface_interaction_id": interaction.id,
-                "code_revision_id": revision.id,
-                "build_id": build.id,
-            }
-            record.updated_at = now
-        session.add(record)
+        except SurfaceCommandError as exc:
+            raise SurfaceInteractionError(exc.status_code, exc.detail) from exc
         interaction.status = "committed"
-        interaction.result_data_revision = next_revision
-        interaction.result = {"record": _record_payload(record)}
+        interaction.result_data_revision = mutation.data_revision
+        interaction.result = {
+            "command": command.payload(),
+            "entity_refs": [mutation.entity_ref],
+            "record": (
+                _record_payload(mutation.record)
+                if mutation.record is not None
+                else None
+            ),
+        }
+        operation_label = command.operation or "state"
         session.add(
             EventTrailEntry(
                 organization_id=context.organization_id,
@@ -545,19 +508,22 @@ async def handle_surface_interaction(
                 event_id=event.id,
                 actor_id=context.user_id,
                 kind="surface_interaction_committed",
-                summary=f"Updated {write.namespace} from the Event Surface",
+                summary=(
+                    f"{operation_label.title()}d {command.namespace} "
+                    "from the Event Surface"
+                ),
                 evidence_refs=[{"surface_interaction_id": interaction.id}],
                 payload={
                     "interaction_id": interaction.id,
                     "name": request.name,
-                    "namespace": write.namespace,
-                    "record_key": key,
-                    "data_revision": next_revision,
+                    "command": command.payload(),
+                    "entity_refs": [mutation.entity_ref],
+                    "data_revision": mutation.data_revision,
                 },
             )
         )
 
-    elif request.method == "ask_aloy":
+    elif command.effect == "reasoning":
         conversation = await session.get(Conversation, event.primary_conversation_id)
         if (
             conversation is None
@@ -598,7 +564,24 @@ async def handle_surface_interaction(
         )
         if account_active >= account_cap:
             raise SurfaceInteractionError(429, "Account Run limit reached")
+        snapshot, _pack, _created = await refresh_event_context_snapshot(
+            session,
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+        )
         message = (request.message or "").strip()
+        if not message:
+            message = f"Carry out the {request.name} reasoning command from this Event Surface."
+        trigger = {
+            "contract_version": SURFACE_COMMAND_CONTRACT_VERSION,
+            "event_id": event.id,
+            "interaction_id": interaction.id,
+            "command": command.payload(),
+            "data_revision": project.data_revision,
+            "context_snapshot_id": snapshot.id,
+            "context_snapshot_fingerprint": snapshot.fingerprint,
+        }
         user_message = Message(
             conversation_id=conversation.id,
             role="user",
@@ -606,7 +589,8 @@ async def handle_surface_interaction(
             metadata_={
                 "kind": "surface_interaction",
                 "surface_interaction_id": interaction.id,
-                "surface_context": request.payload,
+                "surface_command": trigger,
+                "surface_input": request.payload,
                 "code_revision_id": revision.id,
                 "data_revision": project.data_revision,
             },
@@ -620,9 +604,10 @@ async def handle_surface_interaction(
             conversation_id=conversation.id,
             idempotency_key=f"surface:{interaction.id}",
             task=(
-                f'<surface-interaction name="aloy.ask">\n{message}\n'
-                f"Context: {json.dumps(request.payload, sort_keys=True)}\n"
-                "</surface-interaction>"
+                "<trusted-surface-command>\n"
+                f"{json.dumps(trigger, sort_keys=True)}\n"
+                "</trusted-surface-command>\n"
+                f"User request: {message}"
             ),
             max_steps=context.policy.max_steps_per_run,
             max_attempts=context.policy.max_attempts,
@@ -633,7 +618,12 @@ async def handle_surface_interaction(
         session.add(run)
         interaction.status = "queued"
         interaction.handling_run_id = run.id
-        interaction.result = {"run_id": run.id, "conversation_id": conversation.id}
+        interaction.result = {
+            "command": command.payload(),
+            "trigger": trigger,
+            "run_id": run.id,
+            "conversation_id": conversation.id,
+        }
         session.add(
             EventTrailEntry(
                 organization_id=context.organization_id,
@@ -644,11 +634,16 @@ async def handle_surface_interaction(
                 summary="Asked Aloy from the Event Surface",
                 run_id=run.id,
                 evidence_refs=[{"surface_interaction_id": interaction.id}],
-                payload={"interaction_id": interaction.id, "name": request.name},
+                payload={
+                    "interaction_id": interaction.id,
+                    "name": request.name,
+                    "command": command.payload(),
+                    "trigger": trigger,
+                },
             )
         )
 
-    else:
+    elif command.effect == "external_action":
         assert declaration is not None and declaration.tool is not None
         if declaration.tool in context.policy.denied_tools or (
             context.policy.allowed_tools
@@ -688,7 +683,10 @@ async def handle_surface_interaction(
         session.add(proposal)
         interaction.status = "waiting_approval"
         interaction.proposal_id = proposal.id
-        interaction.result = {"proposal_id": proposal.id}
+        interaction.result = {
+            "command": command.payload(),
+            "proposal_id": proposal.id,
+        }
         await stage_surface_action_message(
             session,
             interaction=interaction,
@@ -706,11 +704,18 @@ async def handle_surface_interaction(
                 evidence_refs=[{"surface_interaction_id": interaction.id}],
                 payload={
                     "interaction_id": interaction.id,
+                    "command": command.payload(),
                     "tool": declaration.tool,
                     "status": proposal.status,
                     "routing": proposal.routing,
                 },
             )
+        )
+
+    else:
+        raise SurfaceInteractionError(
+            501,
+            f"Surface {command.effect} commands are declared but not enabled in this phase",
         )
 
     event.updated_at = now
