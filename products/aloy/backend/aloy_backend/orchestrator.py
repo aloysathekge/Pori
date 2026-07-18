@@ -84,13 +84,6 @@ def build_orchestrator(
 
     # Use agent config if provided, otherwise fall back to default config
     if agent_config:
-        if (
-            allowed_provider_profiles
-            and agent_config.provider not in allowed_provider_profiles
-        ):
-            raise ValueError("Provider denied by current organization policy")
-        if allowed_models and agent_config.model not in allowed_models:
-            raise ValueError("Model denied by current organization policy")
         llm_config = LLMConfig(
             provider=agent_config.provider,
             model=agent_config.model,
@@ -98,9 +91,18 @@ def build_orchestrator(
         )
         llm = create_llm(llm_config)
         provider = agent_config.provider
+        model = agent_config.model
     else:
         llm, config = get_configured_llm()
         provider = config.llm.provider
+        model = config.llm.model
+
+    # Organization policy applies equally to a user's AgentConfig and to
+    # operator-selected purpose profiles that use the default model.
+    if allowed_provider_profiles and provider not in allowed_provider_profiles:
+        raise ValueError("Provider denied by current organization policy")
+    if allowed_models and model not in allowed_models:
+        raise ValueError("Model denied by current organization policy")
 
     model_capabilities = get_provider_profile(provider).capabilities
 

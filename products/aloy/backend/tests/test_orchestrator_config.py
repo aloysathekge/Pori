@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+
+import pytest
+
 from aloy_backend import orchestrator as orchestrator_module
 from aloy_backend.models import AgentConfig
 from aloy_backend.run_profiles import SURFACE_BUILDER_RUN_PROFILE
@@ -63,3 +67,17 @@ def test_surface_builder_orchestrator_is_explicit_and_file_scoped(monkeypatch):
     )
     assert "gmail_send" not in orchestrator.tools_registry.tools
     assert orchestrator.file_backend is file_backend
+
+
+def test_default_operator_model_still_obeys_organization_policy(monkeypatch):
+    monkeypatch.setattr(
+        orchestrator_module,
+        "get_configured_llm",
+        lambda: (
+            object(),
+            SimpleNamespace(llm=SimpleNamespace(provider="openai", model="gpt-4o")),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Model denied"):
+        orchestrator_module.build_orchestrator(allowed_models=("gpt-5",))

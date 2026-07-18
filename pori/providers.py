@@ -89,7 +89,7 @@ _PROFILES = (
         name="fireworks",
         adapter="pori.llm.ChatFireworks",
         credential_environment=("FIREWORKS_API_KEY",),
-        capabilities=frozenset({"tools"}),
+        capabilities=frozenset({"tools", "structured_output"}),
         required_modules=("openai",),
     ),
     ProviderProfile(

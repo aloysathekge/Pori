@@ -22,6 +22,7 @@ from sqlmodel import col, select
 from .config import settings
 from .database import async_session
 from .doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
+from .event_bootstrap import queue_event_bootstrap_if_ready
 from .models import (
     Event,
     EventSetupContextItem,
@@ -578,6 +579,12 @@ async def execute_claimed_context_item(
                     "retrieved_at": source.retrieved_at.isoformat(),
                 },
             )
+        )
+        await queue_event_bootstrap_if_ready(
+            session,
+            organization_id=item.organization_id,
+            user_id=item.user_id,
+            event_id=event.id,
         )
         await session.commit()
     return True

@@ -28,8 +28,19 @@ from .models import (
 
 ReadinessLevel = Literal["not_applicable", "name_only", "little", "sufficient", "rich"]
 EvidenceKind = Literal[
-    "knowledge_entry", "context_item", "task", "proposal", "file", "trail"
+    "event", "knowledge_entry", "context_item", "task", "proposal", "file", "trail"
 ]
+MAX_BOOTSTRAP_EVIDENCE_CHARS = 100_000
+MAX_BOOTSTRAP_EVIDENCE_ITEM_CHARS = 16_000
+_BOOTSTRAP_LIFECYCLE_TRAIL_KINDS = {
+    "event_bootstrap_queued",
+    "event_bootstrap_retried",
+    "event_bootstrap_started",
+    "event_bootstrap_superseded",
+    "event_bootstrap_retry_scheduled",
+    "event_bootstrap_failed",
+    "event_brief_published",
+}
 
 
 class EventEvidenceRef(BaseModel):
@@ -106,6 +117,34 @@ def _bounded_json(value: Any, *, max_chars: int = 4_000) -> Any:
         "fingerprint": stable_fingerprint(value),
         "preview": serialized[:max_chars],
     }
+
+
+def _snapshot_evidence(knowledge: list[KnowledgeEntry]) -> list[dict[str, Any]]:
+    """Freeze a bounded evidence body set for the later bootstrap model Run."""
+    remaining = MAX_BOOTSTRAP_EVIDENCE_CHARS
+    payload: list[dict[str, Any]] = []
+    for entry in knowledge:
+        if remaining <= 0:
+            break
+        full = entry.content.strip()
+        if not full:
+            continue
+        limit = min(MAX_BOOTSTRAP_EVIDENCE_ITEM_CHARS, remaining)
+        text = full[:limit]
+        payload.append(
+            {
+                "kind": "knowledge_entry",
+                "id": entry.id,
+                "text": text,
+                "truncated": len(text) < len(full),
+                "content_fingerprint": stable_fingerprint(full),
+                "tags": entry.tags or [],
+                "sensitivity": entry.sensitivity,
+                "provenance": _bounded_json(entry.provenance, max_chars=2_000),
+            }
+        )
+        remaining -= len(text)
+    return payload
 
 
 def _readiness(
@@ -219,6 +258,7 @@ async def refresh_event_context_snapshot(
         EventTrailEntry.organization_id == owner[0],
         EventTrailEntry.user_id == owner[1],
         EventTrailEntry.event_id == owner[2],
+        ~col(EventTrailEntry.kind).in_(_BOOTSTRAP_LIFECYCLE_TRAIL_KINDS),
         order=col(EventTrailEntry.created_at).desc(),
         limit=30,
     )
@@ -267,13 +307,16 @@ async def refresh_event_context_snapshot(
     readiness = _readiness(
         event, knowledge, context_items, connections, has_brief=active_brief is not None
     )
-    evidence_refs = [
-        {"kind": "knowledge_entry", "id": entry.id} for entry in knowledge
-    ] + [
-        {"kind": "context_item", "id": item.id}
-        for item in context_items
-        if item.status == "ready"
-    ]
+    evidence_payload = _snapshot_evidence(knowledge)
+    evidence_refs = (
+        [{"kind": "event", "id": event.id}]
+        + [{"kind": "knowledge_entry", "id": item["id"]} for item in evidence_payload]
+        + [
+            {"kind": "context_item", "id": item.id}
+            for item in context_items
+            if item.status == "ready"
+        ]
+    )
     evidence_refs += [{"kind": "task", "id": item.id} for item in tasks]
     evidence_refs += [{"kind": "proposal", "id": item.id} for item in proposals]
     evidence_refs += [{"kind": "file", "id": item.id} for item in files]
@@ -420,6 +463,7 @@ async def refresh_event_context_snapshot(
         provider_cache_allowed=not sensitive,
         pack=serialized,
         evidence_refs=evidence_refs,
+        evidence_payload=evidence_payload,
     )
     session.add(snapshot)
     await session.flush()
@@ -433,6 +477,21 @@ def render_event_context_pack(snapshot: EventContextSnapshot) -> str:
             "snapshot_id": snapshot.id,
             "snapshot_version": snapshot.version,
             **snapshot.pack,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def render_event_bootstrap_input(snapshot: EventContextSnapshot) -> str:
+    """Render the exact frozen pack plus private bounded evidence for bootstrap."""
+    return json.dumps(
+        {
+            "snapshot_id": snapshot.id,
+            "snapshot_version": snapshot.version,
+            "context": snapshot.pack,
+            "evidence": snapshot.evidence_payload,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -571,7 +630,11 @@ async def publish_event_brief(
     return brief, True
 
 
-def context_status_payload(snapshot: EventContextSnapshot) -> dict[str, Any]:
+def context_status_payload(
+    snapshot: EventContextSnapshot,
+    *,
+    bootstrap: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     readiness = dict(snapshot.pack.get("readiness") or {})
     brief = snapshot.pack.get("active_brief")
     return {
@@ -581,6 +644,7 @@ def context_status_payload(snapshot: EventContextSnapshot) -> dict[str, Any]:
         "readiness": readiness,
         "provider_cache_allowed": snapshot.provider_cache_allowed,
         "active_brief": brief,
+        "bootstrap": bootstrap,
         "created_at": _utc(snapshot.created_at),
     }
 
@@ -594,5 +658,6 @@ __all__ = [
     "context_status_payload",
     "publish_event_brief",
     "refresh_event_context_snapshot",
+    "render_event_bootstrap_input",
     "render_event_context_pack",
 ]

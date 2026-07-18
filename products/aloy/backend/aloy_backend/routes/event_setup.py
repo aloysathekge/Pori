@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_session
+from ..event_bootstrap import queue_event_bootstrap_if_ready
 from ..event_presenters import context_item_payload, event_payload
 from ..events import ensure_event_conversation
 from ..models import (
@@ -605,6 +606,12 @@ async def promote_draft(
     draft.created_event_id = event.id
     draft.updated_at = datetime.now(timezone.utc)
     session.add(draft)
+    await queue_event_bootstrap_if_ready(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+    )
     await session.commit()
     await session.refresh(event)
     return event_payload(event)

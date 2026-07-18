@@ -30,6 +30,7 @@ import {
   getEventSurface,
   getEventTrail,
   resumeEventTask,
+  retryEventBootstrap,
   retryEventTask,
   stopEventTask,
   streamEventChanges,
@@ -120,6 +121,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   const [error, setError] = useState('');
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [contextActionId, setContextActionId] = useState<string | null>(null);
+  const [bootstrapAction, setBootstrapAction] = useState(false);
   const [resumeTaskId, setResumeTaskId] = useState<string | null>(null);
   const [resumeResponse, setResumeResponse] = useState('');
   const previousSending = useRef(false);
@@ -532,6 +534,19 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     }
   }
 
+  async function retryBootstrap() {
+    setBootstrapAction(true);
+    setError('');
+    try {
+      await retryEventBootstrap(eventId);
+      await loadSurface();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBootstrapAction(false);
+    }
+  }
+
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
       <section className="flex min-w-0 flex-1 flex-col">
@@ -839,17 +854,25 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-xs font-medium text-zinc-300">Event understanding</p>
                       <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium capitalize text-zinc-400">
-                        {contextStatus.readiness.level.replace('_', ' ')}
+                        {(contextStatus.bootstrap?.status || contextStatus.readiness.level).replaceAll('_', ' ')}
                       </span>
                     </div>
                     <p className="mt-1 text-xs leading-5 text-zinc-500">
-                      {contextStatus.readiness.reasons[0] ||
-                        'Aloy is assembling trusted Event context.'}
+                      {contextStatus.bootstrap?.status === 'queued'
+                        ? 'Aloy has enough trusted context and will begin shortly.'
+                        : contextStatus.bootstrap?.status === 'running'
+                          ? 'Aloy is building an evidence-grounded understanding of this Event.'
+                          : contextStatus.bootstrap?.status === 'ready'
+                            ? 'The first Event Brief is ready and can ground future work and Surfaces.'
+                            : contextStatus.bootstrap?.status === 'failed'
+                              ? 'Aloy could not safely produce the Event Brief after retrying.'
+                              : contextStatus.readiness.reasons[0] ||
+                                'Aloy is assembling trusted Event context.'}
                     </p>
-                    {contextStatus.readiness.should_bootstrap && (
-                      <p className="mt-1 text-[11px] text-accent-700">
-                        Ready for an evidence-grounded Event Brief.
-                      </p>
+                    {contextStatus.bootstrap?.can_retry && (
+                      <Button className="mt-2" size="sm" variant="outline" onClick={() => void retryBootstrap()} disabled={bootstrapAction}>
+                        <RotateCcw size={12} /> Retry understanding
+                      </Button>
                     )}
                   </div>
                 )}

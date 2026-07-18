@@ -242,6 +242,12 @@ class EventContextSnapshot(SQLModel, table=True):
     evidence_refs: list[dict] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
+    # Immutable, bounded evidence bodies for purpose-specific model Runs. This
+    # payload is never exposed through the Event Surface or injected into the
+    # ordinary stable context prefix.
+    evidence_payload: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
     created_at: datetime = Field(
         default_factory=_utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -1042,6 +1048,15 @@ class KnowledgeEntry(SQLModel, table=True):
 
 class Run(SQLModel, table=True):
     __tablename__ = "runs"
+    __table_args__ = (
+        Index(
+            "uq_runs_event_context_kind",
+            "event_id",
+            "run_kind",
+            "context_snapshot_id",
+            unique=True,
+        ),
+    )
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     user_id: str = Field(index=True)
@@ -1055,6 +1070,11 @@ class Run(SQLModel, table=True):
     parent_run_id: str | None = Field(default=None, index=True)
     root_run_id: str | None = Field(default=None, index=True)
     idempotency_key: str | None = Field(default=None, index=True)
+    run_kind: str = Field(default="agent", index=True)
+    context_snapshot_id: str | None = Field(
+        default=None, foreign_key="event_context_snapshots.id", index=True
+    )
+    run_profile: dict | None = Field(default=None, sa_column=Column(JSON))
     child_depth: int = 0
     status: str = "pending"  # pending, running, completed, failed
     task: str

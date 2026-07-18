@@ -18,6 +18,10 @@ from .conversation_runtime import (
     load_event_memory,
 )
 from .database import async_session
+from .event_bootstrap import (
+    EVENT_BOOTSTRAP_RUN_KIND,
+    execute_claimed_event_bootstrap,
+)
 from .models import (
     AgentConfig,
     Conversation,
@@ -179,6 +183,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         run = await session.get(Run, run_id)
         if not run or run.lease_owner != worker_id or run.status != "running":
             logger.error("Background run %s not found", run_id)
+            return
+        if run.run_kind == EVENT_BOOTSTRAP_RUN_KIND:
+            # Purpose-specific structured generation owns its own short
+            # transaction lifecycle and never receives the general tool surface.
+            await session.rollback()
+            await execute_claimed_event_bootstrap(run_id, worker_id)
             return
 
         task: Task | None = None
