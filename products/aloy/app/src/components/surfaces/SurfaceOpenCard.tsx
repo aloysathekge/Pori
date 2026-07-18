@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PanelRightOpen } from 'lucide-react';
 import {
-  listSurfaceBuilds,
+  getPublishedSurfaceRuntime,
   surfaceSeenKey,
   type SurfaceBuild,
 } from '@/api/surfaces';
@@ -26,14 +26,17 @@ export function SurfaceOpenCard({
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    void listSurfaceBuilds(eventId)
-      .then((builds) => {
+    void getPublishedSurfaceRuntime(eventId)
+      .then((runtime) => {
         if (cancelled) return;
-        const latest = builds.find(
-          (candidate) => candidate.status === 'succeeded' && candidate.bundle_available,
-        );
+        const latest = runtime.build;
         const seenBuild = window.localStorage.getItem(surfaceSeenKey(eventId));
-        setBuild(latest && latest.id !== seenBuild ? latest : null);
+        setBuild(
+          runtime.published_build_id && latest?.id === runtime.published_build_id
+            && latest.id !== seenBuild
+            ? latest
+            : null,
+        );
       })
       .catch(() => {
         if (!cancelled) setBuild(null);

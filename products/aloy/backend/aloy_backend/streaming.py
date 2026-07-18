@@ -41,7 +41,13 @@ from .approvals import (
     proposal_write_gate,
 )
 from .event_log import EventLogCollector
-from .tools import GOOGLE_WRITE_TOOLS, TaskMutationHandler, gmail_draft_preview
+from .surface_requests import SurfaceRequestHandler
+from .tools import (
+    GOOGLE_WRITE_TOOLS,
+    TaskMutationHandler,
+    gmail_draft_preview,
+)
+from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
 
@@ -117,6 +123,10 @@ async def stream_agent_execution(
     merged_tool_context["clarify_handler"] = bridge.as_sync_handler(serving_loop)
     if run_context is not None and run_context.event_id:
         merged_tool_context["task_mutator"] = TaskMutationHandler(
+            run_context=run_context,
+            owner_loop=serving_loop,
+        )
+        merged_tool_context[SURFACE_REQUEST_CONTEXT_KEY] = SurfaceRequestHandler(
             run_context=run_context,
             owner_loop=serving_loop,
         )

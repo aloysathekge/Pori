@@ -243,6 +243,14 @@ Gate:
 
 **Branch:** `aloy-v1-r5-composable-surfaces`
 
+**Model-native request handoff implemented on
+`aloy-v1-surface-requests`:** an ordinary Event model may submit a structured
+Surface experience brief based on request meaning and durable product value.
+The host queues an idempotent `surface_builder` Run with the product-owned
+profile and skill. Only that Run receives scoped Event files, current draft,
+and author/build/preview/publish tools. Completion requires an exact live
+publication receipt; the Conversation card reads only the published runtime.
+
 Scope:
 
 - implement Event-owned Surface Project, immutable source Revision, isolated
@@ -252,6 +260,8 @@ Scope:
   allowlist, and `@aloy/surface` SDK;
 - add authenticated, optimistic, idempotent authoring tools for reading,
   patching, building, previewing, publishing, and rolling back Surface source;
+- give ordinary Event Runs only a host-controlled Surface-request tool and
+  execute accepted briefs through a separate purpose-scoped Builder Run;
 - build generated source in an isolated fixed toolchain with limits,
   diagnostics, immutable bundles, and last-good recovery;
 - require an explicit atomic publication record and exact revision/build
@@ -295,6 +305,11 @@ Gate:
   backend, host runtime, or SDK;
 - meaningful interactions reach the canonical Session exactly once while
   filters, sorting, and navigation remain local;
+- a normal request such as creating a useful timetable can cause the model to
+  queue a Surface without the user knowing Aloy's internal term or using a
+  keyword, while a queued/draft-only build never appears as ready;
+- timetable rows, itinerary items, navigation, and other presentation records
+  do not become canonical Tasks unless they are independently actionable work;
 - Tasks, decisions, files, receipts, evidence, and Trail remain canonical
   whether or not generated code displays them;
 - undeclared imports, direct network/host access, cross-Event reads, storage,

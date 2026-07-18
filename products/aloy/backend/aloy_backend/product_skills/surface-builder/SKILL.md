@@ -16,7 +16,10 @@ all use the same runtime and safety contract.
 2. State the Surface's primary jobs, important entities, evidence sources,
    uncertainty, required states, viewports, and interaction intents.
 3. Generate or patch the React source using only the provided Surface SDK and
-   approved dependencies. Do not access host APIs, ambient credentials,
+   approved dependencies, then persist every final file with
+   `surface_write_files`. The virtual filesystem is for reading trusted Event
+   context and the current draft; a filesystem write is scratch work and does
+   not create a durable revision. Do not access host APIs, ambient credentials,
    arbitrary network endpoints, or parent-frame internals.
 4. Call `surface_build` for the immutable revision with a fresh idempotency
    key. Treat `failed` diagnostics as source/toolchain problems to repair and
@@ -41,6 +44,8 @@ all use the same runtime and safety contract.
     the successful build id, both current published pointers returned by
     `surface_read_project`, and a fresh idempotency key. Publication verifies
     the retained artifact and atomically changes the exact live build.
+    Do not call `answer` or stop the Run until this publish call returns the
+    current live publication.
 11. Use `surface_rollback` only when restoring a previously published
     last-good build. Rollback changes Surface code, never canonical Event data.
     Preserve the current live build on every build, validation, artifact, or

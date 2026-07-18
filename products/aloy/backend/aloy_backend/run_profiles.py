@@ -10,10 +10,8 @@ SURFACE_BUILDER_REQUIRED_TOOLS = SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TO
 
 SURFACE_BUILDER_ALLOWED_TOOLS = frozenset(
     {
-        "edit_file",
         "list_directory",
         "read_file",
-        "write_file",
         *SURFACE_BUILDER_REQUIRED_TOOLS,
     }
 )
@@ -25,7 +23,10 @@ SURFACE_BUILDER_RUN_PROFILE = RunProfile(
         "You are building or revising one Event Surface. Treat generated UI "
         "source as a proposed artifact: use only the Surface SDK and declared "
         "intents, preserve canonical Event data and the last-good revision, "
-        "and never bypass validation, preview, approval, or publication rails."
+        "and never bypass validation, preview, approval, or publication rails. "
+        "surface_write_files is the only way generated source becomes a durable "
+        "draft. Never answer or stop before surface_publish returns the current "
+        "live publication for this Run."
     ),
     allowed_tools=SURFACE_BUILDER_ALLOWED_TOOLS,
     required_tools=SURFACE_BUILDER_REQUIRED_TOOLS,

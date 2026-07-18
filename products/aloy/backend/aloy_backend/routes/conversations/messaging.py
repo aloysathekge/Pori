@@ -58,9 +58,11 @@ from ...schemas import XLSX_MIME, MessageResponse, SendMessageRequest
 from ...skills import load_skill_catalog
 from ...storage import safe_name
 from ...streaming import stream_agent_execution
+from ...surface_requests import SurfaceRequestHandler
 from ...team_execution import build_team_from_config
 from ...tenancy import OrganizationContext, Permission
 from ...tools import TaskMutationHandler
+from ...tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 from ._helpers import _load_conv, _maybe_generate_title, _render_file_block
 
 logger = logging.getLogger("aloy_backend")
@@ -476,6 +478,7 @@ async def _setup_single_agent(
             user_id=context.user_id,
             role=context.role,
         ),
+        enable_surface_requests=bool(conv.event_id),
     )
     agent_settings = AgentSettings(
         max_steps=min(
@@ -697,6 +700,11 @@ async def _run_blocking(
                 session_factory=async_session,
             ),
         }
+        if conv.event_id:
+            tool_context[SURFACE_REQUEST_CONTEXT_KEY] = SurfaceRequestHandler(
+                run_context=run_context,
+                session_factory=async_session,
+            )
         agent_result = await orchestrator.execute_task(
             task=task_content,
             agent_settings=agent_settings,

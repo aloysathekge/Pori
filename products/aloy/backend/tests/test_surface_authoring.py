@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import io
 import json
 
 import pytest
@@ -11,7 +12,13 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect
 from sqlmodel import select
 
-from aloy_backend.models import EventTrailEntry, SurfaceProject, SurfaceRevision
+from aloy_backend.models import (
+    EventBrief,
+    EventTrailEntry,
+    StoredFile,
+    SurfaceProject,
+    SurfaceRevision,
+)
 from aloy_backend.run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from aloy_backend.runtime import authenticated_run_context
 from aloy_backend.surface_authoring import (
@@ -291,18 +298,62 @@ async def test_surface_workspace_projects_event_truth_and_current_draft(
         )
     )
 
+    class ContextStore:
+        def open(self, key: str):
+            assert key == "event-files/timetable"
+            return io.BytesIO(b"Monday: Computer Science at 10:00\n")
+
+    async with db_session_maker() as session:
+        session.add_all(
+            [
+                EventBrief(
+                    organization_id="user:test-user",
+                    user_id="test-user",
+                    event_id=event["id"],
+                    version=1,
+                    source_context_snapshot_id="snapshot-test",
+                    fingerprint="brief-fingerprint",
+                    payload={"purpose": {"text": "Manage this semester"}},
+                ),
+                StoredFile(
+                    id="file-timetable",
+                    organization_id="user:test-user",
+                    user_id="test-user",
+                    event_id=event["id"],
+                    name="university_timetable.md",
+                    content_type="text/markdown",
+                    size_bytes=36,
+                    storage_key="event-files/timetable",
+                ),
+            ]
+        )
+        await session.commit()
+
     async with db_session_maker() as session:
         runtime = await resolve_surface_authoring_runtime(
             session,
             run_context=run_context,
             session_factory=db_session_maker,
+            object_store=ContextStore(),
         )
 
     event_projection = runtime.file_backend.read("/event/event.json")
+    brief_projection = runtime.file_backend.read("/event/brief.json")
+    files_projection = runtime.file_backend.read("/event/files.json")
+    timetable_source = runtime.file_backend.read(
+        "/event/files/file-timetable/university_timetable.md"
+    )
     workspace_source = runtime.file_backend.read("/workspace/src/App.tsx")
     denied = runtime.file_backend.write("/event/event.json", "tamper")
     assert event_projection.success
     assert json.loads(event_projection.content or "{}")["title"] == "University"
+    assert json.loads(brief_projection.content or "{}")["purpose"]["text"] == (
+        "Manage this semester"
+    )
+    assert json.loads(files_projection.content or "[]")[0]["workspace_path"] == (
+        "/event/files/file-timetable/university_timetable.md"
+    )
+    assert timetable_source.content == "Monday: Computer Science at 10:00\n"
     assert workspace_source.content == "export default () => <main>Workspace</main>"
     assert denied.error_code is FileErrorCode.PERMISSION_DENIED
     assert (
