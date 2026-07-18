@@ -348,6 +348,38 @@ Before generating code, Aloy produces a structured Surface brief containing:
 This brief is the product contract for the candidate. It prevents an attractive
 but unhelpful dashboard from passing merely because it compiles.
 
+The ordinary Event model makes this judgment during the same Conversation turn;
+there is no keyword trigger, regex patch, or second intent-classifier call. When
+the request would be better served by a durable interactive experience, that
+model submits the structured brief through a host-controlled Surface-request
+tool. The tool records the decision and queues a separate purpose-scoped Surface
+Builder Run. The conversation model never receives source, build, preview, or
+publication tools, and a queued request is never presented as a finished
+Surface.
+
+The dedicated Builder receives the accepted brief, a bounded read-only
+projection of Event truth and relevant text artifacts, the current writable
+Surface draft, the Surface Builder skill, and only the authoring/build tool
+contract. A Surface is **ready** only when the host verifies that this exact Run
+owns the current live publication receipt. A successful draft or a model claim
+is insufficient. Failed attempts retain the last-good published Surface.
+
+Surface generation is a product-owned specialist role. Aloy's developers and
+operators choose the Builder model, its versioned skill, budgets, and the
+independent Critic model; end users do not select these components. The
+Conversation model may be optimized for latency and dialogue while the Builder
+is allocated to a model proven to author and repair constrained React projects.
+Changing either model is an operator configuration change, not University,
+travel, or other domain logic inside Aloy. A model is promoted into the Builder
+role only after it passes the Surface tool-use, build, repair, interaction, and
+quality evaluation suite.
+
+Surface structure is not Task structure. Timetable entries, itinerary rows,
+dashboard sections, navigation items, map markers, and similar display records
+remain Event/Surface data. Aloy creates a canonical Task only for genuine
+actionable work with a useful definition of done; it must not manufacture Tasks
+as a way to assemble UI.
+
 #### Construction and authority
 
 The Surface is real React and CSS authored by the model within a constrained

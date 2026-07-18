@@ -33,6 +33,20 @@ from .models import AgentConfig
 
 logger = logging.getLogger("aloy_backend")
 
+EVENT_SURFACE_ROUTING_PROMPT = """
+You are working inside one durable Aloy Event. Decide from the user's meaning
+and ongoing product need whether Conversation, a file, canonical Tasks, or an
+interactive Event Surface is the right form of help. When the user wants a
+recurring structured experience they can open and use over time—for example a
+timetable, tracker, plan, map, dashboard, comparison workspace, or multi-view
+operating screen—call request_event_surface with a concrete experience brief.
+Do this even when the user does not know or say the term Surface. Do not create
+Markdown, HTML, or a collection of Tasks as a substitute for an appropriate
+Surface. Keep simple explanations and one-off outputs in Conversation or files.
+A queued Surface request means building has started, not that a Surface is live;
+never claim readiness until the host reports a verified publication.
+""".strip()
+
 
 def sandbox_base_dir() -> str:
     """The resolved filesystem jail root. Always available — even with the
@@ -69,6 +83,7 @@ def build_orchestrator(
     skill_catalog: Optional[SkillCatalog] = None,
     run_profile: Optional[RunProfile] = None,
     file_backend: Optional[FileBackend] = None,
+    enable_surface_requests: bool = False,
 ) -> Orchestrator:
     """
     Create an Orchestrator.
@@ -119,15 +134,38 @@ def build_orchestrator(
         register_surface_build_tools,
         register_task_tools,
     )
+    from .tools.surface_requests import register_surface_request_tool
 
     register_google_tools(registry)
     register_library_tools(registry)
     register_task_tools(registry)
+    product_denied_tools = set(denied_tools)
+    if enable_surface_requests:
+        register_surface_request_tool(registry)
+    else:
+        product_denied_tools.add("request_event_surface")
     if run_profile and run_profile.profile_id == "aloy.surface-builder":
         register_surface_authoring_tools(registry)
         register_surface_build_tools(registry)
+    else:
+        from .tools.surface_builds import SURFACE_BUILD_TOOL_NAMES
+        from .tools.surfaces import SURFACE_AUTHORING_TOOL_NAMES
 
-    configured_tools = set(agent_config.tools or ()) if agent_config else set()
+        product_denied_tools.update(SURFACE_AUTHORING_TOOL_NAMES)
+        product_denied_tools.update(SURFACE_BUILD_TOOL_NAMES)
+
+    # A purpose profile owns its executable tool contract. User AgentConfig
+    # tool preferences apply to ordinary runs, but cannot accidentally remove
+    # tools required by a product-owned builder/bootstrap profile.
+    configured_tools = (
+        set(agent_config.tools or ())
+        if agent_config is not None and run_profile is None
+        else set()
+    )
+    if enable_surface_requests and configured_tools:
+        # This is Event control-plane capability, not an optional user tool
+        # preference. Organization policy may still deny it below.
+        configured_tools.add("request_event_surface")
     requested_tools = configured_tools or None
     if allowed_tools:
         requested_tools = (
@@ -137,16 +175,32 @@ def build_orchestrator(
         )
     registry = registry.filtered(
         include_tools=requested_tools,
-        exclude_tools=denied_tools,
+        exclude_tools=product_denied_tools,
         include_groups=allowed_capability_groups,
     )
+    if run_profile and run_profile.profile_id == "aloy.surface-builder":
+        from .tools.surface_completion import (
+            register_surface_builder_completion_tool,
+        )
+
+        register_surface_builder_completion_tool(registry)
+
+    configured_system_prompt = agent_config.system_prompt if agent_config else None
+    system_prompt_blocks = [
+        block
+        for block in (
+            configured_system_prompt,
+            EVENT_SURFACE_ROUTING_PROMPT if enable_surface_requests else None,
+        )
+        if block
+    ]
 
     return Orchestrator(
         llm=llm,
         tools_registry=registry,
         shared_memory=shared_memory,
         skill_catalog=skill_catalog,
-        system_prompt=agent_config.system_prompt if agent_config else None,
+        system_prompt="\n\n".join(system_prompt_blocks) or None,
         model_capabilities=model_capabilities,
         run_profile=run_profile,
         file_backend=file_backend,

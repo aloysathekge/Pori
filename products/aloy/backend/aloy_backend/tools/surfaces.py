@@ -57,7 +57,9 @@ def register_surface_authoring_tools(registry) -> None:
             description=(
                 "Atomically persist source patches as a new immutable Surface "
                 "draft revision. Requires the revision returned by "
-                "surface_read_project and a unique idempotency key."
+                "surface_read_project and a unique idempotency key. This is the "
+                "only tool that makes generated source part of the durable draft; "
+                "ordinary filesystem writes do not."
             ),
         )
 

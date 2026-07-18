@@ -241,8 +241,12 @@ def register_task_tools(registry) -> None:
             param_model=TaskCreateParams,
             function=task_create_tool,
             description=(
-                "Create a reversible task in the current Event. This updates "
-                "internal working state directly and records it in the Trail."
+                "Create one canonical, actionable piece of work in the current "
+                "Event: something that can actually be completed and has a useful "
+                "definition of done. This updates internal working state directly "
+                "and records it in the Trail. Never create Tasks merely to represent "
+                "rows, sections, navigation, schedule entries, or other display data "
+                "for a Surface; request_event_surface owns that visual experience."
             ),
         )
     if "task_update" not in registry.tools:

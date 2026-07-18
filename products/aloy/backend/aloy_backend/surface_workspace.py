@@ -27,8 +27,15 @@ from .event_presenters import (
     task_payload,
     trail_payload,
 )
-from .models import ActionProposal, Event, EventTrailEntry, StoredFile, Task
-from .storage import ObjectStore
+from .models import (
+    ActionProposal,
+    Event,
+    EventBrief,
+    EventTrailEntry,
+    StoredFile,
+    Task,
+)
+from .storage import ObjectStore, get_object_store, safe_name
 from .surface_authoring import SurfaceAuthoringHandler, surface_project_snapshot
 from .surface_build_runner import SurfaceBuildRunner
 from .surface_builds import SurfaceBuildHandler
@@ -44,6 +51,37 @@ def _json_default(value: Any) -> str:
 
 def _json_file(value: Any) -> str:
     return json.dumps(value, indent=2, default=_json_default, sort_keys=True) + "\n"
+
+
+_MAX_CONTEXT_FILE_BYTES = 256 * 1024
+_MAX_CONTEXT_FILES_BYTES = 1024 * 1024
+_TEXT_EXTENSIONS = frozenset(
+    {".csv", ".html", ".json", ".md", ".rst", ".text", ".tsv", ".txt", ".xml"}
+)
+
+
+def _is_text_context_file(file: StoredFile) -> bool:
+    content_type = (file.content_type or "").lower()
+    suffix = "." + file.name.rsplit(".", 1)[-1].lower() if "." in file.name else ""
+    return (
+        content_type.startswith("text/")
+        or content_type in {"application/json", "application/xml"}
+        or suffix in _TEXT_EXTENSIONS
+    )
+
+
+async def _read_context_file(store: ObjectStore, file: StoredFile) -> str | None:
+    def _read() -> bytes:
+        with store.open(file.storage_key) as stream:
+            return stream.read(_MAX_CONTEXT_FILE_BYTES + 1)
+
+    try:
+        content = await asyncio.to_thread(_read)
+    except (FileNotFoundError, OSError):
+        return None
+    if len(content) > _MAX_CONTEXT_FILE_BYTES:
+        return None
+    return content.decode("utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -150,6 +188,23 @@ async def resolve_surface_authoring_runtime(
         .scalars()
         .all()
     )
+    brief = (
+        (
+            await session.execute(
+                select(EventBrief)
+                .where(
+                    col(EventBrief.organization_id) == event.organization_id,
+                    col(EventBrief.user_id) == event.user_id,
+                    col(EventBrief.event_id) == event.id,
+                    col(EventBrief.status) == "active",
+                )
+                .order_by(col(EventBrief.version).desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
     project = await surface_project_snapshot(
         session,
         organization_id=event.organization_id,
@@ -158,19 +213,46 @@ async def resolve_surface_authoring_runtime(
         include_files=True,
     )
 
+    file_manifest: list[dict[str, Any]] = []
+    mounted_files: dict[str, str] = {}
+    mounted_bytes = 0
+    store: ObjectStore | None = object_store
+    for file in files:
+        item = file_payload(file)
+        if (
+            _is_text_context_file(file)
+            and file.size_bytes <= _MAX_CONTEXT_FILE_BYTES
+            and mounted_bytes < _MAX_CONTEXT_FILES_BYTES
+        ):
+            store = store or get_object_store()
+            content = await _read_context_file(store, file)
+            encoded_size = len(content.encode("utf-8")) if content is not None else 0
+            if (
+                content is not None
+                and mounted_bytes + encoded_size <= _MAX_CONTEXT_FILES_BYTES
+            ):
+                workspace_path = f"/files/{file.id}/{safe_name(file.name)}"
+                mounted_files[workspace_path] = content
+                mounted_bytes += encoded_size
+                item["workspace_path"] = f"/event{workspace_path}"
+        file_manifest.append(item)
+
     event_files = {
         "/README.md": (
             "# Event context\n\n"
             "This mount is a read-only projection of canonical Aloy data. "
-            "Editing generated source never changes these records.\n"
+            "Editing generated source never changes these records. Text files "
+            "listed with a workspace_path are available below /event/files.\n"
         ),
         "/event.json": _json_file(event_payload(event)),
+        "/brief.json": _json_file(brief.payload if brief is not None else {}),
         "/tasks.json": _json_file([task_payload(task) for task in tasks]),
         "/proposals.json": _json_file(
             [proposal_payload(proposal) for proposal in proposals]
         ),
-        "/files.json": _json_file([file_payload(file) for file in files]),
+        "/files.json": _json_file(file_manifest),
         "/trail.json": _json_file([trail_payload(entry) for entry in trail]),
+        **mounted_files,
     }
     draft = project.get("draft") or {}
     workspace_files = {

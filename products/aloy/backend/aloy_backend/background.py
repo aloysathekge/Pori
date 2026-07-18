@@ -41,10 +41,21 @@ from .run_outcome import (
     make_usage_record,
     store_run_artifacts,
 )
+from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .skills import load_skill_catalog
 from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
+from .surface_requests import (
+    SURFACE_BUILDER_RUN_KIND,
+    SurfaceBuilderCompletionGuard,
+    SurfacePublicationRequiredError,
+    SurfaceRequestHandler,
+    record_surface_builder_failure,
+    record_surface_builder_started,
+    verified_surface_publication,
+)
+from .surface_workspace import resolve_surface_authoring_runtime
 from .task_execution import (
     DurableClarificationRecorder,
     add_task_lifecycle_message,
@@ -55,6 +66,8 @@ from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import TaskMutationHandler
+from .tools.surface_completion import SURFACE_COMPLETION_CONTEXT_KEY
+from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
 
@@ -191,6 +204,9 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             await execute_claimed_event_bootstrap(run_id, worker_id)
             return
 
+        is_surface_builder = run.run_kind == SURFACE_BUILDER_RUN_KIND
+        surface_receipt: dict | None = None
+
         task: Task | None = None
         task_started = False
         if run.task_id:
@@ -244,6 +260,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         conversation: Conversation | None = None
 
         try:
+            if (
+                is_surface_builder
+                and run.run_profile != SURFACE_BUILDER_RUN_PROFILE.descriptor()
+            ):
+                raise ValueError("Surface Builder Run profile is unavailable or stale")
             if await mark_surface_run_started(session, run=run):
                 # Surface reasoning has its own semantic start transition so
                 # Event SSE can refresh generated UI while the Run works.
@@ -267,6 +288,9 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 user_id=run.user_id,
                 role=membership.role,
             )
+            if is_surface_builder:
+                await record_surface_builder_started(session, run=run)
+                await session.commit()
             run_context = authenticated_run_context(
                 user_id=run.user_id,
                 organization_id=run.organization_id,
@@ -351,57 +375,105 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 # chat path — connections, MCP servers, file library, gated
                 # denials. (It used to build runs without any of them: the
                 # drift the 2026-07-11 audit flagged.)
-                surface = await resolve_run_surface(
-                    session,
-                    organization_id=run.organization_id,
-                    user_id=run.user_id,
-                    policy=policy,
-                )
-                orchestrator = build_orchestrator(
-                    shared_memory=memory,
-                    agent_config=agent_config,
-                    allowed_tools=policy.allowed_tools or None,
-                    denied_tools=surface.denied_tools,
-                    allowed_capability_groups=(
-                        policy.allowed_capability_groups or None
-                    ),
-                    allowed_provider_profiles=(
-                        policy.allowed_provider_profiles or None
-                    ),
-                    allowed_models=policy.allowed_models or None,
-                    skill_catalog=skill_catalog,
-                )
-                # Resume-not-restart: run under a stable kernel task id. A
-                # first attempt creates it; a re-claim after a crash/expired
-                # lease injects the persisted checkpoint and continues from
-                # the recorded step (docs/long-running.md Phase 2).
-                kernel_task_id = kernel_task_id_for_run(run.id)
-                if memory is None:
-                    memory = AgentMemory(
+                if is_surface_builder:
+                    authoring_runtime = await resolve_surface_authoring_runtime(
+                        session,
+                        run_context=run_context,
+                        session_factory=async_session,
+                    )
+                    execution_memory = AgentMemory(
                         organization_id=run.organization_id,
                         user_id=run.user_id,
                         event_id=run.event_id,
                         agent_id=run.agent_id,
                         session_id=run.session_id,
                     )
-                _inject_resume_checkpoint(memory, run, kernel_task_id)
+                    orchestrator = build_orchestrator(
+                        shared_memory=execution_memory,
+                        agent_config=agent_config,
+                        allowed_provider_profiles=(
+                            policy.allowed_provider_profiles or None
+                        ),
+                        allowed_models=policy.allowed_models or None,
+                        skill_catalog=skill_catalog,
+                        run_profile=SURFACE_BUILDER_RUN_PROFILE,
+                        file_backend=authoring_runtime.file_backend,
+                    )
+                    tool_context = {
+                        **authoring_runtime.tool_context_extra,
+                        SURFACE_COMPLETION_CONTEXT_KEY: SurfaceBuilderCompletionGuard(
+                            run_context=run_context,
+                            session_factory=async_session,
+                        ),
+                    }
+                    mcp_servers: list = []
+                    proposal_handler = None
+                    proposal_config = None
+                else:
+                    surface = await resolve_run_surface(
+                        session,
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        policy=policy,
+                    )
+                    execution_memory = memory
+                    orchestrator = build_orchestrator(
+                        shared_memory=memory,
+                        agent_config=agent_config,
+                        allowed_tools=policy.allowed_tools or None,
+                        denied_tools=surface.denied_tools,
+                        allowed_capability_groups=(
+                            policy.allowed_capability_groups or None
+                        ),
+                        allowed_provider_profiles=(
+                            policy.allowed_provider_profiles or None
+                        ),
+                        allowed_models=policy.allowed_models or None,
+                        skill_catalog=skill_catalog,
+                        enable_surface_requests=bool(run.event_id),
+                    )
+                    proposal_handler, proposal_config = proposal_write_gate(
+                        run_context=run_context,
+                        tools_registry=getattr(
+                            orchestrator, "tools_registry", tool_registry()
+                        ),
+                        session_factory=async_session,
+                    )
+                    tool_context = {
+                        **surface.tool_context_extra,
+                        "task_mutator": TaskMutationHandler(
+                            run_context=run_context,
+                            session_factory=async_session,
+                        ),
+                        **(
+                            {
+                                SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
+                                    run_context=run_context,
+                                    session_factory=async_session,
+                                )
+                            }
+                            if run.event_id
+                            else {}
+                        ),
+                    }
+                    mcp_servers = surface.mcp_servers
+                # Resume-not-restart: run under a stable kernel task id. A
+                # first attempt creates it; a re-claim after a crash/expired
+                # lease injects the persisted checkpoint and continues from
+                # the recorded step (docs/long-running.md Phase 2).
+                kernel_task_id = kernel_task_id_for_run(run.id)
+                if execution_memory is None:
+                    execution_memory = AgentMemory(
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        event_id=run.event_id,
+                        agent_id=run.agent_id,
+                        session_id=run.session_id,
+                    )
+                _inject_resume_checkpoint(execution_memory, run, kernel_task_id)
                 checkpoint = _make_progress_checkpointer(
                     run.id, worker_id, kernel_task_id
                 )
-                proposal_handler, proposal_config = proposal_write_gate(
-                    run_context=run_context,
-                    tools_registry=getattr(
-                        orchestrator, "tools_registry", tool_registry()
-                    ),
-                    session_factory=async_session,
-                )
-                tool_context = {
-                    **surface.tool_context_extra,
-                    "task_mutator": TaskMutationHandler(
-                        run_context=run_context,
-                        session_factory=async_session,
-                    ),
-                }
                 if clarification_recorder is not None:
                     tool_context["clarify_handler"] = clarification_recorder
                 result = await asyncio.wait_for(
@@ -409,12 +481,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         task=run.task,
                         agent_settings=AgentSettings(max_steps=run.max_steps),
                         run_context=run_context,
-                        memory=memory,
+                        memory=execution_memory,
                         resume_task_id=kernel_task_id,
                         on_step_end=checkpoint,
                         sandbox_base_dir=sandbox_base_dir(),
                         tool_context_extra=tool_context,
-                        mcp_servers=surface.mcp_servers,
+                        mcp_servers=mcp_servers,
                         hitl_handler=proposal_handler,
                         hitl_config=proposal_config,
                     ),
@@ -433,6 +505,25 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                             f"Partial result — run stopped early "
                             f"({partial.get('reason', 'unknown')})."
                         ),
+                    }
+
+                if is_surface_builder:
+                    async with async_session() as receipt_session:
+                        surface_receipt = await verified_surface_publication(
+                            receipt_session,
+                            run=run,
+                        )
+                    if surface_receipt is None:
+                        raise SurfacePublicationRequiredError(
+                            "Surface Builder finished without publishing a verified build"
+                        )
+                    result["success"] = True
+                    final = {
+                        "final_answer": (
+                            "Your Event Surface is ready. Open it beside this "
+                            "conversation to use the new visual workspace."
+                        ),
+                        "reasoning": "Host-verified Surface publication receipt.",
                     }
 
             # Stop is written by the API through a different session while the
@@ -468,6 +559,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
+            if surface_receipt is not None:
+                run.execution_receipts = [
+                    *run.execution_receipts,
+                    {"kind": "surface_publication", **surface_receipt},
+                ]
             if run.artifacts:
                 store_run_artifacts(
                     session,
@@ -587,6 +683,15 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                                 if task is not None
                                 else {}
                             ),
+                            **(
+                                {
+                                    "kind": "surface_build_result",
+                                    "status": "published",
+                                    "surface_receipt": surface_receipt,
+                                }
+                                if surface_receipt is not None
+                                else {}
+                            ),
                         },
                     )
                     session.add(surface_outcome_message)
@@ -621,7 +726,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 outcome_message=surface_outcome_message,
             )
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Background run %s failed", run_id)
             await session.rollback()
             run = await session.get(Run, run_id)
@@ -630,6 +735,41 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 return
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
+            if (
+                is_surface_builder
+                and run.status == "pending"
+                and isinstance(exc, SurfacePublicationRequiredError)
+            ):
+                # A completed-but-unpublished attempt is not a crash checkpoint.
+                # Start the next attempt from the durable draft/publication truth.
+                run.progress = None
+                run.steps_taken = 0
+            if is_surface_builder:
+                await record_surface_builder_failure(
+                    session,
+                    run=run,
+                    terminal=run.status == "failed",
+                )
+                if run.status == "failed" and run.conversation_id:
+                    conversation = await session.get(Conversation, run.conversation_id)
+                    if conversation is not None:
+                        session.add(
+                            Message(
+                                conversation_id=conversation.id,
+                                role="assistant",
+                                content=(
+                                    "I could not safely publish the new Event Surface. "
+                                    "Your last working Surface is unchanged."
+                                ),
+                                metadata_={
+                                    "kind": "surface_build_result",
+                                    "status": "failed",
+                                    "run_id": run.id,
+                                },
+                            )
+                        )
+                        conversation.updated_at = datetime.now(timezone.utc)
+                        session.add(conversation)
             if run.status == "failed" and run.task_id:
                 task = await synchronize_task_after_run(session, run=run)
                 if task is not None and run.conversation_id:
