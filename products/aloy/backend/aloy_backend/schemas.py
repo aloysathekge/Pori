@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pori import get_provider_profile
 
@@ -589,6 +589,34 @@ class KnowledgeSearchRequest(BaseModel):
     kinds: list[Literal["semantic", "episodic", "procedural"]] | None = None
     tags: list[str] | None = None
     min_score: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class EventMemoryRecordResponse(KnowledgeEntryResponse):
+    scope: Literal["event", "global"]
+    can_correct: bool = False
+    can_forget: bool = False
+    can_promote: bool = False
+    promoted_global_id: str | None = None
+
+
+class EventMemoryResponse(BaseModel):
+    event_id: str
+    event_records: list[EventMemoryRecordResponse]
+    inherited_global_records: list[EventMemoryRecordResponse]
+    event_count: int
+    inherited_global_count: int
+
+
+class EventMemoryCorrectionBody(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    content: str = Field(min_length=1, max_length=50_000)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class EventMemoryWriteResponse(BaseModel):
+    record: EventMemoryRecordResponse
+    created: bool
 
 
 class MemoryExportResponse(BaseModel):
