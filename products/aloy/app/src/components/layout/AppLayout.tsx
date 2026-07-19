@@ -9,6 +9,7 @@ import {
   Menu,
   MessageSquarePlus,
   PanelLeftClose,
+  Plug,
   Settings,
   X,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ const utilityItems = [
   { to: '/files', icon: FileText, label: 'Files' },
   { to: '/memory', icon: MemoryIcon, label: 'Memory' },
   { to: '/schedules', icon: CalendarClock, label: 'Schedules' },
+  { to: '/connections', icon: Plug, label: 'Connections' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

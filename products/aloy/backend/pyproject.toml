@@ -31,6 +31,7 @@ dependencies = [
 
   # Cron schedules (recurring runs)
   "croniter>=2.0,<7",
+  "tzdata>=2026.1",
 
   # Encrypt account-connection tokens at rest (Fernet)
   "cryptography>=42,<46",

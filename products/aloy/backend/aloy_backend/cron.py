@@ -14,13 +14,20 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 from sqlmodel import col, select
 
 from .database import async_session
-from .events import ensure_life_event
-from .models import Conversation, CronJob, Run
+from .events import ensure_event_conversation
+from .models import CronJob, Event, EventTrailEntry, Run
+from .schedule_runtime import (
+    SCHEDULE_AUTHORITIES,
+    SCHEDULE_NOTIFICATION_MODES,
+    frozen_schedule_profile,
+    scheduled_instruction,
+)
 
 logger = logging.getLogger("aloy_backend.cron")
 
@@ -28,7 +35,18 @@ MIN_INTERVAL_SECONDS = 60
 EVERY_PREFIX = "@every:"
 
 
-def validate_schedule(schedule: str) -> None:
+def validate_timezone(timezone_name: str) -> None:
+    """Raise ValueError when an IANA timezone cannot be resolved."""
+    raw = (timezone_name or "").strip()
+    if not raw:
+        raise ValueError("timezone is required")
+    try:
+        ZoneInfo(raw)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError(f"Unknown IANA timezone: {raw!r}") from None
+
+
+def validate_schedule(schedule: str, timezone_name: str = "UTC") -> None:
     """Raise ValueError if the schedule is not a supported expression."""
     raw = (schedule or "").strip()
     if not raw:
@@ -44,19 +62,32 @@ def validate_schedule(schedule: str) -> None:
             raise ValueError(
                 f"@every interval must be >= {MIN_INTERVAL_SECONDS} seconds"
             )
+        validate_timezone(timezone_name)
         return
     if not croniter.is_valid(raw):
         raise ValueError(f"Invalid cron expression: {raw!r}")
+    validate_timezone(timezone_name)
 
 
-def compute_next_run(schedule: str, now: datetime | None = None) -> datetime:
+def compute_next_run(
+    schedule: str,
+    now: datetime | None = None,
+    timezone_name: str = "UTC",
+) -> datetime:
     """Next fire time strictly after ``now`` (UTC)."""
-    validate_schedule(schedule)
+    validate_schedule(schedule, timezone_name)
     moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
     raw = schedule.strip()
     if raw.startswith(EVERY_PREFIX):
         return moment + timedelta(seconds=int(raw[len(EVERY_PREFIX) :]))
-    return croniter(raw, moment).get_next(datetime)
+    local_timezone = ZoneInfo(timezone_name)
+    local_now = moment.astimezone(local_timezone)
+    next_local = croniter(raw, local_now).get_next(datetime)
+    if next_local.tzinfo is None:
+        next_local = next_local.replace(tzinfo=local_timezone)
+    return next_local.astimezone(timezone.utc)
 
 
 async def tick_cron_jobs(now: datetime | None = None) -> int:
@@ -77,7 +108,8 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
             # Advance the clock FIRST (same transaction as the enqueue) so a
             # concurrent ticker that re-reads sees the job as not-due.
             try:
-                job.next_run_at = compute_next_run(job.schedule, moment)
+                scheduled_for = job.next_run_at or moment
+                job.next_run_at = compute_next_run(job.schedule, moment, job.timezone)
             except ValueError:
                 logger.warning(
                     "Cron job %s has invalid schedule %r; disabling",
@@ -87,28 +119,66 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
                 job.enabled = False
                 session.add(job)
                 continue
-            conversation = (
-                await session.get(Conversation, job.conversation_id)
-                if job.conversation_id
-                else None
-            )
-            if conversation is None:
-                life = await ensure_life_event(
-                    session,
-                    organization_id=job.organization_id,
-                    user_id=job.user_id,
+            event = await session.get(Event, job.event_id) if job.event_id else None
+            if event is None:
+                # A legacy row without an Event cannot safely guess its scope.
+                # Preserve it for inspection, but stop unattended execution.
+                job.enabled = False
+                session.add(job)
+                logger.warning("Cron job %s has no Event; disabling", job.id)
+                continue
+            if (
+                event.organization_id != job.organization_id
+                or event.user_id != job.user_id
+            ):
+                job.enabled = False
+                session.add(job)
+                logger.warning(
+                    "Cron job %s has invalid Event ownership; disabling", job.id
                 )
-                event_id = life.id
-            else:
-                event_id = conversation.event_id
+                continue
+            if event.lifecycle != "active":
+                # Dormant/archived Events stay quiet. Advance past the missed
+                # occurrence so reactivation does not replay a backlog.
+                session.add(job)
+                continue
+
+            conversation = await ensure_event_conversation(session, event=event)
+            job.conversation_id = conversation.id
+            authority = (
+                job.authority
+                if job.authority in SCHEDULE_AUTHORITIES
+                else "report_only"
+            )
+            notification_mode = (
+                job.notification_mode
+                if job.notification_mode in SCHEDULE_NOTIFICATION_MODES
+                else "attention"
+            )
+            run_profile = frozen_schedule_profile(
+                schedule_id=job.id,
+                schedule_name=job.name,
+                authority=authority,
+                notification_mode=notification_mode,
+                timezone_name=job.timezone,
+                scheduled_for=scheduled_for.isoformat(),
+                next_run_at=job.next_run_at.isoformat(),
+            )
             run = Run(
                 user_id=job.user_id,
                 organization_id=job.organization_id,
-                event_id=event_id,
+                event_id=event.id,
                 agent_id="default_agent",
                 session_id="pending",
-                conversation_id=job.conversation_id,
-                task=job.task,
+                conversation_id=conversation.id,
+                cron_job_id=job.id,
+                run_kind="scheduled",
+                run_profile=run_profile,
+                task=scheduled_instruction(
+                    name=job.name,
+                    instruction=job.task,
+                    authority=authority,
+                ),
                 max_steps=job.max_steps,
                 status="pending",
             )
@@ -119,9 +189,40 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
             job.last_run_at = moment
             job.last_run_id = run.id
             job.updated_at = moment
+            event.updated_at = moment
+            session.add(event)
             session.add(run)
             session.add(job)
+            session.add(
+                EventTrailEntry(
+                    organization_id=job.organization_id,
+                    user_id=job.user_id,
+                    event_id=event.id,
+                    actor_id="aloy:scheduler",
+                    kind="schedule_triggered",
+                    summary=f"Started scheduled run: {job.name}",
+                    run_id=run.id,
+                    payload={
+                        "schedule_id": job.id,
+                        "schedule_name": job.name,
+                        "wake_reason": "time_trigger",
+                        "scheduled_for": scheduled_for.isoformat(),
+                        "next_run_at": job.next_run_at.isoformat(),
+                        "timezone": job.timezone,
+                        "authority": authority,
+                        "notification_mode": notification_mode,
+                    },
+                )
+            )
             enqueued += 1
             logger.info("Cron job %s (%s) enqueued run %s", job.id, job.name, run.id)
         await session.commit()
     return enqueued
+
+
+__all__ = [
+    "compute_next_run",
+    "tick_cron_jobs",
+    "validate_schedule",
+    "validate_timezone",
+]

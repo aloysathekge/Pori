@@ -622,7 +622,7 @@ Gate:
 ## 7. Explicitly deferred until after V1
 
 - automatic Task selection and learned autonomy;
-- scheduled and incoming-data triggers beyond the existing chassis;
+- richer trigger types and incoming-data automation beyond Event Schedules;
 - automatic or model-initiated promotion of Conversations into Events;
 - automatic transfer of existing Life Tasks/files during Event creation;
 - cross-Event Life coordination and retrieval;

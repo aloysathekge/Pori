@@ -708,28 +708,37 @@ class AgentConfigResponse(BaseModel):
 
 
 class CronJobCreate(BaseModel):
+    event_id: str
     name: str = Field(min_length=1, max_length=120)
     task: str = Field(min_length=1, max_length=100_000)
     # 5-field cron expression or "@every:SECONDS" (validated in the route)
     schedule: str = Field(min_length=1, max_length=120)
+    timezone: str = Field(default="UTC", min_length=1, max_length=120)
+    authority: Literal["report_only", "organize"] = "report_only"
+    notification_mode: Literal["attention", "always"] = "attention"
     max_steps: int = Field(15, ge=1, le=10_000)
-    conversation_id: str | None = None
 
 
 class CronJobUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
     task: str | None = Field(None, min_length=1, max_length=100_000)
     schedule: str | None = Field(None, min_length=1, max_length=120)
+    timezone: str | None = Field(None, min_length=1, max_length=120)
+    authority: Literal["report_only", "organize"] | None = None
+    notification_mode: Literal["attention", "always"] | None = None
     max_steps: int | None = Field(None, ge=1, le=10_000)
-    conversation_id: str | None = None
     enabled: bool | None = None
 
 
 class CronJobResponse(BaseModel):
     id: str
+    event_id: str | None
     name: str
     task: str
     schedule: str
+    timezone: str
+    authority: Literal["report_only", "organize"]
+    notification_mode: Literal["attention", "always"]
     enabled: bool
     max_steps: int
     conversation_id: str | None
@@ -738,6 +747,17 @@ class CronJobResponse(BaseModel):
     last_run_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CronRunResponse(BaseModel):
+    id: str
+    status: str
+    success: bool
+    final_answer: str | None
+    steps_taken: int
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
 
 
 # --- Gateway (external chat pairing) ---

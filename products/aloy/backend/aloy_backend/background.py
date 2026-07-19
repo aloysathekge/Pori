@@ -43,6 +43,10 @@ from .run_outcome import (
 )
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
+from .schedule_runtime import (
+    record_schedule_terminal_trail,
+    scheduled_denied_tools,
+)
 from .skills import load_skill_catalog
 from .surface_builder import execute_claimed_surface_builder
 from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
@@ -373,11 +377,14 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     policy=policy,
                 )
                 execution_memory = memory
+                schedule_denials = scheduled_denied_tools(run)
                 orchestrator = build_orchestrator(
                     shared_memory=memory,
                     agent_config=agent_config,
                     allowed_tools=policy.allowed_tools or None,
-                    denied_tools=surface.denied_tools,
+                    denied_tools=tuple(
+                        set(surface.denied_tools).union(schedule_denials)
+                    ),
                     allowed_capability_groups=(
                         policy.allowed_capability_groups or None
                     ),
@@ -386,7 +393,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     ),
                     allowed_models=policy.allowed_models or None,
                     skill_catalog=skill_catalog,
-                    enable_surface_requests=bool(run.event_id),
+                    enable_surface_requests=bool(run.event_id and not run.cron_job_id),
                 )
                 proposal_handler, proposal_config = proposal_write_gate(
                     run_context=run_context,
@@ -416,7 +423,9 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         else {}
                     ),
                 }
-                mcp_servers = surface.mcp_servers
+                # MCP tools do not yet expose host-verifiable authority metadata.
+                # They are therefore unavailable to unattended Schedule runs.
+                mcp_servers = () if run.cron_job_id else surface.mcp_servers
                 # Resume-not-restart: run under a stable kernel task id. A
                 # first attempt creates it; a re-claim after a crash/expired
                 # lease injects the persisted checkpoint and continues from
@@ -652,6 +661,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 run=run,
                 outcome_message=surface_outcome_message,
             )
+            await record_schedule_terminal_trail(session, run=run)
 
         except Exception:
             logger.exception("Background run %s failed", run_id)
@@ -687,6 +697,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     run=run,
                     error="The worker exhausted its safe retry attempts.",
                 )
+                await record_schedule_terminal_trail(session, run=run)
 
         try:
             current = await session.get(Run, run_id)

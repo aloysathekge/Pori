@@ -778,6 +778,17 @@ Every proactive wake is Event-scoped, budgeted, idempotent, and written to
 Trail. Dormant Events have no active triggers. Users can pause proactive work
 globally or per Event.
 
+An Event Schedule is a durable trigger rather than a recurring Task. It owns a
+human-readable instruction, IANA timezone, recurrence, Run budget, notification
+mode, and one of two V1 authority levels: **Read and report** or **Organize this
+Event**. The latter may update Event-owned working state and prepare reversible
+drafts; consequential external actions still become approval-gated Proposals.
+The host freezes that authority into every queued Run, records the wake and
+terminal outcome in Trail, delivers the result into the Event Conversation, and
+shows active occurrences in Today. Missed occurrences do not replay as a
+backlog. MCP tools remain unavailable to unattended Runs until their manifests
+carry host-verifiable read/write authority metadata.
+
 ### 3.11 Today — the attention lens
 
 Today is not another Event or Surface. It is the explainable cross-Event view of
