@@ -151,7 +151,7 @@ export function SkillsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 sm:px-6 sm:py-4">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Skills</h1>
           <p className="text-sm text-zinc-400">
@@ -174,7 +174,7 @@ export function SkillsPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-4 py-5 sm:p-6">
         {error && (
           <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600">
             {error}
@@ -290,7 +290,7 @@ export function SkillsPage() {
                 onChange={(e) => set({ instructions: e.target.value })}
               />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Tags (comma-separated)">
                 <input
                   className={INPUT}

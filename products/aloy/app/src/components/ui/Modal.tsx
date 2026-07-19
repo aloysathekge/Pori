@@ -75,7 +75,7 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div
         className="fixed inset-0 bg-black/35 backdrop-blur-[1px]"
         onMouseDown={onClose}
@@ -87,10 +87,11 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative z-50 w-[calc(100%_-_2rem)] max-w-lg rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl ${panelClassName}`}
+        className={`relative z-50 max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-lg overflow-y-auto rounded-t-3xl border-x border-t border-zinc-800 bg-zinc-900 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl sm:border sm:p-6 ${panelClassName}`}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 id={titleId} className="text-lg font-semibold text-zinc-100">{title}</h2>
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-700 sm:hidden" />
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 id={titleId} className="min-w-0 text-lg font-semibold text-zinc-100">{title}</h2>
           <div className="flex items-center gap-2">
             {headerActions}
             <Button ref={closeRef} variant="ghost" size="icon" onClick={onClose} aria-label="Close dialog">

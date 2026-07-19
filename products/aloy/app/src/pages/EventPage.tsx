@@ -553,35 +553,46 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-zinc-800 px-4 lg:px-5">
-          {!data.event.is_life && <EventCover event={data.event} className="h-9 w-12 shrink-0 rounded-lg border border-zinc-800" />}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate font-display text-base font-semibold text-zinc-100">
-                {data.event.title}
-              </h1>
-              <span className="shrink-0 rounded-full bg-accent-600/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700">
-                {data.event.is_life ? 'Life' : data.event.phase || 'Active'}
-              </span>
-              <span
-                className={`flex shrink-0 items-center gap-1 text-[10px] font-medium ${liveStatus === 'live' ? 'text-emerald-500' : liveStatus === 'offline' ? 'text-red-500' : 'text-amber-500'}`}
-                title={`Event updates: ${liveStatus}`}
-              >
-                {liveStatus === 'live' ? <Wifi size={11} /> : <WifiOff size={11} />}
-                {liveStatus}
-              </span>
+        <header className="flex shrink-0 flex-col gap-2 border-b border-zinc-800 px-3 py-2 md:min-h-14 md:flex-row md:items-center md:gap-3 md:px-4 md:py-0 lg:px-5">
+          <div className="flex w-full min-w-0 items-center gap-3 md:flex-1">
+            {!data.event.is_life && <EventCover event={data.event} className="h-9 w-12 shrink-0 rounded-lg border border-zinc-800" />}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate font-display text-base font-semibold text-zinc-100">
+                  {data.event.title}
+                </h1>
+                <span className="shrink-0 rounded-full bg-accent-600/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-700">
+                  {data.event.is_life ? 'Life' : data.event.phase || 'Active'}
+                </span>
+                <span
+                  className={`flex shrink-0 items-center gap-1 text-[10px] font-medium ${liveStatus === 'live' ? 'text-emerald-500' : liveStatus === 'offline' ? 'text-red-500' : 'text-amber-500'}`}
+                  title={`Event updates: ${liveStatus}`}
+                >
+                  {liveStatus === 'live' ? <Wifi size={11} /> : <WifiOff size={11} />}
+                  <span className="hidden sm:inline">{liveStatus}</span>
+                </span>
+              </div>
+              {data.event.summary && (
+                <p className="truncate text-xs text-zinc-500">{data.event.summary}</p>
+              )}
             </div>
-            {data.event.summary && (
-              <p className="truncate text-xs text-zinc-500">{data.event.summary}</p>
-            )}
+            <button
+              type="button"
+              onClick={() => setContextOpen((value) => !value)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
+              aria-label={contextOpen ? 'Close event context' : 'Open event context'}
+              title={contextOpen ? 'Close event context' : 'Open event context'}
+            >
+              {contextOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}
+            </button>
           </div>
-          <div className="flex shrink-0 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5" aria-label="Event workspace view">
+          <div className="grid w-full shrink-0 grid-cols-2 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 md:flex md:w-auto" aria-label="Event workspace view">
             {(['conversation', 'split', 'workbench'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setWorkspaceMode(mode)}
-                className={`rounded-md px-2.5 py-1.5 text-[11px] font-medium capitalize transition-colors ${workspaceMode === mode ? 'bg-zinc-700 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'} ${mode === 'split' ? 'hidden md:block' : ''}`}
+                className={`min-h-9 rounded-md px-2.5 py-1.5 text-[11px] font-medium capitalize transition-colors ${workspaceMode === mode ? 'bg-zinc-700 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'} ${mode === 'split' ? 'hidden md:block' : ''}`}
                 aria-pressed={workspaceMode === mode}
               >
                 {mode}
@@ -591,7 +602,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
           <button
             type="button"
             onClick={() => setContextOpen((value) => !value)}
-            className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="hidden h-10 w-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:flex"
             aria-label={contextOpen ? 'Close event context' : 'Open event context'}
             title={contextOpen ? 'Close event context' : 'Open event context'}
           >
@@ -614,7 +625,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
             className={`flex min-h-0 min-w-0 flex-col ${workspaceMode === 'split' ? 'flex-none' : 'flex-1'}`}
             style={workspaceMode === 'split' ? { flexBasis: `${splitRatio}%` } : undefined}
           >
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5 lg:px-6">
           <div className="mx-auto max-w-4xl">
             {loadingConversation ? (
               <div className="flex justify-center py-16"><Spinner className="h-7 w-7" /></div>
@@ -669,7 +680,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur lg:px-6">
+        <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-2 py-2 backdrop-blur sm:px-4 sm:py-3 lg:px-6">
           <div className="mx-auto max-w-4xl">
             <Composer
               value={input}
@@ -726,7 +737,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
       </section>
 
       {contextOpen && (
-        <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(420px,100%)] shrink-0 flex-col border-l border-zinc-800 bg-zinc-900 shadow-2xl xl:static xl:w-[390px] xl:shadow-none">
+        <aside className="absolute inset-y-0 right-0 z-30 flex w-full shrink-0 flex-col border-l border-zinc-800 bg-zinc-900 shadow-2xl sm:w-[min(420px,100%)] xl:static xl:w-[390px] xl:shadow-none">
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4">
             <div>
               <p className="text-sm font-semibold text-zinc-100">
@@ -736,7 +747,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 {contextTab === 'settings' ? `Controls for ${data.event.title}` : 'Durable, trusted working state'}
               </p>
             </div>
-            <button type="button" onClick={() => setContextOpen(false)} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800" aria-label="Close event context">
+            <button type="button" onClick={() => setContextOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-800" aria-label="Close event context">
               <X size={17} />
             </button>
           </div>
@@ -784,7 +795,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     return (
                       <div key={task.id} className="group py-3">
                         <div className="flex items-start gap-2.5">
-                          <button type="button" onClick={() => void toggleTask(task.id, task.status)} disabled={!taskCanToggle(task.status)} className="mt-0.5 text-zinc-500 hover:text-accent-700 disabled:cursor-default disabled:hover:text-zinc-500" aria-label={task.status === 'open' ? 'Complete task' : task.status === 'done' ? 'Reopen task' : `Task is ${taskStatusLabel(task.status)}`}>
+                          <button type="button" onClick={() => void toggleTask(task.id, task.status)} disabled={!taskCanToggle(task.status)} className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-800 hover:text-accent-700 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-zinc-500 sm:-ml-1 sm:h-8 sm:w-8" aria-label={task.status === 'open' ? 'Complete task' : task.status === 'done' ? 'Reopen task' : `Task is ${taskStatusLabel(task.status)}`}>
                             {task.status === 'done' ? <CheckCircle2 size={17} /> : <Circle size={17} />}
                           </button>
                           <div className="min-w-0 flex-1">
@@ -801,7 +812,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                             </span>
                           )}
                           {!active && !canResume && (
-                            <button type="button" onClick={() => void removeTask(task.id)} className="rounded p-1 text-zinc-600 opacity-0 hover:text-red-500 group-hover:opacity-100 focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
+                            <button type="button" onClick={() => void removeTask(task.id)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-600 hover:bg-zinc-800 hover:text-red-500 md:h-8 md:w-8 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
                           )}
                         </div>
                         <div className="ml-7 mt-2 flex flex-wrap gap-2">

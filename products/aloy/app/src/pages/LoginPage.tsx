@@ -28,7 +28,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
+    <div className="flex min-h-[100dvh] items-center justify-center bg-zinc-950 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center">
           <span className="mb-4 inline-flex items-center gap-3">

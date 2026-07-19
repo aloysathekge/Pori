@@ -308,9 +308,9 @@ export function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-zinc-950">
-      <div className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-7 lg:px-10 lg:py-10">
+      <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-7 sm:py-7 lg:px-10 lg:py-10">
       <header className="mb-7">
-        <h1 className="font-display text-3xl font-semibold tracking-tight text-zinc-100">
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-zinc-100 sm:text-3xl">
           Aloy &amp; you
         </h1>
         <p className="mt-1.5 text-sm text-zinc-400">
@@ -381,7 +381,7 @@ export function SettingsPage() {
           </div>
 
           <div className="mt-4 divide-y divide-zinc-800 border-t border-zinc-800">
-            <div className="flex items-start gap-3 py-4">
+            <div className="flex flex-wrap items-start gap-3 py-4 sm:flex-nowrap">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-accent-300">
                 <Bell size={17} />
               </span>
@@ -393,12 +393,12 @@ export function SettingsPage() {
                   Protected actions never continue silently.
                 </p>
               </div>
-              <span className="mt-1 rounded-full border border-accent-500/25 bg-accent-500/10 px-2.5 py-1 text-[11px] font-medium text-accent-300">
+              <span className="ml-12 mt-1 rounded-full border border-accent-500/25 bg-accent-500/10 px-2.5 py-1 text-[11px] font-medium text-accent-300 sm:ml-0">
                 Always on
               </span>
             </div>
 
-            <div className="flex items-start gap-3 py-4">
+            <div className="flex flex-wrap items-start gap-3 py-4 sm:flex-nowrap">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-accent-300">
                 <CalendarClock size={17} />
               </span>
@@ -413,14 +413,14 @@ export function SettingsPage() {
               <button
                 type="button"
                 onClick={() => navigate('/schedules')}
-                className="mt-1 flex items-center gap-1 text-xs font-medium text-accent-300 hover:text-accent-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                className="ml-12 mt-1 flex items-center gap-1 text-xs font-medium text-accent-300 hover:text-accent-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 sm:ml-0"
               >
                 Per schedule
                 <ChevronRight size={14} />
               </button>
             </div>
 
-            <div className="flex items-start gap-3 py-4">
+            <div className="flex flex-wrap items-start gap-3 py-4 sm:flex-nowrap">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-accent-300">
                 <MessageCircle size={17} />
               </span>
@@ -432,14 +432,16 @@ export function SettingsPage() {
                   Show useful follow-ups in your daily focus view.
                 </p>
               </div>
-              <Toggle
-                checked={attention('show_today_suggestions')}
-                disabled={savingPreference === 'show_today_suggestions'}
-                label="Show suggestions in Today"
-                onChange={(next) =>
-                  void saveAttentionPreference('show_today_suggestions', next)
-                }
-              />
+              <div className="ml-12 sm:ml-0">
+                <Toggle
+                  checked={attention('show_today_suggestions')}
+                  disabled={savingPreference === 'show_today_suggestions'}
+                  label="Show suggestions in Today"
+                  onChange={(next) =>
+                    void saveAttentionPreference('show_today_suggestions', next)
+                  }
+                />
+              </div>
             </div>
           </div>
       </Section>

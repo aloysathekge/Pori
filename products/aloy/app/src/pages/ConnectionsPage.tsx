@@ -65,7 +65,8 @@ export function ConnectionsPage() {
     providers?.some((p) => p.can_manage_org || p.org_connected) ?? false;
 
   return (
-    <div className="mx-auto max-w-4xl p-6 lg:p-10">
+    <div className="h-full overflow-y-auto px-4 py-5 sm:p-6 lg:p-10">
+      <div className="mx-auto max-w-4xl">
       <div className="mb-8 border-b border-zinc-800 pb-6">
         <h1 className="font-display text-3xl font-semibold text-zinc-100">Connections</h1>
         <p className="text-sm text-zinc-400">
@@ -176,6 +177,7 @@ export function ConnectionsPage() {
           OAuth configured hid the entire MCP UI). */}
       <div className="mt-10 border-t border-zinc-800 pt-8">
         <McpServersSection />
+      </div>
       </div>
     </div>
   );

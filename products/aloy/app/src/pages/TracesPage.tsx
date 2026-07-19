@@ -113,7 +113,7 @@ export function TracesPage() {
 
   if (detail) {
     return (
-      <div className="p-6 lg:p-8">
+      <div className="h-full overflow-y-auto px-4 py-5 sm:p-6 lg:p-8">
         <Button variant="ghost" size="sm" onClick={() => setDetail(null)} className="mb-4">
           <ArrowLeft size={14} /> Back to traces
         </Button>
@@ -135,7 +135,7 @@ export function TracesPage() {
               </Badge>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="grid gap-4 text-sm sm:grid-cols-3">
               <div>
                 <p className="text-zinc-500">Duration</p>
                 <p className="text-zinc-200">{detail.trace_data.duration}</p>
@@ -187,7 +187,7 @@ export function TracesPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="h-full overflow-y-auto px-4 py-5 sm:p-6 lg:p-8">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-zinc-100">Traces</h1>
         <p className="mt-1 text-sm text-zinc-400">

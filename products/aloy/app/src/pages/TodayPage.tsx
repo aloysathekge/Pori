@@ -373,11 +373,11 @@ export function TodayPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-zinc-950">
-      <div className="mx-auto min-h-full max-w-[1320px] px-5 py-7 lg:px-10 lg:py-9">
-        <header className="flex flex-col gap-6 border-b border-zinc-800 pb-7 lg:flex-row lg:items-start lg:justify-between">
+      <div className="mx-auto min-h-full max-w-[1320px] px-4 py-5 sm:px-5 sm:py-7 lg:px-10 lg:py-9">
+        <header className="flex flex-col gap-4 border-b border-zinc-800 pb-5 sm:gap-6 sm:pb-7 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-400">{dateLabel}</p>
-            <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-zinc-100 sm:text-4xl">
+            <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-zinc-100 sm:text-4xl">
               {greeting(now)}, {userName}
             </h1>
             <p className="mt-2 text-sm text-zinc-400">{briefing}</p>
@@ -387,7 +387,7 @@ export function TodayPage() {
               type="button"
               onClick={() => setNotificationsOpen(true)}
               aria-label={`${unreadCount} unread notifications`}
-              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-zinc-400 transition-colors hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-200"
+              className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-transparent text-zinc-400 transition-colors hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-200 sm:h-10 sm:w-10"
             >
               <Bell size={19} />
               {unreadCount > 0 && (
@@ -396,13 +396,15 @@ export function TodayPage() {
                 </span>
               )}
             </button>
-            <Button onClick={() => void startConversation()} disabled={creatingConversation}>
-              {creatingConversation ? <LoaderCircle size={16} className="animate-spin" /> : <ChatIcon size={17} />}
-              New conversation
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700/60 text-accent-700">
-              <EventIcon size={17} /> New Event
-            </Button>
+            <div className="hidden items-center gap-2 sm:flex">
+              <Button onClick={() => void startConversation()} disabled={creatingConversation}>
+                {creatingConversation ? <LoaderCircle size={16} className="animate-spin" /> : <ChatIcon size={17} />}
+                New conversation
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700/60 text-accent-700">
+                <EventIcon size={17} /> New Event
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -613,7 +615,7 @@ export function TodayPage() {
             const proposal = proposalFor(notification);
             const reviewing = notification.proposal_id === reviewingProposalId;
             return (
-              <div key={notification.id} className="border-b border-zinc-800 px-6 py-4 last:border-b-0">
+              <div key={notification.id} className="border-b border-zinc-800 px-4 py-4 last:border-b-0 sm:px-6">
                 <div className="flex items-start gap-3">
                   <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${unread ? 'bg-accent-600' : 'bg-zinc-700'}`} />
                   <div className="min-w-0 flex-1">
@@ -632,7 +634,7 @@ export function TodayPage() {
             );
           })}
           {notifications.length === 0 && (
-            <div className="px-6 py-12 text-center"><CheckCircle2 size={22} className="mx-auto text-accent-700" /><p className="mt-3 text-sm font-medium text-zinc-300">You are all caught up</p><p className="mt-1 text-xs text-zinc-500">Results, decisions, and meaningful changes will appear here.</p></div>
+            <div className="px-4 py-12 text-center sm:px-6"><CheckCircle2 size={22} className="mx-auto text-accent-700" /><p className="mt-3 text-sm font-medium text-zinc-300">You are all caught up</p><p className="mt-1 text-xs text-zinc-500">Results, decisions, and meaningful changes will appear here.</p></div>
           )}
         </div>
       </Modal>

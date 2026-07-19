@@ -871,7 +871,9 @@ These invariants override feature convenience and model preference:
 
 ## 5. Product experience
 
-Desktop is Aloy's primary experience; the web app remains a complete fallback.
+Desktop remains Aloy's primary experience for wide, multi-pane work. The web
+app is a complete responsive host, and the planned Expo application is a
+first-class trusted mobile host rather than a thin wrapper around the website.
 The workspace takes inspiration from flexible desktop tools, but its
 information architecture is specific to persistent agent work.
 
@@ -902,6 +904,59 @@ destinations. **New Event** is a distinct, deliberate premium workspace action,
 not a second button styled exactly like conversation creation. Its identity
 uses Aloy's own Event language and iconography rather than a generic AI sparkle
 or “intelligence” symbol.
+
+#### Mobile shell and workspace contract
+
+Mobile Aloy is the same durable product, not a reduced companion and not a
+desktop layout squeezed into a narrow viewport. It keeps the same Events,
+Conversations, Tasks, Trail, files, memory, approvals, receipts, and Surface
+state while changing how those regions are arranged:
+
+- a persistent bottom bar exposes **Today**, **Life**, **New**, **Events**, and
+  **More**; the global sidebar remains available from More as an overlay;
+- New opens a host-owned action sheet that clearly separates a Life
+  conversation from a dedicated Event, while Events opens a visual Event
+  switcher without making the user traverse the full sidebar;
+- an Event presents one primary region at a time: Conversation or Workbench.
+  Split view is reserved for widths that can support it without damaging either
+  region;
+- Event context opens as a full-screen mobile panel. Its Tasks, Approvals,
+  Receipts, Files, Trail, and Settings remain trusted host UI and keep large,
+  non-overlapping controls;
+- Surface, artifact, file, and Run Replay tabs remain first-class Workbench
+  content. Tabs scroll horizontally rather than compressing labels and close
+  controls into unusable targets;
+- dialogs become bottom sheets on phones and centered dialogs on larger
+  screens. Long setup, settings, file, and history screens own their scrolling
+  instead of trapping content below the viewport;
+- viewport sizing uses the dynamic browser viewport and safe-area insets.
+  Primary touch targets are at least 44 pixels, and form controls keep a
+  mobile-safe text size so focusing an input does not zoom or reflow the app.
+
+Navigation and pane arrangement may change with screen size; durable state and
+authority do not. Closing a panel, switching away from a Surface, rotating the
+device, or backgrounding the browser must not end the Event Session or discard
+work.
+
+The planned Expo host keeps this information architecture while implementing
+its trusted shell with native navigation and controls. Generated Surfaces do
+not become arbitrary React Native applications: Aloy renders the same retained,
+sandboxed React Surface bundle inside an embedded WebView and connects it
+through a mobile transport adapter for the versioned Surface protocol. The
+generated application sees the same Surface SDK on every host.
+
+Camera, location, files, share sheets, calendars, notifications, biometrics,
+and payment handoffs remain host capabilities. A Surface requests them through
+typed intents; the Expo host validates authority and applies the same Proposal,
+approval, receipt, and Trail rails as web and desktop. Generated code never
+receives direct device APIs, credentials, or unrestricted network access.
+
+Agent execution remains durable on the Aloy backend when the mobile operating
+system suspends or terminates the app. Push notifications and deep links bring
+the user back to the owning Event; cursor-based replay restores missed Event
+changes before live following resumes. The mobile app may cache last-good
+readable state, but it must not claim that an offline command committed before
+the backend confirms it.
 
 ### 5.2 Event creation and setup
 
@@ -1267,7 +1322,9 @@ V1 deliberately excludes:
 - user-installed Surface plugins and unreviewed privileged widgets;
 - shared cross-user Events and multi-agent negotiation;
 - unrestricted concurrent Runs inside one Event or account;
-- local-folder desktop integration and full native mobile clients.
+- shipping local-folder desktop integration or the planned Expo mobile client
+  inside V1; both are follow-on hosts, and V1 APIs and Surface protocols must
+  remain compatible with them.
 
 ## 8. Product and platform boundary
 
@@ -1282,7 +1339,7 @@ Aloy is the product harness around Pori. It supplies:
 - explicit skills such as Surface Builder;
 - tenant and Event-scoped tools and virtual filesystems;
 - durable workers, product Triggers, and Proposal execution;
-- REST + SSE product APIs and the trusted desktop/web host;
+- REST + SSE product APIs and trusted web, desktop, and mobile hosts;
 - isolated build and runtime boundaries for generated Surfaces;
 - product-specific evaluation and quality gates.
 

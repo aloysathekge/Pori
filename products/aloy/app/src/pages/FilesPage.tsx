@@ -52,7 +52,8 @@ export function FilesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="h-full overflow-y-auto px-4 py-5 sm:p-6">
+      <div className="mx-auto max-w-3xl">
       <div className="mb-1 flex items-center gap-2">
         <FolderOpen size={20} className="text-accent-600" />
         <h1 className="text-lg font-semibold text-zinc-100">My files</h1>
@@ -105,6 +106,7 @@ export function FilesPage() {
           ))}
         </ul>
       )}
+      </div>
     </div>
   );
 }

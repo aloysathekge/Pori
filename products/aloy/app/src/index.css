@@ -88,6 +88,32 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   font-feature-settings: "cv11", "ss01"; /* Inter: open digits + friendlier a */
+  overscroll-behavior: none;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  touch-action: manipulation;
+}
+
+@media (max-width: 639px) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  /* Mobile Safari zooms focused controls smaller than 16px. Keep data entry
+     stable while individual components retain compact desktop typography. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 /* Identity moments read in the display face. */
