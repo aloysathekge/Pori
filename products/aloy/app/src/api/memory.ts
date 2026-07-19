@@ -1,6 +1,7 @@
 import { apiFetch } from './client';
 import type {
   MemoryBlock,
+  MemoryExportResponse,
   KnowledgeEntry,
   KnowledgeEntryCreate,
   KnowledgeSearchRequest,
@@ -47,6 +48,10 @@ export function searchKnowledgeEntries(body: KnowledgeSearchRequest) {
 
 export function deleteKnowledgeEntry(id: string) {
   return apiFetch<void>(`/me/memory/knowledge/${id}`, { method: 'DELETE' });
+}
+
+export function exportMemory() {
+  return apiFetch<MemoryExportResponse>('/me/memory/export/all');
 }
 
 /** Backward-compatible aliases over knowledge endpoints */
