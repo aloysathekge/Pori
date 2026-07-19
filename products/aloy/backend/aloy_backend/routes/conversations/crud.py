@@ -18,7 +18,7 @@ from sqlmodel import col, select
 
 from ...database import get_session
 from ...events import ensure_life_event
-from ...models import ContextArtifact, Conversation, Event, Message
+from ...models import AgentConfig, ContextArtifact, Conversation, Event, Message
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...schemas import (
     ConversationBranchRequest,
@@ -101,6 +101,18 @@ async def create_conversation(
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
     session: AsyncSession = Depends(get_session),
 ) -> ConversationResponse:
+    if req.agent_config_id is not None:
+        if not context.permits(Permission.POLICY_MANAGE):
+            raise HTTPException(
+                status_code=403,
+                detail="Agent configuration is managed by an Aloy operator",
+            )
+        agent_config = await session.get(AgentConfig, req.agent_config_id)
+        if (
+            agent_config is None
+            or agent_config.organization_id != context.organization_id
+        ):
+            raise HTTPException(status_code=404, detail="Agent config not found")
     if req.event_id:
         event = await session.get(Event, req.event_id)
         if (

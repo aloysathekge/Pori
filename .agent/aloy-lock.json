@@ -1,0 +1,9 @@
+{
+  "lockVersion": 1,
+  "kit": {
+    "path": "../Aloy_Agent_kit/agent-kit",
+    "version": "0.8.1",
+    "commit": "854ad900a455924e6ab6076203aca8d80806368d"
+  },
+  "syncedAt": "2026-07-19T02:07:07+00:00"
+}

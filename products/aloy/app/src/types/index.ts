@@ -172,38 +172,6 @@ export interface RunResponse {
   created_at: string;
 }
 
-// ---- Agent Configs ----
-export type Provider = 'anthropic' | 'openai' | 'google';
-
-export interface AgentConfigCreate {
-  name: string;
-  provider: Provider;
-  model: string;
-  temperature?: number;
-  max_steps?: number;
-  system_prompt?: string | null;
-  tools?: string[] | null;
-  is_default?: boolean;
-}
-
-export interface AgentConfigResponse {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  temperature: number;
-  max_steps: number;
-  system_prompt: string | null;
-  tools: string[] | null;
-  is_default: boolean;
-  created_at: string;
-}
-
-export interface ToolInfo {
-  name: string;
-  description: string;
-}
-
 // ---- Teams ----
 export type TeamMode = 'router' | 'broadcast' | 'delegate';
 
@@ -256,7 +224,6 @@ export interface UserProfileResponse {
 export interface UserProfileUpdate {
   display_name?: string;
   avatar_url?: string;
-  default_agent_config_id?: string;
   preferences?: Record<string, unknown>;
 }
 

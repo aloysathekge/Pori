@@ -1103,6 +1103,12 @@ class Run(SQLModel, table=True):
     agent_id: str = Field(index=True)
     session_id: str = Field(index=True)
     conversation_id: str | None = Field(default=None, index=True)
+    # Set for runs woken by a durable Event Schedule. The Run freezes the
+    # Schedule's authority and notification policy in ``run_profile`` so an
+    # edit made after enqueueing cannot broaden already-authorized work.
+    cron_job_id: str | None = Field(
+        default=None, foreign_key="cron_jobs.id", index=True
+    )
     team_config_id: str | None = Field(default=None, index=True)
     parent_run_id: str | None = Field(default=None, index=True)
     root_run_id: str | None = Field(default=None, index=True)
@@ -1114,7 +1120,7 @@ class Run(SQLModel, table=True):
     run_profile: dict | None = Field(default=None, sa_column=Column(JSON))
     # Credential-free, immutable product-role assignment resolved before the
     # Run enters the worker queue. This prevents operator config drift or a
-    # Conversation's user-selected AgentConfig from changing a specialist Run.
+    # Conversation's legacy AgentConfig from changing a specialist Run.
     model_assignment: dict | None = Field(default=None, sa_column=Column(JSON))
     child_depth: int = 0
     status: str = "pending"  # pending, running, completed, failed
@@ -1348,14 +1354,28 @@ class CronJob(SQLModel, table=True):
     before commit — the Hermes cron pattern."""
 
     __tablename__ = "cron_jobs"
+    __table_args__ = (Index("ix_cron_jobs_deleted_at", "deleted_at"),)
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
+    # New schedules are always Event-owned. Nullable preserves legacy rows so
+    # they can be shown and deliberately migrated or removed instead of being
+    # silently attached to the wrong Event.
+    event_id: str | None = Field(default=None, foreign_key="events.id", index=True)
     name: str
     task: str
     # Either a 5-field cron expression ("0 7 * * 1-5") or "@every:SECONDS".
     schedule: str
+    # Cron expressions are interpreted in this IANA timezone, then persisted
+    # as an absolute UTC ``next_run_at``. @every intervals remain elapsed time.
+    timezone: str = "UTC"
+    # report_only: no Task/file mutations, drafts, Surfaces, or external writes.
+    # organize: Event mutations/drafts are allowed; consequential provider
+    # writes still pass through the Proposal approval gate.
+    authority: str = Field(default="report_only", index=True)
+    # attention: notify on failure/approval only. always: also notify success.
+    notification_mode: str = Field(default="attention", index=True)
     enabled: bool = True
     max_steps: int = 15
     # When set, completed runs deliver their answer into this conversation as
@@ -1377,4 +1397,8 @@ class CronJob(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=_utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
     )

@@ -51,7 +51,7 @@ async def test_resources_are_scoped_to_selected_organization(client):
     ).json() == []
 
 
-async def test_member_can_share_org_resources_but_not_another_users_memory(client):
+async def test_member_cannot_inspect_operator_config_or_another_users_memory(client):
     organization_id = await _create_org(client, slug="shared-enterprise")
     owner_headers = {
         "X-Test-User": "alice",
@@ -86,11 +86,59 @@ async def test_member_can_share_org_resources_but_not_another_users_memory(clien
     conversations = await client.get("/v1/conversations", headers=member_headers)
     memory = await client.get("/v1/me/memory/knowledge", headers=member_headers)
 
-    assert [item["name"] for item in configs.json()] == ["Shared Agent"]
+    assert configs.status_code == 403
+    for path in (
+        "/v1/agent-configs/info/models",
+        "/v1/agent-configs/info/tools",
+        "/v1/agent-configs/info/setup",
+    ):
+        assert (await client.get(path, headers=member_headers)).status_code == 403
     # Life is personal even inside a shared organization. Shared resources do
     # not turn Alice's personal Conversation into Bob's chat history.
     assert conversations.json() == []
     assert memory.json() == []
+
+
+async def test_member_can_start_conversation_but_cannot_select_agent_config(client):
+    organization_id = await _create_org(client, slug="operator-agent-selection")
+    owner_headers = {
+        "X-Test-User": "alice",
+        "X-Pori-Organization": organization_id,
+    }
+    await client.post(
+        f"/v1/organizations/{organization_id}/members",
+        headers=owner_headers,
+        json={"user_id": "bob", "role": "member"},
+    )
+    config = await client.post(
+        "/v1/agent-configs",
+        headers=owner_headers,
+        json={"name": "Operator managed"},
+    )
+    assert config.status_code == 201
+
+    member_headers = {
+        "X-Test-User": "bob",
+        "X-Pori-Organization": organization_id,
+    }
+    ordinary = await client.post(
+        "/v1/conversations",
+        headers=member_headers,
+        json={"title": "Ordinary Aloy conversation"},
+    )
+    assert ordinary.status_code == 201
+    assert ordinary.json()["agent_config_id"] is None
+
+    selected = await client.post(
+        "/v1/conversations",
+        headers=member_headers,
+        json={
+            "title": "Attempted custom runtime",
+            "agent_config_id": config.json()["id"],
+        },
+    )
+    assert selected.status_code == 403
+    assert "operator" in selected.json()["detail"]
 
 
 async def test_policy_limits_runs_and_viewer_cannot_create_them(client):

@@ -5,43 +5,66 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  ExternalLink,
+  Inbox,
   LoaderCircle,
+  Mail,
   Play,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   decideEventProposal,
   getToday,
+  getTodayEmails,
   workOnEventTask,
   type EventProposal,
   type EventTask,
+  type TodayEmailMessage,
+  type TodayEmailsResponse,
   type TodayEventGroup,
   type TodayNotification,
   type TodayResponse,
+  type TodayScheduledWork,
 } from '@/api/events';
-import {
-  createConversation as createLifeConversation,
-  listConversations,
-} from '@/api/conversations';
+import { createConversation as createLifeConversation } from '@/api/conversations';
 import { getProfile, updateProfile } from '@/api/profile';
 import { useAuth } from '@/contexts/useAuth';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { ChatIcon, EventIcon } from '@/components/icons';
-import { EventCover } from '@/components/events/EventCover';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatRelativeTime } from '@/lib/time';
-import type { ConversationResponse, UserProfileResponse } from '@/types';
+import type { UserProfileResponse } from '@/types';
 
 type TaskItem = {
   group: TodayEventGroup;
   task: EventTask;
 };
 
+type ScheduledItem = {
+  group: TodayEventGroup;
+  schedule: TodayScheduledWork;
+};
+
+type WorkingItem =
+  | { kind: 'task'; group: TodayEventGroup; task: EventTask }
+  | { kind: 'schedule'; group: TodayEventGroup; schedule: TodayScheduledWork };
+
+type AttentionItem =
+  | { kind: 'proposal'; group: TodayEventGroup; proposal: EventProposal }
+  | { kind: 'task'; group: TodayEventGroup; task: EventTask };
+
 const priorityWeight: Record<EventTask['priority'], number> = {
   urgent: 4,
   high: 3,
   normal: 2,
   low: 1,
+};
+
+const unavailableEmails: TodayEmailsResponse = {
+  status: 'unavailable',
+  account_email: null,
+  messages: [],
 };
 
 function taskSort(left: TaskItem, right: TaskItem) {
@@ -86,40 +109,79 @@ function uniqueTasks(items: TaskItem[]) {
   return Array.from(new Map(items.map((item) => [item.task.id, item])).values());
 }
 
+function senderName(value: string) {
+  const name = value.split('<')[0]?.trim().replace(/^"|"$/g, '');
+  return name || value;
+}
+
+function emailTime(message: TodayEmailMessage) {
+  if (!message.received_at) return '';
+  return formatRelativeTime(message.received_at);
+}
+
+function attentionKey(item: AttentionItem) {
+  return item.kind === 'proposal' ? item.proposal.id : item.task.id;
+}
+
+function attentionTitle(item: AttentionItem) {
+  if (item.kind === 'proposal') {
+    return item.proposal.reason || item.proposal.impact || 'Review requested action';
+  }
+  return item.task.title;
+}
+
+function attentionReason(item: AttentionItem) {
+  if (item.kind === 'proposal') {
+    return item.proposal.impact || 'Aloy needs your approval before this action can continue.';
+  }
+  if (item.task.blocker) return item.task.blocker;
+  return dueLabel(item.task) || 'This work is marked as a priority.';
+}
+
 export function TodayPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
   const [today, setToday] = useState<TodayResponse | null>(null);
+  const [emails, setEmails] = useState<TodayEmailsResponse | null>(null);
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
-  const [lifeConversations, setLifeConversations] = useState<ConversationResponse[]>([]);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [reviewingProposalId, setReviewingProposalId] = useState<string | null>(null);
-  const [notificationsOpen, setNotificationsOpen] = useState(true);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
+  const [refreshingEmails, setRefreshingEmails] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const response = await getToday();
-      setToday(response);
-      const life = response.events.find((group) => group.event.is_life);
-      const [loadedProfile, conversations] = await Promise.all([
+      const [response, loadedProfile] = await Promise.all([
+        getToday(),
         getProfile().catch(() => null),
-        life ? listConversations(4, 0, life.event.id).catch(() => []) : [],
       ]);
+      setToday(response);
       setProfile(loadedProfile);
-      setLifeConversations(conversations);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
+  const loadEmailBrief = useCallback(async (showRefreshing = false) => {
+    if (showRefreshing) setRefreshingEmails(true);
+    try {
+      setEmails(await getTodayEmails());
+    } catch {
+      setEmails(unavailableEmails);
+    } finally {
+      if (showRefreshing) setRefreshingEmails(false);
     }
   }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load external Today state on mount
     void load();
-  }, [load]);
+    void loadEmailBrief();
+  }, [load, loadEmailBrief]);
 
   const now = useMemo(() => new Date(), []);
   const userName = firstName(profile, session);
@@ -133,15 +195,18 @@ export function TodayPage() {
     [today],
   );
 
-  const { needsTasks, workingTasks, comingUpTasks, quietGroups, pendingProposals } = useMemo(() => {
+  const { needsTasks, workingTasks, scheduledWork, comingUpTasks, quietGroups, pendingProposals } = useMemo(() => {
     const needs: TaskItem[] = [];
     const working: TaskItem[] = [];
     const upcoming: TaskItem[] = [];
     const proposals: Array<{ group: TodayEventGroup; proposal: EventProposal }> = [];
+    const scheduled: ScheduledItem[] = [];
     const quiet: TodayEventGroup[] = [];
 
     for (const group of dedicatedGroups) {
       proposals.push(...group.needs_decision.map((proposal) => ({ group, proposal })));
+      const eventSchedules = group.scheduled_work ?? [];
+      scheduled.push(...eventSchedules.map((schedule) => ({ group, schedule })));
       const blockedIds = new Set([...group.blocked, ...group.stale].map((task) => task.id));
       needs.push(...group.blocked.map((task) => ({ group, task })));
       needs.push(...group.stale.map((task) => ({ group, task })));
@@ -160,17 +225,48 @@ export function TodayPage() {
         }
       }
 
-      if (group.needs_decision.length === 0 && group.upcoming.length === 0) quiet.push(group);
+      if (
+        group.needs_decision.length === 0 &&
+        group.upcoming.length === 0 &&
+        eventSchedules.length === 0
+      ) quiet.push(group);
     }
 
     return {
       needsTasks: uniqueTasks(needs).sort(taskSort),
       workingTasks: uniqueTasks(working).sort(taskSort),
+      scheduledWork: scheduled,
       comingUpTasks: uniqueTasks(upcoming).sort(taskSort),
       quietGroups: quiet,
       pendingProposals: proposals,
     };
   }, [dedicatedGroups, now]);
+
+  const workingItems = useMemo<WorkingItem[]>(
+    () => [
+      ...workingTasks.map(({ group, task }) => ({ kind: 'task' as const, group, task })),
+      ...scheduledWork.map(({ group, schedule }) => ({
+        kind: 'schedule' as const,
+        group,
+        schedule,
+      })),
+    ],
+    [scheduledWork, workingTasks],
+  );
+
+  const attentionItems = useMemo<AttentionItem[]>(
+    () => [
+      ...pendingProposals.map(({ group, proposal }) => ({
+        kind: 'proposal' as const,
+        group,
+        proposal,
+      })),
+      ...needsTasks.map(({ group, task }) => ({ kind: 'task' as const, group, task })),
+    ],
+    [needsTasks, pendingProposals],
+  );
+  const primaryAttention = attentionItems[0] ?? null;
+  const nextAttention = attentionItems.slice(1, 4);
 
   const preferences = profile?.preferences ?? {};
   const notifications = today?.notifications ?? [];
@@ -181,14 +277,10 @@ export function TodayPage() {
   const unreadCount = notifications.filter(
     (notification) => new Date(notification.created_at).getTime() > notificationReadAt,
   ).length;
-  const needsEventCount = new Set([
-    ...needsTasks.map((item) => item.group.event.id),
-    ...pendingProposals.map((item) => item.group.event.id),
-  ]).size;
-  const briefing =
-    needsEventCount > 0 || workingTasks.length > 0
-      ? `${needsEventCount || 'No'} Event${needsEventCount === 1 ? '' : 's'} need${needsEventCount === 1 ? 's' : ''} you; Aloy is working on ${workingTasks.length} item${workingTasks.length === 1 ? '' : 's'}.`
-      : 'Nothing urgent. Your Events are ready when you are.';
+  const briefing = attentionItems.length > 0 || workingItems.length > 0
+    ? `${attentionItems.length || 'No'} decision${attentionItems.length === 1 ? '' : 's'} or priorit${attentionItems.length === 1 ? 'y' : 'ies'} need${attentionItems.length === 1 ? 's' : ''} you. Aloy is working on ${workingItems.length} item${workingItems.length === 1 ? '' : 's'}.`
+    : 'Nothing urgent. Your Events are ready when you are.';
+
   async function startConversation() {
     setCreatingConversation(true);
     setError('');
@@ -213,6 +305,19 @@ export function TodayPage() {
     } finally {
       setTaskActionId(null);
     }
+  }
+
+  function actOnAttention(item: AttentionItem) {
+    if (item.kind === 'proposal') {
+      setReviewingProposalId(item.proposal.id);
+      setNotificationsOpen(true);
+      return;
+    }
+    if (item.task.status === 'open') {
+      void workOnTask({ group: item.group, task: item.task });
+      return;
+    }
+    navigate(`/events/${item.group.event.id}`);
   }
 
   async function decide(eventId: string, proposalId: string, decision: 'approve' | 'reject') {
@@ -241,6 +346,10 @@ export function TodayPage() {
     }
   }
 
+  async function refreshEmails() {
+    await loadEmailBrief(true);
+  }
+
   function openNotification(notification: TodayNotification) {
     if (notification.kind === 'approval_required' && notification.proposal_id) {
       setReviewingProposalId((current) =>
@@ -248,6 +357,7 @@ export function TodayPage() {
       );
       return;
     }
+    setNotificationsOpen(false);
     navigate(`/events/${notification.event_id}`);
   }
 
@@ -262,7 +372,7 @@ export function TodayPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-zinc-950">
-      <div className="mx-auto min-h-full max-w-[1500px] px-5 py-7 lg:px-10 lg:py-10">
+      <div className="mx-auto min-h-full max-w-[1320px] px-5 py-7 lg:px-10 lg:py-9">
         <header className="flex flex-col gap-6 border-b border-zinc-800 pb-7 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-400">{dateLabel}</p>
@@ -274,10 +384,9 @@ export function TodayPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setNotificationsOpen((value) => !value)}
+              onClick={() => setNotificationsOpen(true)}
               aria-label={`${unreadCount} unread notifications`}
-              aria-expanded={notificationsOpen}
-              className="relative flex h-10 w-10 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-zinc-400 transition-colors hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-200"
             >
               <Bell size={19} />
               {unreadCount > 0 && (
@@ -290,7 +399,7 @@ export function TodayPage() {
               {creatingConversation ? <LoaderCircle size={16} className="animate-spin" /> : <ChatIcon size={17} />}
               New conversation
             </Button>
-            <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700 text-accent-700">
+            <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700/60 text-accent-700">
               <EventIcon size={17} /> New Event
             </Button>
           </div>
@@ -305,179 +414,227 @@ export function TodayPage() {
         {!today ? (
           <div className="flex h-72 items-center justify-center"><Spinner /></div>
         ) : (
-          <div className={`mt-6 grid items-start gap-7 ${notificationsOpen ? 'xl:grid-cols-[minmax(0,1fr)_360px]' : ''}`}>
-            <main className="min-w-0 space-y-7">
-              <section className="rounded-2xl border border-accent-700/20 bg-accent-50/45 p-5 sm:p-6">
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent-700/20 bg-zinc-900 text-accent-700">
-                      <ChatIcon size={19} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h2 className="font-display text-xl font-semibold text-zinc-100">Life</h2>
-                        <span className="text-sm text-zinc-500">Your personal space with Aloy</span>
-                      </div>
-                      {lifeConversations[0] ? (
-                        <p className="mt-1 truncate text-sm text-zinc-400">
-                          Recent conversation: {lifeConversations[0].title || 'New conversation'} · {formatRelativeTime(lifeConversations[0].updated_at)}
+          <main className="mt-7 space-y-8">
+            <section>
+              <h2 className="font-display text-lg font-semibold text-zinc-100">First, this needs you</h2>
+              <div className="mt-3 overflow-hidden border-y border-zinc-800">
+                {primaryAttention ? (
+                  <div className="border-l-2 border-red-500 px-4 py-5 sm:px-6">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-red-500">
+                          {primaryAttention.kind === 'proposal' ? 'Approval required' : 'Priority'} · {primaryAttention.group.event.title}
                         </p>
-                      ) : (
-                        <p className="mt-1 text-sm text-zinc-400">Capture a thought, ask for help, or start something loose.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {lifeConversations[0] && (
-                      <Button variant="outline" size="sm" onClick={() => navigate(`/chat/${lifeConversations[0]!.id}`)}>Continue</Button>
-                    )}
-                    <button type="button" onClick={() => void startConversation()} className="text-sm font-medium text-accent-700 hover:text-accent-600">
-                      Ask Aloy or capture a thought <ArrowRight size={14} className="ml-1 inline" />
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <div className="flex items-end justify-between border-b border-zinc-800 pb-3">
-                  <div>
-                    <h2 className="font-display text-xl font-semibold text-zinc-100">Needs you</h2>
-                    <p className="mt-1 text-sm text-zinc-500">Decisions, blockers, stale work, and urgent priorities.</p>
-                  </div>
-                  {(pendingProposals.length + needsTasks.length) > 0 && (
-                    <span className="text-xs font-semibold text-red-500">{pendingProposals.length + needsTasks.length} waiting</span>
-                  )}
-                </div>
-                <div className="divide-y divide-zinc-800">
-                  {pendingProposals.map(({ group, proposal }) => (
-                    <div key={proposal.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] md:items-center">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />
-                        <div className="min-w-0">
-                          <p className="font-medium text-zinc-100">Approval requested</p>
-                          <p className="mt-1 truncate text-sm text-zinc-500">{group.event.title} · {group.event.summary}</p>
-                        </div>
-                      </div>
-                      <p className="text-sm text-zinc-400">{proposal.reason || proposal.impact}</p>
-                      <Button variant="outline" size="sm" onClick={() => setReviewingProposalId(proposal.id)}>Review</Button>
-                    </div>
-                  ))}
-                  {needsTasks.map((item) => (
-                    <div key={item.task.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto] md:items-center">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500" />
-                        <div className="min-w-0">
-                          <p className="font-medium text-zinc-100">{item.task.title}</p>
-                          <p className="mt-1 truncate text-sm text-zinc-500">{item.group.event.title} · {item.group.event.summary}</p>
-                        </div>
-                      </div>
-                      <div className="text-sm text-zinc-400">
-                        <span className="font-medium text-zinc-300">Why now:</span>{' '}
-                        {item.task.blocker || (item.group.stale.some((task) => task.id === item.task.id) ? `Last updated ${formatRelativeTime(item.task.updated_at)}.` : dueLabel(item.task) || 'Marked as a priority.')}
+                        <h3 className="mt-2 font-display text-2xl font-semibold text-zinc-100">
+                          {attentionTitle(primaryAttention)}
+                        </h3>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
+                          <span className="font-medium text-zinc-300">Why now:</span> {attentionReason(primaryAttention)}
+                        </p>
                       </div>
                       <Button
-                        size="sm"
-                        onClick={() => item.task.status === 'open' ? void workOnTask(item) : navigate(`/events/${item.group.event.id}`)}
-                        disabled={taskActionId === item.task.id}
+                        className="shrink-0"
+                        onClick={() => actOnAttention(primaryAttention)}
+                        disabled={primaryAttention.kind === 'task' && taskActionId === primaryAttention.task.id}
                       >
-                        {taskActionId === item.task.id ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
-                        {item.task.status === 'open' ? 'Work on this' : 'Open Event'}
+                        {primaryAttention.kind === 'task' && taskActionId === primaryAttention.task.id
+                          ? <LoaderCircle size={15} className="animate-spin" />
+                          : primaryAttention.kind === 'task' && <Play size={15} />}
+                        {primaryAttention.kind === 'proposal' ? 'Review and decide' : primaryAttention.task.status === 'open' ? 'Work on this' : 'Open Event'}
                       </Button>
                     </div>
-                  ))}
-                  {pendingProposals.length === 0 && needsTasks.length === 0 && (
-                    <div className="flex items-center gap-3 py-5 text-sm text-zinc-500">
-                      <CheckCircle2 size={17} className="text-accent-700" /> Nothing needs your attention right now.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {workingTasks.length > 0 && (
-                <section>
-                  <div className="border-b border-zinc-800 pb-3">
-                    <h2 className="font-display text-xl font-semibold text-zinc-100">Aloy is working</h2>
-                    <p className="mt-1 text-sm text-zinc-500">Durable work continues even when you leave this screen.</p>
                   </div>
-                  <div className="divide-y divide-zinc-800">
-                    {workingTasks.map((item) => (
-                      <button key={item.task.id} type="button" onClick={() => navigate(`/events/${item.group.event.id}`)} className="grid w-full gap-2 py-4 text-left md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <LoaderCircle size={16} className="shrink-0 animate-spin text-accent-700" />
-                          <div className="min-w-0"><p className="truncate font-medium text-zinc-100">{item.task.title}</p><p className="mt-1 text-sm text-zinc-500">{item.group.event.title}</p></div>
-                        </div>
-                        <p className="truncate text-sm text-zinc-400">{item.task.instructions || 'Working toward the task definition of done.'}</p>
-                        <span className="text-sm font-medium text-accent-700">{item.task.status === 'queued' ? 'Queued' : 'In progress'}</span>
-                      </button>
-                    ))}
+                ) : (
+                  <div className="flex items-center gap-3 px-4 py-6 text-sm text-zinc-500">
+                    <CheckCircle2 size={18} className="text-accent-700" /> Nothing needs your decision right now.
                   </div>
-                </section>
-              )}
+                )}
+              </div>
+            </section>
 
+            {nextAttention.length > 0 && (
               <section>
-                <div className="border-b border-zinc-800 pb-3">
-                  <h2 className="font-display text-xl font-semibold text-zinc-100">Coming up</h2>
-                  <p className="mt-1 text-sm text-zinc-500">The next meaningful work across your Events.</p>
-                </div>
-                <div className="divide-y divide-zinc-800">
-                  {comingUpTasks.slice(0, 6).map((item) => (
-                    <button key={item.task.id} type="button" onClick={() => navigate(`/events/${item.group.event.id}`)} className="grid w-full gap-2 py-3.5 text-left sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                      <div className="flex min-w-0 items-center gap-3"><CalendarDays size={16} className="shrink-0 text-zinc-500" /><div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-200">{item.task.title}</p><p className="mt-0.5 text-xs text-zinc-500">{item.group.event.title}</p></div></div>
-                      <span className="text-sm text-zinc-500">{dueLabel(item.task) || 'No due date'}</span><ArrowRight size={15} className="text-accent-700" />
-                    </button>
-                  ))}
-                  {comingUpTasks.length === 0 && quietGroups.map((group) => (
-                    <button key={group.event.id} type="button" onClick={() => navigate(`/events/${group.event.id}`)} className="flex w-full items-center justify-between gap-4 py-4 text-left">
-                      <div className="flex min-w-0 items-center gap-3"><EventCover event={group.event} className="h-11 w-16 shrink-0 rounded-lg border border-zinc-800" /><div className="min-w-0"><p className="truncate font-medium text-zinc-200">{group.event.title}</p><p className="mt-1 truncate text-sm text-zinc-500">{group.event.summary || 'No work needs attention.'}</p></div></div>
-                      <span className="flex items-center gap-1 text-sm font-medium text-accent-700">Open <ArrowRight size={14} /></span>
-                    </button>
-                  ))}
-                  {comingUpTasks.length === 0 && quietGroups.length === 0 && (
-                    <div className="flex items-center gap-3 py-5 text-sm text-zinc-500"><Clock3 size={16} /> Nothing scheduled yet.</div>
-                  )}
-                </div>
-              </section>
-            </main>
-
-            {notificationsOpen && (
-              <aside className="sticky top-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-                <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-                  <div className="flex items-center gap-2"><h2 className="font-display text-lg font-semibold text-zinc-100">Notifications</h2>{unreadCount > 0 && <span className="rounded-full bg-accent-600 px-2 py-0.5 text-[11px] font-semibold text-white">{unreadCount}</span>}</div>
-                  <button type="button" onClick={() => void markAllRead()} disabled={markingRead || unreadCount === 0} className="text-xs font-medium text-accent-700 disabled:text-zinc-500">{markingRead ? 'Saving…' : 'Mark all read'}</button>
-                </div>
-                <div className="divide-y divide-zinc-800">
-                  {notifications.slice(0, 8).map((notification) => {
-                    const unread = new Date(notification.created_at).getTime() > notificationReadAt;
-                    const proposal = proposalFor(notification);
-                    const reviewing = notification.proposal_id === reviewingProposalId;
-                    return (
-                      <div key={notification.id} className="px-5 py-4">
-                        <div className="flex items-start gap-3">
-                          <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${unread ? 'bg-accent-600' : 'bg-zinc-700'}`} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-zinc-100">{notification.title}</p><span className="shrink-0 text-xs text-zinc-500">{formatRelativeTime(notification.created_at)}</span></div>
-                            <p className="mt-1 text-sm leading-5 text-zinc-400">{notification.summary}</p>
-                            <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs font-medium text-accent-700">{notification.event_title}</span><button type="button" onClick={() => openNotification(notification)} className="text-xs font-medium text-accent-700 hover:text-accent-600">{notification.kind === 'approval_required' ? 'Review' : 'View'}</button></div>
-                            {reviewing && proposal && (
-                              <div className="mt-3 rounded-xl bg-zinc-950 p-3">
-                                <p className="text-xs leading-5 text-zinc-400">{proposal.impact || proposal.reason}</p>
-                                <div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void decide(notification.event_id, proposal.id, 'approve')}>Approve</Button><Button variant="outline" size="sm" onClick={() => void decide(notification.event_id, proposal.id, 'reject')}>Reject</Button></div>
-                              </div>
-                            )}
-                          </div>
+                <h2 className="font-display text-lg font-semibold text-zinc-100">Then</h2>
+                <div className="mt-2 divide-y divide-zinc-800 border-b border-zinc-800">
+                  {nextAttention.map((item) => (
+                    <div key={attentionKey(item)} className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.45fr)_auto] sm:items-center">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-50 text-accent-700">
+                          <EventIcon size={16} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-zinc-100">{attentionTitle(item)}</p>
+                          <p className="mt-1 text-sm text-zinc-500">{item.group.event.title}</p>
                         </div>
                       </div>
-                    );
-                  })}
-                  {notifications.length === 0 && (
-                    <div className="px-5 py-10 text-center"><CheckCircle2 size={22} className="mx-auto text-accent-700" /><p className="mt-3 text-sm font-medium text-zinc-300">You are all caught up</p><p className="mt-1 text-xs text-zinc-500">Results, decisions, and meaningful changes will appear here.</p></div>
-                  )}
+                      <p className="text-sm text-zinc-400">{attentionReason(item)}</p>
+                      <button type="button" onClick={() => actOnAttention(item)} className="flex items-center gap-1 text-sm font-medium text-accent-700 hover:text-accent-600">
+                        {item.kind === 'proposal' ? 'Review' : item.task.status === 'open' ? 'Work on this' : 'Open Event'} <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              </aside>
+              </section>
             )}
-          </div>
+
+            <section>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-zinc-100">Aloy is working</h2>
+                  <p className="mt-1 text-sm text-zinc-500">Durable work continues when you leave Today.</p>
+                </div>
+                {workingItems.length > 2 && (
+                  <button type="button" onClick={() => navigate(`/events/${workingItems[2]!.group.event.id}`)} className="text-sm font-medium text-accent-700">View all working</button>
+                )}
+              </div>
+              <div className="mt-3 grid border-y border-zinc-800 md:grid-cols-2 md:divide-x md:divide-zinc-800">
+                {workingItems.slice(0, 2).map((item) => {
+                  const title = item.kind === 'task' ? item.task.title : item.schedule.schedule_name;
+                  const detail = item.kind === 'task'
+                    ? item.task.instructions || 'Working toward the definition of done.'
+                    : item.schedule.instruction || 'Running because its Event Schedule became due.';
+                  const status = item.kind === 'task'
+                    ? item.task.status === 'queued' ? 'Queued' : 'In progress'
+                    : item.schedule.status === 'pending' ? 'Queued by schedule' : 'Scheduled run';
+                  return (
+                    <button key={item.kind === 'task' ? item.task.id : item.schedule.run_id} type="button" onClick={() => navigate(`/events/${item.group.event.id}`)} className="flex min-w-0 items-center gap-4 px-1 py-4 text-left md:px-5">
+                      {item.kind === 'schedule'
+                        ? <Clock3 size={17} className="shrink-0 text-accent-700" />
+                        : <LoaderCircle size={17} className="shrink-0 animate-spin text-accent-700" />}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-zinc-100">{title}</p>
+                        <p className="mt-1 truncate text-sm text-zinc-500">{item.group.event.title} · {detail}</p>
+                      </div>
+                      <span className="text-xs font-medium text-accent-700">{status}</span>
+                    </button>
+                  );
+                })}
+                {workingItems.length === 0 && (
+                  <div className="flex items-center gap-3 px-1 py-5 text-sm text-zinc-500 md:col-span-2 md:px-5">
+                    <CheckCircle2 size={17} className="text-accent-700" /> No background work is running.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section aria-busy={emails === null || refreshingEmails}>
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-zinc-100">Important emails</h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    {emails?.account_email ? `From ${emails.account_email}` : 'A bounded brief from your connected inbox.'}
+                  </p>
+                </div>
+                {emails?.status === 'ready' && emails.messages.length > 0 && (
+                  <a href="https://mail.google.com/mail/u/0/#inbox" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm font-medium text-accent-700 hover:text-accent-600">
+                    View inbox <ExternalLink size={13} />
+                  </a>
+                )}
+              </div>
+
+              <div className="mt-3 border-y border-zinc-800">
+                {emails === null || refreshingEmails ? (
+                  <div className="flex items-center gap-3 px-1 py-6 text-sm text-zinc-500">
+                    <LoaderCircle size={17} className="animate-spin text-accent-700" /> Refreshing your email brief…
+                  </div>
+                ) : emails.status === 'not_connected' ? (
+                  <div className="flex flex-col gap-4 px-1 py-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <Inbox size={20} className="mt-0.5 text-zinc-500" />
+                      <div><p className="font-medium text-zinc-200">Connect Google to see important emails here</p><p className="mt-1 text-sm text-zinc-500">Aloy reads a bounded inbox brief; sending still requires your approval.</p></div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => navigate('/connections')}>Connect Google</Button>
+                  </div>
+                ) : emails.status === 'unavailable' ? (
+                  <div className="flex flex-col gap-4 px-1 py-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3"><Mail size={19} className="mt-0.5 text-zinc-500" /><div><p className="font-medium text-zinc-200">Your email brief could not refresh</p><p className="mt-1 text-sm text-zinc-500">Today is still available. Try the inbox again when you are ready.</p></div></div>
+                    <Button variant="outline" size="sm" onClick={() => void refreshEmails()}>Try again</Button>
+                  </div>
+                ) : emails.messages.length === 0 ? (
+                  <div className="flex items-center gap-3 px-1 py-6 text-sm text-zinc-500"><CheckCircle2 size={17} className="text-accent-700" /> No unread or important messages from the last seven days.</div>
+                ) : (
+                  <div className="divide-y divide-zinc-800">
+                    {emails.messages.map((message) => (
+                      <div key={message.id} className="grid gap-3 py-3.5 sm:grid-cols-[minmax(150px,0.45fr)_minmax(0,1fr)_auto_auto] sm:items-center">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-50 text-accent-700"><Mail size={16} /></span>
+                          <p className="truncate text-sm font-medium text-zinc-300">{senderName(message.sender)}</p>
+                        </div>
+                        <div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-100">{message.subject}</p><p className="mt-1 truncate text-xs text-zinc-500">{message.snippet || 'Open the message to read more.'}</p></div>
+                        <span className="text-xs text-zinc-500">{emailTime(message)}</span>
+                        <a href={message.provider_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm font-medium text-accent-700 hover:text-accent-600">Open <ExternalLink size={13} /></a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="pb-6">
+              <h2 className="font-display text-lg font-semibold text-zinc-100">Later today</h2>
+              <div className="mt-2 divide-y divide-zinc-800 border-y border-zinc-800">
+                {comingUpTasks.slice(0, 4).map((item) => (
+                  <button key={item.task.id} type="button" onClick={() => navigate(`/events/${item.group.event.id}`)} className="grid w-full gap-2 py-3.5 text-left sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center">
+                    <CalendarDays size={16} className="text-zinc-500" />
+                    <div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-200">{item.task.title}</p><p className="mt-0.5 text-xs text-zinc-500">{item.group.event.title}</p></div>
+                    <span className="text-sm text-zinc-500">{dueLabel(item.task) || 'No due date'}</span><ArrowRight size={15} className="text-accent-700" />
+                  </button>
+                ))}
+                {comingUpTasks.length === 0 && quietGroups.slice(0, 3).map((group) => (
+                  <button key={group.event.id} type="button" onClick={() => navigate(`/events/${group.event.id}`)} className="flex w-full items-center justify-between gap-4 py-3.5 text-left">
+                    <div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-200">{group.event.title}</p><p className="mt-1 truncate text-xs text-zinc-500">Quiet right now · {group.event.summary || 'No work needs attention.'}</p></div>
+                    <ArrowRight size={15} className="text-accent-700" />
+                  </button>
+                ))}
+                {comingUpTasks.length === 0 && quietGroups.length === 0 && (
+                  <div className="flex items-center gap-3 py-5 text-sm text-zinc-500"><Clock3 size={16} /> Nothing scheduled yet.</div>
+                )}
+              </div>
+            </section>
+          </main>
         )}
       </div>
+
+      <Modal
+        open={notificationsOpen}
+        onClose={() => { setNotificationsOpen(false); setReviewingProposalId(null); }}
+        title={<span className="flex items-center gap-2">Notifications {unreadCount > 0 && <span className="rounded-full bg-accent-50 px-2 py-0.5 text-xs font-semibold text-accent-700">{unreadCount}</span>}</span>}
+        headerActions={(
+          <button type="button" onClick={() => void markAllRead()} disabled={markingRead || unreadCount === 0} className="px-2 py-1 text-xs font-medium text-accent-700 disabled:text-zinc-500">
+            {markingRead ? 'Saving…' : 'Mark all read'}
+          </button>
+        )}
+        panelClassName="max-w-xl"
+      >
+        <div className="-mx-6 -mb-6 max-h-[min(70vh,640px)] overflow-y-auto border-t border-zinc-800">
+          {notifications.slice(0, 10).map((notification) => {
+            const unread = new Date(notification.created_at).getTime() > notificationReadAt;
+            const proposal = proposalFor(notification);
+            const reviewing = notification.proposal_id === reviewingProposalId;
+            return (
+              <div key={notification.id} className="border-b border-zinc-800 px-6 py-4 last:border-b-0">
+                <div className="flex items-start gap-3">
+                  <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${unread ? 'bg-accent-600' : 'bg-zinc-700'}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-zinc-100">{notification.title}</p><span className="shrink-0 text-xs text-zinc-500">{formatRelativeTime(notification.created_at)}</span></div>
+                    <p className="mt-1 text-sm leading-5 text-zinc-400">{notification.summary}</p>
+                    <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs font-medium text-accent-700">{notification.event_title}</span><button type="button" onClick={() => openNotification(notification)} className="text-xs font-medium text-accent-700 hover:text-accent-600">{notification.kind === 'approval_required' ? reviewing ? 'Hide review' : 'Review' : 'Open Event'}</button></div>
+                    {reviewing && proposal && (
+                      <div className="mt-3 rounded-xl bg-zinc-950 p-3">
+                        <p className="text-xs leading-5 text-zinc-400">{proposal.impact || proposal.reason}</p>
+                        <div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void decide(notification.event_id, proposal.id, 'approve')}>Approve</Button><Button variant="outline" size="sm" onClick={() => void decide(notification.event_id, proposal.id, 'reject')}>Reject</Button></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {notifications.length === 0 && (
+            <div className="px-6 py-12 text-center"><CheckCircle2 size={22} className="mx-auto text-accent-700" /><p className="mt-3 text-sm font-medium text-zinc-300">You are all caught up</p><p className="mt-1 text-xs text-zinc-500">Results, decisions, and meaningful changes will appear here.</p></div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

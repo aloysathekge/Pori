@@ -1,14 +1,15 @@
-# Current State - 2026-07-18
+# Current State - 2026-07-19
 
 ## Active Task
 
-Implement `aloy-v1-r5-surface-command-runtime`: make Aloy's host own canonical
-Surface entities, exact mutation semantics, command routing, state projection,
-and model wake policy while retaining published V1 compatibility.
+Review and commit `aloy-v1-today-focus-stream`: Event-owned Schedules, Today
+focus, Connections navigation, and the customer-facing AgentConfig retirement.
 
 ## Decisions Made
 
 - Keep detailed session history in handoff files; keep this file as the next-session briefing.
+- Aloy is one user-facing assistant; specialist roles and legacy AgentConfig
+  infrastructure are operator-owned and absent from customer navigation.
 - Event creation must remain available even when context ingestion is pending or fails.
 - Prompt caching is a latency/cost optimization, never durable memory or truth.
 - Confidential/restricted Event evidence disables application-owned message-prefix caching.
@@ -28,6 +29,40 @@ and model wake policy while retaining published V1 compatibility.
   repair submission from trusted diagnostics.
 
 ## Important Discoveries
+
+- The customer Agents page, raw provider/model/prompt/tool controls, and its
+  frontend API/types are removed. `/agents` safely redirects to Today. Legacy
+  AgentConfig routes and explicit Conversation assignment now require
+  `policy:manage`; members can still create ordinary Conversations without a
+  config. Existing config-backed Conversations remain compatible. Focused RBAC
+  tests pass (`10 passed`), as do app lint/build, changed-file Ruff/Black, and
+  focused backend mypy. Detailed handoff:
+  `.agent/progress/handoffs/2026-07-19-user-facing-agent-config-retirement.md`.
+
+- The active `aloy-v1-today-focus-stream` branch now contains an uncommitted
+  Event-owned Schedule slice alongside the Today focus-stream and Connections
+  navigation work. New Schedules require one active dedicated Event, interpret
+  cron recurrences in an IANA timezone, freeze `report_only` or `organize`
+  authority into each Run, withhold MCP and specialist Surface creation from
+  unattended work, retain protected provider actions behind Proposals, and
+  persist `cron_job_id` occurrence lineage. Schedule creation, edits, pauses,
+  wakes, terminal outcomes, and deletion are Trail-backed; active occurrences
+  appear in Today, failures notify, and the Schedule screen exposes ordinary
+  recurrence controls plus bounded Run history. Deleted Schedules are retained
+  as soft-deleted history anchors rather than breaking Run receipts.
+- Schedule verification: focused Schedule/Today tests pass (`15 passed`), the
+  migration round-trip passes, backend mypy is clean across `114` source files,
+  changed-file Ruff/Black/isort pass, and Aloy app lint and production build
+  pass with only the existing large-chunk warning. The complete backend suite
+  reached `358 passed` with the documented headless Surface bridge race as its
+  only failure; that exact unchanged test passed immediately on rerun.
+- The local SQLite schema is at `h0e1f2a3b4c5`, API health is `ok`, the worker
+  is running, and `/schedules` serves through the existing Vite app. The first
+  pre-migration backup command used a wrong working-directory-relative path and
+  did not create a backup; the migration itself succeeded and a post-migration
+  copy exists under `.agent/runtime/db-backups/`. Browser visual smoke remains
+  blocked by the existing browser-control bootstrap error `Cannot redefine
+  property: process`.
 
 - The R5.5b slice added durable Event context-source ingestion, status, retry, provenance, and Workbench visibility.
 - R5.5c adds immutable content-addressed Event context snapshots, deterministic
@@ -333,7 +368,10 @@ and model wake policy while retaining published V1 compatibility.
 
 ## Next Session Should Start With
 
-Restore qualified Builder provider access, then rebuild the retained Career OS
+Review and commit the Today/Connections/Event Schedule and AgentConfig-retirement branch, then create one
+short test Schedule in a dedicated Event and watch its wake, Today working
+state, Conversation result, Trail outcome, and history receipt end to end.
+After that, restore qualified Builder provider access and rebuild the retained Career OS
 draft through the normal Builder and verify the typecheck, sequential browser
 checks, Save feedback, canonical data preservation, and atomic publication.
 After that, enable the separately governed `source_change` and `automation` routes.

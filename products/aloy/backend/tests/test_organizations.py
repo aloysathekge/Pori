@@ -71,6 +71,20 @@ async def test_organization_membership_rbac_and_policy(client):
         headers=bob_headers,
         json={"name": "Member Agent"},
     )
+    assert agent_write.status_code == 403
+
+    promoted = await client.patch(
+        f"/v1/organizations/{organization_id}/members/{bob_membership_id}",
+        headers=org_headers,
+        json={"role": "admin"},
+    )
+    assert promoted.status_code == 200
+
+    agent_write = await client.post(
+        "/v1/agent-configs",
+        headers=bob_headers,
+        json={"name": "Operator Agent"},
+    )
     assert agent_write.status_code == 201
 
 

@@ -1,9 +1,9 @@
 """Aloy-owned model-role configuration and immutable Run assignments.
 
-Conversation preferences remain separate from privileged product roles. A
-Surface Builder or Critic receives a model only from the developer-controlled
-role file, and the exact resolved assignment is frozen onto the Run before it
-enters the worker queue.
+Legacy Conversation runtime presets remain separate from privileged product
+roles. A Surface Builder or Critic receives a model only from the
+developer-controlled role file, and the exact resolved assignment is frozen
+onto the Run before it enters the worker queue.
 """
 
 from __future__ import annotations

@@ -11,6 +11,7 @@ from aloy_backend.models import (
     StoredFile,
     Task,
 )
+from aloy_backend.routes import today as today_routes
 from aloy_backend.runtime import authenticated_run_context
 from aloy_backend.tools.tasks import TaskMutationHandler, register_task_tools
 from pori.tools.registry import ToolExecutor, ToolRegistry
@@ -283,6 +284,71 @@ async def test_today_groups_life_first_and_resolves_proposal_from_both_lenses(
     assert (await client.get(f"/v1/events/{project['id']}")).json()["surface"][
         "proposals"
     ] == []
+
+
+async def test_today_email_brief_is_bounded_and_provider_owned(client, monkeypatch):
+    async def connected(*args, **kwargs):
+        return {
+            "google": {
+                "access_token": "token-for-test",
+                "account_email": "karabo@example.com",
+                "scope": "user",
+            }
+        }
+
+    def search(params, context):
+        assert params.max_results == 5
+        assert "is:important" in params.query
+        assert context["connections"]["google"]["access_token"] == "token-for-test"
+        return {
+            "messages": [
+                {
+                    "id": "gmail-message-1",
+                    "from": "Vertex Systems <jobs@vertex.example>",
+                    "subject": "Next steps",
+                    "date": "Sat, 18 Jul 2026 08:47:00 +0200",
+                    "snippet": "Choose a time for the next interview.",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(today_routes, "resolve_run_connections", connected)
+    monkeypatch.setattr(today_routes, "gmail_search_tool", search)
+
+    response = await client.get("/v1/today/emails")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["account_email"] == "karabo@example.com"
+    assert payload["messages"] == [
+        {
+            "id": "gmail-message-1",
+            "sender": "Vertex Systems <jobs@vertex.example>",
+            "subject": "Next steps",
+            "snippet": "Choose a time for the next interview.",
+            "received_at": "2026-07-18T06:47:00Z",
+            "event_id": None,
+            "event_title": None,
+            "provider_url": ("https://mail.google.com/mail/u/0/#all/gmail-message-1"),
+        }
+    ]
+
+
+async def test_today_email_brief_fails_independently_of_today(client, monkeypatch):
+    async def disconnected(*args, **kwargs):
+        return {}
+
+    monkeypatch.setattr(today_routes, "resolve_run_connections", disconnected)
+    email_response = await client.get("/v1/today/emails")
+    today_response = await client.get("/v1/today")
+
+    assert email_response.status_code == 200
+    assert email_response.json() == {
+        "status": "not_connected",
+        "account_email": None,
+        "messages": [],
+    }
+    assert today_response.status_code == 200
 
 
 async def test_event_and_task_routes_are_tenant_scoped(client):

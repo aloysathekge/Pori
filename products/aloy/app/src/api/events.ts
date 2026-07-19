@@ -185,9 +185,20 @@ export interface TodayEventGroup {
   needs_decision: EventProposal[];
   changed_proposals: EventProposal[];
   activity: EventTrailEntry[];
+  scheduled_work: TodayScheduledWork[];
   upcoming: EventTask[];
   blocked: EventTask[];
   stale: EventTask[];
+}
+
+export interface TodayScheduledWork {
+  run_id: string;
+  schedule_id: string;
+  schedule_name: string;
+  instruction: string;
+  status: 'pending' | 'running' | string;
+  created_at: string;
+  started_at: string | null;
 }
 
 export interface TodayNotification {
@@ -209,6 +220,23 @@ export interface TodayResponse {
   generated_at: string;
   notifications: TodayNotification[];
   events: TodayEventGroup[];
+}
+
+export interface TodayEmailMessage {
+  id: string;
+  sender: string;
+  subject: string;
+  snippet: string;
+  received_at: string | null;
+  event_id: string | null;
+  event_title: string | null;
+  provider_url: string;
+}
+
+export interface TodayEmailsResponse {
+  status: 'ready' | 'not_connected' | 'unavailable';
+  account_email: string | null;
+  messages: TodayEmailMessage[];
 }
 
 export function listEvents() {
@@ -314,6 +342,10 @@ export async function streamEventChanges(
 
 export function getToday() {
   return apiFetch<TodayResponse>('/today');
+}
+
+export function getTodayEmails() {
+  return apiFetch<TodayEmailsResponse>('/today/emails');
 }
 
 export function createEventTask(eventId: string, title: string) {

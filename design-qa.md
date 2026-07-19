@@ -1,47 +1,60 @@
-# Aloy Event Workbench design QA
+# Today focus stream design QA
 
-- source visual truth: `C:\Users\sathe\OneDrive\Pictures\Screenshots\Screenshot (7).png`
-- implementation URL: `http://localhost:5173/events/<event-id>`
-- target viewport: 1920 × 1080 desktop
-- state: signed-in Event with Conversation, Workbench, and Event context
+- Source visual truth: `C:\Users\sathe\.codex\generated_images\019f61c8-b311-7972-9b39-85e3f722aa20\exec-0792bf76-63d2-43de-8c71-db23dd303815.png`
+- Implementation route: `http://localhost:5173/today`
+- Intended viewport: 1440 × 1024
+- Intended state: authenticated Today screen with the Notifications modal open
+- Implementation screenshot: not captured
 
-## Intended comparison
+## Full-view comparison evidence
 
-The source was inspected at original resolution. It establishes the behavior,
-not a literal theme clone: a persistent app sidebar, a central first-class
-workspace, an adjacent utility/context region, and flexible panes that do not
-reduce documents or generated UI to modal drawers. Aloy retains its own visual
-tokens, type, mark, and icon system.
+The source visual was opened at original resolution. The local API, worker, and
+Vite app are running, but the desktop browser-control bridge could not be
+initialized in this environment. An authenticated implementation screenshot
+therefore could not be captured and no visual comparison is claimed.
 
-## Implemented fidelity surfaces
+## Focused region comparison evidence
 
-- Conversation, Split, and Workbench focus modes.
-- Draggable Conversation/Workbench and Surface/resource dividers.
-- Persistent Workbench tabs for Surface, message artifacts, Event files, and
-  Run replay.
-- A collapsible Event context rail grouping Tasks, Approvals, Receipts, Files,
-  and Trail.
-- A full global sidebar that can stay open or auto-hide and reveal from the
-  left edge.
-- Per-Event persistence for layout mode, ratios, open tabs, active tab,
-  context visibility, and the optional Surface/resource split.
-- Narrow-screen focus behavior and existing Surface-ready conversation card.
-- Host-owned file viewers and an Ask Aloy action that attaches the trusted
-  stored-file reference to the Event composer.
+Blocked with the full-view capture. The required focus regions are the primary
+attention block, Notifications modal, Important emails table, and responsive
+header actions.
 
-## Verification completed
+## Findings
 
-- ESLint passed.
-- TypeScript and the production Vite build passed.
-- The existing Vite large-chunk warning remains non-blocking.
-- No backend code changed in this phase.
+- [P1] Browser-rendered fidelity is unverified.
+  - Location: Today screen at 1440 × 1024, Notifications open.
+  - Evidence: source image is available; implementation screenshot is missing.
+  - Impact: typography, spacing, modal placement, overflow, and authenticated
+    data states cannot be accepted from build output alone.
+  - Fix: capture the authenticated local screen at 1440 × 1024 with the bell
+    modal open, compare it with the source in one visual input, then correct all
+    P0–P2 differences.
 
-## Visual comparison blocker
+## Primary interactions tested
 
-The required in-app browser connection fails while initializing, before Aloy
-can be opened or captured. Therefore no same-viewport implementation screenshot,
-combined reference comparison, or signed-in interaction pass can be claimed in
-this run. The founder must inspect the already-running local URL before this PR
-is treated as visually accepted.
+Static verification covers TypeScript, lint, production build, backend typing,
+and the Today/email API tests. Browser clicks, focus trapping, Escape dismissal,
+mark-all-read, approval review, and external email links remain visually
+unverified.
 
-final result: blocked — automated signed-in capture and comparison unavailable
+## Console errors checked
+
+Not checked because browser capture is blocked.
+
+## Comparison history
+
+- Initial pass: blocked before implementation capture; no visual fixes claimed.
+
+## Implementation checklist
+
+- Capture the authenticated screen with Notifications open.
+- Compare the source and implementation at the same viewport.
+- Verify modal focus, Escape, backdrop dismissal, and focus restoration.
+- Verify connected, disconnected, empty, loading, and provider-error email states.
+- Fix all P0–P2 visual and interaction findings and repeat the comparison.
+
+## Follow-up polish
+
+None classified until the first visual comparison is available.
+
+final result: blocked

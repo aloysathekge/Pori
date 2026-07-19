@@ -20,5 +20,6 @@
   ],
   "approval_required": [
     "env/credential changes, package publishing, production-impacting framework changes"
-  ]
+  ],
+  "kitVersion": "0.8.1"
 }

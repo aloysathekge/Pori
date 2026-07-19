@@ -65,12 +65,15 @@ export function ConnectionsPage() {
     providers?.some((p) => p.can_manage_org || p.org_connected) ?? false;
 
   return (
-    <div className="mx-auto max-w-2xl p-6 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-zinc-100">Connections</h1>
+    <div className="mx-auto max-w-4xl p-6 lg:p-10">
+      <div className="mb-8 border-b border-zinc-800 pb-6">
+        <h1 className="font-display text-3xl font-semibold text-zinc-100">Connections</h1>
         <p className="text-sm text-zinc-400">
           Connect accounts so Aloy can act on them. Tokens are encrypted and stay
           with Aloy — nothing is shared with third parties.
+        </p>
+        <p className="mt-1 text-sm text-zinc-500">
+          Native providers, organization accounts, MCP servers, and future connection types all live here.
         </p>
       </div>
 
@@ -123,7 +126,11 @@ export function ConnectionsPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          <Section icon={User} title="My connections">
+          <Section
+            icon={User}
+            title="Accounts and apps"
+            subtitle="Private connections available to Aloy with your permission."
+          >
             {providers.map((p) => (
               <ProviderCard
                 key={p.provider}
@@ -167,7 +174,7 @@ export function ConnectionsPage() {
       {/* MCP servers are independent of OAuth providers — always shown
           (previously nested in the providers branch, so a server with no
           OAuth configured hid the entire MCP UI). */}
-      <div className="mt-8">
+      <div className="mt-10 border-t border-zinc-800 pt-8">
         <McpServersSection />
       </div>
     </div>

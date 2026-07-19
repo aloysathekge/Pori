@@ -1,7 +1,8 @@
-"""Agent-config endpoints: CRUD for ``AgentConfig`` rows (per-org agent
-presets — provider, model, tools) plus the ``/info/*`` discovery endpoints
-(available models, tools, provider setup diagnostics). Tenancy-gated via
-``require_permission``.
+"""Operator-only legacy AgentConfig management and runtime diagnostics.
+
+AgentConfig remains a compatibility seam for Conversations that already
+reference one. It is infrastructure configuration, not a customer-authored
+agent surface. Product-owned specialist roles use ``model_roles`` instead.
 """
 
 from __future__ import annotations
@@ -85,7 +86,9 @@ def _resolve_capabilities(
 
 @router.get("/info/models", tags=["info"])
 async def list_models(
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
 ) -> dict[str, list[str]]:
     """List provider models after organization policy is applied."""
     return {
@@ -100,7 +103,9 @@ async def list_models(
 
 @router.get("/info/tools", tags=["info"])
 async def list_tools(
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
 ) -> dict:
     """List the exact model-visible tool snapshot for this organization."""
     snapshot = _resolve_capabilities(context)
@@ -119,7 +124,9 @@ async def list_tools(
 async def setup_diagnostics(
     provider: str | None = Query(default=None),
     model: str | None = Query(default=None),
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
 ) -> dict:
     """Report provider and capability readiness without exposing credentials."""
     selected = (get_provider_profile(provider),) if provider else provider_profiles()
@@ -176,7 +183,9 @@ async def setup_diagnostics(
 @router.post("", response_model=AgentConfigResponse, status_code=201)
 async def create_agent_config(
     req: AgentConfigCreate,
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> AgentConfig:
     _validate_provider_grant(req.provider, req.model, context)
@@ -188,7 +197,7 @@ async def create_agent_config(
             select(AgentConfig).where(
                 AgentConfig.organization_id == context.organization_id,
                 AgentConfig.user_id == context.user_id,
-                AgentConfig.is_default == True,
+                col(AgentConfig.is_default).is_(True),
             )
         )
         for existing in result.scalars().all():
@@ -209,7 +218,9 @@ async def create_agent_config(
 
 @router.get("", response_model=list[AgentConfigResponse])
 async def list_agent_configs(
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> Sequence[AgentConfig]:
     result = await session.execute(
@@ -223,7 +234,9 @@ async def list_agent_configs(
 @router.get("/{config_id}", response_model=AgentConfigResponse)
 async def get_agent_config(
     config_id: str,
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> AgentConfig:
     config = await session.get(AgentConfig, config_id)
@@ -236,7 +249,9 @@ async def get_agent_config(
 async def update_agent_config(
     config_id: str,
     req: AgentConfigUpdate,
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> AgentConfig:
     config = await session.get(AgentConfig, config_id)
@@ -258,7 +273,7 @@ async def update_agent_config(
         result = await session.execute(
             select(AgentConfig).where(
                 AgentConfig.organization_id == context.organization_id,
-                AgentConfig.is_default == True,
+                col(AgentConfig.is_default).is_(True),
                 AgentConfig.id != config_id,
             )
         )
@@ -278,7 +293,9 @@ async def update_agent_config(
 @router.delete("/{config_id}", status_code=204)
 async def delete_agent_config(
     config_id: str,
-    context: OrganizationContext = Depends(require_permission(Permission.AGENT_WRITE)),
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     config = await session.get(AgentConfig, config_id)
