@@ -46,8 +46,10 @@ cp aloy.models.example.yaml aloy.models.yaml
 ```
 
 Set the Builder and future Critic provider/model IDs there and keep their API
-keys in `.env`. Ordinary Conversation AgentConfig remains independent. Surface
-generation fails closed while `surface_builder.qualification.status` is
+keys in `.env`. The legacy Conversation AgentConfig seam remains independent
+for existing Conversations but is operator-only and has no customer-facing
+Agents page. New ordinary Conversations use Aloy's configured default runtime.
+Surface generation fails closed while `surface_builder.qualification.status` is
 `unqualified`; change it to `qualified` only with the evaluation suite and
 evidence that justified promotion. Restart the API and worker after changing
 the role file. Set `ALOY_MODEL_ROLES_PATH` only when the file lives elsewhere.

@@ -1114,7 +1114,7 @@ class Run(SQLModel, table=True):
     run_profile: dict | None = Field(default=None, sa_column=Column(JSON))
     # Credential-free, immutable product-role assignment resolved before the
     # Run enters the worker queue. This prevents operator config drift or a
-    # Conversation's user-selected AgentConfig from changing a specialist Run.
+    # Conversation's legacy AgentConfig from changing a specialist Run.
     model_assignment: dict | None = Field(default=None, sa_column=Column(JSON))
     child_depth: int = 0
     status: str = "pending"  # pending, running, completed, failed

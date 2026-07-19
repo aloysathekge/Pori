@@ -264,7 +264,6 @@ class UserProfileResponse(BaseModel):
 class UserProfileUpdate(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
-    default_agent_config_id: str | None = None
     preferences: dict | None = None
 
 

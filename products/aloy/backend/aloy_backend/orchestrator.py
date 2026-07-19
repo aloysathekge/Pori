@@ -91,9 +91,9 @@ def build_orchestrator(
 
     Args:
         shared_memory: Optional AgentMemory seeded with conversation history.
-        agent_config: Optional per-user agent config (provider, model, tools, etc).
+        agent_config: Optional operator-managed legacy Conversation runtime.
         llm_config: Optional product-owned purpose model. Mutually exclusive
-            with a user's AgentConfig.
+            with a legacy AgentConfig.
     """
     if not os.getenv("PORI_PROMPTS_DIR"):
         local_prompts = Path(__file__).resolve().parent / "prompts"
@@ -123,7 +123,7 @@ def build_orchestrator(
         provider = config.llm.provider
         model = config.llm.model
 
-    # Organization policy applies equally to a user's AgentConfig and to
+    # Organization policy applies equally to a legacy AgentConfig and to
     # operator-selected purpose profiles that use the default model.
     if allowed_provider_profiles and provider not in allowed_provider_profiles:
         raise ValueError("Provider denied by current organization policy")
@@ -168,7 +168,7 @@ def build_orchestrator(
         product_denied_tools.update(SURFACE_AUTHORING_TOOL_NAMES)
         product_denied_tools.update(SURFACE_BUILD_TOOL_NAMES)
 
-    # A purpose profile owns its executable tool contract. User AgentConfig
+    # A purpose profile owns its executable tool contract. Legacy AgentConfig
     # tool preferences apply to ordinary runs, but cannot accidentally remove
     # tools required by a product-owned builder/bootstrap profile.
     configured_tools = (

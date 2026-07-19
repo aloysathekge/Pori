@@ -1,6 +1,6 @@
 # Aloy — product vision
 
-_Canonical product definition, version 3.3, revised 2026-07-17. This document
+_Canonical product definition, version 3.4, revised 2026-07-19. This document
 defines what Aloy is, how its core product concepts fit together, and what V1
 must prove. Detailed contracts live in the linked child specifications; live
 implementation status lives in [`.agent/progress/current.md`](../.agent/progress/current.md)._
@@ -36,6 +36,15 @@ The division of responsibility is deliberate:
   work within explicit limits;
 - the system preserves truth, provenance, consent, recovery, and isolation even
   when a model is wrong or a process crashes.
+
+To the user, Aloy is one continuous assistant identity. Conversation routing,
+Surface building, quality review, scheduled execution, and future specialist
+work are internal purpose roles, not separate agents the user creates or
+configures. Provider, model, prompt, tool, skill, token, timeout, and
+qualification choices belong to the developer/operator control plane. Users
+control outcomes through Event context, connections, authority, approvals, and
+feedback shown where the work happens; Aloy's internal roles do not occupy a
+customer-facing **Agents** page or primary navigation item.
 
 V1 begins with explicit initiation and bounded execution. Proactivity and
 autonomy are capabilities the user grants later; they are not defaults Aloy

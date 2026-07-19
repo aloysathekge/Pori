@@ -1,6 +1,6 @@
 # Aloy V1 — reset delivery plan
 
-_Active plan, revised 2026-07-17 after the Event bootstrap and scoped-memory review. This
+_Active plan, revised 2026-07-19 after the Event bootstrap and scoped-memory review. This
 plan begins from the Event, Proposal, workspace, and initial Surface foundation
 already built on `aloy-v1`. It supersedes the
 remaining phase order in `aloy-wedge-spec.md`. Product decisions come from
@@ -55,6 +55,9 @@ duplicating the action after a crash.
     validated intents; presentation-only interaction remains local.
 15. Generated code receives only a capability-scoped SDK. External actions
     remain Proposal → decision → executor → receipt.
+16. Aloy is one user-facing assistant. Specialist model roles and legacy
+    AgentConfig infrastructure are operator-owned, absent from customer
+    navigation, and never user-selected when starting an ordinary Conversation.
 
 ## 3. Branch and merge policy
 

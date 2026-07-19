@@ -30,7 +30,6 @@ export function getConversationMessages(id: string, cursor: string, limit = 100)
 
 export function createConversation(data: {
   title?: string | null;
-  agent_config_id?: string | null;
   event_id?: string | null;
 }) {
   return apiFetch<ConversationResponse>('/conversations', {
