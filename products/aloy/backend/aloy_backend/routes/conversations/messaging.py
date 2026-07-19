@@ -39,6 +39,7 @@ from ...event_log import EventLogCollector
 from ...models import (
     AgentConfig,
     Conversation,
+    Event,
     Message,
     Run,
     StoredFile,
@@ -47,7 +48,7 @@ from ...models import (
 from ...orchestrator import build_orchestrator, sandbox_base_dir
 from ...provisioning import (
     provision_event_uploads,
-    resolve_upload_refs,
+    resolve_message_file_refs,
     uploads_task_block,
 )
 from ...rate_limit import rate_limited_permission
@@ -146,9 +147,9 @@ async def _prepare_message(
 
 
 async def _assemble_task(
-    session: AsyncSession,
     conversation: Conversation,
     req: SendMessageRequest,
+    referenced_files: list[StoredFile],
 ) -> tuple[str, list]:
     """Build the multimodal task the model receives: (task_content, blocks).
 
@@ -196,29 +197,19 @@ async def _assemble_task(
         + "".join(_render_file_block(n, t) for n, t in extracted_files)
     )
 
-    # Every durable upload of this conversation rides as a REFERENCE block
-    # (~1 line per file), provisioned into the sandbox — never as bytes in
-    # the task. Eager provisioning at upload time makes this a hash verify.
-    conv_uploads = (
-        (
-            await session.execute(
-                select(StoredFile).where(
-                    StoredFile.event_id == conversation.event_id,
-                    StoredFile.kind == "upload",
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if conv_uploads:
+    # Only files explicitly selected for this turn ride as REFERENCE blocks.
+    # They are provisioned into the Event workspace, never copied into the
+    # prompt as raw bytes. Event uploads are already present, so this normally
+    # reduces to a hash verification; Life may copy an explicitly granted file.
+    if referenced_files:
         try:
             task_content += uploads_task_block(
-                provision_event_uploads(conversation.event_id, conv_uploads)
+                provision_event_uploads(conversation.event_id, referenced_files)
             )
         except Exception:
             logger.exception(
-                "Upload provisioning failed for Event %s", conversation.event_id
+                "Selected-file provisioning failed for Event %s",
+                conversation.event_id,
             )
 
     return task_content, task_attachments
@@ -232,6 +223,7 @@ async def _enqueue_durable_run(
     context: OrganizationContext,
     conv: Conversation,
     req: SendMessageRequest,
+    task_content: str,
 ) -> dict:
     """Durable-worker mode: create a pending Run row and return 202 —
     a worker process claims and executes it (org policy forbids
@@ -278,7 +270,7 @@ async def _enqueue_durable_run(
         session_id=conv.id,
         conversation_id=conv.id,
         team_config_id=team_config.id if team_config is not None else None,
-        task=req.content,
+        task=task_content,
         max_steps=min(requested_steps, context.policy.max_steps_per_run),
         max_attempts=context.policy.max_attempts,
         timeout_seconds=context.policy.run_timeout_seconds,
@@ -301,6 +293,7 @@ async def _run_team_inline(
     conv: Conversation,
     memory: AgentMemory,
     req: SendMessageRequest,
+    task_content: str,
 ) -> MessageResponse:
     """Team mode: build the configured Team, run it inline, persist the
     answer (or error) as an assistant message, and flush memory changes."""
@@ -325,7 +318,7 @@ async def _run_team_inline(
     )
     team = build_team_from_config(
         team_config,
-        req.content,
+        task_content,
         memory=memory,
         run_context=team_context,
     )
@@ -461,6 +454,7 @@ async def _setup_single_agent(
         session,
         organization_id=context.organization_id,
         user_id=context.user_id,
+        event_id=conv.event_id,
         policy=context.policy,
     )
 
@@ -834,10 +828,13 @@ async def send_message(
     # are THIS org+conversation's uploads — a foreign id is dropped, not an
     # oracle).
     ref_rows = [await session.get(StoredFile, fid) for fid in req.file_refs]
-    turn_uploads = resolve_upload_refs(
+    owning_event = await session.get(Event, conv_for_refs.event_id)
+    turn_uploads = resolve_message_file_refs(
         ref_rows,
         organization_id=context.organization_id,
+        user_id=context.user_id,
         event_id=conv_for_refs.event_id,
+        life_scope=bool(owning_event and owning_event.is_life),
     )
 
     conv, memory = await _prepare_message(
@@ -850,13 +847,26 @@ async def send_message(
         documents=req.documents,
         uploaded=turn_uploads,
     )
-    task_content, task_attachments = await _assemble_task(session, conv, req)
+    task_content, task_attachments = await _assemble_task(conv, req, turn_uploads)
 
     if not context.policy.allow_shared_process_execution:
-        return await _enqueue_durable_run(session, context, conv, req)
+        return await _enqueue_durable_run(
+            session,
+            context,
+            conv,
+            req,
+            task_content,
+        )
 
     if req.team_id:
-        return await _run_team_inline(session, context, conv, memory, req)
+        return await _run_team_inline(
+            session,
+            context,
+            conv,
+            memory,
+            req,
+            task_content,
+        )
 
     # ---- single agent path ----
     setup = await _setup_single_agent(session, context, conv, req, memory, task_content)

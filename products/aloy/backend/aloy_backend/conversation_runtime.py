@@ -134,6 +134,11 @@ async def load_event_memory(
     for entry in resolve_layered(
         list(entries_result.scalars().all()), event_id=resolved_event_id
     ):
+        # Old file-library pointers predate Event memory and may have no
+        # event_id. Never let those legacy rows reveal a file name in an
+        # unrelated Event; current pointers are written with their owner.
+        if "file-library" in (entry.tags or []) and entry.event_id != resolved_event_id:
+            continue
         record = row_to_record(entry)
         if not record.is_retrievable():
             continue

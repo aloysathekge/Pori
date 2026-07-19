@@ -2,13 +2,21 @@
 
 ## Active Task
 
-Complete and review `aloy-v1-mobile-ux`: make Aloy's shared shell, Event
-workspace, creation flows, utility pages, dialogs, and controls deliberately
-responsive while preserving the full durable product model on mobile web.
+Complete and review `aloy-v1-file-references`: make user files first-class
+Conversation input through direct upload, `+`, and `@`, with dedicated-Event
+isolation and intentional Life-wide selection.
 
 ## Decisions Made
 
 - Keep detailed session history in handoff files; keep this file as the next-session briefing.
+- Dedicated Event file discovery, file tools, and saved-file memory pointers
+  remain scoped to that Event. Life is the intentional cross-Event file
+  chooser; selecting a file there is explicit turn context, not Event-memory
+  merging.
+- Composer filenames are presentation only. Authority comes from trusted
+  stored-file IDs resolved against tenant, user, and Event scope by the host.
+- The attachment ladder allows ten file chips total, with subtype ceilings of
+  three inline text files and three native documents, plus three images.
 - Aloy is one user-facing assistant; specialist roles and legacy AgentConfig
   infrastructure are operator-owned and absent from customer navigation.
 - Event creation must remain available even when context ingestion is pending or fails.
@@ -49,6 +57,16 @@ responsive while preserving the full durable product model on mobile web.
 
 ## Important Discoveries
 
+- The `aloy-v1-file-references` branch adds direct My Files uploads,
+  Conversation-scoped file search, `@` mentions, a `+` upload/existing-file
+  chooser, removable reference chips, Event-aware library manifests, and exact
+  selected-file context in durable and inline Runs. The audit found and fixed
+  two authority flaws: durable Runs previously dropped assembled file context,
+  and every Event upload/library file could be inserted into a turn regardless
+  of explicit selection or Event scope. Focused backend tests pass (`27
+  passed`) alongside `53` worker/approval/Surface/memory regressions; backend
+  and kernel mypy are clean. App lint and production build pass with only the
+  existing large-chunk warning.
 - The active `aloy-v1-mobile-ux` branch adds a route-aware mobile shell with
   persistent Today/Life/New/Events/More navigation, mobile Event switching and
   creation sheets, dynamic viewport and safe-area handling, 44-pixel touch

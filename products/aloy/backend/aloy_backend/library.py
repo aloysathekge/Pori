@@ -1,10 +1,10 @@
-"""The user file library: durable files the system ALWAYS knows about.
+"""The user file library: durable files with explicit Event authority.
 
 The Aloy knowledge-model pattern — memory is an index over durable things:
-adding a file to the library writes a KnowledgeEntry POINTER (~20 tokens,
-user-scoped, no agent/session binding so every future run of this user can
-recall it). The bytes stay in the object store; the ``fetch_my_file`` tool
-materializes them into the current conversation's sandbox on demand.
+adding a file writes a small KnowledgeEntry pointer in its owning Event. The
+bytes stay in the object store; the ``fetch_my_file`` tool materializes them
+into an authorized Event workspace on demand. Life is the explicit user-wide
+file chooser; dedicated Events never inherit another Event's file pointers.
 
 Lifecycle rule: the pointer and the flag move together — removing a file
 from the library deletes its knowledge entry in the same transaction, so
@@ -53,6 +53,7 @@ async def add_to_library(session: AsyncSession, record: StoredFile) -> None:
     existing = await session.get(KnowledgeEntry, entry_id)
     if existing is not None:
         existing.content = _pointer_content(record)
+        existing.event_id = record.event_id
         existing.updated_at = datetime.now(timezone.utc)
         session.add(existing)
         return
@@ -61,8 +62,9 @@ async def add_to_library(session: AsyncSession, record: StoredFile) -> None:
             id=entry_id,
             organization_id=record.organization_id,
             user_id=record.user_id,
-            # No agent/session binding: the pointer belongs to the USER, so
-            # any conversation's run can recall it.
+            event_id=record.event_id,
+            # Event-scoped but not Conversation-scoped: sibling conversations
+            # inside the same Event may use the retained file.
             agent_id=None,
             session_id=None,
             content=_pointer_content(record),

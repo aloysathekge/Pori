@@ -6,13 +6,15 @@ fetch_my_file tool can pull it into any conversation's sandbox."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from ..config import settings
 from ..database import get_session
+from ..events import ensure_life_event
+from ..file_uploads import store_user_upload
 from ..library import add_to_library, remove_from_library
 from ..models import StoredFile
 from ..storage import get_object_store
@@ -31,6 +33,7 @@ def _file_view(r: StoredFile) -> dict:
         "content_type": r.content_type,
         "kind": r.kind,
         "in_library": r.in_library,
+        "event_id": r.event_id,
         "conversation_id": r.conversation_id,
         "created_at": r.created_at,
     }
@@ -58,6 +61,30 @@ async def list_my_library(
         .all()
     )
     return [_file_view(r) for r in rows]
+
+
+@router.post("", status_code=201)
+async def upload_library_file(
+    file: UploadFile = File(...),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Upload directly into My files without manufacturing a chat turn."""
+    life = await ensure_life_event(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+    )
+    record = await store_user_upload(
+        session,
+        context,
+        file,
+        event_id=life.id,
+        conversation_id=None,
+    )
+    await add_to_library(session, record)
+    await session.commit()
+    return _file_view(record)
 
 
 async def _own_file(

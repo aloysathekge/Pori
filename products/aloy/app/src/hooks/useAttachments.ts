@@ -6,11 +6,18 @@ export interface StoredFileReference {
   file_id: string;
   name: string;
   size: number;
+  content_type?: string;
+  kind?: 'upload' | 'artifact';
+  event_id?: string;
+  event_title?: string;
+  created_at?: string;
 }
 
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB per image (backend-enforced too)
-const MAX_FILES = 3;
+const MAX_INLINE_FILES = 3;
+const MAX_DOCUMENTS = 3;
+const MAX_FILE_REFS = 10;
 const MAX_FILE_CHARS = 200_000; // ~200KB of text (backend-enforced too)
 const DOC_MIMES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -66,16 +73,23 @@ export function useAttachments(activeId: string | null) {
       });
   }
 
-  function uploadAttachment(file: File) {
+  function uploadAttachment(file: File, capacityReserved = false) {
     if (!activeId || file.size > MAX_UPLOAD_BYTES) return;
-    if (pendingFiles.length >= MAX_FILES) return;
+    if (!capacityReserved && pendingFiles.length >= MAX_FILE_REFS) return;
     const key = `${file.name}-${Date.now()}-${Math.random()}`;
     setPendingFiles((prev) =>
-      prev.length >= MAX_FILES
+      prev.length >= MAX_FILE_REFS
         ? prev
         : [
             ...prev,
-            { key, name: file.name, size: file.size, uploading: true, progress: 0 },
+            {
+              key,
+              name: file.name,
+              size: file.size,
+              attachmentKind: 'reference',
+              uploading: true,
+              progress: 0,
+            },
           ],
     );
     uploadDurable(file, key);
@@ -87,12 +101,29 @@ export function useAttachments(activeId: string | null) {
    *  (same chip), so any attachment can be saved to My Files — and later
    *  turns can still reach the bytes in the sandbox. */
   function addAttachments(files: Iterable<File>) {
+    let fileSlots = Math.max(0, MAX_FILE_REFS - pendingFiles.length);
+    let imageSlots = Math.max(0, MAX_IMAGES - pendingImages.length);
+    let documentSlots = Math.max(
+      0,
+      MAX_DOCUMENTS -
+        pendingFiles.filter((item) => item.attachmentKind === 'document').length,
+    );
+    let inlineSlots = Math.max(
+      0,
+      MAX_INLINE_FILES -
+        pendingFiles.filter((item) => item.attachmentKind === 'inline').length,
+    );
+
     for (const file of files) {
       if (file.type.startsWith('image/')) {
         if (file.size > MAX_IMAGE_BYTES) {
-          uploadAttachment(file);
+          if (fileSlots === 0) continue;
+          fileSlots -= 1;
+          uploadAttachment(file, true);
           continue;
         }
+        if (imageSlots === 0) continue;
+        imageSlots -= 1;
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = String(reader.result || '').split(',')[1] ?? '';
@@ -106,14 +137,20 @@ export function useAttachments(activeId: string | null) {
         reader.readAsDataURL(file);
       } else if (DOC_MIMES[file.name.split('.').pop()?.toLowerCase() ?? '']) {
         if (file.size > MAX_DOC_BYTES) {
-          uploadAttachment(file);
+          if (fileSlots === 0) continue;
+          fileSlots -= 1;
+          uploadAttachment(file, true);
           continue;
         }
-        if (pendingFiles.length >= MAX_FILES) continue;
+        if (fileSlots === 0 || documentSlots === 0) continue;
+        fileSlots -= 1;
+        documentSlots -= 1;
         const key = `${file.name}-${Date.now()}-${Math.random()}`;
         const mediaType = DOC_MIMES[file.name.split('.').pop()!.toLowerCase()];
         setPendingFiles((prev) =>
-          prev.length >= MAX_FILES
+          prev.length >= MAX_FILE_REFS ||
+            prev.filter((item) => item.attachmentKind === 'document').length >=
+              MAX_DOCUMENTS
             ? prev
             : [
                 ...prev,
@@ -121,6 +158,7 @@ export function useAttachments(activeId: string | null) {
                   key,
                   name: file.name,
                   size: file.size,
+                  attachmentKind: 'document',
                   media_type: mediaType,
                   uploading: true,
                   progress: 0,
@@ -140,13 +178,19 @@ export function useAttachments(activeId: string | null) {
       } else if (file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name)) {
         if (file.size > MAX_FILE_CHARS) {
           // Too big to inline without truncating — store it whole instead.
-          uploadAttachment(file);
+          if (fileSlots === 0) continue;
+          fileSlots -= 1;
+          uploadAttachment(file, true);
           continue;
         }
-        if (pendingFiles.length >= MAX_FILES) continue;
+        if (fileSlots === 0 || inlineSlots === 0) continue;
+        fileSlots -= 1;
+        inlineSlots -= 1;
         const key = `${file.name}-${Date.now()}-${Math.random()}`;
         setPendingFiles((prev) =>
-          prev.length >= MAX_FILES
+          prev.length >= MAX_FILE_REFS ||
+            prev.filter((item) => item.attachmentKind === 'inline').length >=
+              MAX_INLINE_FILES
             ? prev
             : [
                 ...prev,
@@ -154,6 +198,7 @@ export function useAttachments(activeId: string | null) {
                   key,
                   name: file.name,
                   size: file.size,
+                  attachmentKind: 'inline',
                   uploading: true,
                   progress: 0,
                 },
@@ -174,7 +219,9 @@ export function useAttachments(activeId: string | null) {
       } else {
         // Any other type (zip, sqlite, parquet, unknown binaries…): the
         // durable-upload rung — the agent works on it in the sandbox.
-        uploadAttachment(file);
+        if (fileSlots === 0) continue;
+        fileSlots -= 1;
+        uploadAttachment(file, true);
       }
     }
   }
@@ -190,7 +237,7 @@ export function useAttachments(activeId: string | null) {
   function attachStoredFile(reference: StoredFileReference) {
     setPendingFiles((prev) => {
       if (prev.some((file) => file.file_id === reference.file_id)) return prev;
-      if (prev.length >= MAX_FILES) return prev;
+      if (prev.length >= MAX_FILE_REFS) return prev;
       return [
         ...prev,
         {
@@ -198,6 +245,7 @@ export function useAttachments(activeId: string | null) {
           file_id: reference.file_id,
           name: reference.name,
           size: reference.size,
+          attachmentKind: 'reference',
         },
       ];
     });
@@ -219,8 +267,9 @@ export function useAttachments(activeId: string | null) {
     resetAttachments,
     /** Some chip is still streaming to object storage — sends must wait. */
     uploadsInFlight: pendingFiles.some((f) => f.uploading),
-    /** Both attachment budgets exhausted (drives the composer's attach UI). */
+    fileAttachmentsFull: pendingFiles.length >= MAX_FILE_REFS,
+    /** Both top-level attachment budgets are exhausted. */
     attachmentsFull:
-      pendingImages.length >= MAX_IMAGES && pendingFiles.length >= MAX_FILES,
+      pendingImages.length >= MAX_IMAGES && pendingFiles.length >= MAX_FILE_REFS,
   };
 }

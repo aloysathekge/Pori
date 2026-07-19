@@ -47,7 +47,8 @@ class TestLibraryLifecycle:
         assert entry is not None
         assert "cv.pdf" in entry.content
         assert "fetch_my_file" in entry.content
-        assert entry.session_id is None  # user-scoped: recallable from ANY chat
+        assert entry.session_id is None  # available to sibling chats in the Event
+        assert entry.event_id is not None
         assert entry.tags == ["file-library"]
 
         listed = await client.get("/v1/files")

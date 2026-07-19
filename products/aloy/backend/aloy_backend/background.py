@@ -374,6 +374,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     session,
                     organization_id=run.organization_id,
                     user_id=run.user_id,
+                    event_id=run.event_id,
                     policy=policy,
                 )
                 execution_memory = memory

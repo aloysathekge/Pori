@@ -52,6 +52,7 @@ import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/wor
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAttachments, type StoredFileReference } from '@/hooks/useAttachments';
+import { useFileReferences } from '@/hooks/useFileReferences';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
 import type { MessageResponse } from '@/types';
 
@@ -238,8 +239,10 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     attachStoredFile,
     resetAttachments,
     uploadsInFlight,
+    fileAttachmentsFull,
     attachmentsFull,
   } = useAttachments(conversationId);
+  const fileReferences = useFileReferences(conversationId);
 
   const {
     sending,
@@ -687,6 +690,12 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               onChange={setInput}
               onSend={handleSend}
               onAddFiles={addAttachments}
+              onChooseFile={attachStoredFile}
+              onSearchFiles={fileReferences.search}
+              referenceFiles={fileReferences.files}
+              referenceFilesLoading={fileReferences.loading}
+              referenceFilesError={fileReferences.error}
+              referenceScopeLabel={`Files retained in ${data.event.title}`}
               pendingImages={pendingImages}
               onRemoveImage={removeImage}
               pendingFiles={pendingFiles}
@@ -694,6 +703,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               disabled={sending && !clarify}
               placeholder={clarify ? 'Answer the question above…' : approval ? 'Approve or reject the action above…' : `Work on ${data.event.title}…`}
               attachFull={attachmentsFull}
+              fileAttachFull={fileAttachmentsFull}
               onStop={sending && !clarify ? stopRun : undefined}
             />
           </div>

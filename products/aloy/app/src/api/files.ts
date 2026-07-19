@@ -1,4 +1,4 @@
-import { apiBlobFetch, apiFetch } from './client';
+import { apiBlobFetch, apiFetch, apiUploadFile } from './client';
 
 /** A durable stored file (object storage pointer). */
 export interface StoredFileView {
@@ -8,13 +8,30 @@ export interface StoredFileView {
   content_type: string;
   kind: 'upload' | 'artifact';
   in_library: boolean;
-  conversation_id: string;
+  event_id: string;
+  event_title?: string;
+  conversation_id: string | null;
   created_at: string;
 }
 
-/** The caller's file library — files the agent always knows exist. */
+/** The caller's retained files. Runtime access remains Event-scoped. */
 export function listMyFiles() {
   return apiFetch<StoredFileView[]>('/files');
+}
+
+export function uploadLibraryFile(
+  file: File,
+  onProgress?: (pct: number) => void,
+) {
+  return apiUploadFile<StoredFileView>('/files', file, onProgress);
+}
+
+export function listConversationFiles(conversationId: string, query = '') {
+  const params = new URLSearchParams({ limit: '50' });
+  if (query.trim()) params.set('q', query.trim());
+  return apiFetch<StoredFileView[]>(
+    `/conversations/${conversationId}/files?${params.toString()}`,
+  );
 }
 
 /** Save to the library: writes the memory pointer so any future chat can
