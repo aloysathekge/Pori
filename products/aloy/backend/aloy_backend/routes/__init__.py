@@ -9,8 +9,8 @@ from .agent_configs import router as agent_configs_router
 from .connections import router as connections_router
 from .conversations import router as conversations_router
 from .cron import router as cron_router
-from .event_setup import router as event_setup_router
 from .event_memory import router as event_memory_router
+from .event_setup import router as event_setup_router
 from .events import router as events_router
 from .evolution import router as evolution_router
 from .files import router as files_router
