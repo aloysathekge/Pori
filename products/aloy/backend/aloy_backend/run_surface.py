@@ -22,7 +22,7 @@ from sqlmodel import col, select
 from .connections.mcp_store import resolve_run_mcp_servers
 from .connections.store import resolve_run_connections
 from .library import library_manifest
-from .models import StoredFile
+from .models import Event, StoredFile
 from .tenancy import OrganizationPolicy
 from .tools import GOOGLE_TOOL_NAMES, LIBRARY_TOOL_NAMES
 
@@ -48,24 +48,23 @@ async def resolve_run_surface(
     *,
     organization_id: str,
     user_id: str,
+    event_id: str,
     policy: OrganizationPolicy,
 ) -> RunSurface:
-    """Resolve the caller's full capability surface for one run."""
+    """Resolve capabilities within the owning Event's authority boundary."""
     connections = await resolve_run_connections(session, organization_id, user_id)
     mcp_servers = await resolve_run_mcp_servers(session, organization_id, user_id)
-    library_rows = (
-        (
-            await session.execute(
-                select(StoredFile).where(
-                    col(StoredFile.organization_id) == organization_id,
-                    col(StoredFile.user_id) == user_id,
-                    col(StoredFile.in_library) == True,  # noqa: E712
-                )
-            )
-        )
-        .scalars()
-        .all()
+    event = await session.get(Event, event_id)
+    library_statement = select(StoredFile).where(
+        col(StoredFile.organization_id) == organization_id,
+        col(StoredFile.user_id) == user_id,
+        col(StoredFile.in_library) == True,  # noqa: E712
     )
+    if event is None or not event.is_life:
+        library_statement = library_statement.where(
+            col(StoredFile.event_id) == event_id
+        )
+    library_rows = (await session.execute(library_statement)).scalars().all()
     library = library_manifest(list(library_rows))
 
     connection_denied = () if "google" in connections else tuple(GOOGLE_TOOL_NAMES)

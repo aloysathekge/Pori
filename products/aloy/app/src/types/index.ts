@@ -27,6 +27,8 @@ export interface MessageFile {
  *  upload reference (`file_id`) — while the upload-tracking fields drive
  *  the chip's progress UI. */
 export interface PendingFile extends MessageFile {
+  /** Composer-side capacity bucket; not sent over the API. */
+  attachmentKind?: 'inline' | 'document' | 'reference';
   /** Inline rung: text content embedded into the task. */
   content?: string;
   /** Native-doc rung: base64 bytes the model reads directly (pdf/docx/xlsx). */

@@ -4,12 +4,15 @@ import pytest
 
 import aloy_backend.config as config_mod
 import aloy_backend.storage as storage_mod
-from aloy_backend.models import StoredFile
+from aloy_backend.models import Run, StoredFile
 from aloy_backend.provisioning import (
     provision_event_uploads,
+    resolve_message_file_refs,
     resolve_upload_refs,
     uploads_task_block,
 )
+from aloy_backend.run_surface import resolve_run_surface
+from aloy_backend.tenancy import OrganizationPolicy
 
 pytestmark = pytest.mark.asyncio
 
@@ -30,7 +33,60 @@ async def _conv(client) -> str:
     return created.json()["id"]
 
 
+async def _event(client, title: str = "University") -> tuple[str, str]:
+    created = await client.post(
+        "/v1/events",
+        json={"title": title, "setup_mode": "simple"},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    return body["id"], body["conversation_id"]
+
+
 class TestUploadEndpoint:
+    async def test_library_upload_is_immediately_available(self, client):
+        response = await client.post(
+            "/v1/files",
+            files={"file": ("reference.pdf", b"%PDF-library", "application/pdf")},
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["in_library"] is True
+        assert response.json()["conversation_id"] is None
+
+        library = await client.get("/v1/files")
+        assert [row["name"] for row in library.json()] == ["reference.pdf"]
+
+    async def test_event_picker_is_scoped_and_life_picker_sees_all(self, client):
+        life_conv = await _conv(client)
+        life_upload = await client.post(
+            f"/v1/conversations/{life_conv}/files",
+            files={"file": ("life.txt", b"life", "text/plain")},
+        )
+        event_id, event_conv = await _event(client)
+        event_upload = await client.post(
+            f"/v1/conversations/{event_conv}/files",
+            files={"file": ("course.txt", b"course", "text/plain")},
+        )
+        assert life_upload.status_code == event_upload.status_code == 201
+
+        event_files = await client.get(f"/v1/conversations/{event_conv}/files")
+        assert event_files.status_code == 200
+        assert {row["name"] for row in event_files.json()} == {"course.txt"}
+        assert {row["event_id"] for row in event_files.json()} == {event_id}
+
+        life_files = await client.get(f"/v1/conversations/{life_conv}/files")
+        assert life_files.status_code == 200
+        assert {row["name"] for row in life_files.json()} == {
+            "life.txt",
+            "course.txt",
+        }
+
+        searched = await client.get(
+            f"/v1/conversations/{life_conv}/files",
+            params={"q": "course"},
+        )
+        assert [row["name"] for row in searched.json()] == ["course.txt"]
+
     async def test_upload_roundtrip_and_eager_provisioning(self, client, tmp_path):
         conv_id = await _conv(client)
         resp = await client.post(
@@ -128,6 +184,119 @@ class TestUploadEndpoint:
         assert chips and chips[0]["file_id"] == file_id
         assert chips[0]["name"] == "cv.pdf"
 
+    async def test_only_selected_file_enters_durable_run_task(
+        self, client, db_session_maker
+    ):
+        _, conv_id = await _event(client)
+        selected = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("selected.csv", b"a,b\n1,2", "text/csv")},
+        )
+        unselected = await client.post(
+            f"/v1/conversations/{conv_id}/files",
+            files={"file": ("private.csv", b"secret", "text/csv")},
+        )
+        assert selected.status_code == unselected.status_code == 201
+
+        response = await client.post(
+            f"/v1/conversations/{conv_id}/messages",
+            json={
+                "content": "Use the attached dataset",
+                "file_refs": [selected.json()["file_id"]],
+            },
+        )
+        assert response.status_code == 202, response.text
+        async with db_session_maker() as session:
+            run = await session.get(Run, response.json()["run_id"])
+            assert run is not None
+            assert "selected.csv" in run.task
+            assert "private.csv" not in run.task
+
+    async def test_life_may_explicitly_reference_an_event_file(self, client):
+        life_conv = await _conv(client)
+        _, event_conv = await _event(client)
+        uploaded = await client.post(
+            f"/v1/conversations/{event_conv}/files",
+            files={"file": ("semester-plan.pdf", b"%PDF-plan", "application/pdf")},
+        )
+        response = await client.post(
+            f"/v1/conversations/{life_conv}/messages",
+            json={
+                "content": "Compare this with my other commitments",
+                "file_refs": [uploaded.json()["file_id"]],
+            },
+        )
+        assert response.status_code == 202, response.text
+        detail = await client.get(f"/v1/conversations/{life_conv}")
+        user_message = next(
+            message
+            for message in detail.json()["messages"]
+            if message["role"] == "user"
+        )
+        assert user_message["metadata"]["files"][0]["name"] == "semester-plan.pdf"
+
+    async def test_dedicated_event_drops_out_of_scope_file_ref(self, client):
+        life_conv = await _conv(client)
+        life_upload = await client.post(
+            f"/v1/conversations/{life_conv}/files",
+            files={"file": ("personal.txt", b"private", "text/plain")},
+        )
+        _, event_conv = await _event(client)
+        response = await client.post(
+            f"/v1/conversations/{event_conv}/messages",
+            json={
+                "content": "Use a file I did not grant",
+                "file_refs": [life_upload.json()["file_id"]],
+            },
+        )
+        assert response.status_code == 202, response.text
+        detail = await client.get(f"/v1/conversations/{event_conv}")
+        user_message = next(
+            message
+            for message in detail.json()["messages"]
+            if message["role"] == "user"
+        )
+        assert not (user_message.get("metadata") or {}).get("files")
+
+    async def test_run_library_respects_event_authority(self, client, db_session_maker):
+        life_conv = await _conv(client)
+        life_detail = await client.get(f"/v1/conversations/{life_conv}")
+        life_event_id = life_detail.json()["event_id"]
+        life_file = await client.post(
+            "/v1/files",
+            files={"file": ("life-plan.txt", b"life", "text/plain")},
+        )
+
+        event_id, event_conv = await _event(client)
+        event_file = await client.post(
+            f"/v1/conversations/{event_conv}/files",
+            files={"file": ("course-plan.txt", b"course", "text/plain")},
+        )
+        await client.post(f"/v1/files/{event_file.json()['file_id']}/library")
+
+        async with db_session_maker() as session:
+            dedicated = await resolve_run_surface(
+                session,
+                organization_id="user:test-user",
+                user_id="test-user",
+                event_id=event_id,
+                policy=OrganizationPolicy(),
+            )
+            life = await resolve_run_surface(
+                session,
+                organization_id="user:test-user",
+                user_id="test-user",
+                event_id=life_event_id,
+                policy=OrganizationPolicy(),
+            )
+
+        assert life_file.status_code == event_file.status_code == 201
+        assert {row["name"] for row in dedicated.library} == {"course-plan.txt"}
+        assert {row["name"] for row in life.library} == {
+            "life-plan.txt",
+            "course-plan.txt",
+        }
+
 
 def _record(rec_id: str, name: str, sha: str, **kw) -> StoredFile:
     return StoredFile(
@@ -219,6 +388,30 @@ class TestProvisioning:
             event_id="evt-upload",
         )
         assert out == [mine]
+
+    def test_message_ref_scope_accepts_artifacts_and_life_cross_event(self):
+        upload = _record("f1", "a.txt", "s1")
+        artifact = _record("f2", "report.md", "s2", kind="artifact")
+        other_event = _record("f3", "other.txt", "s3", event="evt-other")
+        other_user = _record("f4", "foreign.txt", "s4")
+        other_user.user_id = "u2"
+
+        dedicated = resolve_message_file_refs(
+            [upload, artifact, other_event, other_user],
+            organization_id="org-1",
+            user_id="u1",
+            event_id="evt-upload",
+            life_scope=False,
+        )
+        assert dedicated == [upload, artifact]
+        life = resolve_message_file_refs(
+            [upload, artifact, other_event, other_user],
+            organization_id="org-1",
+            user_id="u1",
+            event_id="evt-life",
+            life_scope=True,
+        )
+        assert life == [upload, artifact, other_event]
 
 
 class TestExtractedCompanion:

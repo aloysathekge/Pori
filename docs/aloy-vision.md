@@ -696,6 +696,40 @@ sandbox scratch file becomes an artifact only when the finalizer stores it
 durably, records provenance, and adds the semantic Trail entry. Files can link
 to Tasks, Runs, Proposals, receipts, and Surface records.
 
+#### File input and reference contract
+
+Files enter Aloy through one consistent composer flow. The **+** control lets
+the user upload from the device or choose an already retained file. Typing
+**@** opens the same searchable chooser in place while the user writes. A
+selection becomes a removable file chip; the host sends its trusted file ID
+with the turn rather than treating a filename in prose as authority. Drag,
+drop, and paste remain shortcuts into the upload path. **My files** also
+accepts direct uploads, which are retained in Life without manufacturing a
+Conversation turn.
+
+The chooser and runtime enforce the Event boundary before relevance ranking:
+
+- a dedicated Event lists and can retrieve only uploads, working files, and
+  artifacts owned by that Event;
+- Life may list the user's retained files across Life and dedicated Events;
+- choosing a dedicated-Event file from Life is an explicit per-turn grant that
+  makes that exact file salient to the Life request; it does not move the file,
+  merge Event memory, or authorize another user or tenant;
+- selecting a file in one dedicated Event never makes it available in a
+  different dedicated Event;
+- saved-file memory pointers remain attached to the owning Event. Legacy
+  unscoped pointers are ignored rather than leaking filenames across Events.
+
+The attachment budgets are typed rather than one ambiguous limit: a turn may
+carry up to ten file chips in total, with at most three inline text files and
+three provider-native documents inside that set, plus up to three images.
+Upload progress and failure live on the chip, and sending waits for durable
+uploads to finish. The backend resolves every
+file ID against tenant, user, and Event ownership, persists selected files in
+message metadata, and places only accepted references in the turn's task.
+Invalid or foreign IDs are silently discarded so the endpoint cannot be used
+as a file-ID oracle.
+
 Memory is a curated index over durable truth, not a copy of every message and
 not a substitute for canonical state. Aloy has four distinct context layers:
 

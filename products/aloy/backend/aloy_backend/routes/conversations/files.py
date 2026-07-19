@@ -1,28 +1,17 @@
-"""Durable conversation file uploads.
-
-Contract: rung 4 of the attachment ladder — beyond the inline/native limits,
-the model gets a *reference* and works on the bytes in the sandbox. Enforces
-per-file size and org storage quotas, stores the blob durably, and eagerly
-provisions it into the conversation's sandbox so send time pays no copy.
-"""
+"""Conversation-scoped file discovery and durable uploads."""
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from typing import BinaryIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-from starlette.concurrency import run_in_threadpool
+from sqlmodel import col, select
 
-from ...config import settings
 from ...database import get_session
-from ...models import StoredFile
+from ...file_uploads import store_user_upload
+from ...models import Event, StoredFile
 from ...provisioning import provision_event_uploads
-from ...storage import get_object_store, safe_name, upload_key
 from ...tenancy import OrganizationContext, Permission, require_permission
 from ._helpers import _load_conv
 
@@ -31,13 +20,72 @@ logger = logging.getLogger("aloy_backend")
 router = APIRouter()
 
 
-def _sha256_hexdigest(body: BinaryIO) -> str:
-    """Blocking: hash the (already fully received) spooled body, then rewind."""
-    digest = hashlib.sha256()
-    for chunk in iter(lambda: body.read(1024 * 1024), b""):
-        digest.update(chunk)
-    body.seek(0)
-    return digest.hexdigest()
+def _reference_view(record: StoredFile, event_title: str) -> dict:
+    return {
+        "file_id": record.id,
+        "name": record.name,
+        "size_bytes": record.size_bytes,
+        "content_type": record.content_type,
+        "kind": record.kind,
+        "event_id": record.event_id,
+        "event_title": event_title,
+        "conversation_id": record.conversation_id,
+        "in_library": record.in_library,
+        "created_at": record.created_at,
+    }
+
+
+@router.get("/{conversation_id}/files")
+async def list_conversation_files(
+    conversation_id: str,
+    q: str = Query(default="", max_length=120),
+    limit: int = Query(default=50, ge=1, le=100),
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """List files that may be explicitly attached to this Conversation.
+
+    Dedicated Events expose their own retained files. Life is the deliberate
+    cross-Event chooser and may expose every file owned by this user; selecting
+    one grants context only to the current turn.
+    """
+    conv = await _load_conv(session, context, conversation_id)
+    event = await session.get(Event, conv.event_id)
+    if event is None:
+        return []
+
+    statement = select(StoredFile).where(
+        StoredFile.organization_id == context.organization_id,
+        StoredFile.user_id == context.user_id,
+        col(StoredFile.kind).in_(["upload", "artifact"]),
+    )
+    if not event.is_life:
+        statement = statement.where(StoredFile.event_id == event.id)
+    query = q.strip()
+    if query:
+        statement = statement.where(col(StoredFile.name).ilike(f"%{query}%"))
+    records = list(
+        (
+            await session.execute(
+                statement.order_by(col(StoredFile.created_at).desc()).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    event_ids = {record.event_id for record in records}
+    events = (
+        (await session.execute(select(Event).where(col(Event.id).in_(event_ids))))
+        .scalars()
+        .all()
+        if event_ids
+        else []
+    )
+    titles = {row.id: row.title for row in events}
+    return [
+        _reference_view(record, titles.get(record.event_id, "Event"))
+        for record in records
+    ]
 
 
 @router.post("/{conversation_id}/files", status_code=201)
@@ -47,69 +95,17 @@ async def upload_conversation_file(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Store a large attachment durably (rung 4 of the attachment ladder:
-    beyond the inline/native limits, the model gets a *reference* and works
-    on the bytes in the sandbox). Also eagerly provisions the file into this
-    conversation's sandbox so send time pays no copy."""
+    """Store and eagerly provision one attachment for this Event."""
     conv = await _load_conv(session, context, conversation_id)
-
-    body = file.file  # spooled temp file — already fully received
-    body.seek(0, 2)
-    size = body.tell()
-    body.seek(0)
-    logger.info(
-        "Upload received: %r (%d bytes) for conversation %s",
-        file.filename,
-        size,
-        conv.id,
-    )
-    if size == 0:
-        raise HTTPException(status_code=422, detail="Empty file")
-    if size > settings.storage_max_file_mb * 1024 * 1024:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File exceeds the {settings.storage_max_file_mb}MB limit",
-        )
-
-    used = (
-        await session.execute(
-            select(func.coalesce(func.sum(StoredFile.size_bytes), 0)).where(
-                StoredFile.organization_id == context.organization_id
-            )
-        )
-    ).scalar_one()
-    if used + size > settings.storage_org_quota_mb * 1024 * 1024:
-        raise HTTPException(
-            status_code=413,
-            detail="Organization storage quota exceeded",
-        )
-
-    sha256 = await run_in_threadpool(_sha256_hexdigest, body)
-
-    name = safe_name(file.filename or "upload")
-    content_type = file.content_type or "application/octet-stream"
-    record = StoredFile(
-        organization_id=context.organization_id,
-        user_id=context.user_id,
+    record = await store_user_upload(
+        session,
+        context,
+        file,
         event_id=conv.event_id,
-        origin_session_id=conv.id,
         conversation_id=conv.id,
-        kind="upload",
-        name=name,
-        content_type=content_type,
-        size_bytes=size,
-        sha256=sha256,
-        storage_key="",
     )
-    record.storage_key = upload_key(context.organization_id, conv.id, record.id, name)
-    await run_in_threadpool(
-        get_object_store().put, record.storage_key, body, content_type=content_type
-    )
-    session.add(record)
     await session.commit()
 
-    # Eager provisioning (latency contract: the copy happens NOW, while the
-    # user is still typing — run setup just verifies the hash manifest).
     try:
         provision_event_uploads(conv.event_id, [record])
     except Exception:

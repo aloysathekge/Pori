@@ -264,5 +264,30 @@ def resolve_upload_refs(
     ]
 
 
+def resolve_message_file_refs(
+    records: Iterable[Optional[StoredFile]],
+    *,
+    organization_id: str,
+    user_id: str,
+    event_id: str,
+    life_scope: bool,
+) -> List[StoredFile]:
+    """Resolve explicit per-turn file choices without becoming an id oracle.
+
+    A dedicated Event accepts only its own uploads and artifacts. Life may
+    accept any file owned by the same user across their Events, but only after
+    that exact file id was selected for the turn.
+    """
+    return [
+        record
+        for record in records
+        if record is not None
+        and record.kind in {"upload", "artifact"}
+        and record.organization_id == organization_id
+        and record.user_id == user_id
+        and (life_scope or record.event_id == event_id)
+    ]
+
+
 # One-release compatibility alias; product paths use Event identity directly.
 provision_conversation_uploads = provision_event_uploads

@@ -413,6 +413,7 @@ async def _authorize_and_resolve(
                 session,
                 organization_id=proposal.organization_id,
                 user_id=proposal.user_id,
+                event_id=proposal.event_id,
                 policy=policy,
             )
             if proposal.tool in surface.denied_tools:

@@ -12,6 +12,7 @@ import { getConversation, getConversationMessages } from '@/api/conversations';
 import { createEvent } from '@/api/events';
 import { useConversations } from '@/hooks/useConversations';
 import { useAttachments } from '@/hooks/useAttachments';
+import { useFileReferences } from '@/hooks/useFileReferences';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
 import type { MessageResponse } from '@/types';
 
@@ -50,12 +51,15 @@ export function ChatPage() {
     pendingImages,
     pendingFiles,
     addAttachments,
+    attachStoredFile,
     removeImage,
     removeFile,
     resetAttachments,
     uploadsInFlight,
+    fileAttachmentsFull,
     attachmentsFull,
   } = useAttachments(activeId);
+  const fileReferences = useFileReferences(activeId);
 
   const {
     sending,
@@ -346,6 +350,12 @@ export function ChatPage() {
                   onChange={setInput}
                   onSend={handleSend}
                   onAddFiles={addAttachments}
+                  onChooseFile={attachStoredFile}
+                  onSearchFiles={fileReferences.search}
+                  referenceFiles={fileReferences.files}
+                  referenceFilesLoading={fileReferences.loading}
+                  referenceFilesError={fileReferences.error}
+                  referenceScopeLabel="All files you own across Life and Events"
                   pendingImages={pendingImages}
                   onRemoveImage={removeImage}
                   pendingFiles={pendingFiles}
@@ -359,6 +369,7 @@ export function ChatPage() {
                         : 'Message Aloy…'
                   }
                   attachFull={attachmentsFull}
+                  fileAttachFull={fileAttachmentsFull}
                   onStop={sending && !clarify ? stopRun : undefined}
                 />
               </div>
