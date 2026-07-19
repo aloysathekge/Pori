@@ -215,7 +215,7 @@ export function ChatPage() {
     <div className="flex h-full flex-col">
       {/* Slim top bar: the conversation switcher lives HERE (a dropdown), so
           navigation costs zero horizontal space — the canvas is the chat's. */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 px-2">
+      <div className="flex min-h-12 shrink-0 items-center justify-between gap-1 border-b border-zinc-800 px-1.5 sm:px-2">
         <ConversationSwitcher
           conversations={conversations}
           activeId={activeId}
@@ -247,7 +247,7 @@ export function ChatPage() {
       </div>
 
       {creatingEvent && activeId && (
-        <div className="border-b border-zinc-800 bg-zinc-900 px-4 py-4">
+        <div className="border-b border-zinc-800 bg-zinc-900 px-3 py-4 sm:px-4">
           <div className="mx-auto max-w-4xl">
             <div className="mb-3 flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-300">
@@ -305,7 +305,7 @@ export function ChatPage() {
         ) : (
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 lg:p-6">
+            <div className="flex-1 overflow-y-auto px-3 py-4 sm:p-4 lg:p-6">
               {loadingConversation ? (
                 <div className="flex justify-center py-12">
                   <Spinner className="h-8 w-8" />
@@ -339,7 +339,7 @@ export function ChatPage() {
             </div>
 
             {/* Composer */}
-            <div className="border-t border-zinc-800 p-4">
+            <div className="border-t border-zinc-800 bg-zinc-950/95 p-2 backdrop-blur sm:p-4">
               <div className="mx-auto max-w-4xl">
                 <Composer
                   value={input}

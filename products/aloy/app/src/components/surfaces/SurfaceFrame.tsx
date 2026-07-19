@@ -290,7 +290,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
             <button
               type="button"
               onClick={() => void toggleHistory()}
-              className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:h-8 sm:w-8"
               aria-label="Surface version history"
               title="Surface version history"
             >
@@ -303,14 +303,14 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
               setReload((value) => value + 1);
               void refreshActivity();
             }}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:h-8 sm:w-8"
             aria-label="Reload live Surface"
             title="Reload live Surface"
           >
             <RefreshCw size={14} />
           </button>
           {historyOpen && state.kind === 'ready' && (
-            <div className="absolute right-3 top-10 w-72 rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl">
+            <div className="absolute right-2 top-10 w-[min(18rem,calc(100vw-1rem))] rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl sm:right-3">
               <div className="px-2 pb-2 pt-1">
                 <p className="text-xs font-semibold text-zinc-200">Published versions</p>
                 <p className="mt-0.5 text-[10px] text-zinc-500">
@@ -342,7 +342,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
                     type="button"
                     disabled={restoringBuildId !== null}
                     onClick={() => void restore(publication.build_id)}
-                    className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                    className="min-h-10 rounded-lg border border-zinc-700 px-3 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 sm:min-h-8 sm:px-2 sm:text-[10px]"
                   >
                     {restoringBuildId === publication.build_id ? 'Restoring…' : 'Restore'}
                   </button>

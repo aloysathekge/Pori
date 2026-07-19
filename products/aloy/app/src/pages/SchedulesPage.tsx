@@ -299,7 +299,7 @@ export function SchedulesPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-zinc-950">
-      <div className="mx-auto min-h-full max-w-[1180px] px-5 py-7 lg:px-10 lg:py-9">
+      <div className="mx-auto min-h-full max-w-[1180px] px-4 py-5 sm:px-5 sm:py-7 lg:px-10 lg:py-9">
         <header className="flex flex-col gap-5 border-b border-zinc-800 pb-7 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="flex items-center gap-2 text-sm font-medium text-accent-700">
@@ -337,7 +337,7 @@ export function SchedulesPage() {
               <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-400">A morning university check, a weekly job pipeline review, or a deadline watch can run without you reopening the Event.</p>
               <Button className="mt-5" onClick={openCreate}><Plus size={16} /> Create your first schedule</Button>
             </div>
-            <div className="space-y-3 border-l border-zinc-800 pl-0 md:pl-8">
+            <div className="space-y-3 pl-0 md:border-l md:border-zinc-800 md:pl-8">
               <TrustLine>Runs only inside the Event you choose.</TrustLine>
               <TrustLine>External actions still require approval.</TrustLine>
               <TrustLine>Every wake, outcome, and failure stays in the Trail.</TrustLine>
@@ -398,7 +398,7 @@ export function SchedulesPage() {
         title={editingId ? 'Edit Event Schedule' : 'New Event Schedule'}
         panelClassName="max-w-3xl"
       >
-        <div className="max-h-[76vh] overflow-y-auto px-6 py-5">
+        <div className="px-0 py-1">
           {error && (
             <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"><AlertCircle size={17} className="mt-0.5 shrink-0" /> {error}</div>
           )}

@@ -2,8 +2,9 @@
 
 ## Active Task
 
-Complete and review `aloy-v1-event-memory-settings`: Event-scoped memory
-inspection, correction, forgetting, and explicit promotion to global memory.
+Complete and review `aloy-v1-mobile-ux`: make Aloy's shared shell, Event
+workspace, creation flows, utility pages, dialogs, and controls deliberately
+responsive while preserving the full durable product model on mobile web.
 
 ## Decisions Made
 
@@ -36,8 +37,26 @@ inspection, correction, forgetting, and explicit promotion to global memory.
 - Canonical Event state is never edited through memory controls. Tasks, files,
   receipts, Trail, Surface state, and transcript history retain their own
   authoritative stores.
+- Mobile Aloy preserves the same durable state and authority model as desktop,
+  but reorganizes it around bottom navigation, action sheets, one primary Event
+  region at a time, and a full-screen Event-context panel. Mobile is not a
+  compressed desktop split view.
+- The planned Expo application is a first-class trusted Aloy host. Host UI uses
+  native controls; generated Surfaces remain retained sandboxed React bundles
+  in an embedded WebView behind a transport adapter for the same versioned SDK
+  protocol. Device capabilities are typed host intents, never direct generated-
+  code authority.
 
 ## Important Discoveries
+
+- The active `aloy-v1-mobile-ux` branch adds a route-aware mobile shell with
+  persistent Today/Life/New/Events/More navigation, mobile Event switching and
+  creation sheets, dynamic viewport and safe-area handling, 44-pixel touch
+  targets, mobile-safe form inputs, bottom-sheet dialogs, single-region Event
+  modes, full-screen Event context, scrollable Workbench tabs, and responsive
+  setup/utility pages. App lint, production build, and all `7` Surface bridge
+  tests pass. Automated browser screenshots remain blocked by the known desktop
+  bootstrap error `Cannot redefine property: process`.
 
 - The `aloy-v1-event-memory-settings` branch adds a dedicated Event-memory
   domain module and `/events/{event_id}/memory` controls, plus an Event settings

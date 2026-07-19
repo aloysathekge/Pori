@@ -114,7 +114,7 @@ export function EventWorkbench({
                     aria-label={`Close ${tab.label}`}
                     onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id); }}
                     onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.stopPropagation(); onCloseTab(tab.id); } }}
-                    className="ml-1 rounded p-0.5 text-zinc-600 opacity-0 hover:bg-zinc-700 hover:text-zinc-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+                    className="ml-1 flex h-7 w-7 items-center justify-center rounded text-zinc-600 opacity-100 hover:bg-zinc-700 hover:text-zinc-200 sm:h-6 sm:w-6 md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100"
                   >
                     <X size={11} />
                   </span>
@@ -128,7 +128,7 @@ export function EventWorkbench({
             <Columns2 size={15} />
           </button>
         )}
-        <button type="button" onClick={onDismiss} className="mr-2 rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Close Workbench" aria-label="Close Workbench"><X size={15} /></button>
+        <button type="button" onClick={onDismiss} className="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:mr-2" title="Close Workbench" aria-label="Close Workbench"><X size={16} /></button>
       </div>
 
       <div ref={splitRef} className="flex min-h-0 min-w-0 flex-1">

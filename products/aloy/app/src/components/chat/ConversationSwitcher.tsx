@@ -66,7 +66,7 @@ export function ConversationSwitcher({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex max-w-[60vw] items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-800"
+        className="flex min-h-11 max-w-[55vw] items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-800 sm:min-h-0 sm:max-w-[60vw]"
         title="Switch conversation"
       >
         <MessageSquare size={15} className="shrink-0 text-zinc-500" />
@@ -80,7 +80,7 @@ export function ConversationSwitcher({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1.5 w-80 overflow-hidden rounded-xl border border-zinc-700/70 bg-zinc-900 shadow-2xl">
+        <div className="absolute left-0 top-full z-40 mt-1.5 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-zinc-700/70 bg-zinc-900 shadow-2xl">
           <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
             <Search size={14} className="shrink-0 text-zinc-500" />
             <input

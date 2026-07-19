@@ -25,7 +25,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950">
+      <div className="flex h-[100dvh] items-center justify-center bg-zinc-950">
         <Spinner className="h-8 w-8" />
       </div>
     );
@@ -40,7 +40,7 @@ function PublicRoute({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950">
+      <div className="flex h-[100dvh] items-center justify-center bg-zinc-950">
         <Spinner className="h-8 w-8" />
       </div>
     );

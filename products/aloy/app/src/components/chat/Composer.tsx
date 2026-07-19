@@ -84,7 +84,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => onRemoveImage(i)}
-                className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-700 text-zinc-200 opacity-100 transition-opacity hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100"
                 title="Remove"
               >
                 <X size={11} />
@@ -116,7 +116,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => onRemoveFile(i)}
-                className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-zinc-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-700 text-zinc-200 opacity-100 transition-opacity hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100"
                 title="Remove"
               >
                 <X size={11} />
@@ -149,7 +149,7 @@ export function Composer({
             handleSend();
           }
         }}
-        className="max-h-[200px] w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-sm leading-relaxed text-zinc-100 placeholder-zinc-500 focus:outline-none"
+        className="max-h-[min(200px,32dvh)] w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-base leading-relaxed text-zinc-100 placeholder-zinc-500 focus:outline-none sm:text-sm"
       />
 
       {/* Action row — future actions (tools, model picker, voice…) join the
@@ -171,7 +171,7 @@ export function Composer({
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || attachFull}
             title="Attach images or files"
-            className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 disabled:opacity-40 disabled:hover:bg-transparent sm:h-9 sm:w-9"
           >
             <Paperclip size={17} />
           </button>
@@ -182,7 +182,7 @@ export function Composer({
             type="button"
             onClick={onStop}
             title="Stop generating"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-600 text-white shadow-sm transition-all hover:bg-accent-500"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white shadow-sm transition-all hover:bg-accent-500 sm:h-8 sm:w-8"
           >
             <Square size={13} strokeWidth={2.5} fill="currentColor" />
           </button>
@@ -192,7 +192,7 @@ export function Composer({
             onClick={handleSend}
             disabled={!canSend}
             title="Send"
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+            className={`flex h-11 w-11 items-center justify-center rounded-full transition-all sm:h-8 sm:w-8 ${
               canSend
                 ? 'bg-accent-600 text-white shadow-sm hover:bg-accent-500'
                 : 'bg-zinc-700 text-zinc-500'

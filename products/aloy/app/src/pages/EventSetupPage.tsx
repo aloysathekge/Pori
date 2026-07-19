@@ -197,9 +197,9 @@ export function EventSetupPage() {
   return (
     <div className="h-full overflow-y-auto bg-zinc-950">
       <div className="mx-auto flex min-h-full max-w-5xl flex-col px-5 py-5 sm:px-8 lg:py-6">
-        <header className="flex items-center justify-between gap-4">
+        <header className="sticky top-0 z-20 -mx-5 flex items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/95 px-5 py-2 backdrop-blur sm:-mx-8 sm:px-8 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
           <button type="button" onClick={() => navigate('/today')} className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-200">
-            <ArrowLeft size={16} /> Back to Today
+            <ArrowLeft size={16} /> <span className="hidden sm:inline">Back to </span>Today
           </button>
           <Button onClick={() => void submit()} disabled={saving || !draft || !title.trim()} className="px-5">
             {saving ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowRight size={16} />}
@@ -209,7 +209,7 @@ export function EventSetupPage() {
 
         <main className="mx-auto mt-5 w-full max-w-3xl pb-6 sm:mt-7">
           <div className="flex items-center gap-2 text-accent-600"><AloyMark size={23} /><span className="text-sm font-semibold">Create an Event</span></div>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-zinc-100 sm:text-4xl">
+          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-zinc-100 sm:text-4xl">
             {mode === 'simple' ? 'What do you want to keep moving?' : 'Tell Aloy what you are taking on'}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
@@ -228,7 +228,7 @@ export function EventSetupPage() {
             </div>
 
             <div>
-              <div className="mb-2 flex items-end justify-between gap-4">
+              <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
                 <div><label htmlFor="event-context" className="block text-sm font-semibold text-zinc-300">Give Aloy some context</label><p className="mt-1 text-xs text-zinc-500">Optional. Add what Aloy should understand or use inside this Event.</p></div>
                 <span className="text-xs text-zinc-600">Saved as you go</span>
               </div>
@@ -237,7 +237,7 @@ export function EventSetupPage() {
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}
               >
-                <textarea id="event-context" value={description} onChange={(event) => setDescription(event.target.value)} className="min-h-28 w-full resize-none bg-transparent px-4 py-3 text-sm leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none" placeholder={mode === 'assisted' ? 'I’m struggling to manage university this semester. I need help with my timetable, assignments and exams…' : 'What is this Event about? What matters, what is already decided, and where should Aloy begin?'} maxLength={50_000} />
+                <textarea id="event-context" value={description} onChange={(event) => setDescription(event.target.value)} className="min-h-28 w-full resize-none bg-transparent px-4 py-3 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none sm:text-sm" placeholder={mode === 'assisted' ? 'I’m struggling to manage university this semester. I need help with my timetable, assignments and exams…' : 'What is this Event about? What matters, what is already decided, and where should Aloy begin?'} maxLength={50_000} />
                 <div className="flex flex-wrap items-center gap-1 border-t border-zinc-800 px-2 py-2">
                   <button type="button" onClick={() => fileInput.current?.click()} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"><Paperclip size={15} />{uploading ? `Uploading ${uploadProgress}%` : 'Files'}</button>
                   <button type="button" onClick={() => { setShowLink((value) => !value); setShowConnections(false); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"><Link2 size={15} />Link</button>
@@ -247,17 +247,17 @@ export function EventSetupPage() {
               </div>
 
               {showLink && (
-                <div className="mt-2 flex gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-2">
-                  <input autoFocus type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addLink(); }} className="min-w-0 flex-1 bg-transparent px-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none" placeholder="https://…" />
+                <div className="relative mt-2 flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-2 sm:flex-row">
+                  <input autoFocus type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void addLink(); }} className="min-h-11 min-w-0 flex-1 bg-transparent px-2 pr-12 text-base text-zinc-100 placeholder:text-zinc-500 focus:outline-none sm:pr-2 sm:text-sm" placeholder="https://…" />
                   <Button size="sm" onClick={() => void addLink()} disabled={!linkUrl.trim()}>Add link</Button>
-                  <button type="button" aria-label="Close link input" onClick={() => setShowLink(false)} className="p-2 text-zinc-500 hover:text-zinc-200"><X size={16} /></button>
+                  <button type="button" aria-label="Close link input" onClick={() => setShowLink(false)} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:static"><X size={16} /></button>
                 </div>
               )}
 
               {showConnections && (
                 <div className="mt-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
                   {connected.length ? <div className="space-y-1">{connected.map(({ provider, scope }) => (
-                    <button key={`${provider.provider}-${scope}`} type="button" onClick={() => void attachConnection(provider, scope)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-zinc-800">
+                    <button key={`${provider.provider}-${scope}`} type="button" onClick={() => void attachConnection(provider, scope)} className="flex w-full flex-col items-start gap-2 rounded-lg px-3 py-3 text-left hover:bg-zinc-800 sm:flex-row sm:items-center sm:justify-between">
                       <span><span className="block text-sm font-medium text-zinc-200">{provider.label}</span><span className="block text-xs text-zinc-500">{scope === 'user' ? provider.account_email : provider.org_account_email || 'Organization connection'}</span></span>
                       <span className="text-xs font-medium text-accent-700">Use in this Event</span>
                     </button>

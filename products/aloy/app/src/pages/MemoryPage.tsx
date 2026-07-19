@@ -131,8 +131,8 @@ export function MemoryPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="h-full overflow-y-auto px-4 py-5 sm:p-6 lg:p-8">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-100">Memory</h1>
           <p className="mt-1 text-sm text-zinc-400">

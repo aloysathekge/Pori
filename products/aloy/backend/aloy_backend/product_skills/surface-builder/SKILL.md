@@ -14,7 +14,10 @@ all use the same runtime and safety contract.
 1. Inspect the supplied Event brief, permanent Session context, canonical
    records, current Surface revision, diagnostics, and user request.
 2. State the Surface's primary jobs, important entities, evidence sources,
-   uncertainty, required states, viewports, and interaction intents.
+   uncertainty, required states, viewports, and interaction intents. Treat
+   phone widths around 360 and 390 pixels, tablet, a narrow desktop Workbench
+   pane, and wide desktop as distinct required compositions rather than scaled
+   copies of one layout.
 3. Return one schema-valid, complete replacement candidate containing every
    required source file. Use only the provided Surface SDK and approved
    dependencies. Do not access host APIs, ambient credentials, arbitrary
@@ -39,7 +42,10 @@ all use the same runtime and safety contract.
    - consequential actions create a Proposal and require the applicable rail;
    - source-changing actions create a new Surface revision.
 8. Implement loading, empty, populated, partial, stale, error, and permission-
-   denied states at the required desktop and compact viewports.
+   denied states at the required desktop and compact viewports. On compact
+   widths, navigation, tables, maps, timelines, kanban boards, forms, and charts
+   must recompose without page-level horizontal overflow, clipped actions, or
+   pointer-only controls. Keep primary touch actions at least 44 pixels.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics in the next complete candidate.
    Every declared intent must include an accessible executable
@@ -209,7 +215,8 @@ host remains responsible for reconnect and recovery controls.
 - Make the Event's next useful decision obvious without flattening the whole
   Event into a dashboard.
 - Prefer clear hierarchy, calm density, responsive composition, accessible
-  controls, and informative empty or degraded states.
+  controls, mobile-safe touch targets, and informative empty or degraded
+  states.
 - Keep the Trail, Tasks, Proposals, files, evidence, and Session canonical even
   when the Surface chooses not to display all of them.
 - Send user selections and actions back as typed intent payloads with enough

@@ -14,10 +14,10 @@ const variants = {
 } as const;
 
 const sizes = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
-  icon: 'p-2',
+  sm: 'min-h-11 px-3 py-2 text-sm sm:min-h-9 sm:py-1.5',
+  md: 'min-h-11 px-4 py-2 text-sm',
+  lg: 'min-h-12 px-6 py-3 text-base',
+  icon: 'h-11 w-11 p-2 sm:h-9 sm:w-9',
 } as const;
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
