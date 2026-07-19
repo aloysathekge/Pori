@@ -2,8 +2,8 @@
 
 ## Active Task
 
-Review and commit `aloy-v1-today-focus-stream`: Event-owned Schedules, Today
-focus, Connections navigation, and the customer-facing AgentConfig retirement.
+Complete and review `aloy-v1-event-memory-settings`: Event-scoped memory
+inspection, correction, forgetting, and explicit promotion to global memory.
 
 ## Decisions Made
 
@@ -27,8 +27,29 @@ focus, Connections navigation, and the customer-facing AgentConfig retirement.
 - The Builder receives no lifecycle or filesystem tools. It returns a complete
   candidate through provider structured output; Aloy grants one bounded full
   repair submission from trusted diagnostics.
+- Event memory controls are host-owned and Event-local. Corrections supersede
+  immutable history, forgetting soft-deletes, and global promotion always
+  creates a separate provenance-linked record through an explicit user action.
+- Event memory is governed from the Event's own settings, opened by the settings
+  icon directly after Trail in the right Event-context dock; it is not a peer
+  operational tab.
+- Canonical Event state is never edited through memory controls. Tasks, files,
+  receipts, Trail, Surface state, and transcript history retain their own
+  authoritative stores.
 
 ## Important Discoveries
+
+- The `aloy-v1-event-memory-settings` branch adds a dedicated Event-memory
+  domain module and `/events/{event_id}/memory` controls, plus an Event settings
+  tab directly after Trail in the right context dock. The UI separates mutable Event memory from
+  read-only inherited global memory, shows provenance/scope, surfaces failures,
+  and confirms destructive or cross-Event-scope actions. Backend isolation and
+  context regressions pass (`11 passed`); app lint and production build pass.
+  Automated visual browser inspection remains blocked by the known desktop
+  bootstrap error `Cannot redefine property: process`. The full backend suite
+  reached `362 passed`; two unchanged local headless Surface handshake tests
+  failed and remained failing in isolation. Full backend mypy passes across
+  `116` source files and full Black passes across `217` files.
 
 - The customer Agents page, raw provider/model/prompt/tool controls, and its
   frontend API/types are removed. `/agents` safely redirects to Today. Legacy
@@ -368,11 +389,12 @@ focus, Connections navigation, and the customer-facing AgentConfig retirement.
 
 ## Next Session Should Start With
 
-Review and commit the Today/Connections/Event Schedule and AgentConfig-retirement branch, then create one
-short test Schedule in a dedicated Event and watch its wake, Today working
-state, Conversation result, Trail outcome, and history receipt end to end.
-After that, restore qualified Builder provider access and rebuild the retained Career OS
-draft through the normal Builder and verify the typecheck, sequential browser
+Review and commit the Event-memory controls branch, then visually smoke the
+Event settings and Memory dialog when the desktop browser bootstrap is available. After that, add
+evidence-gated automatic consolidation so only confirmed statements,
+corrections, decisions, and durable outcomes become accepted Event memory.
+Then restore qualified Builder provider access and rebuild the retained Career
+OS draft through the normal Builder and verify the typecheck, sequential browser
 checks, Save feedback, canonical data preservation, and atomic publication.
 After that, enable the separately governed `source_change` and `automation` routes.
 Do not patch individual generated applications or continue showcase/widget work

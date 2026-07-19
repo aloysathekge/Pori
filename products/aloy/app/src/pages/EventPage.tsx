@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Activity,
   BadgeCheck,
@@ -45,6 +45,8 @@ import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
 import { ProposalCard } from '@/components/events/ProposalCard';
 import { EventCover } from '@/components/events/EventCover';
+import { EventSettingsPanel } from '@/components/events/EventSettingsPanel';
+import { SettingsIcon } from '@/components/icons';
 import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
 import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/workbench/EventWorkbench';
 import { Button } from '@/components/ui/Button';
@@ -53,7 +55,7 @@ import { useAttachments, type StoredFileReference } from '@/hooks/useAttachments
 import { useStreamingRun } from '@/hooks/useStreamingRun';
 import type { MessageResponse } from '@/types';
 
-type ContextTab = 'tasks' | 'approvals' | 'receipts' | 'files' | 'trail';
+type ContextTab = 'tasks' | 'approvals' | 'receipts' | 'files' | 'trail' | 'settings';
 type WorkspaceMode = 'conversation' | 'split' | 'workbench';
 
 const INPUT =
@@ -512,12 +514,13 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     group.receipts.map((receipt, index) => ({ receipt, group, id: `${group.id}:${index}` })),
   );
 
-  const tabs: Array<{ id: ContextTab; icon: typeof ListTodo; label: string; count?: number }> = [
+  const tabs: Array<{ id: ContextTab; icon: ComponentType<{ size?: number; className?: string }>; label: string; count?: number }> = [
     { id: 'tasks', icon: ListTodo, label: 'Tasks', count: openTasks },
     { id: 'approvals', icon: ShieldCheck, label: 'Approvals', count: data.surface.proposals.length },
     { id: 'receipts', icon: BadgeCheck, label: 'Receipts', count: receipts.length },
     { id: 'files', icon: FileText, label: 'Files', count: files.length + contextItems.length },
     { id: 'trail', icon: Activity, label: 'Trail' },
+    { id: 'settings', icon: SettingsIcon, label: 'Settings' },
   ];
   const lastMessage = messages.at(-1);
 
@@ -726,26 +729,36 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
         <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(420px,100%)] shrink-0 flex-col border-l border-zinc-800 bg-zinc-900 shadow-2xl xl:static xl:w-[390px] xl:shadow-none">
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4">
             <div>
-              <p className="text-sm font-semibold text-zinc-100">Event context</p>
-              <p className="text-[11px] text-zinc-500">Durable, trusted working state</p>
+              <p className="text-sm font-semibold text-zinc-100">
+                {contextTab === 'settings' ? 'Event settings' : 'Event context'}
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                {contextTab === 'settings' ? `Controls for ${data.event.title}` : 'Durable, trusted working state'}
+              </p>
             </div>
             <button type="button" onClick={() => setContextOpen(false)} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800" aria-label="Close event context">
               <X size={17} />
             </button>
           </div>
 
-          <div className="grid shrink-0 grid-cols-5 border-b border-zinc-800 px-2">
+          <div className="grid shrink-0 grid-cols-6 border-b border-zinc-800 px-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setContextTab(tab.id)}
-                className={`relative flex min-h-12 items-center justify-center gap-1.5 text-xs font-medium transition-colors ${contextTab === tab.id ? 'text-accent-700' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 px-0.5 font-medium transition-colors ${contextTab === tab.id ? 'text-accent-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
+                aria-label={tab.label}
+                title={tab.label}
               >
-                <tab.icon size={15} />
-                <span className="hidden 2xl:inline">{tab.label}</span>
-                {!!tab.count && <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px]">{tab.count}</span>}
-                {contextTab === tab.id && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent-600" />}
+                <tab.icon size={17} className="shrink-0" />
+                <span className="block w-full truncate text-center text-[9px] leading-none">{tab.label}</span>
+                {!!tab.count && (
+                  <span className="absolute right-1 top-1 min-w-4 rounded-full border border-zinc-900 bg-zinc-700 px-1 text-center text-[9px] font-semibold leading-4 text-zinc-200">
+                    {tab.count}
+                  </span>
+                )}
+                {contextTab === tab.id && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-600" />}
               </button>
             ))}
           </div>
@@ -963,6 +976,14 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 )}
               </div>
             )}
+
+            {contextTab === 'settings' && (
+              <EventSettingsPanel
+                event={data.event}
+                refreshKey={activity[0]?.id}
+                onEventChanged={loadSurface}
+              />
+            )}
           </div>
         </aside>
       )}
@@ -979,6 +1000,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
           ))}
         </aside>
       )}
+
     </div>
   );
 }

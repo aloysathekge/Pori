@@ -761,6 +761,26 @@ see its source and scope, correct it, forget it, or explicitly promote it.
 Archiving freezes active consolidation and triggers while retaining memory for
 reopening; deletion follows the Event's retention and deletion policy.
 
+These controls live in the Event's own settings. A settings icon sits directly
+after Trail in the right Event-context dock and opens the Event settings in
+that same pane. Memory is configuration and governance for the Event, not a
+peer operational tab beside Tasks, files, approvals, receipts, and Trail. The
+settings view separates **Remembered for this Event** from read-only
+**Inherited across Aloy** memory.
+A correction creates a new user-authored record and supersedes the prior version
+rather than rewriting history. Forgetting is a soft deletion that removes the
+record from retrieval while retaining an accountable audit record. **Use across
+Aloy** creates a separate global record with Event provenance; it never changes
+scope merely because the model reused a fact. Promotions are idempotent and can
+be repeated after the global copy has been forgotten. Every mutation is tenant,
+user, and Event checked, writes a semantic Trail entry without copying sensitive
+content into the Trail payload, and refreshes the trusted Event-context snapshot
+when Event recall changes. Because an accepted Event Brief may have been derived
+from the changed memory, correction or forgetting retires that Brief and lets the
+existing readiness gate queue a replacement only when enough trusted evidence
+remains. Canonical Tasks, files, receipts, Surface state, and transcript history
+remain outside this memory editor.
+
 ### 3.10 Triggers — explicit reasons Aloy wakes
 
 An Event may remain alive for months while no model process is running. Aloy

@@ -469,8 +469,24 @@ membership revalidation, evidence-reference validation, bounded retry, and
 stale-snapshot replacement. Creation and ingestion trigger it automatically;
 the Workbench exposes waiting, queued, running, ready, and failed states plus a
 safe manual retry. Fake structured-model tests cover the flow without model
-credits. Connection synchronization, memory controls, and bootstrap
-Surface/cover work remain.
+credits. Connection synchronization and bootstrap Surface/cover work remain.
+
+**R5.5e implemented on `aloy-v1-event-memory-settings`:** the Event's own
+settings, opened by the settings icon directly after Trail in the right Event
+context dock, now inspect active Event memory separately from inherited global
+memory. Memory is deliberately nested within settings instead of being a peer
+operational tab.
+Host-owned endpoints enforce tenant/user/Event scope for reads and mutations;
+user corrections supersede rather than overwrite, forgetting soft-deletes,
+and explicit promotion creates an idempotent provenance-linked global record.
+Corrections and forgetting retire a potentially stale derived Event Brief,
+refresh the immutable Event-context snapshot, and reuse the existing readiness
+gate for any replacement bootstrap. All three actions write content-free
+semantic Trail evidence, and another Event's record cannot be read or mutated
+through the API. Inherited global records are read-only inside an Event and
+canonical Event state remains outside the memory editor. Automatic
+evidence-gated consolidation and richer global-memory management remain
+separate work.
 
 Scope:
 
