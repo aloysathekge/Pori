@@ -269,6 +269,7 @@ export function TodayPage() {
   const nextAttention = attentionItems.slice(1, 4);
 
   const preferences = profile?.preferences ?? {};
+  const showTodaySuggestions = preferences.show_today_suggestions !== false;
   const notifications = today?.notifications ?? [];
   const notificationReadAt =
     typeof preferences.today_notifications_read_at === 'string'
@@ -580,13 +581,13 @@ export function TodayPage() {
                     <span className="text-sm text-zinc-500">{dueLabel(item.task) || 'No due date'}</span><ArrowRight size={15} className="text-accent-700" />
                   </button>
                 ))}
-                {comingUpTasks.length === 0 && quietGroups.slice(0, 3).map((group) => (
+                {comingUpTasks.length === 0 && showTodaySuggestions && quietGroups.slice(0, 3).map((group) => (
                   <button key={group.event.id} type="button" onClick={() => navigate(`/events/${group.event.id}`)} className="flex w-full items-center justify-between gap-4 py-3.5 text-left">
                     <div className="min-w-0"><p className="truncate text-sm font-medium text-zinc-200">{group.event.title}</p><p className="mt-1 truncate text-xs text-zinc-500">Quiet right now · {group.event.summary || 'No work needs attention.'}</p></div>
                     <ArrowRight size={15} className="text-accent-700" />
                   </button>
                 ))}
-                {comingUpTasks.length === 0 && quietGroups.length === 0 && (
+                {comingUpTasks.length === 0 && (!showTodaySuggestions || quietGroups.length === 0) && (
                   <div className="flex items-center gap-3 py-5 text-sm text-zinc-500"><Clock3 size={16} /> Nothing scheduled yet.</div>
                 )}
               </div>

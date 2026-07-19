@@ -248,6 +248,7 @@ export interface KnowledgeEntry {
   id: string;
   organization_id?: string;
   user_id?: string;
+  event_id?: string | null;
   agent_id?: string | null;
   session_id?: string | null;
   content: string;
@@ -257,6 +258,8 @@ export interface KnowledgeEntry {
   confidence?: number;
   sensitivity?: string;
   source: string;
+  conflict_key?: string | null;
+  superseded_by?: string | null;
   status?: string;
   created_at: string | null;
   updated_at?: string | null;
@@ -269,6 +272,15 @@ export interface KnowledgeEntryCreate {
   importance?: number;
   kind?: KnowledgeKind;
   source?: string;
+  confidence?: number;
+  sensitivity?: 'public' | 'internal' | 'confidential' | 'restricted';
+  conflict_key?: string;
+  conflict_policy?: 'keep_both' | 'reject' | 'supersede';
+}
+
+export interface MemoryExportResponse {
+  records: KnowledgeEntry[];
+  exported_at: string;
 }
 
 export interface KnowledgeSearchRequest {
