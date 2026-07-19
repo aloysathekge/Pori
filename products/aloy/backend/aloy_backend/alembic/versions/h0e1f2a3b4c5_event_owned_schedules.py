@@ -62,9 +62,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_runs_cron_job_id", table_name="runs")
     with op.batch_alter_table("runs") as batch_op:
-        batch_op.drop_constraint(
-            "fk_runs_cron_job_id_cron_jobs", type_="foreignkey"
-        )
+        batch_op.drop_constraint("fk_runs_cron_job_id_cron_jobs", type_="foreignkey")
         batch_op.drop_column("cron_job_id")
 
     op.drop_index("ix_cron_jobs_deleted_at", table_name="cron_jobs")
