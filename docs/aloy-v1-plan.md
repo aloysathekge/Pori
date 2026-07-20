@@ -694,6 +694,17 @@ Conversation consequently starts transcript-clean while accepted personal
 memory still loads. Prompt caching remains an optimization over this stable
 prefix, never the source of durable truth.
 
+**Fourth reliability slice implemented:** provider execution and recovery are
+now distinct rails. A tool may expose a typed, read-only reconciler that
+survives capability snapshot filtering without exposing another model tool.
+`indeterminate` Proposals receive durable inspection leases and bounded
+exponential backoff; an unknown lookup never retries the write. Gmail sends are
+correlated by a deterministic RFC822 Message-ID, while Calendar inserts use a
+caller-chosen deterministic event ID. A provider success followed by simulated
+database commit loss now resolves to a receipt-backed `committed` state through
+provider lookup with exactly one send. Tools without proof remain visibly
+`indeterminate`.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from pydantic import BaseModel, Field
+from pori.tools.registry import ReconciliationStatus, ToolReconciliation
 
 from . import google_common as g
 
@@ -72,6 +73,14 @@ def calendar_create_event_tool(
         "start": {"dateTime": params.start},
         "end": {"dateTime": params.end},
     }
+    correlation_key = g.execution_correlation_key(
+        context, namespace="calendar_create_event"
+    )
+    if correlation_key:
+        # Google explicitly supports caller-chosen base32hex event IDs to
+        # prevent duplicates after ambiguous insert failures. A SHA-256 hex
+        # digest is a valid subset of that alphabet.
+        body["id"] = f"a10{correlation_key}"
     if params.description:
         body["description"] = params.description
     try:
@@ -82,6 +91,54 @@ def calendar_create_event_tool(
         return {"error": f"Calendar create failed: {exc}"}
     return {
         "created": True,
-        "id": created.get("id"),
+        "id": created.get("id") or body.get("id"),
         "html_link": created.get("htmlLink"),
     }
+
+
+def reconcile_calendar_create_event_tool(
+    params: CalendarCreateParams, context: Dict[str, Any]
+) -> ToolReconciliation:
+    """Read the deterministic provider event ID; never repeat the insert."""
+    del params
+    correlation_key = g.execution_correlation_key(
+        context, namespace="calendar_create_event"
+    )
+    if not correlation_key:
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error="The original execution attempt has no provider correlation key.",
+        )
+    provider_id = f"a10{correlation_key}"
+    try:
+        event = g.get(context, f"{CAL_API}/{provider_id}")
+    except PermissionError:
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error="Google is not connected, so the event cannot be reconciled.",
+        )
+    except Exception as exc:
+        # A 404 can be eventual visibility or a provider rejection whose local
+        # response was lost. Neither proves it is safe to insert again.
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error=f"Calendar reconciliation failed: {exc}",
+        )
+    resolved_id = str(event.get("id") or provider_id)
+    return ToolReconciliation(
+        status=ReconciliationStatus.SUCCEEDED,
+        provider_operation_id=resolved_id,
+        result={
+            "created": True,
+            "id": resolved_id,
+            "html_link": event.get("htmlLink"),
+            "reconciled": True,
+        },
+        evidence=(
+            {
+                "provider": "google:calendar",
+                "lookup": "deterministic_event_id",
+                "provider_operation_id": resolved_id,
+            },
+        ),
+    )

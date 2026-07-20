@@ -15,6 +15,7 @@ from .calendar import (
     CalendarListParams,
     calendar_create_event_tool,
     calendar_list_events_tool,
+    reconcile_calendar_create_event_tool,
 )
 from .event_history import (
     EVENT_HISTORY_SEARCH_CONTEXT_KEY,
@@ -36,6 +37,7 @@ from .gmail import (
     gmail_search_tool,
     gmail_send_draft_tool,
     gmail_send_tool,
+    reconcile_gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
 from .research import (
@@ -130,6 +132,11 @@ _TOOLS = [
     ),
 ]
 
+_TOOL_RECONCILERS = {
+    "gmail_send": reconcile_gmail_send_tool,
+    "calendar_create_event": reconcile_calendar_create_event_tool,
+}
+
 
 def register_library_tools(registry) -> None:
     """Register the file-library tool (idempotent). Excluded per-run via
@@ -155,7 +162,11 @@ def register_google_tools(registry) -> None:
         return
     for name, params, fn, desc in _TOOLS:
         registry.register_tool(
-            name=name, param_model=params, function=fn, description=desc
+            name=name,
+            param_model=params,
+            function=fn,
+            description=desc,
+            reconcile_fn=_TOOL_RECONCILERS.get(name),
         )
     try:
         registry.define_group(

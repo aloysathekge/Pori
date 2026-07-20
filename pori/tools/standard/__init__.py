@@ -67,6 +67,7 @@ def register_all_tools(registry):
                 info.function,
                 info.description,
                 side_effects=info.side_effects,
+                reconcile_fn=info.reconcile_fn,
                 collision_policy=CollisionPolicy.KEEP,
             )
     _define_standard_groups(registry)

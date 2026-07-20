@@ -7,6 +7,10 @@ from email.message import EmailMessage
 from typing import Any, Dict
 
 from pydantic import BaseModel, Field
+from pori.tools.registry import (
+    ReconciliationStatus,
+    ToolReconciliation,
+)
 
 from . import google_common as g
 
@@ -161,6 +165,11 @@ def gmail_send_tool(params: GmailSendParams, context: Dict[str, Any]) -> Dict[st
     msg["Subject"] = params.subject
     if params.cc:
         msg["Cc"] = params.cc
+    correlation_key = g.execution_correlation_key(context, namespace="gmail_send")
+    if correlation_key:
+        # A stable RFC822 Message-ID lets the read-only reconciler find a send
+        # that Google accepted before Aloy could persist its local receipt.
+        msg["Message-ID"] = f"<{correlation_key}@actions.aloy.invalid>"
     msg.set_content(params.body)
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
     try:
@@ -170,6 +179,61 @@ def gmail_send_tool(params: GmailSendParams, context: Dict[str, Any]) -> Dict[st
     except Exception as exc:
         return {"error": f"Gmail send failed: {exc}"}
     return {"sent": True, "id": sent.get("id"), "to": params.to}
+
+
+def reconcile_gmail_send_tool(
+    params: GmailSendParams, context: Dict[str, Any]
+) -> ToolReconciliation:
+    """Look up a proposal send by its stable RFC822 Message-ID; never resend."""
+    del params
+    correlation_key = g.execution_correlation_key(context, namespace="gmail_send")
+    if not correlation_key:
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error="The original execution attempt has no provider correlation key.",
+        )
+    message_id = f"<{correlation_key}@actions.aloy.invalid>"
+    try:
+        listing = g.get(
+            context,
+            f"{GMAIL_API}/messages",
+            {
+                "q": f"rfc822msgid:{message_id}",
+                "maxResults": 2,
+                "includeSpamTrash": True,
+            },
+        )
+    except PermissionError:
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error="Google is not connected, so the send cannot be reconciled.",
+        )
+    except Exception as exc:
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error=f"Gmail reconciliation failed: {exc}",
+        )
+    messages = listing.get("messages") or []
+    if not messages or not messages[0].get("id"):
+        # Gmail search may be eventually consistent. Absence is not proof that
+        # the send failed and therefore never authorizes a repeat send.
+        return ToolReconciliation(
+            status=ReconciliationStatus.UNKNOWN,
+            error="No matching Gmail message is visible yet.",
+        )
+    provider_id = str(messages[0]["id"])
+    return ToolReconciliation(
+        status=ReconciliationStatus.SUCCEEDED,
+        provider_operation_id=provider_id,
+        result={"sent": True, "id": provider_id, "reconciled": True},
+        evidence=(
+            {
+                "provider": "google:gmail",
+                "lookup": "rfc822_message_id",
+                "provider_operation_id": provider_id,
+            },
+        ),
+    )
 
 
 class GmailListDraftsParams(BaseModel):

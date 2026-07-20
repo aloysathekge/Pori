@@ -24,6 +24,7 @@ from .proposal_executor import (
     expire_due_proposals,
     reconcile_stale_executions,
 )
+from .proposal_reconciliation import reconcile_indeterminate_proposals
 from .run_budgets import resolve_run_budget
 from .run_watchdog import reconcile_orphaned_tasks, reconcile_stale_runs
 from .tenancy import OrganizationPolicy
@@ -238,6 +239,8 @@ async def run_once(worker_id: str | None = None) -> bool:
     await reconcile_orphaned_tasks()
     await expire_due_proposals()
     await reconcile_stale_executions()
+    if await reconcile_indeterminate_proposals():
+        return True
     proposal_result = await execute_next_approved_proposal()
     if proposal_result is not None:
         return True

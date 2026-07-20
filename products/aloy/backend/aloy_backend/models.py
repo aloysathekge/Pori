@@ -661,6 +661,14 @@ class ActionProposal(SQLModel, table=True):
     receipt: dict | None = Field(default=None, sa_column=Column(JSON))
     execution_attempt_id: str | None = Field(default=None, index=True)
     provider_operation_id: str | None = Field(default=None, index=True)
+    reconciliation_attempts: int = 0
+    reconciliation_checked_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    reconciliation_next_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
     error: str | None = None
     created_at: datetime = Field(
         default_factory=_utcnow,

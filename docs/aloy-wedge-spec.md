@@ -156,6 +156,9 @@ change for zero functional gain. Instead:
 | `receipt` | JSON \| null | `ToolExecutionReceipt` on commit (Verifiable Reality) |
 | `execution_attempt_id` | str \| null | stable idempotency/reconciliation key for the claimed attempt |
 | `provider_operation_id` | str \| null | provider-side message/event/object id when available |
+| `reconciliation_attempts` | int | number of leased read-only provider inspections |
+| `reconciliation_checked_at` | datetime \| null | most recent inspection start |
+| `reconciliation_next_at` | datetime \| null | durable lease/backoff boundary for the next inspection |
 | `error` | str \| null | on failure |
 | `created_at`/`updated_at` | datetime | |
 
@@ -345,6 +348,18 @@ otherwise it surfaces the uncertainty for review. The system promises
 **effectively-once where a provider supports idempotency/reconciliation, and
 at-most-once with explicit uncertainty otherwise** — never mathematically
 “exactly once” across a database and an external API.
+
+Tools declare reconciliation independently from execution through an optional
+read-only `reconcile_fn`. The Proposal worker leases a bounded number of
+automatic inspections and backs unknown results off exponentially. Only a typed provider conclusion plus
+evidence can move `indeterminate` to `committed` or `failed`; a missing result,
+lookup exception, revoked connection, or unsupported provider remains
+`indeterminate` and never calls the write function. Google Calendar creation
+uses a deterministic provider event ID derived from `execution_attempt_id`.
+New Gmail sends carry a deterministic RFC822 `Message-ID`, which the reconciler
+searches in the user's mailbox. `gmail_send_draft` remains explicitly
+at-most-once/indeterminate because the current provider adapter cannot prove its
+post-send outcome without a stable pre-send lookup key.
 
 ### 3.3 The interception seam (kernel touch-point)
 

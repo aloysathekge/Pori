@@ -1,6 +1,8 @@
 """Account connections: encryption, token store/refresh, endpoints, Gmail tools."""
 
+import base64
 from datetime import datetime, timedelta, timezone
+from email import message_from_bytes
 
 import pytest
 from cryptography.fernet import Fernet
@@ -318,6 +320,40 @@ class TestGoogleTools:
         assert calls[0][0] == "POST" and calls[0][1].endswith("/messages/send")
         assert "raw" in calls[0][3]  # RFC822 base64 payload
 
+    def test_gmail_send_attempt_has_reconcilable_message_id(self, monkeypatch):
+        from aloy_backend.tools.gmail import (
+            GmailSendParams,
+            gmail_send_tool,
+            reconcile_gmail_send_tool,
+        )
+        from pori.tools.registry import ReconciliationStatus
+
+        context = {
+            "connections": {"google": {"access_token": "TOK"}},
+            "execution_attempt_id": "attempt-mail-crash",
+        }
+        calls = _fake_http(monkeypatch, post_payload={"id": "sent-crash"})
+        gmail_send_tool(
+            GmailSendParams(to="a@b.com", subject="Hi", body="hello"),
+            context,
+        )
+        raw = calls[0][3]["raw"]
+        message = message_from_bytes(base64.urlsafe_b64decode(raw + "==="))
+        assert "actions.aloy.invalid" in message["Message-ID"]
+
+        calls = _fake_http(
+            monkeypatch,
+            get_payloads=[{"messages": [{"id": "sent-crash"}]}],
+        )
+        reconciled = reconcile_gmail_send_tool(
+            GmailSendParams(to="a@b.com", subject="Hi", body="hello"),
+            context,
+        )
+        assert reconciled.status == ReconciliationStatus.SUCCEEDED
+        assert reconciled.provider_operation_id == "sent-crash"
+        assert calls[0][0] == "GET"
+        assert calls[0][3]["q"].startswith("rfc822msgid:<")
+
     def test_gmail_create_draft(self, monkeypatch):
         from aloy_backend.tools.gmail import GmailDraftParams, gmail_create_draft_tool
 
@@ -423,6 +459,40 @@ class TestGoogleTools:
         )
         assert out["created"] is True and out["id"] == "ev1"
         assert calls[0][3]["summary"] == "Lunch"
+
+    def test_calendar_attempt_uses_deterministic_id_and_reconciles(self, monkeypatch):
+        from aloy_backend.tools.calendar import (
+            CalendarCreateParams,
+            calendar_create_event_tool,
+            reconcile_calendar_create_event_tool,
+        )
+        from pori.tools.registry import ReconciliationStatus
+
+        params = CalendarCreateParams(
+            summary="Lunch",
+            start="2026-07-09T12:00:00Z",
+            end="2026-07-09T13:00:00Z",
+        )
+        context = {
+            "connections": {"google": {"access_token": "TOK"}},
+            "execution_attempt_id": "attempt-calendar-crash",
+        }
+        calls = _fake_http(monkeypatch, post_payload={})
+        created = calendar_create_event_tool(params, context)
+        provider_id = calls[0][3]["id"]
+        assert provider_id.startswith("a10")
+        assert set(provider_id) <= set("0123456789abcdefghijklmnopqrstuv")
+        assert created["id"] == provider_id
+
+        calls = _fake_http(
+            monkeypatch,
+            get_payloads=[{"id": provider_id, "htmlLink": "https://calendar/x"}],
+        )
+        reconciled = reconcile_calendar_create_event_tool(params, context)
+        assert reconciled.status == ReconciliationStatus.SUCCEEDED
+        assert reconciled.provider_operation_id == provider_id
+        assert calls[0][0] == "GET"
+        assert calls[0][1].endswith(f"/events/{provider_id}")
 
     def test_register_defines_google_group(self):
         from aloy_backend.tools import GOOGLE_TOOL_NAMES, register_google_tools

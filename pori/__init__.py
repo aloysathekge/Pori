@@ -220,8 +220,10 @@ from .tools.registry import (
     CapabilityResolutionError,
     CapabilitySnapshot,
     CollisionPolicy,
+    ReconciliationStatus,
     ToolExecutor,
     ToolInfo,
+    ToolReconciliation,
     ToolRegistry,
     tool_registry,
 )
@@ -346,6 +348,8 @@ __all__ = [
     "ToolRegistry",
     "ToolExecutor",
     "ToolInfo",
+    "ToolReconciliation",
+    "ReconciliationStatus",
     "tool_registry",
     # Product integration seams (the kernel front door for embedding products —
     # see docs/codebase-review-2026-07-09.md: these were forced deep imports)

@@ -1,13 +1,19 @@
 """Tests for declarative tool side effects and the authorization policy."""
 
 import pytest
+from pydantic import BaseModel
 
 from pori.tools.policy import (
     AuthorizationDecision,
     ToolAuthorizationPolicy,
     task_requests_artifact,
 )
-from pori.tools.registry import SideEffect, ToolRegistry
+from pori.tools.registry import (
+    ReconciliationStatus,
+    SideEffect,
+    ToolReconciliation,
+    ToolRegistry,
+)
 from pori.tools.standard import register_all_tools
 
 
@@ -36,6 +42,29 @@ def test_side_effects_survive_snapshot_round_trip(snapshot):
     """Reconstructing a registry from a snapshot preserves side effects."""
     rebuilt = snapshot.to_registry()
     assert SideEffect.FILESYSTEM_WRITE in rebuilt.get_tool("write_file").side_effects
+
+
+def test_provider_reconciler_survives_snapshot_round_trip():
+    class EmptyParams(BaseModel):
+        pass
+
+    def execute(params, context):
+        return {"sent": True}
+
+    def reconcile(params, context):
+        return ToolReconciliation(status=ReconciliationStatus.SUCCEEDED)
+
+    registry = ToolRegistry()
+    registry.register_tool(
+        "send",
+        EmptyParams,
+        execute,
+        "Send",
+        reconcile_fn=reconcile,
+    )
+
+    rebuilt = registry.snapshot(protect_kernel=False).to_registry()
+    assert rebuilt.get_tool("send").reconcile_fn is reconcile
 
 
 @pytest.mark.parametrize(
