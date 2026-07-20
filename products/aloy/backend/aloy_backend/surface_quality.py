@@ -15,9 +15,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .surface_manifest import SurfaceManifest
-from .surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
+from .surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
 
-SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@3"
+SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@4"
 SURFACE_QUALITY_RECEIPT_KEY = "surface_quality"
 
 REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
@@ -100,7 +103,8 @@ def create_surface_quality_receipt(
         if isinstance(item, dict)
     ]
     state_matrix_passed = (
-        state_matrix.get("passed") is True
+        state_matrix.get("policy_version") == SURFACE_STATE_POLICY_VERSION
+        and state_matrix.get("passed") is True
         and state_matrix.get("required_states") == expected_states
         and state_matrix.get("required_viewports") == expected_state_viewports
         and observed_combinations == expected_combinations

@@ -182,9 +182,10 @@ V1 SDK capabilities should cover:
 - reactive subscriptions to Event data revisions;
 - `useSurfaceInteraction(id)` and controller lifecycle state for a command's
   host-owned Run, Proposal, execution, and terminal outcome;
-- typed `useProposals()`, `usePendingApprovals()`, `useReceipts()`, and
-  `useTrail()` projections; generated code may explain these records but never
-  owns approval or execution controls;
+- typed `useProposals()`, `useSurfaceApprovalState()`, `useReceipts()`, and
+  `useTrail()` projections; generated code may explain these records and bind a
+  visible approval-summary region, but never owns approval or execution
+  controls;
 - structured `dispatch(name, payload)` intents;
 - `askAloy(message, context)` for an explicit model turn;
 - `requestAction(action)` for host-validated consequential intent;
@@ -421,11 +422,14 @@ references for Aloy's warm, calm, legible, information-dense visual language.
 ### 13.2 Required evidence
 
 Every candidate renders wide desktop, laptop, default and narrow split,
-tablet, and mobile views. It also renders representative populated, loading,
-empty, stale/offline, error, long-content, and pending/indeterminate states when
-applicable. The five baseline viewport screenshots remain build artifacts;
-state compositions retain compact host-signed DOM, accessibility, contrast,
-and layout fingerprints instead of multiplying image storage and latency.
+tablet, and mobile views. It also renders loading, empty, stale/offline, error,
+permission-denied, pending, indeterminate, dense long-content, and protected
+approval-required states when applicable. Approval scenarios use ordinary
+pending Proposal and `waiting_approval` Interaction truth; they never expose
+generated approval controls or an inspection-only switch. The five baseline
+viewport screenshots remain build artifacts; state compositions retain compact
+host-signed DOM, accessibility, contrast, and layout fingerprints instead of
+multiplying image storage and latency.
 
 Deterministic checks block publication for build/runtime errors, undeclared or
 dead intents, accessibility failures, overflow, broken focus, poor contrast,

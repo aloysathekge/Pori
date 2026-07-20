@@ -194,6 +194,21 @@ export interface SurfaceResourceState extends SurfaceResourceSnapshot {
   };
 }
 
+export type SurfaceApprovalStatus = 'loading' | 'clear' | 'required';
+
+export interface SurfaceApprovalState {
+  status: SurfaceApprovalStatus;
+  required: boolean;
+  proposals: SurfaceProposal[];
+  interactions: SurfaceInteraction[];
+  feedbackProps: {
+    'data-aloy-approval-state': SurfaceApprovalStatus;
+    role: 'status';
+    'aria-live': 'polite';
+    'aria-atomic': true;
+  };
+}
+
 export interface SurfaceAction {
   name: string;
   payload: Record<string, unknown>;
@@ -697,6 +712,39 @@ export function usePendingApprovals(): SurfaceProposal[] {
     () => proposals.filter((proposal) => proposal.status === 'pending'),
     [proposals],
   );
+}
+
+/**
+ * Describe whether the Surface has a protected action waiting on the user.
+ * Approval controls remain host-owned; generated UI may only summarize and
+ * link to that trusted region.
+ */
+export function useSurfaceApprovalState(): SurfaceApprovalState {
+  const current = useSurfaceContext();
+  const proposals = usePendingApprovals();
+  const interactions = useMemo(
+    () => (current?.data.interactions ?? []).filter(
+      (interaction) => interaction.status === 'waiting_approval',
+    ),
+    [current],
+  );
+  const status: SurfaceApprovalStatus = !current
+    ? 'loading'
+    : proposals.length > 0 || interactions.length > 0
+      ? 'required'
+      : 'clear';
+  return {
+    status,
+    required: status === 'required',
+    proposals,
+    interactions,
+    feedbackProps: {
+      'data-aloy-approval-state': status,
+      role: 'status',
+      'aria-live': 'polite',
+      'aria-atomic': true,
+    },
+  };
 }
 
 /** Read receipt-backed external outcomes; absence of a receipt is not success. */

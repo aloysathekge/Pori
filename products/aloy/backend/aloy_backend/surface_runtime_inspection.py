@@ -32,6 +32,8 @@ from .surface_quality import (
 )
 from .surface_resource_states import (
     REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+    surface_fixture_applicable,
     surface_state_fixture_context,
 )
 from .surface_runtime import SurfaceRuntimeDocument
@@ -110,6 +112,11 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
     resource: element.getAttribute('data-aloy-resource'),
     state: element.getAttribute('data-aloy-resource-state'),
   }));
+  const approvalStateRegions = [...document.querySelectorAll(
+    '[data-aloy-approval-state]'
+  )].filter(visible).map(element => ({
+    state: element.getAttribute('data-aloy-approval-state'),
+  }));
   const root = document.getElementById('root');
   return resolve({
     viewport: { width: viewportWidth, height: viewportHeight },
@@ -133,6 +140,7 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
       small_touch_targets: smallTouchTargets.length,
       small_touch_target_samples: smallTouchTargets.slice(0, 10).map(sample),
       resource_state_regions: resourceStateRegions.slice(0, 20),
+      approval_state_regions: approvalStateRegions.slice(0, 20),
     },
   });
 })))
@@ -742,6 +750,7 @@ def inspect_surface_runtime(
                     socket,
                     send=send,
                     context=context,
+                    manifest=manifest,
                 )
                 timings["state_matrix_ms"] = round(
                     (time.monotonic() - state_started) * 1000,
@@ -1277,6 +1286,7 @@ def _inspect_state_matrix(
     *,
     send,
     context: dict[str, Any],
+    manifest: SurfaceManifest | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Exercise public non-ready states at trusted desktop and mobile sizes."""
     diagnostics: list[dict[str, Any]] = []
@@ -1286,8 +1296,18 @@ def _inspect_state_matrix(
         for item in REQUIRED_SURFACE_VIEWPORTS
         if str(item["id"]) in REQUIRED_SURFACE_STATE_VIEWPORTS
     }
+    approval_contract_applicable = surface_fixture_applicable(
+        manifest,
+        "approval_required",
+        list(context.get("capabilities") or []),
+    )
     for state in REQUIRED_SURFACE_STATE_FIXTURES:
-        fixture = surface_state_fixture_context(context, state)
+        fixture = surface_state_fixture_context(context, state, manifest=manifest)
+        applicable = surface_fixture_applicable(
+            manifest,
+            state,
+            list(context.get("capabilities") or []),
+        )
         for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS:
             viewport = viewports[viewport_id]
             command_id = send(
@@ -1370,15 +1390,20 @@ def _inspect_state_matrix(
                 continue
             layout = dict(result.get("layout") or {})
             accessibility = dict(result.get("accessibility") or {})
-            expected_resources = set(dict(fixture.get("resource_states") or {}))
+            expected_resource_states = dict(fixture.get("resource_states") or {})
+            expected_resources = set(expected_resource_states)
             state_regions = list(accessibility.get("resource_state_regions") or [])
             matching_regions = [
                 item
                 for item in state_regions
                 if isinstance(item, dict)
                 and item.get("resource") in expected_resources
-                and item.get("state") == state
+                and item.get("state")
+                == dict(expected_resource_states[str(item.get("resource"))]).get(
+                    "status"
+                )
             ]
+            approval_regions = list(accessibility.get("approval_state_regions") or [])
             if int(layout.get("root_children") or 0) < 1:
                 diagnostics.append(
                     _viewport_diagnostic(
@@ -1419,13 +1444,33 @@ def _inspect_state_matrix(
                         viewport=viewport,
                     )
                 )
-            if expected_resources and not matching_regions:
+            if applicable and expected_resources and not matching_regions:
                 diagnostics.append(
                     _viewport_diagnostic(
                         "state_region_missing",
                         (
                             f"The {state} state exposes no visible SDK-bound "
                             "resource region"
+                        ),
+                        viewport=viewport,
+                    )
+                )
+            expected_approval_state = (
+                "required" if state == "approval_required" else "clear"
+            )
+            matching_approval_regions = sum(
+                1
+                for item in approval_regions
+                if isinstance(item, dict)
+                and item.get("state") == expected_approval_state
+            )
+            if approval_contract_applicable and matching_approval_regions < 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_approval_region_missing",
+                        (
+                            "The Surface exposes no visible SDK-bound approval "
+                            f"summary in the expected {expected_approval_state} state"
                         ),
                         viewport=viewport,
                     )
@@ -1442,9 +1487,23 @@ def _inspect_state_matrix(
                 "viewport_id": viewport_id,
                 "requested_width": viewport["width"],
                 "requested_height": viewport["height"],
+                "applicable": applicable,
+                "fixture_bytes": len(
+                    json.dumps(
+                        fixture,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=True,
+                        default=str,
+                    ).encode("utf-8")
+                ),
                 "layout": layout,
                 "accessibility": accessibility,
                 "matching_resource_regions": len(matching_regions),
+                "expected_approval_state": (
+                    expected_approval_state if approval_contract_applicable else None
+                ),
+                "matching_approval_regions": matching_approval_regions,
                 "contrast": contrast_evidence,
             }
             observation["fingerprint"] = hashlib.sha256(
@@ -1476,7 +1535,7 @@ def _inspect_state_matrix(
         deadline=time.monotonic() + 2.0,
     )
     evidence = {
-        "policy_version": "aloy-surface-states@1",
+        "policy_version": SURFACE_STATE_POLICY_VERSION,
         "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
         "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
         "passed": not any(

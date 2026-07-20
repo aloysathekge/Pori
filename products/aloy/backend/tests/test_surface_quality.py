@@ -12,7 +12,10 @@ from aloy_backend.surface_quality import (
     create_surface_quality_receipt,
     surface_quality_receipt_error,
 )
-from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
+from aloy_backend.surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
 
 
 def _inspection_evidence() -> dict:
@@ -49,7 +52,7 @@ def _inspection_evidence() -> dict:
             ],
         },
         "state_matrix": {
-            "policy_version": "aloy-surface-states@1",
+            "policy_version": SURFACE_STATE_POLICY_VERSION,
             "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
             "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
             "passed": True,
@@ -192,3 +195,22 @@ def test_quality_receipt_requires_reconciled_latency_telemetry(timings: dict):
 
     assert receipt["passed"] is False
     assert receipt["checks"]["latency_telemetry"]["status"] == "failed"
+
+
+def test_quality_receipt_rejects_legacy_state_policy():
+    evidence = _inspection_evidence()
+    evidence["state_matrix"]["policy_version"] = "aloy-surface-states@1"
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=evidence,
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["checks"]["state_matrix"]["status"] == "failed"

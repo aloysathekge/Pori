@@ -40,7 +40,10 @@ from aloy_backend.surface_quality import (
     REQUIRED_SURFACE_STATE_VIEWPORTS,
     REQUIRED_SURFACE_VIEWPORTS,
 )
-from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
+from aloy_backend.surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
 from aloy_backend.surface_runtime import (
     InvalidSurfaceBundle,
     build_surface_runtime_document,
@@ -116,7 +119,7 @@ def _inspection_evidence() -> dict:
             ],
         },
         "state_matrix": {
-            "policy_version": "aloy-surface-states@1",
+            "policy_version": SURFACE_STATE_POLICY_VERSION,
             "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
             "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
             "passed": True,
@@ -292,6 +295,151 @@ async def test_local_browser_gate_rejects_hidden_focus_and_low_contrast():
     codes = {item["code"] for item in diagnostics}
     assert "focus_indicator_missing" in codes
     assert "contrast_text_failed" in codes
+
+
+async def test_local_browser_gate_proves_sdk_bound_approval_state():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["proposals"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="approval-state-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceApprovalState, useSurfaceResourceState } from "@aloy/surface"; '
+                "export default function App(){"
+                "const resource=useSurfaceResourceState('proposals');"
+                "const approval=useSurfaceApprovalState();"
+                "return <main {...resource.feedbackProps}><section {...approval.feedbackProps}>"
+                "{approval.required?'Approval waiting':'No approval waiting'}"
+                "</section></main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    evidence: dict = {}
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["proposals"],
+            "widgets": [],
+            "data": {"proposals": [], "interactions": []},
+        },
+        manifest=manifest,
+        evidence_sink=evidence,
+    )
+
+    assert diagnostics == []
+    approval_observations = [
+        item
+        for item in evidence["state_matrix"]["observations"]
+        if item["state"] == "approval_required"
+    ]
+    assert len(approval_observations) == len(REQUIRED_SURFACE_STATE_VIEWPORTS)
+    assert all(item["applicable"] is True for item in approval_observations)
+    assert all(item["matching_approval_regions"] == 1 for item in approval_observations)
+    assert all(
+        item["matching_approval_regions"] == 1
+        and item["expected_approval_state"] == "clear"
+        for item in evidence["state_matrix"]["observations"]
+        if item["state"] != "approval_required"
+    )
+
+
+async def test_local_browser_gate_rejects_missing_approval_summary_region():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["proposals"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="missing-approval-state-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceResourceState } from "@aloy/surface"; '
+                "export default function App(){"
+                "const resource=useSurfaceResourceState('proposals');"
+                "return <main {...resource.feedbackProps}>Proposal workspace</main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["proposals"],
+            "widgets": [],
+            "data": {"proposals": [], "interactions": []},
+        },
+        manifest=manifest,
+    )
+
+    assert "state_approval_region_missing" in {item["code"] for item in diagnostics}
+
+
+async def test_local_browser_gate_rejects_long_content_page_overflow():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["tasks"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="long-content-overflow-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceResourceState, useTasks } from "@aloy/surface"; '
+                "export default function App(){const tasks=useTasks();"
+                "const resource=useSurfaceResourceState('tasks');"
+                "return <main {...resource.feedbackProps}><div style={{display:'flex',flexWrap:'nowrap'}}>"
+                "{tasks.map((task,index)=><article key={index} style={{minWidth:420}}>"
+                "{String(task.title)}</article>)}</div></main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["tasks"],
+            "widgets": [],
+            "data": {"tasks": [], "interactions": []},
+        },
+        manifest=manifest,
+    )
+
+    assert any(
+        item["code"] == "state_viewport_overflow"
+        and item.get("viewport") in REQUIRED_SURFACE_STATE_VIEWPORTS
+        for item in diagnostics
+    )
 
 
 async def test_local_browser_gate_rejects_render_exception():

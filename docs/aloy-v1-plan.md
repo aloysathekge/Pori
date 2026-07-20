@@ -748,10 +748,10 @@ Gate:
 **Branch:** `aloy-v1-r9-surface-quality`
 
 R9 turns Surface quality from a trusted-pipeline convention into durable,
-build-bound evidence. It then layers responsive evidence, independent review,
-reviewed building blocks, and repeatable showcases onto that same publication
-contract. R9 does not merge Aloy V1 to `main`; `aloy-v1` remains the integration
-branch until the complete product acceptance gate passes.
+build-bound evidence. It then layers responsive evidence, reviewed building
+blocks, primary-job simulation, and repeatable showcases onto that same
+publication contract. R9 does not merge Aloy V1 to `main`; `aloy-v1` remains
+the integration branch until the complete product acceptance gate passes.
 
 Delivery slices:
 
@@ -761,9 +761,9 @@ Delivery slices:
    available for a previously published legacy last-good build.
 2. **Viewport and state evidence:** render the required wide, split, tablet,
    and mobile compositions plus applicable populated, loading, empty, stale,
-   error, long-content, approval, and indeterminate states. Retain captures,
-   overflow/focus/accessibility diagnostics, timings, and hashes as build
-   evidence.
+   error, long-content, approval, and indeterminate states. Retain the five
+   baseline captures plus compact state observations, overflow/focus/
+   accessibility diagnostics, timings, and fingerprints as build evidence.
 3. **Optional asynchronous visual review:** defer a vision-capable Critic until
    measured Builder quality demonstrates a need. If introduced, it receives
    only selected representative captures, remains advisory and asynchronous,
@@ -792,21 +792,23 @@ into the exact-build receipt; local PNGs are retained beside the immutable
 bundle. The real runtime context now carries a versioned host-owned state for
 each capability-scoped resource, and `useSurfaceResourceState` exposes the same
 contract to generated React. The publication browser drives loading, empty,
-stale, error, permission-denied, pending, and indeterminate states through that
-public context at wide and mobile sizes. A visible primary region must bind the
-SDK state and transition with it; inspection-only branches cannot satisfy the
-gate. Those 14 state observations retain compact trusted fingerprints while
-only the five baseline viewport PNGs are stored. The browser also tabs through
-every visible enabled
+stale, error, permission-denied, pending, and indeterminate states plus dense
+long-content and approval-required scenarios through that public context at
+wide and mobile sizes. Long content populates only ordinary capability-scoped
+Event shapes. Approval uses a pending Proposal and `waiting_approval`
+Interaction; `useSurfaceApprovalState` binds a visible summary while decision
+controls remain host-owned. A visible primary region must bind the SDK state
+and transition with it; inspection-only branches cannot satisfy the gate. Those
+18 state observations retain compact trusted fingerprints while only the five
+baseline viewport PNGs are stored. The browser also tabs through every visible enabled
 control at all five baseline sizes, blocks unreachable controls, premature focus
 cycles, and missing visible focus indicators, and records stronger 2px/3:1
 outline evidence without falsely claiming the optional AAA criterion. Text is
-measured against its effective solid backdrop in all five baseline and 14 state
+measured against its effective solid backdrop in all five baseline and 18 state
 compositions; normal text must reach 4.5:1 and large text 3:1, while an
 unresolvable image/gradient backdrop fails closed. Small compact touch targets
-are recorded for later scoring. Long-content and approval fixtures, remote
-evidence transport, and primary-job simulation remain
-follow-ups; this foundation does not claim them.
+are recorded for later scoring. Remote evidence transport and primary-job
+simulation remain follow-ups; this foundation does not claim them.
 
 Gate:
 
@@ -906,10 +908,10 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 R8 is merged into `aloy-v1` as PR #198. R9 is active on
 `aloy-v1-r9-surface-quality`. Exact-build receipts, the five-viewport baseline,
-the first public state matrix, keyboard-focus traversal, visible focus evidence,
-and deterministic text contrast are complete. Add long-content and approval
-fixtures next. A visual Critic is deferred and optional, not a publication
-gate. Reviewed SDK primitives and widgets follow; University and
+the public lifecycle, long-content, and approval state matrix, keyboard-focus
+traversal, visible focus evidence, and deterministic text contrast are complete.
+Add primary-job simulation next. A visual Critic is deferred and optional, not
+a publication gate. Reviewed SDK primitives and widgets follow; University and
 Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
 `main` untouched until the R9 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.

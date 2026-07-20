@@ -37,7 +37,10 @@ from aloy_backend.surface_quality import (
     REQUIRED_SURFACE_STATE_VIEWPORTS,
     REQUIRED_SURFACE_VIEWPORTS,
 )
-from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
+from aloy_backend.surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
 
 
 def _inspection_evidence() -> dict:
@@ -74,7 +77,7 @@ def _inspection_evidence() -> dict:
             ],
         },
         "state_matrix": {
-            "policy_version": "aloy-surface-states@1",
+            "policy_version": SURFACE_STATE_POLICY_VERSION,
             "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
             "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
             "passed": True,

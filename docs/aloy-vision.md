@@ -620,11 +620,15 @@ reload.
 
 Surface quality is engineered rather than requested with the word “beautiful.”
 Every publish candidate is built in isolation, rendered at required viewports
-and states, checked deterministically, critiqued independently, exercised
-against the Event's primary user jobs, and repaired within bounded limits. A
-failed or weak candidate never replaces the last-good revision. The Surface
-Builder skill teaches the model how to work, but schemas, tools, sandboxing,
-CSP, host bridges, and the publish service enforce the boundary.
+and host-owned states, checked deterministically, exercised against the Event's
+primary user jobs, and repaired within bounded limits. Dense real-world content
+and approval-required scenarios use the same public context shapes as the live
+Surface; generated code receives no inspection-only escape hatch and no
+approval authority. A failed or weak candidate never replaces the last-good
+revision. Optional visual critique may run asynchronously when measured quality
+justifies it, but it is not a V1 publication dependency. The Surface Builder
+skill teaches the model how to work, while schemas, tools, sandboxing, CSP,
+host bridges, and the publish service enforce the boundary.
 
 Publishing is versioned and risk-aware. A safe visual repair or read-only view
 may publish automatically after passing the gate. A major navigation change
