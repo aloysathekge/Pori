@@ -32,7 +32,7 @@ from ..models import (
 )
 from ..rate_limit import rate_limited_permission
 from ..storage import event_setup_file_key, get_object_store, safe_name
-from ..tenancy import OrganizationContext, Permission
+from ..tenancy import OrganizationContext, Permission, require_permission
 
 router = APIRouter(prefix="/event-drafts", tags=["event-setup"])
 
@@ -166,9 +166,7 @@ async def create_draft(
 
 @router.get("/current", response_model=None)
 async def current_draft(
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.AGENT_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any] | Response:
     draft = (
@@ -194,9 +192,7 @@ async def current_draft(
 @router.get("/{draft_id}")
 async def get_draft(
     draft_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.AGENT_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     return await _draft_payload(session, await _load_draft(session, context, draft_id))
