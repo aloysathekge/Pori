@@ -10,8 +10,8 @@ host-owned resource state. Generated React reads that state through
 Trusted inspection uses the same public context to exercise loading, empty,
 stale, error, permission-denied, pending, and indeterminate states at wide and
 mobile sizes. The gate requires the bound region to transition to each state,
-checks runtime/layout/basic accessibility, retains 14 state captures, and binds
-their hashes and observations into `aloy-surface-quality@2`. Interaction checks
+checks runtime/layout/basic accessibility, retains 14 state fingerprints, and
+binds their observations into `aloy-surface-quality@2`. Interaction checks
 are reset to canonical Event context after state inspection.
 
 ## Architecture decisions
@@ -25,4 +25,4 @@ are reset to canonical Event context after state inspection.
 ## Next
 
 Add deterministic keyboard focus-indicator and contrast evidence, followed by
-long-content and approval fixtures. Only then add the independent Critic.
+long-content, approval, and primary-job fixtures.

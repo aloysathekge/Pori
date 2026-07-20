@@ -274,7 +274,7 @@ sandbox, publication, and quality contract as rich experiences. Delivery is
 split into the following independently merged branches:
 
 1. **`aloy-v1-r5-builder-control-plane`** - developer-owned Surface Builder and
-   Surface Critic model roles kept independent from ordinary Conversation
+   optional advisory Critic roles kept independent from ordinary Conversation
    AgentConfig; immutable assignment provenance; capability/policy checks;
    skill version; model usage, cost, and timing diagnostics. A Builder role
    must be explicitly configured and qualified before it can receive a Run.
@@ -350,8 +350,8 @@ split into the following independently merged branches:
    richer diagnostics, last-good continuity, immutable runtime preparation,
    and authenticated private cache.
 6. **`aloy-v1-r5-surface-quality`** - deterministic authority/build checks,
-   required viewport/state captures, accessibility and overflow checks,
-   independent Critic, primary-job simulation, bounded repair, feedback,
+   required viewport/state evidence, accessibility and overflow checks,
+   primary-job simulation, bounded repair, feedback,
    pinning, revision history, and rollback.
 7. **`aloy-v1-r5-university-proof`** - repeatable natural-language University
    generation without the word Surface, fake Tasks, or hardcoded domain logic;
@@ -405,8 +405,8 @@ Scope:
   workspace preferences;
 - add the Aloy Surface Builder skill for project, SDK, interaction, truth,
   accessibility, preview, and repair guidance;
-- implement the brief, required viewport/state capture, deterministic audit,
-  independent Surface Critic, primary user-job simulation, bounded repair, and
+- implement the brief, required viewport/state evidence, deterministic audit,
+  primary user-job simulation, bounded repair, and
   quality scorecard contract in §13 of
   [`aloy-surface-spec.md`](./aloy-surface-spec.md);
 - choose and document the privileged Map widget adapter, tiles/geocoding
@@ -764,11 +764,10 @@ Delivery slices:
    error, long-content, approval, and indeterminate states. Retain captures,
    overflow/focus/accessibility diagnostics, timings, and hashes as build
    evidence.
-3. **Independent Critic and scorecard:** run a separately configured,
-   vision-capable Surface Critic over trusted captures and the product brief.
-   Findings are structured by viewport, state, region, severity, and repair
-   direction. Deterministic security, truth, and interaction failures can
-   never be waived by a model score.
+3. **Optional asynchronous visual review:** defer a vision-capable Critic until
+   measured Builder quality demonstrates a need. If introduced, it receives
+   only selected representative captures, remains advisory and asynchronous,
+   and never becomes a V1 publication dependency or waiver mechanism.
 4. **Primary-job simulation and bounded repair:** freeze the requested user
    jobs, execute their accessible pointer and keyboard paths, validate typed
    outcomes against Event truth, and allow only bounded complete-candidate
@@ -796,10 +795,17 @@ contract to generated React. The publication browser drives loading, empty,
 stale, error, permission-denied, pending, and indeterminate states through that
 public context at wide and mobile sizes. A visible primary region must bind the
 SDK state and transition with it; inspection-only branches cannot satisfy the
-gate. Those 14 state captures and observations join the five baseline captures
-in the exact-build receipt. Small compact touch targets are recorded for later
-scoring. Focus-indicator/contrast analysis, long-content and approval fixtures,
-remote capture transport, independent Critic, and primary-job simulation remain
+gate. Those 14 state observations retain compact trusted fingerprints while
+only the five baseline viewport PNGs are stored. The browser also tabs through
+every visible enabled
+control at all five baseline sizes, blocks unreachable controls, premature focus
+cycles, and missing visible focus indicators, and records stronger 2px/3:1
+outline evidence without falsely claiming the optional AAA criterion. Text is
+measured against its effective solid backdrop in all five baseline and 14 state
+compositions; normal text must reach 4.5:1 and large text 3:1, while an
+unresolvable image/gradient backdrop fails closed. Small compact touch targets
+are recorded for later scoring. Long-content and approval fixtures, remote
+evidence transport, and primary-job simulation remain
 follow-ups; this foundation does not claim them.
 
 Gate:
@@ -809,11 +815,9 @@ Gate:
 - every required viewport and applicable state has trusted retained evidence,
   and blocking accessibility, overflow, focus, runtime, or interaction findings
   prevent publication;
-- the Critic cannot publish, waive a deterministic finding, or inspect a
-  different artifact from the one under review;
 - primary user jobs succeed through accessible UI paths and converge with
   canonical Event state exactly once;
-- failed repair, Critic, widget, or capture infrastructure leaves the current
+- failed repair, widget, or evidence infrastructure leaves the current
   last-good Surface live and exposes an actionable diagnostic;
 - University and Madrid pass through the same domain-neutral contracts and
   remain useful at mobile, split-pane, and wide-desktop widths.
@@ -902,10 +906,10 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 R8 is merged into `aloy-v1` as PR #198. R9 is active on
 `aloy-v1-r9-surface-quality`. Exact-build receipts, the five-viewport baseline,
-and the first public state matrix are complete. Add deterministic keyboard
-focus-indicator and contrast evidence next, followed by long-content and
-approval fixtures. Add the independent Critic only after those host-owned facts
-are durable. Reviewed SDK primitives and widgets follow that gate; University
-and Madrid are proofs of the ordinary pipeline, not special runtime behavior.
-Keep `main` untouched until the R9 gate, manual product QA, live-provider proofs,
+the first public state matrix, keyboard-focus traversal, visible focus evidence,
+and deterministic text contrast are complete. Add long-content and approval
+fixtures next. A visual Critic is deferred and optional, not a publication
+gate. Reviewed SDK primitives and widgets follow; University and
+Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
+`main` untouched until the R9 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.

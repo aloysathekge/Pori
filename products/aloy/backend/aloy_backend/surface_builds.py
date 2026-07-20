@@ -556,6 +556,8 @@ class SurfaceBuildHandler:
                 and build.resource_metrics.get("viewport_inspection") == "passed"
                 and build.resource_metrics.get("accessibility_inspection") == "passed"
                 and build.resource_metrics.get("state_inspection") == "passed"
+                and build.resource_metrics.get("focus_inspection") == "passed"
+                and build.resource_metrics.get("contrast_inspection") == "passed"
                 and (
                     not manifest.interaction_checks
                     or build.resource_metrics.get("interaction_inspection") == "passed"
@@ -667,7 +669,7 @@ class SurfaceBuildHandler:
                             "severity": "error",
                             "message": (
                                 "The trusted build produced incomplete viewport, "
-                                "state, or accessibility evidence"
+                                "state, focus, contrast, or accessibility evidence"
                             ),
                         }
                     )

@@ -89,8 +89,9 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
   const imagesMissingAlt = [...document.querySelectorAll('img:not([alt])')].filter(visible);
   const keyboardUnreachable = controls.filter(element => {
     const role = element.getAttribute('role');
-    return ['button','link','checkbox','radio','combobox','textbox'].includes(role || '')
-      && element.tabIndex < 0;
+    const native = ['BUTTON','A','INPUT','SELECT','TEXTAREA'].includes(element.tagName);
+    return element.tabIndex < 0 && (native
+      || ['button','link','checkbox','radio','combobox','textbox'].includes(role || ''));
   });
   const ids = [...document.querySelectorAll('[id]')].map(element => element.id).filter(Boolean);
   const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
@@ -137,6 +138,243 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
 })))
 """.strip()
 
+_CONTRAST_AUDIT_EXPRESSION = r"""
+(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const parseColor = value => {
+    if (!value || value === 'transparent') return [0, 0, 0, 0];
+    const match = value.match(/^rgba?\((.*)\)$/i);
+    if (!match) return null;
+    const parts = match[1].trim().split(/[\s,\/]+/).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.some(Number.isNaN)) return null;
+    return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
+  };
+  const blend = (front, back) => {
+    const alpha = front[3] + back[3] * (1 - front[3]);
+    if (alpha <= 0) return [255, 255, 255, 1];
+    return [
+      (front[0] * front[3] + back[0] * back[3] * (1 - front[3])) / alpha,
+      (front[1] * front[3] + back[1] * back[3] * (1 - front[3])) / alpha,
+      (front[2] * front[3] + back[2] * back[3] * (1 - front[3])) / alpha,
+      alpha,
+    ];
+  };
+  const background = element => {
+    const layers = [];
+    let node = element;
+    while (node instanceof Element) {
+      const style = getComputedStyle(node);
+      if (style.backgroundImage && style.backgroundImage !== 'none') {
+        return { color: null, reason: 'background_image' };
+      }
+      const color = parseColor(style.backgroundColor);
+      if (!color) return { color: null, reason: 'unparsed_background' };
+      layers.push(color);
+      node = node.parentElement;
+    }
+    let result = [255, 255, 255, 1];
+    for (const layer of layers.reverse()) result = blend(layer, result);
+    return { color: result, reason: null };
+  };
+  const luminance = color => {
+    const channels = color.slice(0, 3).map(value => {
+      const normalized = value / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const ratio = (first, second) => {
+    const a = luminance(first);
+    const b = luminance(second);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const elements = [];
+  const seen = new Set();
+  let node;
+  while ((node = walker.nextNode())) {
+    if (!(node.textContent || '').trim()) continue;
+    const element = node.parentElement;
+    if (!element || seen.has(element) || !visible(element)) continue;
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(element.tagName)) continue;
+    if (element.closest('[aria-hidden=true],[hidden],[disabled],[aria-disabled=true]')) continue;
+    seen.add(element);
+    elements.push(element);
+  }
+  const samples = [];
+  let measured = 0;
+  let failures = 0;
+  let unmeasurable = 0;
+  let minimum = null;
+  for (const element of elements.slice(0, 1000)) {
+    const style = getComputedStyle(element);
+    const foreground = parseColor(style.color);
+    const backdrop = background(element);
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!foreground || !backdrop.color) {
+      unmeasurable += 1;
+      if (samples.length < 20) samples.push({ text, outcome: 'unmeasurable', reason: backdrop.reason });
+      continue;
+    }
+    const renderedForeground = blend(foreground, backdrop.color);
+    const contrast = ratio(renderedForeground, backdrop.color);
+    const fontSize = Number.parseFloat(style.fontSize) || 0;
+    const fontWeight = Number.parseInt(style.fontWeight, 10) || 400;
+    const large = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+    const required = large ? 3 : 4.5;
+    const passed = contrast + 0.001 >= required;
+    measured += 1;
+    if (!passed) failures += 1;
+    minimum = minimum === null ? contrast : Math.min(minimum, contrast);
+    if ((!passed || samples.length < 5) && samples.length < 20) {
+      samples.push({
+        text,
+        outcome: passed ? 'passed' : 'failed',
+        ratio: Number(contrast.toFixed(3)),
+        required,
+        font_size_px: fontSize,
+        font_weight: fontWeight,
+        foreground: style.color,
+        background: backdrop.color.map(value => Number(value.toFixed(2))),
+      });
+    }
+  }
+  return {
+    policy_version: 'aloy-surface-contrast@1',
+    passed: failures === 0 && unmeasurable === 0,
+    text_nodes: elements.length,
+    measured,
+    failures,
+    unmeasurable,
+    minimum_ratio: minimum === null ? null : Number(minimum.toFixed(3)),
+    samples,
+  };
+})()
+""".strip()
+
+_FOCUS_SETUP_EXPRESSION = r"""
+(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const candidates = [...document.querySelectorAll(
+    'button,a[href],input:not([type=hidden]),select,textarea,[contenteditable=true],[tabindex]'
+  )].filter(visible).filter(element => !element.disabled
+    && element.getAttribute('aria-disabled') !== 'true' && element.tabIndex >= 0);
+  const radioGroups = new Map();
+  for (const element of candidates) {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) continue;
+    const group = radioGroups.get(element.name) || [];
+    group.push(element);
+    radioGroups.set(element.name, group);
+  }
+  const controls = candidates.filter(element => {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) return true;
+    const group = radioGroups.get(element.name) || [];
+    const checked = group.find(item => item.checked);
+    return element === (checked || group[0]);
+  }).slice(0, 200);
+  const style = element => {
+    const value = getComputedStyle(element);
+    return {
+      outline_style: value.outlineStyle,
+      outline_width: Number.parseFloat(value.outlineWidth) || 0,
+      outline_color: value.outlineColor,
+      box_shadow: value.boxShadow,
+      border_color: value.borderColor,
+      border_width: value.borderWidth,
+      background_color: value.backgroundColor,
+      color: value.color,
+    };
+  };
+  window.__aloyFocusBaseline = {};
+  controls.forEach((element, index) => {
+    const id = String(index);
+    element.setAttribute('data-aloy-focus-index', id);
+    window.__aloyFocusBaseline[id] = style(element);
+  });
+  document.activeElement?.blur();
+  document.body.setAttribute('tabindex', '-1');
+  document.body.focus();
+  return { count: controls.length };
+})()
+""".strip()
+
+_FOCUS_OBSERVATION_EXPRESSION = r"""
+(() => {
+  const element = document.activeElement;
+  if (!(element instanceof Element)) return { index: null, visible_indicator: false };
+  const index = element.getAttribute('data-aloy-focus-index');
+  const value = getComputedStyle(element);
+  const baseline = (window.__aloyFocusBaseline || {})[index] || {};
+  const outlineWidth = Number.parseFloat(value.outlineWidth) || 0;
+  const outlineVisible = !['none', 'hidden'].includes(value.outlineStyle)
+    && outlineWidth >= 1 && value.outlineColor !== 'transparent';
+  const parseColor = color => {
+    if (!color || color === 'transparent') return null;
+    const match = color.match(/^rgba?\((.*)\)$/i);
+    if (!match) return null;
+    const parts = match[1].trim().split(/[\s,\/]+/).filter(Boolean).map(Number);
+    return parts.length >= 3 && !parts.some(Number.isNaN)
+      && (parts.length < 4 || parts[3] > 0) ? parts.slice(0, 3) : null;
+  };
+  const luminance = color => {
+    const channels = color.map(item => {
+      const normalized = item / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  let backgroundElement = element.parentElement;
+  let backgroundColor = null;
+  while (backgroundElement && !backgroundColor) {
+    backgroundColor = parseColor(getComputedStyle(backgroundElement).backgroundColor);
+    backgroundElement = backgroundElement.parentElement;
+  }
+  backgroundColor = backgroundColor || [255, 255, 255];
+  const outlineColor = parseColor(value.outlineColor);
+  const outlineContrast = outlineColor
+    ? (Math.max(luminance(outlineColor), luminance(backgroundColor)) + 0.05)
+      / (Math.min(luminance(outlineColor), luminance(backgroundColor)) + 0.05)
+    : null;
+  const shadowChanged = value.boxShadow !== baseline.box_shadow && value.boxShadow !== 'none';
+  const borderChanged = value.borderColor !== baseline.border_color
+    || value.borderWidth !== baseline.border_width;
+  const fillChanged = value.backgroundColor !== baseline.background_color
+    || value.color !== baseline.color;
+  return {
+    index,
+    tag: element.tagName.toLowerCase(),
+    name: (element.getAttribute('aria-label') || element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    visible_indicator: outlineVisible || shadowChanged || borderChanged || fillChanged,
+    strong_outline: outlineVisible && outlineWidth >= 2
+      && outlineContrast !== null && outlineContrast >= 3,
+    signals: {
+      outline: outlineVisible,
+      outline_width: outlineWidth,
+      outline_style: value.outlineStyle,
+      outline_color: value.outlineColor,
+      outline_contrast: outlineContrast === null ? null : Number(outlineContrast.toFixed(3)),
+      shadow_changed: shadowChanged,
+      border_changed: borderChanged,
+      fill_changed: fillChanged,
+    },
+  };
+})()
+""".strip()
+
 
 def _browser_executable() -> str | None:
     configured = os.getenv("ALOY_SURFACE_BROWSER", "").strip()
@@ -176,6 +414,8 @@ def inspect_surface_runtime(
     selectors. Each declared intent must be reachable through a visible user
     path and produce the expected typed SDK request before publication.
     """
+    inspection_started = time.monotonic()
+    timings: dict[str, Any] = {"policy_version": "aloy-surface-timings@1"}
     browser = _browser_executable()
     if browser is None:
         return [
@@ -470,23 +710,54 @@ def inspect_surface_runtime(
                     )
                 if diagnostics:
                     return diagnostics
+                runtime_ready_at = time.monotonic()
+                timings["runtime_bootstrap_ms"] = round(
+                    (runtime_ready_at - inspection_started) * 1000,
+                    3,
+                )
+                viewport_started = time.monotonic()
                 viewport_diagnostics, viewport_evidence, captures = (
                     _inspect_viewport_matrix(socket, send=send)
+                )
+                timings["viewport_matrix_ms"] = round(
+                    (time.monotonic() - viewport_started) * 1000,
+                    3,
                 )
                 if evidence_sink is not None:
                     evidence_sink["viewport_matrix"] = viewport_evidence
                     evidence_sink["_capture_blobs"] = captures
                 diagnostics.extend(viewport_diagnostics)
                 if diagnostics:
+                    timings["state_matrix_ms"] = 0.0
+                    timings["interaction_checks_ms"] = 0.0
+                    timings["total_ms"] = round(
+                        (time.monotonic() - inspection_started) * 1000,
+                        3,
+                    )
+                    if evidence_sink is not None:
+                        evidence_sink["timings"] = timings
                     return diagnostics
-                state_diagnostics, state_evidence, state_captures = (
-                    _inspect_state_matrix(socket, send=send, context=context)
+                state_started = time.monotonic()
+                state_diagnostics, state_evidence = _inspect_state_matrix(
+                    socket,
+                    send=send,
+                    context=context,
+                )
+                timings["state_matrix_ms"] = round(
+                    (time.monotonic() - state_started) * 1000,
+                    3,
                 )
                 if evidence_sink is not None:
                     evidence_sink["state_matrix"] = state_evidence
-                    evidence_sink["_capture_blobs"].extend(state_captures)
                 diagnostics.extend(state_diagnostics)
                 if diagnostics or manifest is None:
+                    timings["interaction_checks_ms"] = 0.0
+                    timings["total_ms"] = round(
+                        (time.monotonic() - inspection_started) * 1000,
+                        3,
+                    )
+                    if evidence_sink is not None:
+                        evidence_sink["timings"] = timings
                     return diagnostics
                 # Interaction paths execute at a stable wide composition after
                 # every required responsive composition has been inspected.
@@ -500,6 +771,7 @@ def inspect_surface_runtime(
                         "mobile": False,
                     },
                 )
+                interaction_started = time.monotonic()
                 for check in manifest.interaction_checks:
                     diagnostics.extend(
                         _execute_interaction_check(
@@ -510,6 +782,16 @@ def inspect_surface_runtime(
                             deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
                         )
                     )
+                timings["interaction_checks_ms"] = round(
+                    (time.monotonic() - interaction_started) * 1000,
+                    3,
+                )
+                timings["total_ms"] = round(
+                    (time.monotonic() - inspection_started) * 1000,
+                    3,
+                )
+                if evidence_sink is not None:
+                    evidence_sink["timings"] = timings
                 return diagnostics
             finally:
                 socket.close()
@@ -590,6 +872,206 @@ def _viewport_diagnostic(
     diagnostic = _diagnostic(code, message)
     diagnostic["viewport"] = str(viewport["id"])
     return diagnostic
+
+
+def _inspect_contrast(
+    socket,
+    *,
+    send,
+    viewport: dict[str, Any],
+    state: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    result_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": _CONTRAST_AUDIT_EXPRESSION,
+            "returnByValue": True,
+        },
+    )
+    result, exceptions = _receive_evaluation(
+        socket,
+        result_id=result_id,
+        deadline=time.monotonic() + 3.0,
+    )
+    diagnostics: list[dict[str, Any]] = []
+    if exceptions or not isinstance(result, dict):
+        for message in exceptions[:10] or [
+            "No deterministic contrast evidence returned"
+        ]:
+            diagnostic = _viewport_diagnostic(
+                "contrast_audit_failed",
+                message,
+                viewport=viewport,
+            )
+            if state is not None:
+                diagnostic["state"] = state
+            diagnostics.append(diagnostic)
+        return diagnostics, {}
+    if result.get("passed") is not True:
+        failures = int(result.get("failures") or 0)
+        unmeasurable = int(result.get("unmeasurable") or 0)
+        diagnostic = _viewport_diagnostic(
+            "contrast_text_failed",
+            (
+                f"{failures} text region(s) miss the WCAG contrast threshold and "
+                f"{unmeasurable} region(s) have no deterministic solid backdrop"
+            ),
+            viewport=viewport,
+        )
+        if state is not None:
+            diagnostic["state"] = state
+        diagnostics.append(diagnostic)
+    return diagnostics, result
+
+
+def _inspect_keyboard_focus(
+    socket,
+    *,
+    send,
+    viewport: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    setup_id = send(
+        "Runtime.evaluate",
+        {"expression": _FOCUS_SETUP_EXPRESSION, "returnByValue": True},
+    )
+    setup, exceptions = _receive_evaluation(
+        socket,
+        result_id=setup_id,
+        deadline=time.monotonic() + 3.0,
+    )
+    if exceptions or not isinstance(setup, dict):
+        return [
+            _viewport_diagnostic(
+                "focus_audit_failed",
+                (exceptions[0] if exceptions else "Focus setup returned no evidence"),
+                viewport=viewport,
+            )
+        ], {}
+    expected = int(setup.get("count") or 0)
+    visited: list[dict[str, Any]] = []
+    visited_indexes: set[str] = set()
+    repeated_before_complete = False
+    for _ in range(expected + 2):
+        key_down = send(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyDown",
+                "key": "Tab",
+                "code": "Tab",
+                "windowsVirtualKeyCode": 9,
+                "nativeVirtualKeyCode": 9,
+            },
+        )
+        _receive_command_result(
+            socket,
+            result_id=key_down,
+            deadline=time.monotonic() + 1.0,
+        )
+        key_up = send(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyUp",
+                "key": "Tab",
+                "code": "Tab",
+                "windowsVirtualKeyCode": 9,
+                "nativeVirtualKeyCode": 9,
+            },
+        )
+        _receive_command_result(
+            socket,
+            result_id=key_up,
+            deadline=time.monotonic() + 1.0,
+        )
+        observation_id = send(
+            "Runtime.evaluate",
+            {"expression": _FOCUS_OBSERVATION_EXPRESSION, "returnByValue": True},
+        )
+        observation, focus_exceptions = _receive_evaluation(
+            socket,
+            result_id=observation_id,
+            deadline=time.monotonic() + 2.0,
+        )
+        if focus_exceptions or not isinstance(observation, dict):
+            break
+        index = observation.get("index")
+        if index is None:
+            if len(visited_indexes) >= expected:
+                break
+            continue
+        index = str(index)
+        if index in visited_indexes:
+            if len(visited_indexes) < expected:
+                repeated_before_complete = True
+            break
+        visited_indexes.add(index)
+        visited.append(observation)
+        if len(visited_indexes) >= expected:
+            break
+
+    cleanup_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "document.activeElement?.blur();"
+                "document.body.removeAttribute('tabindex');"
+                "document.querySelectorAll('[data-aloy-focus-index]').forEach("
+                "element=>element.removeAttribute('data-aloy-focus-index'));true"
+            ),
+            "returnByValue": True,
+        },
+    )
+    _receive_evaluation(
+        socket,
+        result_id=cleanup_id,
+        deadline=time.monotonic() + 2.0,
+    )
+    expected_indexes = {str(index) for index in range(expected)}
+    missing = sorted(expected_indexes - visited_indexes, key=int)
+    missing_indicators = [
+        item for item in visited if item.get("visible_indicator") is not True
+    ]
+    diagnostics: list[dict[str, Any]] = []
+    if missing:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_order_unreachable",
+                f"Keyboard traversal did not reach {len(missing)} visible control(s)",
+                viewport=viewport,
+            )
+        )
+    if repeated_before_complete:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_keyboard_trap",
+                "Keyboard traversal repeated before reaching every visible control",
+                viewport=viewport,
+            )
+        )
+    if missing_indicators:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_indicator_missing",
+                (
+                    f"{len(missing_indicators)} keyboard-focusable control(s) expose "
+                    "no visible focus indicator"
+                ),
+                viewport=viewport,
+            )
+        )
+    evidence = {
+        "policy_version": "aloy-surface-focus@1",
+        "passed": not diagnostics,
+        "controls": expected,
+        "visited": len(visited_indexes),
+        "missing_indexes": missing,
+        "trap_detected": repeated_before_complete,
+        "visible_indicators": len(visited) - len(missing_indicators),
+        "strong_outline_indicators": sum(
+            1 for item in visited if item.get("strong_outline") is True
+        ),
+        "observations": visited,
+    }
+    return diagnostics, evidence
 
 
 def _inspect_viewport_matrix(
@@ -717,6 +1199,13 @@ def _inspect_viewport_matrix(
                     viewport=viewport,
                 )
             )
+        contrast_diagnostics, contrast_evidence = _inspect_contrast(
+            socket,
+            send=send,
+            viewport=viewport,
+        )
+        diagnostics.extend(contrast_diagnostics)
+        observation["contrast"] = contrast_evidence
         screenshot_id = send(
             "Page.captureScreenshot",
             {
@@ -762,11 +1251,21 @@ def _inspect_viewport_matrix(
                     "data": png,
                 }
             )
+        focus_diagnostics, focus_evidence = _inspect_keyboard_focus(
+            socket,
+            send=send,
+            viewport=viewport,
+        )
+        diagnostics.extend(focus_diagnostics)
+        observation["focus"] = focus_evidence
         observations.append(observation)
     evidence = {
         "policy_version": "aloy-surface-viewports@1",
         "required": [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS],
-        "passed": not diagnostics
+        "passed": not any(
+            str(item.get("code") or "").startswith(("viewport_", "accessibility_"))
+            for item in diagnostics
+        )
         and len(observations) == len(REQUIRED_SURFACE_VIEWPORTS),
         "viewports": observations,
     }
@@ -778,11 +1277,10 @@ def _inspect_state_matrix(
     *,
     send,
     context: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Exercise public non-ready states at trusted desktop and mobile sizes."""
     diagnostics: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
-    captures: list[dict[str, Any]] = []
     viewports = {
         str(item["id"]): item
         for item in REQUIRED_SURFACE_VIEWPORTS
@@ -932,24 +1430,13 @@ def _inspect_state_matrix(
                         viewport=viewport,
                     )
                 )
-            screenshot_id = send(
-                "Page.captureScreenshot",
-                {
-                    "format": "png",
-                    "fromSurface": True,
-                    "captureBeyondViewport": False,
-                },
-            )
-            screenshot = _receive_command_result(
+            contrast_diagnostics, contrast_evidence = _inspect_contrast(
                 socket,
-                result_id=screenshot_id,
-                deadline=time.monotonic() + 3.0,
+                send=send,
+                viewport=viewport,
+                state=state,
             )
-            encoded = str((screenshot or {}).get("data") or "")
-            try:
-                png = base64.b64decode(encoded, validate=True)
-            except ValueError:
-                png = b""
+            diagnostics.extend(contrast_diagnostics)
             observation = {
                 "state": state,
                 "viewport_id": viewport_id,
@@ -958,30 +1445,17 @@ def _inspect_state_matrix(
                 "layout": layout,
                 "accessibility": accessibility,
                 "matching_resource_regions": len(matching_regions),
+                "contrast": contrast_evidence,
             }
-            if not png or len(png) > MAX_SURFACE_CAPTURE_BYTES:
-                diagnostics.append(
-                    _viewport_diagnostic(
-                        "state_capture_failed",
-                        f"The {state} state produced no safe viewport capture",
-                        viewport=viewport,
-                    )
-                )
-            else:
-                checksum = hashlib.sha256(png).hexdigest()
-                observation["capture"] = {
-                    "sha256": checksum,
-                    "size_bytes": len(png),
-                    "content_type": "image/png",
-                }
-                captures.append(
-                    {
-                        "name": f"state-{state}-{viewport_id}.png",
-                        "content_type": "image/png",
-                        "sha256": checksum,
-                        "data": png,
-                    }
-                )
+            observation["fingerprint"] = hashlib.sha256(
+                json.dumps(
+                    observation,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
             observations.append(observation)
 
     # Interaction checks must always start from the canonical ready context.
@@ -1005,12 +1479,14 @@ def _inspect_state_matrix(
         "policy_version": "aloy-surface-states@1",
         "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
         "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
-        "passed": not diagnostics
+        "passed": not any(
+            str(item.get("code") or "").startswith("state_") for item in diagnostics
+        )
         and len(observations)
         == len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS),
         "observations": observations,
     }
-    return diagnostics, evidence, captures
+    return diagnostics, evidence
 
 
 def _wait_for_runtime_document(

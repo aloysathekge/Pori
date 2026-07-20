@@ -58,6 +58,17 @@ def _inspection_evidence() -> dict:
                         "keyboard_unreachable": 0,
                         "duplicate_ids": [],
                     },
+                    "focus": {
+                        "passed": True,
+                        "controls": 0,
+                        "visited": 0,
+                        "visible_indicators": 0,
+                    },
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
                 }
                 for viewport_id in required
             ],
@@ -71,11 +82,24 @@ def _inspection_evidence() -> dict:
                 {
                     "state": state,
                     "viewport_id": viewport_id,
-                    "capture": {"sha256": f"state-{state}-{viewport_id}"},
+                    "fingerprint": f"state-{state}-{viewport_id}",
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
                 }
                 for state in REQUIRED_SURFACE_STATE_FIXTURES
                 for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
             ],
+        },
+        "timings": {
+            "policy_version": "aloy-surface-timings@1",
+            "runtime_bootstrap_ms": 100.0,
+            "viewport_matrix_ms": 200.0,
+            "state_matrix_ms": 300.0,
+            "interaction_checks_ms": 0.0,
+            "total_ms": 600.0,
         },
     }
 
@@ -97,6 +121,8 @@ class FakeBuildRunner:
                 "viewport_inspection": "passed",
                 "accessibility_inspection": "passed",
                 "state_inspection": "passed",
+                "focus_inspection": "passed",
+                "contrast_inspection": "passed",
                 "inspection_evidence": _inspection_evidence(),
             },
         )

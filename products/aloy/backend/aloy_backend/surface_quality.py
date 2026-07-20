@@ -1,10 +1,10 @@
 """Host-owned quality receipts for exact Surface build publication.
 
-The first R9 policy binds the deterministic source gate, executable runtime
-inspection, and every manifest-declared interaction check to one immutable
-build. Later R9 policies extend the same receipt with viewport, accessibility,
-Critic, and primary-job evidence without moving publication authority into
-generated code or a model.
+The R9 policy binds deterministic validation, executable runtime inspection,
+responsive and resource-state evidence, accessibility, focus, contrast, and
+every manifest-declared interaction check to one immutable build. Later policy
+versions can extend the same receipt with primary-job evidence without moving
+publication authority into generated code or a model.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 from .surface_manifest import SurfaceManifest
 from .surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
 
-SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@2"
+SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@3"
 SURFACE_QUALITY_RECEIPT_KEY = "surface_quality"
 
 REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
@@ -29,12 +29,7 @@ REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
 )
 REQUIRED_SURFACE_STATE_VIEWPORTS: tuple[str, ...] = ("wide", "mobile")
 
-_PLANNED_EVIDENCE = (
-    "focus_indicator_audit",
-    "contrast_audit",
-    "surface_critic",
-    "primary_job_simulation",
-)
+_PLANNED_EVIDENCE = ("primary_job_simulation",)
 
 
 def _fingerprint(value: dict[str, Any]) -> str:
@@ -110,10 +105,57 @@ def create_surface_quality_receipt(
         and state_matrix.get("required_viewports") == expected_state_viewports
         and observed_combinations == expected_combinations
         and all(
-            isinstance(item, dict)
-            and isinstance(item.get("capture"), dict)
-            and bool(item["capture"].get("sha256"))
+            isinstance(item, dict) and bool(item.get("fingerprint"))
             for item in state_observations
+        )
+    )
+    timing_evidence = dict(inspection_evidence.get("timings") or {})
+    timing_names = (
+        "runtime_bootstrap_ms",
+        "viewport_matrix_ms",
+        "state_matrix_ms",
+        "interaction_checks_ms",
+        "total_ms",
+    )
+    timing_values_are_valid = all(
+        not isinstance(timing_evidence.get(name), bool)
+        and isinstance(timing_evidence.get(name), (int, float))
+        and float(timing_evidence[name]) >= 0
+        for name in timing_names
+    )
+    timing_passed = (
+        timing_evidence.get("policy_version") == "aloy-surface-timings@1"
+        and timing_values_are_valid
+        and float(timing_evidence["total_ms"]) + 1.0
+        >= sum(
+            float(timing_evidence[name]) for name in timing_names if name != "total_ms"
+        )
+    )
+    focus_passed = viewport_passed and all(
+        isinstance(item, dict)
+        and isinstance(item.get("focus"), dict)
+        and item["focus"].get("passed") is True
+        and int(item["focus"].get("visited") or 0)
+        == int(item["focus"].get("controls") or 0)
+        and int(item["focus"].get("visible_indicators") or 0)
+        == int(item["focus"].get("controls") or 0)
+        for item in viewports
+    )
+    contrast_evidence = [
+        item.get("contrast")
+        for item in [*viewports, *state_observations]
+        if isinstance(item, dict)
+    ]
+    contrast_passed = (
+        viewport_passed
+        and state_matrix_passed
+        and len(contrast_evidence) == len(viewports) + len(state_observations)
+        and all(
+            isinstance(item, dict)
+            and item.get("passed") is True
+            and int(item.get("failures") or 0) == 0
+            and int(item.get("unmeasurable") or 0) == 0
+            for item in contrast_evidence
         )
     )
     checks: dict[str, dict[str, Any]] = {
@@ -144,6 +186,18 @@ def create_surface_quality_receipt(
             "required_states": expected_states,
             "required_viewports": expected_state_viewports,
         },
+        "focus_indicator_audit": {
+            "status": "passed" if focus_passed else "failed",
+            "level": "WCAG 2.2 AA Focus Visible",
+        },
+        "contrast_audit": {
+            "status": "passed" if contrast_passed else "failed",
+            "scope": "text_on_deterministic_solid_backdrops",
+        },
+        "latency_telemetry": {
+            "status": "passed" if timing_passed else "failed",
+            "policy_version": "aloy-surface-timings@1",
+        },
     }
     passed = (
         validation_passed
@@ -152,6 +206,9 @@ def create_surface_quality_receipt(
         and viewport_passed
         and accessibility_passed
         and state_matrix_passed
+        and focus_passed
+        and contrast_passed
+        and timing_passed
     )
     receipt: dict[str, Any] = {
         "policy_version": SURFACE_QUALITY_POLICY_VERSION,
@@ -212,6 +269,12 @@ def surface_quality_receipt_error(build: Any) -> str | None:
         return "deterministic accessibility inspection did not pass"
     if dict(checks.get("state_matrix") or {}).get("status") != "passed":
         return "required Surface state inspection did not pass"
+    if dict(checks.get("focus_indicator_audit") or {}).get("status") != "passed":
+        return "keyboard focus-indicator inspection did not pass"
+    if dict(checks.get("contrast_audit") or {}).get("status") != "passed":
+        return "deterministic contrast inspection did not pass"
+    if dict(checks.get("latency_telemetry") or {}).get("status") != "passed":
+        return "Surface inspection latency telemetry is incomplete"
     return None
 
 

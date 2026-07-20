@@ -57,6 +57,11 @@ all use the same runtime and safety contract.
    Render honest loading, empty, stale, error, permission-denied, pending, and
    indeterminate views from that host-owned value. Never infer failure from an
    empty array and never add inspection-only branches.
+   Preserve a visible keyboard focus indicator on every control; never ship
+   `outline: none` without a stronger replacement. Use deterministic solid
+   backdrops behind text so the host can prove at least 4.5:1 contrast for
+   normal text and 3:1 for large text. Treat browser-reported focus and contrast
+   failures as blocking diagnostics, not visual preferences.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics in the next complete candidate.
    Every declared intent must include an accessible executable

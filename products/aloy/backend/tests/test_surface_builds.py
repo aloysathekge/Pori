@@ -100,6 +100,17 @@ def _inspection_evidence() -> dict:
                         "keyboard_unreachable": 0,
                         "duplicate_ids": [],
                     },
+                    "focus": {
+                        "passed": True,
+                        "controls": 0,
+                        "visited": 0,
+                        "visible_indicators": 0,
+                    },
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
                 }
                 for viewport_id in required
             ],
@@ -113,11 +124,24 @@ def _inspection_evidence() -> dict:
                 {
                     "state": state,
                     "viewport_id": viewport_id,
-                    "capture": {"sha256": f"state-{state}-{viewport_id}"},
+                    "fingerprint": f"state-{state}-{viewport_id}",
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
                 }
                 for state in REQUIRED_SURFACE_STATE_FIXTURES
                 for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
             ],
+        },
+        "timings": {
+            "policy_version": "aloy-surface-timings@1",
+            "runtime_bootstrap_ms": 100.0,
+            "viewport_matrix_ms": 200.0,
+            "state_matrix_ms": 300.0,
+            "interaction_checks_ms": 0.0,
+            "total_ms": 600.0,
         },
     }
 
@@ -182,10 +206,10 @@ async def test_local_development_bundle_is_browser_safe():
     assert [item["id"] for item in matrix["viewports"]] == [
         str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS
     ]
-    assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS) + (
-        len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS)
-    )
+    assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS)
     assert evidence["state_matrix"]["passed"] is True
+    assert evidence["timings"]["policy_version"] == "aloy-surface-timings@1"
+    assert evidence["timings"]["total_ms"] >= evidence["timings"]["state_matrix_ms"]
     assert all(item["capture"]["sha256"] for item in matrix["viewports"])
 
 
@@ -228,6 +252,46 @@ async def test_local_browser_gate_rejects_overflow_and_unnamed_controls():
     assert "viewport_page_overflow" in codes
     assert "accessibility_unnamed_control" in codes
     assert evidence["viewport_matrix"]["passed"] is False
+
+
+async def test_local_browser_gate_rejects_hidden_focus_and_low_contrast():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="broken-focus-contrast-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                "export default function App(){return <main style={{background:'#fff'}}>"
+                "<p style={{color:'#aaa'}}>Important deadline</p>"
+                "<button style={{outline:'none',boxShadow:'none'}}>Continue</button>"
+                "</main>}"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": [],
+            "widgets": [],
+            "data": {"interactions": []},
+        },
+    )
+
+    codes = {item["code"] for item in diagnostics}
+    assert "focus_indicator_missing" in codes
+    assert "contrast_text_failed" in codes
 
 
 async def test_local_browser_gate_rejects_render_exception():
@@ -759,6 +823,8 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
                 "viewport_inspection": "passed",
                 "accessibility_inspection": "passed",
                 "state_inspection": "passed",
+                "focus_inspection": "passed",
+                "contrast_inspection": "passed",
                 "inspection_evidence": _inspection_evidence(),
             },
         )
@@ -908,16 +974,9 @@ async def test_local_preview_retains_viewport_quality_evidence(
         if item["kind"] == "viewport_capture"
     ]
     assert [item["name"] for item in captures] == [
-        *[f"{item['id']}.png" for item in REQUIRED_SURFACE_VIEWPORTS],
-        *[
-            f"state-{state}-{viewport_id}.png"
-            for state in REQUIRED_SURFACE_STATE_FIXTURES
-            for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
-        ],
+        f"{item['id']}.png" for item in REQUIRED_SURFACE_VIEWPORTS
     ]
-    assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS) + (
-        len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS)
-    )
+    assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS)
     assert "_capture_blobs" not in preview["quality_gate"]["evidence"]
 
 

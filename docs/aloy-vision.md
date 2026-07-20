@@ -377,8 +377,10 @@ or a model claim is insufficient. Failed attempts retain the last-good
 published Surface.
 
 Surface generation is a product-owned specialist role. Aloy's developers and
-operators choose the Builder model, its versioned skill, budgets, and the
-independent Critic model; end users do not select these components. The
+operators choose the Builder model, its versioned skill, and budgets; end users
+do not select these components. An optional advisory visual Critic may be an
+operator-owned background evaluation later, but it is not a V1 publication
+dependency. The
 Conversation model may be optimized for latency and dialogue while the Builder
 is allocated to a model proven to author and repair constrained React projects.
 Changing either model is an operator configuration change, not University,
@@ -542,7 +544,7 @@ opportunity or request
 → isolated candidate build
 → deterministic checks
 → viewport and state renders
-→ independent critique
+→ evidence receipt
 → primary user-job simulation
 → bounded repair
 → publish
@@ -1122,7 +1124,7 @@ Before a Surface exists, the trusted Workbench remains fully usable through
 Conversation, Tasks, Files, Trail, and context status. It may say **Your
 Surface will take shape as Aloy understands this Event**. A published first
 Surface contains only evidence-supported views and actions and passes the same
-build, capability, Critic, and last-good publication gates as every later
+deterministic build, capability, and last-good publication gates as every later
 revision.
 
 New sources update the Event Brief incrementally. They do not rebuild the
