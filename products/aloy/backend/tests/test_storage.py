@@ -10,6 +10,7 @@ from aloy_backend.storage import (
     artifact_key,
     safe_name,
     surface_bundle_key,
+    surface_preview_artifact_key,
 )
 
 
@@ -86,6 +87,21 @@ def test_long_surface_bundle_key_roundtrips_without_changing_object_key(tmp_path
     store.delete(key)
     with pytest.raises(FileNotFoundError):
         store.open(key)
+
+
+def test_surface_preview_artifact_key_is_tenant_scoped_and_name_safe():
+    key = surface_preview_artifact_key(
+        "user:person-1",
+        "event/unsafe",
+        "build:1",
+        "capture:sha",
+        "../../mobile.png",
+    )
+
+    assert key == (
+        "org/user_person-1/events/event_unsafe/surface-builds/build_1/"
+        "previews/capture_sha/mobile.png"
+    )
 
 
 def test_windows_filesystem_path_uses_extended_length_prefix(tmp_path):

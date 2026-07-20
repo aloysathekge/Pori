@@ -46,6 +46,12 @@ all use the same runtime and safety contract.
    widths, navigation, tables, maps, timelines, kanban boards, forms, and charts
    must recompose without page-level horizontal overflow, clipped actions, or
    pointer-only controls. Keep primary touch actions at least 44 pixels.
+   Use exactly one visible `main` landmark. Give every visible interactive
+   control an accessible name, keep custom controls keyboard reachable, give
+   every image an `alt` attribute, and never emit duplicate DOM ids. Aloy's
+   host renders wide 1440px, split 640px, tablet 768px, mobile 390px, and narrow
+   mobile 360px compositions and rejects page overflow, clipped controls, or
+   missing deterministic accessibility evidence.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics in the next complete candidate.
    Every declared intent must include an accessible executable

@@ -9,6 +9,8 @@ uncaught exception, missing bridge acknowledgement, or empty React root.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import shutil
@@ -24,10 +26,102 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_quality import REQUIRED_SURFACE_VIEWPORTS
 from .surface_runtime import SurfaceRuntimeDocument
 
 INSPECTION_TIMEOUT_SECONDS = 8.0
 SETTLE_SECONDS = 1.5
+MAX_SURFACE_CAPTURE_BYTES = 4 * 1024 * 1024
+
+_VIEWPORT_AUDIT_EXPRESSION = r"""
+new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const accessibleName = element => {
+    const direct = element.getAttribute('aria-label');
+    if (direct && direct.trim()) return direct.trim();
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const text = labelledBy.split(/\s+/)
+        .map(id => document.getElementById(id)?.textContent || '')
+        .join(' ').trim();
+      if (text) return text;
+    }
+    if ('labels' in element && element.labels?.length) {
+      const text = [...element.labels].map(label => label.textContent || '').join(' ').trim();
+      if (text) return text;
+    }
+    const title = element.getAttribute('title');
+    if (title && title.trim()) return title.trim();
+    return (element.textContent || '').replace(/\s+/g, ' ').trim();
+  };
+  const sample = element => ({
+    tag: element.tagName.toLowerCase(),
+    role: element.getAttribute('role'),
+    name: accessibleName(element).slice(0, 120),
+    id: (element.id || '').slice(0, 120),
+  });
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+  const pageWidth = Math.max(
+    document.documentElement.scrollWidth,
+    document.body?.scrollWidth || 0,
+  );
+  const controls = [...document.querySelectorAll(
+    'button,a[href],input:not([type=hidden]),select,textarea,[role=button],[role=link],[role=checkbox],[role=radio],[role=combobox],[role=textbox]'
+  )].filter(visible).filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true');
+  const clippedControls = controls.filter(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.left < -1 || rect.right > viewportWidth + 1;
+  });
+  const unnamedControls = controls.filter(element => !accessibleName(element));
+  const imagesMissingAlt = [...document.querySelectorAll('img:not([alt])')].filter(visible);
+  const keyboardUnreachable = controls.filter(element => {
+    const role = element.getAttribute('role');
+    return ['button','link','checkbox','radio','combobox','textbox'].includes(role || '')
+      && element.tabIndex < 0;
+  });
+  const ids = [...document.querySelectorAll('[id]')].map(element => element.id).filter(Boolean);
+  const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+  const compact = window.innerWidth <= 768;
+  const smallTouchTargets = compact
+    ? controls.filter(element => {
+        const rect = element.getBoundingClientRect();
+        return ['BUTTON','A'].includes(element.tagName) || element.getAttribute('role') === 'button'
+          ? rect.width < 44 || rect.height < 44
+          : false;
+      })
+    : [];
+  const root = document.getElementById('root');
+  return resolve({
+    viewport: { width: viewportWidth, height: viewportHeight },
+    layout: {
+      page_width: pageWidth,
+      horizontal_overflow_px: Math.max(0, pageWidth - viewportWidth),
+      root_children: root?.childElementCount || 0,
+      clipped_controls: clippedControls.length,
+      clipped_control_samples: clippedControls.slice(0, 10).map(sample),
+    },
+    accessibility: {
+      main_landmarks: document.querySelectorAll('main,[role=main]').length,
+      controls: controls.length,
+      unnamed_controls: unnamedControls.length,
+      unnamed_control_samples: unnamedControls.slice(0, 10).map(sample),
+      images_missing_alt: imagesMissingAlt.length,
+      image_samples: imagesMissingAlt.slice(0, 10).map(sample),
+      keyboard_unreachable: keyboardUnreachable.length,
+      keyboard_unreachable_samples: keyboardUnreachable.slice(0, 10).map(sample),
+      duplicate_ids: duplicateIds.slice(0, 20),
+      small_touch_targets: smallTouchTargets.length,
+      small_touch_target_samples: smallTouchTargets.slice(0, 10).map(sample),
+    },
+  });
+})))
+""".strip()
 
 
 def _browser_executable() -> str | None:
@@ -60,6 +154,7 @@ def inspect_surface_runtime(
     context: dict[str, Any],
     *,
     manifest: SurfaceManifest | None = None,
+    evidence_sink: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Execute the exact runtime and every manifest-declared UI interaction.
 
@@ -139,7 +234,11 @@ def inspect_surface_runtime(
                 return [
                     _diagnostic("runtime_inspector_failed", "No browser page exists")
                 ]
-            socket = connect(str(target["webSocketDebuggerUrl"]), open_timeout=2)
+            socket = connect(
+                str(target["webSocketDebuggerUrl"]),
+                open_timeout=2,
+                max_size=16 * 1024 * 1024,
+            )
             try:
                 message_id = 0
 
@@ -154,6 +253,7 @@ def inspect_surface_runtime(
                     return message_id
 
                 send("Runtime.enable")
+                send("Page.enable")
                 ready, load_exceptions = _wait_for_runtime_document(
                     socket,
                     send=send,
@@ -351,8 +451,29 @@ def inspect_surface_runtime(
                             "The Surface mounted no visible React root",
                         )
                     )
+                if diagnostics:
+                    return diagnostics
+                viewport_diagnostics, viewport_evidence, captures = (
+                    _inspect_viewport_matrix(socket, send=send)
+                )
+                if evidence_sink is not None:
+                    evidence_sink["viewport_matrix"] = viewport_evidence
+                    evidence_sink["_capture_blobs"] = captures
+                diagnostics.extend(viewport_diagnostics)
                 if diagnostics or manifest is None:
                     return diagnostics
+                # Interaction paths execute at a stable wide composition after
+                # every required responsive composition has been inspected.
+                wide = REQUIRED_SURFACE_VIEWPORTS[0]
+                send(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "width": wide["width"],
+                        "height": wide["height"],
+                        "deviceScaleFactor": 1,
+                        "mobile": False,
+                    },
+                )
                 for check in manifest.interaction_checks:
                     diagnostics.extend(
                         _execute_interaction_check(
@@ -412,6 +533,218 @@ def _receive_evaluation(
         result = remote.get("value")
         break
     return result, exceptions
+
+
+def _receive_command_result(
+    socket,
+    *,
+    result_id: int,
+    deadline: float,
+) -> dict[str, Any] | None:
+    while time.monotonic() < deadline:
+        try:
+            message = json.loads(socket.recv(timeout=0.25))
+        except TimeoutError:
+            continue
+        if message.get("id") != result_id:
+            continue
+        if message.get("error"):
+            return None
+        result = message.get("result")
+        return dict(result) if isinstance(result, dict) else None
+    return None
+
+
+def _viewport_diagnostic(
+    code: str,
+    message: str,
+    *,
+    viewport: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostic = _diagnostic(code, message)
+    diagnostic["viewport"] = str(viewport["id"])
+    return diagnostic
+
+
+def _inspect_viewport_matrix(
+    socket,
+    *,
+    send,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    diagnostics: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    captures: list[dict[str, Any]] = []
+    for viewport in REQUIRED_SURFACE_VIEWPORTS:
+        command_id = send(
+            "Emulation.setDeviceMetricsOverride",
+            {
+                "width": viewport["width"],
+                "height": viewport["height"],
+                "deviceScaleFactor": 1,
+                "mobile": bool(viewport["compact"]),
+            },
+        )
+        if (
+            _receive_command_result(
+                socket,
+                result_id=command_id,
+                deadline=time.monotonic() + 2.0,
+            )
+            is None
+        ):
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_emulation_failed",
+                    "The trusted browser could not apply a required viewport",
+                    viewport=viewport,
+                )
+            )
+            continue
+        result_id = send(
+            "Runtime.evaluate",
+            {
+                "expression": _VIEWPORT_AUDIT_EXPRESSION,
+                "awaitPromise": True,
+                "returnByValue": True,
+            },
+        )
+        result, exceptions = _receive_evaluation(
+            socket,
+            result_id=result_id,
+            deadline=time.monotonic() + 3.0,
+        )
+        if exceptions or not isinstance(result, dict):
+            diagnostics.extend(
+                _viewport_diagnostic(
+                    "viewport_audit_failed",
+                    message,
+                    viewport=viewport,
+                )
+                for message in (
+                    exceptions[:10]
+                    or ["The required viewport returned no audit evidence"]
+                )
+            )
+            continue
+        observation = {
+            "id": viewport["id"],
+            "requested_width": viewport["width"],
+            "requested_height": viewport["height"],
+            "compact": viewport["compact"],
+            **result,
+        }
+        layout = dict(result.get("layout") or {})
+        accessibility = dict(result.get("accessibility") or {})
+        if int(layout.get("horizontal_overflow_px") or 0) > 1:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_page_overflow",
+                    "The Surface creates page-level horizontal overflow",
+                    viewport=viewport,
+                )
+            )
+        if int(layout.get("clipped_controls") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_clipped_control",
+                    "A visible interactive control is clipped horizontally",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("main_landmarks") or 0) != 1:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_main_landmark",
+                    "The Surface must expose exactly one visible main landmark",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("unnamed_controls") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_unnamed_control",
+                    "A visible interactive control has no accessible name",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("images_missing_alt") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_image_alt",
+                    "A visible image has no alt attribute",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("keyboard_unreachable") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_keyboard_unreachable",
+                    "A custom interactive control is not keyboard reachable",
+                    viewport=viewport,
+                )
+            )
+        if accessibility.get("duplicate_ids"):
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_duplicate_id",
+                    "The Surface contains duplicate DOM ids",
+                    viewport=viewport,
+                )
+            )
+        screenshot_id = send(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "fromSurface": True,
+                "captureBeyondViewport": False,
+            },
+        )
+        screenshot = _receive_command_result(
+            socket,
+            result_id=screenshot_id,
+            deadline=time.monotonic() + 3.0,
+        )
+        encoded = str((screenshot or {}).get("data") or "")
+        try:
+            png = base64.b64decode(encoded, validate=True)
+        except ValueError:
+            png = b""
+        if not png or len(png) > MAX_SURFACE_CAPTURE_BYTES:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_capture_failed",
+                    (
+                        "The trusted browser produced no viewport capture"
+                        if not png
+                        else "The trusted viewport capture exceeded the safe size limit"
+                    ),
+                    viewport=viewport,
+                )
+            )
+        else:
+            checksum = hashlib.sha256(png).hexdigest()
+            observation["capture"] = {
+                "sha256": checksum,
+                "size_bytes": len(png),
+                "content_type": "image/png",
+            }
+            captures.append(
+                {
+                    "name": f"{viewport['id']}.png",
+                    "content_type": "image/png",
+                    "sha256": checksum,
+                    "data": png,
+                }
+            )
+        observations.append(observation)
+    evidence = {
+        "policy_version": "aloy-surface-viewports@1",
+        "required": [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS],
+        "passed": not diagnostics
+        and len(observations) == len(REQUIRED_SURFACE_VIEWPORTS),
+        "viewports": observations,
+    }
+    return diagnostics, evidence, captures
 
 
 def _wait_for_runtime_document(

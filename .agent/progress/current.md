@@ -2,44 +2,47 @@
 
 ## Active Task
 
-R8 is active on `aloy-v1-r8-release-gate`. Five engineering slices are now in
-the branch working tree: Run/Task watchdogs, durable Run budgets, bounded
-Conversation compaction, read-only provider reconciliation, and release
-readiness. The latest release-readiness changes are not committed yet.
+R9 is active on `aloy-v1-r9-surface-quality`, branched from the PR #198 merge
+on `aloy-v1`. Exact-build quality receipts plus the first deterministic
+viewport/accessibility evidence slice are complete. The next slice is the
+host-owned state contract used by both real Surfaces and trusted inspection.
 
 ## Decisions Made
 
-- Responsive/accessibility acceptance is a manual user gate while Codex browser
-  control is unavailable; static inspection must not be recorded as passing.
-- Existing parent-linked docs now carry boot, operator, architecture, and demo
-  guidance; no parallel Aloy document was added.
-- Surface inspection waits for the actual runtime document before transferring
-  the secure bridge, with one bounded deadline per interaction check.
-- Aloy product code uses only Pori's public package front door.
+- `aloy-v1` remains the integration branch; R9 is not a path directly to
+  `main`.
+- Quality evidence belongs to the trusted host and exact retained build. The
+  Builder, Critic, and generated application never receive publication power.
+- The first policy covers deterministic validation, runtime, declared
+  interactions, five responsive viewports, capture integrity, and basic DOM
+  accessibility. State variants, focus indicators, contrast, Critic, and
+  primary-job evidence remain explicit planned extensions.
+- A stricter new-publication gate must not remove rollback to a previously
+  published legacy last-good build.
 
 ## Important Discoveries
 
-- The old inspector raced Chrome navigation and could miss the Surface SDK
-  listener, producing false `runtime_bridge_failed` diagnostics for valid forms.
-- Final automated gates pass: kernel `627 passed, 1 skipped`; backend `401
-  passed`; app bridge `7 passed`; app lint/build; kernel/backend mypy; and all
-  three import-linter contracts.
-- The boot guide now includes no-credit operation, recovery rules, Windows-safe
-  pytest temp roots, model roles, and the 60-second Career OS proof.
-- Detailed work is in
-  `.agent/progress/handoffs/2026-07-20-r8-release-readiness.md`.
+- Normal Builder flow inspected before publishing, but the publication service
+  itself previously verified only validation state and bundle integrity. A
+  direct internal publication call could therefore omit runtime inspection.
+- Trusted preview can durably store the receipt in existing build resource
+  metrics, avoiding a schema migration while binding build, revision, source
+  checksum, bundle hash, checks, diagnostics, policy, and fingerprint.
+- All Surface-focused backend verification passes: `82 passed`, including
+  build, pipeline, publication, SDK, Event Surface, and live compatibility.
+- The full backend suite exceeded a bounded six-minute command deadline without
+  reporting a failure; it is not recorded as passing or failing.
 
 ## Blockers
 
-- Manual desktop/tablet/mobile responsiveness, keyboard, focus, semantics,
-  contrast, reduced-motion, and generated-Surface checks remain unaccepted.
-- Live University, Madrid, and Career model acceptance is deferred without
-  provider credits.
-- Remote Surface acceptance still needs the pinned E2B toolchain template.
+- Non-populated state captures, focus-indicator and contrast audits, remote
+  capture transport, independent Critic, reviewed widget registry, and
+  primary-job simulation remain R9 work.
+- Live University, Madrid, and Career provider proofs and pinned remote E2B
+  acceptance remain deferred gates.
 
 ## Next Session Should Start With
 
-Review and commit the release-readiness working tree. Have the user run the
-manual viewport/accessibility checklist in `products/aloy/BOOT.md`; repair any
-reported defect. With provider access, run the three real-domain proofs and
-Career OS demo before opening the final R8 merge PR.
+Add the host-owned state-fixture contract for loading, empty, stale, error, and
+pending/indeterminate views, then add deterministic focus-indicator and contrast
+evidence. Add the independent Critic only after those facts are durable.

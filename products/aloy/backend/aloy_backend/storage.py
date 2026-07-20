@@ -106,6 +106,21 @@ def surface_bundle_key(
     )
 
 
+def surface_preview_artifact_key(
+    organization_id: str,
+    event_id: str,
+    build_id: str,
+    checksum: str,
+    name: str,
+) -> str:
+    """Tenant-contained key for immutable trusted Surface preview evidence."""
+    return (
+        f"org/{_segment(organization_id)}/events/{_segment(event_id)}"
+        f"/surface-builds/{_segment(build_id)}/previews/{_segment(checksum)}"
+        f"/{safe_name(name)}"
+    )
+
+
 class ObjectStore(Protocol):
     def put(self, key: str, data: BinaryIO, *, content_type: str) -> int:
         """Store the stream under key; returns bytes written."""

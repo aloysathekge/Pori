@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import importlib
 import io
 import zipfile
@@ -28,8 +27,38 @@ from aloy_backend.surface_build_runner import (
     SURFACE_TOOLCHAIN_VERSION,
     SurfaceBuildRunnerResult,
 )
-from aloy_backend.surface_builds import SurfaceBuildHandler, SurfaceBuildParams
+from aloy_backend.surface_builds import (
+    SurfaceBuildHandler,
+    SurfaceBuildParams,
+    SurfacePreviewParams,
+)
 from aloy_backend.surface_publication import SurfacePublicationParams
+from aloy_backend.surface_quality import REQUIRED_SURFACE_VIEWPORTS
+
+
+def _inspection_evidence() -> dict:
+    required = [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS]
+    return {
+        "viewport_matrix": {
+            "policy_version": "aloy-surface-viewports@1",
+            "required": required,
+            "passed": True,
+            "viewports": [
+                {
+                    "id": viewport_id,
+                    "capture": {"sha256": f"capture-{viewport_id}"},
+                    "accessibility": {
+                        "main_landmarks": 1,
+                        "unnamed_controls": 0,
+                        "images_missing_alt": 0,
+                        "keyboard_unreachable": 0,
+                        "duplicate_ids": [],
+                    },
+                }
+                for viewport_id in required
+            ],
+        }
+    }
 
 
 class FakeBuildRunner:
@@ -40,7 +69,17 @@ class FakeBuildRunner:
 
     async def build(self, *, build_id, files, manifest):
         del build_id, files, manifest
-        return SurfaceBuildRunnerResult(status="succeeded", bundle=self.bundle)
+        return SurfaceBuildRunnerResult(
+            status="succeeded",
+            bundle=self.bundle,
+            resource_metrics={
+                "runtime_inspection": "passed",
+                "interaction_inspection": "passed",
+                "viewport_inspection": "passed",
+                "accessibility_inspection": "passed",
+                "inspection_evidence": _inspection_evidence(),
+            },
+        )
 
 
 class MemoryObjectStore:
@@ -153,6 +192,8 @@ async def test_publication_keeps_drafts_off_live_runtime_and_rolls_back_last_goo
         params={"build_id": first_build["id"]},
     )
     assert unpublished_context.status_code == 404
+    preview = await builder.preview(SurfacePreviewParams(build_id=first_build["id"]))
+    assert preview["quality_gate"]["passed"] is True
     published = await builder.publish(
         SurfacePublicationParams(
             build_id=first_build["id"],
@@ -194,6 +235,10 @@ async def test_publication_keeps_drafts_off_live_runtime_and_rolls_back_last_goo
             idempotency_key="publish-build-0002",
         )
     )
+    second_preview = await builder.preview(
+        SurfacePreviewParams(build_id=second_build["id"])
+    )
+    assert second_preview["quality_gate"]["passed"] is True
 
     still_live = await client.get(f"/v1/events/{event['id']}/surface/runtime")
     assert still_live.json()["build"]["id"] == first_build["id"]
@@ -301,6 +346,8 @@ async def test_publication_rejects_missing_or_tampered_artifact_without_moving_p
             idempotency_key="invalid-build-0001",
         )
     )
+    preview = await builder.preview(SurfacePreviewParams(build_id=build["id"]))
+    assert preview["quality_gate"]["passed"] is True
     async with db_session_maker() as session:
         project = (await session.execute(select(SurfaceProject))).scalars().one()
         assert project.published_build_id is None
@@ -321,6 +368,58 @@ async def test_publication_rejects_missing_or_tampered_artifact_without_moving_p
         project = (await session.execute(select(SurfaceProject))).scalars().one()
         assert project.published_build_id is None
         assert (await session.execute(select(SurfacePublication))).scalars().all() == []
+
+
+async def test_publication_rejects_build_without_exact_quality_receipt(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client)
+    store = MemoryObjectStore()
+    author = SurfaceAuthoringHandler(
+        run_context=_run_context(event["id"]),
+        session_factory=db_session_maker,
+    )
+    revision = await _write_revision(
+        author,
+        expected_revision=None,
+        key="quality-author-0001",
+        label="Quality gate",
+    )
+    builder = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=FakeBuildRunner(_bundle("Quality gate")),
+        object_store=store,
+        session_factory=db_session_maker,
+    )
+    build = await builder.build(
+        SurfaceBuildParams(
+            revision_id=revision,
+            idempotency_key="quality-build-0001",
+        )
+    )
+
+    with pytest.raises(SurfaceAuthoringError, match="no trusted quality receipt"):
+        await builder.publish(
+            SurfacePublicationParams(
+                build_id=build["id"],
+                expected_published_revision_id=None,
+                expected_published_build_id=None,
+                idempotency_key="quality-release-0001",
+            )
+        )
+
+    preview = await builder.preview(SurfacePreviewParams(build_id=build["id"]))
+    assert preview["quality_gate"]["binding"]["build_id"] == build["id"]
+    published = await builder.publish(
+        SurfacePublicationParams(
+            build_id=build["id"],
+            expected_published_revision_id=None,
+            expected_published_build_id=None,
+            idempotency_key="quality-release-0002",
+        )
+    )
+    assert published["build_id"] == build["id"]
 
 
 def test_surface_publication_migration_round_trip(tmp_path):
