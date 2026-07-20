@@ -21,13 +21,15 @@ from sqlmodel import col, select
 
 from .database import async_session
 from .events import ensure_event_conversation
-from .models import CronJob, Event, EventTrailEntry, Run
+from .models import CronJob, Event, EventTrailEntry, Organization, Run
+from .run_budgets import resolve_run_budget
 from .schedule_runtime import (
     SCHEDULE_AUTHORITIES,
     SCHEDULE_NOTIFICATION_MODES,
     frozen_schedule_profile,
     scheduled_instruction,
 )
+from .tenancy import OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend.cron")
 
@@ -164,6 +166,16 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
                 scheduled_for=scheduled_for.isoformat(),
                 next_run_at=job.next_run_at.isoformat(),
             )
+            organization = await session.get(Organization, job.organization_id)
+            policy = (
+                OrganizationPolicy.model_validate(organization.policy or {})
+                if organization is not None
+                else OrganizationPolicy()
+            )
+            budget = resolve_run_budget(
+                policy,
+                {"max_steps": job.max_steps},
+            )
             run = Run(
                 user_id=job.user_id,
                 organization_id=job.organization_id,
@@ -179,7 +191,12 @@ async def tick_cron_jobs(now: datetime | None = None) -> int:
                     instruction=job.task,
                     authority=authority,
                 ),
-                max_steps=job.max_steps,
+                max_steps=budget.max_steps,
+                max_tool_calls=budget.max_tool_calls,
+                max_tokens=budget.max_tokens,
+                max_cost_usd=budget.max_cost_usd,
+                timeout_seconds=budget.timeout_seconds,
+                max_attempts=policy.max_attempts,
                 status="pending",
             )
             session.add(run)

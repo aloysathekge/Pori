@@ -188,11 +188,23 @@ class ConversationSearchParams(BaseModel):
 
 @Registry.tool(
     name="search_event_history",
-    description="Search relevant prior messages across the current Event.",
+    description=(
+        "Search older messages across the current Event when the bounded current "
+        "Conversation context does not contain the needed decision or evidence."
+    ),
 )
-def search_event_history_tool(
+async def search_event_history_tool(
     params: ConversationSearchParams, context: Dict[str, Any]
 ):
+    handler = context.get("event_history_search") if context else None
+    if handler is not None and hasattr(handler, "search"):
+        try:
+            results = await handler.search(
+                query=params.query, limit=params.limit, roles=params.roles
+            )
+            return {"success": True, "results": results, "count": len(results)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     memory = context.get("memory") if context else None
     if not memory or not hasattr(memory, "search_event_history"):
         return {"success": False, "error": "Memory search not available"}
@@ -209,8 +221,10 @@ def search_event_history_tool(
     name="conversation_search",
     description="Compatibility alias for search_event_history.",
 )
-def conversation_search_tool(params: ConversationSearchParams, context: Dict[str, Any]):
-    return search_event_history_tool(params, context)
+async def conversation_search_tool(
+    params: ConversationSearchParams, context: Dict[str, Any]
+):
+    return await search_event_history_tool(params, context)
 
 
 class ArchivalInsertParams(BaseModel):

@@ -25,7 +25,7 @@ from ..schemas import (
     EventMemoryWriteResponse,
 )
 from ..scope_resolver import ORG
-from ..tenancy import OrganizationContext, Permission
+from ..tenancy import OrganizationContext, Permission, require_permission
 
 router = APIRouter(prefix="/events", tags=["event-memory"])
 
@@ -84,9 +84,7 @@ async def get_event_memory(
     event_id: str,
     event_limit: int = Query(default=100, ge=1, le=200),
     global_limit: int = Query(default=25, ge=0, le=100),
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.MEMORY_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.MEMORY_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> EventMemoryResponse:
     await _load_event(session, context, event_id)

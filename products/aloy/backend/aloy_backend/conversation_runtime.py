@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from pori import AgentMemory
 
+from .config import settings
 from .event_context import refresh_event_context_snapshot, render_event_context_pack
 from .memory_records import record_to_row, request_scope, row_to_record
 from .models import (
@@ -41,12 +43,132 @@ async def flush_context_artifact(
         (
             item
             for item in reversed(memory.summaries)
-            if isinstance(item, dict) and item.get("summary")
+            if isinstance(item, dict)
+            and item.get("summary")
+            and item.get("source_start_message_id")
+            and item.get("source_end_message_id")
+            and item.get("source_message_count")
         ),
         None,
     )
     if summary is None:
         return
+    # Serialize version allocation for this Conversation on databases that
+    # support row locks. The partial unique index remains the final arbiter.
+    await session.execute(
+        select(Conversation.id)
+        .where(Conversation.id == conversation_id)
+        .with_for_update()
+    )
+    start_id = str(summary["source_start_message_id"])
+    end_id = str(summary["source_end_message_id"])
+    boundary_rows = list(
+        (
+            await session.execute(
+                select(Message).where(col(Message.id).in_([start_id, end_id]))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    boundary = {row.id: row for row in boundary_rows}
+    start = boundary.get(start_id)
+    end = boundary.get(end_id)
+    if (
+        start is None
+        or end is None
+        or start.conversation_id != conversation_id
+        or end.conversation_id != conversation_id
+        or (start.created_at, start.id) > (end.created_at, end.id)
+    ):
+        return
+    first_message_id = (
+        (
+            await session.execute(
+                select(Message.id)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    col(Message.role).in_(["user", "assistant"]),
+                )
+                .order_by(col(Message.created_at), col(Message.id))
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    covered_count = int(
+        (
+            await session.execute(
+                select(func.count(col(Message.id))).where(
+                    Message.conversation_id == conversation_id,
+                    col(Message.role).in_(["user", "assistant"]),
+                    or_(
+                        col(Message.created_at) < end.created_at,
+                        and_(
+                            col(Message.created_at) == end.created_at,
+                            col(Message.id) <= end.id,
+                        ),
+                    ),
+                )
+            )
+        ).scalar_one()
+    )
+    if start_id != first_message_id or covered_count != int(
+        summary["source_message_count"]
+    ):
+        # A summary may only advance a gap-free prefix. Very old legacy
+        # Conversations that exceed the hydration ceiling fall back to the
+        # bounded tail plus on-demand history search until explicitly backfilled.
+        return
+
+    content = str(summary["summary"])
+    fingerprint = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    duplicate = (
+        (
+            await session.execute(
+                select(ContextArtifact.id).where(
+                    ContextArtifact.organization_id == organization_id,
+                    ContextArtifact.conversation_id == conversation_id,
+                    ContextArtifact.artifact_type == "summary",
+                    ContextArtifact.content_fingerprint == fingerprint,
+                    ContextArtifact.source_end_message_id == end_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if duplicate is not None:
+        return
+
+    latest = (
+        (
+            await session.execute(
+                select(ContextArtifact)
+                .where(
+                    ContextArtifact.organization_id == organization_id,
+                    ContextArtifact.conversation_id == conversation_id,
+                    ContextArtifact.artifact_type == "summary",
+                    ContextArtifact.summary_version > 0,
+                )
+                .order_by(
+                    col(ContextArtifact.summary_version).desc(),
+                    col(ContextArtifact.created_at).desc(),
+                )
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if latest is not None and latest.source_ended_at is not None:
+        if (end.created_at, end.id) <= (
+            latest.source_ended_at,
+            latest.source_end_message_id or "",
+        ):
+            return
+    next_version = int(latest.summary_version if latest else 0) + 1
     session.add(
         ContextArtifact(
             organization_id=organization_id,
@@ -55,9 +177,22 @@ async def flush_context_artifact(
             conversation_id=conversation_id,
             run_id=run_id,
             artifact_type="summary",
-            content=str(summary["summary"]),
-            source_message_ids=list(summary.get("source_message_ids") or []),
-            diagnostics=diagnostics,
+            content=content,
+            summary_version=next_version,
+            source_start_message_id=start_id,
+            source_end_message_id=end_id,
+            source_started_at=start.created_at,
+            source_ended_at=end.created_at,
+            source_message_count=int(summary["source_message_count"]),
+            content_fingerprint=fingerprint,
+            # Keep this legacy export field bounded. Exact provenance is the
+            # immutable ordered boundary + count, not an ever-growing JSON id list.
+            source_message_ids=[start_id, end_id] if start_id != end_id else [start_id],
+            diagnostics={
+                **diagnostics,
+                "summary_contract": "conversation-prefix-v1",
+                "summary_version": next_version,
+            },
         )
     )
 
@@ -100,6 +235,9 @@ async def load_event_memory(
         agent_id=resolved_agent_id,
         session_id=current_session_id,
     )
+    # Conversation rows and summary artifacts are host-owned. Never append
+    # them to a possibly stale local memory-store snapshot.
+    memory.reset_host_hydrated_context()
     for label in ("persona", "human", "notes"):
         result = await session.execute(
             select(CoreMemoryBlock).where(
@@ -172,28 +310,93 @@ async def load_event_memory(
         cacheable=snapshot.provider_cache_allowed,
     )
 
-    statement = (
-        select(Message, Conversation.id)
-        .join(Conversation, col(Conversation.id) == col(Message.conversation_id))
-        .where(
-            Conversation.organization_id == organization_id,
-            Conversation.user_id == user_id,
-            Conversation.event_id == resolved_event_id,
+    latest_summary = None
+    if conversation is not None:
+        latest_summary = (
+            (
+                await session.execute(
+                    select(ContextArtifact)
+                    .where(
+                        ContextArtifact.organization_id == organization_id,
+                        ContextArtifact.user_id == user_id,
+                        ContextArtifact.event_id == resolved_event_id,
+                        ContextArtifact.conversation_id == current_session_id,
+                        ContextArtifact.artifact_type == "summary",
+                        ContextArtifact.summary_version > 0,
+                        col(ContextArtifact.source_start_message_id).is_not(None),
+                        col(ContextArtifact.source_end_message_id).is_not(None),
+                    )
+                    .order_by(
+                        col(ContextArtifact.summary_version).desc(),
+                        col(ContextArtifact.created_at).desc(),
+                    )
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
         )
-        .order_by(col(Message.created_at).desc(), col(Message.id).desc())
-        .limit(5000)
-    )
+
+    boundary_message = None
+    if latest_summary is not None and latest_summary.source_end_message_id:
+        candidate = await session.get(Message, latest_summary.source_end_message_id)
+        expected_fingerprint = hashlib.sha256(
+            latest_summary.content.encode("utf-8")
+        ).hexdigest()
+        if (
+            candidate is not None
+            and candidate.conversation_id == current_session_id
+            and latest_summary.content_fingerprint == expected_fingerprint
+        ):
+            boundary_message = candidate
+            memory.hydrate_context_summary(
+                latest_summary.content,
+                version=latest_summary.summary_version,
+                source_start_message_id=str(latest_summary.source_start_message_id),
+                source_end_message_id=str(latest_summary.source_end_message_id),
+                source_message_count=latest_summary.source_message_count,
+                source_started_at=latest_summary.source_started_at,
+                source_ended_at=latest_summary.source_ended_at,
+                content_fingerprint=latest_summary.content_fingerprint,
+            )
+
+    # Hydrate only the current Conversation tail. Sibling and older Event
+    # messages page fault through the async search tool instead of making every
+    # Run load and embed thousands of rows.
+    statement = select(Message).where(Message.conversation_id == current_session_id)
+    if boundary_message is not None:
+        statement = statement.where(
+            or_(
+                col(Message.created_at) > boundary_message.created_at,
+                and_(
+                    col(Message.created_at) == boundary_message.created_at,
+                    col(Message.id) > boundary_message.id,
+                ),
+            )
+        )
     if exclude_message_id:
         statement = statement.where(Message.id != exclude_message_id)
-    rows = list(reversed((await session.execute(statement)).all()))
+    rows = list(
+        reversed(
+            (
+                (
+                    await session.execute(
+                        statement.order_by(
+                            col(Message.created_at).desc(), col(Message.id).desc()
+                        ).limit(settings.conversation_hydration_max_messages)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        )
+    )
     rendered_rows: list[tuple[Message, str]] = []
-    for message, row_session_id in rows:
+    for message in rows:
         body = message.content
         for file in (message.metadata_ or {}).get("files", []) or []:
             if file.get("content"):
                 body += f"\n\n<file name=\"{file.get('name', 'file')}\">\n{file['content']}\n</file>"
-        if row_session_id != current_session_id:
-            body = f"[Session {row_session_id}] {body}"
         rendered_rows.append((message, body))
     memory.index_event_history(
         [
@@ -207,16 +410,9 @@ async def load_event_memory(
         ]
     )
 
-    # Sibling Conversations remain searchable as scoped Event history, but a
-    # fresh Life thread must not receive their transcript automatically.
-    current_rows = [
-        (message, body)
-        for message, body in rendered_rows
-        if message.conversation_id == current_session_id
-    ]
     selected: list[tuple[Message, str]] = []
-    remaining_chars = 100_000
-    for message, body in reversed(current_rows):
+    remaining_chars = settings.conversation_hydration_max_chars
+    for message, body in reversed(rendered_rows):
         if len(body) > remaining_chars and selected:
             break
         selected.append((message, body[-remaining_chars:]))

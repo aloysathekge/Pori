@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import inspect
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from functools import wraps
 from types import MappingProxyType
 from typing import (
     Any,
@@ -52,6 +51,29 @@ class SideEffect(str, Enum):
     FILESYSTEM_WRITE = "filesystem:write"
 
 
+class ReconciliationStatus(str, Enum):
+    """Read-only conclusions available after an uncertain provider call."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ToolReconciliation:
+    """Typed evidence returned by a tool's read-only provider reconciler.
+
+    ``UNKNOWN`` is deliberately non-terminal: absence or an inspection error
+    must never be treated as proof that it is safe to repeat a consequence.
+    """
+
+    status: ReconciliationStatus
+    provider_operation_id: Optional[str] = None
+    result: Mapping[str, Any] = field(default_factory=dict)
+    evidence: Tuple[Mapping[str, Any], ...] = ()
+    error: Optional[str] = None
+
+
 class CapabilityResolutionError(ValueError):
     pass
 
@@ -65,6 +87,13 @@ class ToolInfo:
     function: Callable
     description: str
     side_effects: Tuple[SideEffect, ...] = ()
+    # Optional read-only lookup for a provider call whose local commit was
+    # interrupted. It receives the original validated params plus the same
+    # trusted context (including ``execution_attempt_id``) and MUST NOT repeat
+    # the consequential action.
+    reconcile_fn: Optional[
+        Callable[[BaseModel, Dict[str, Any]], ToolReconciliation]
+    ] = None
     # SK-6: optional runtime predicate; when it returns False the tool is dropped
     # from the model-visible surface (a per-tool generalization of group gating).
     check_fn: Optional[Callable[[], bool]] = None
@@ -102,6 +131,7 @@ class CapabilitySnapshot:
                 info.function,
                 info.description,
                 side_effects=info.side_effects,
+                reconcile_fn=info.reconcile_fn,
             )
         for group in self.groups:
             included = group.tool_names.intersection(self.tool_names)
@@ -148,6 +178,9 @@ class ToolRegistry:
         description: str,
         *,
         side_effects: Iterable[SideEffect] = (),
+        reconcile_fn: Optional[
+            Callable[[BaseModel, Dict[str, Any]], ToolReconciliation]
+        ] = None,
         collision_policy: Optional[CollisionPolicy] = None,
         check_fn: Optional[Callable[[], bool]] = None,
     ) -> None:
@@ -164,6 +197,7 @@ class ToolRegistry:
             function=function,
             description=description,
             side_effects=tuple(side_effects),
+            reconcile_fn=reconcile_fn,
             check_fn=check_fn,
         )
 
@@ -185,6 +219,9 @@ class ToolRegistry:
         description: str = "",
         *,
         side_effects: Iterable[SideEffect] = (),
+        reconcile_fn: Optional[
+            Callable[[BaseModel, Dict[str, Any]], ToolReconciliation]
+        ] = None,
         check_fn: Optional[Callable[[], bool]] = None,
     ):
         """Decorator for registering tools."""
@@ -212,6 +249,7 @@ class ToolRegistry:
                 function=func,
                 description=description,
                 side_effects=side_effects,
+                reconcile_fn=reconcile_fn,
                 check_fn=check_fn,
             )
             return func
@@ -476,9 +514,11 @@ __all__ = [
     "CapabilityResolutionError",
     "CapabilitySnapshot",
     "CollisionPolicy",
+    "ReconciliationStatus",
     "SideEffect",
     "ToolExecutor",
     "ToolInfo",
+    "ToolReconciliation",
     "ToolRegistry",
     "tool_registry",
 ]

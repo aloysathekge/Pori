@@ -504,7 +504,12 @@ async def _mark_indeterminate(
                 col(ActionProposal.status) == "executing",
                 col(ActionProposal.execution_attempt_id) == attempt_id,
             )
-            .values(status="indeterminate", error=error[:4000], updated_at=now)
+            .values(
+                status="indeterminate",
+                error=error[:4000],
+                reconciliation_next_at=now,
+                updated_at=now,
+            )
         )
         if result.rowcount != 1:  # type: ignore[attr-defined]
             await session.rollback()

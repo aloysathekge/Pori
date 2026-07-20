@@ -1,4 +1,5 @@
 import pytest
+from pydantic import BaseModel
 
 from pori import (
     Agent,
@@ -10,6 +11,7 @@ from pori import (
     SkillCatalog,
     SkillManifest,
 )
+from pori.llm import ensure_budgeted_chat_model
 from pori.tools.registry import ToolRegistry
 from pori.tools.standard import register_all_tools
 
@@ -345,12 +347,25 @@ def test_ineligible_selected_skill_is_rejected(tool_registry):
 
 
 def test_budget_ledger_enforces_shared_limits():
-    ledger = BudgetLedger(ExecutionBudget(max_steps=2, max_tokens=10, max_cost_usd=1))
+    ledger = BudgetLedger(
+        ExecutionBudget(
+            max_steps=2,
+            max_tool_calls=2,
+            max_tokens=10,
+            max_cost_usd=1,
+        )
+    )
 
     ledger.consume_step()
     ledger.consume_step()
     with pytest.raises(BudgetExceeded):
         ledger.consume_step()
+
+    ledger.consume_tool_call()
+    ledger.consume_tool_call()
+    with pytest.raises(BudgetExceeded, match="Tool-call") as exhausted:
+        ledger.consume_tool_call()
+    assert exhausted.value.code == "max_tool_calls"
 
     ledger.consume_tokens(10)
     with pytest.raises(BudgetExceeded):
@@ -359,6 +374,70 @@ def test_budget_ledger_enforces_shared_limits():
     ledger.consume_cost(1)
     with pytest.raises(BudgetExceeded):
         ledger.consume_cost(0.01)
+
+    snapshot = ledger.snapshot()
+    assert snapshot["tokens_used"] == 11
+    assert snapshot["cost_used_usd"] == pytest.approx(1.01)
+
+
+def test_budget_ledger_restores_usage_across_attempts():
+    ledger = BudgetLedger(
+        ExecutionBudget(max_steps=4, max_tool_calls=3, max_tokens=20),
+        initial_usage={
+            "steps_used": 2,
+            "tool_calls_used": 3,
+            "tokens_used": 12,
+            "duration_seconds_used": 8.5,
+        },
+    )
+
+    ledger.consume_step()
+    with pytest.raises(BudgetExceeded) as exhausted:
+        ledger.consume_tool_call()
+
+    assert exhausted.value.code == "max_tool_calls"
+    snapshot = ledger.snapshot()
+    assert snapshot["steps_used"] == 3
+    assert snapshot["tool_calls_used"] == 3
+    assert snapshot["tokens_used"] == 12
+    assert snapshot["duration_seconds_used"] == pytest.approx(8.5)
+
+
+@pytest.mark.asyncio
+async def test_budgeted_model_charges_structured_and_ordinary_calls():
+    class Payload(BaseModel):
+        value: str
+
+    class MeteredModel:
+        model = "gpt-4o-mini"
+
+        def __init__(self):
+            self.last_usage = None
+
+        def with_structured_output(self, output_model, include_raw=False):
+            return self
+
+        async def ainvoke(self, messages, output_format=None):
+            self.last_usage = {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15,
+            }
+            return Payload(value="ok")
+
+    ledger = BudgetLedger(ExecutionBudget(max_tokens=100, max_cost_usd=1))
+    model = ensure_budgeted_chat_model(MeteredModel(), ledger)
+
+    await model.with_structured_output(Payload).ainvoke([])
+    await model.ainvoke([])
+
+    snapshot = ledger.snapshot()
+    assert snapshot["llm_calls_used"] == 2
+    assert snapshot["input_tokens_used"] == 20
+    assert snapshot["output_tokens_used"] == 10
+    assert snapshot["tokens_used"] == 30
+    assert snapshot["cost_used_usd"] > 0
+    assert snapshot["unpriced_llm_calls"] == 0
 
 
 @pytest.mark.asyncio

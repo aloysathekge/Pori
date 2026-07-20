@@ -22,9 +22,8 @@ from ..event_presenters import (
 )
 from ..events import ensure_life_event
 from ..models import ActionProposal, CronJob, Event, EventTrailEntry, Run, Task
-from ..rate_limit import rate_limited_permission
 from ..task_state import ACTIVE_TASK_STATUSES
-from ..tenancy import OrganizationContext, Permission
+from ..tenancy import OrganizationContext, Permission, require_permission
 from ..tools.gmail import GmailSearchParams, gmail_search_tool
 
 router = APIRouter(prefix="/today", tags=["today"])
@@ -69,9 +68,7 @@ def _email_timestamp(value: str) -> datetime | None:
 
 @router.get("/emails")
 async def get_today_emails(
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Return a bounded, provider-owned inbox brief for the Today lens.
@@ -135,9 +132,7 @@ async def get_today_emails(
 
 @router.get("")
 async def get_today(
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Aggregate attention, recent evidence, and open work by Event."""

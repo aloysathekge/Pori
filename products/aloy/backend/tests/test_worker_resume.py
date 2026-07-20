@@ -13,6 +13,7 @@ from aloy_backend.background import (
     kernel_task_id_for_run,
 )
 from aloy_backend.models import Event, Organization, OrganizationMembership, Run
+from pori import BudgetLedger, ExecutionBudget
 
 pytestmark = pytest.mark.asyncio
 
@@ -166,6 +167,7 @@ async def test_step_checkpoint_persists_progress_and_renews_lease(
         state=SimpleNamespace(
             n_steps=7, consecutive_failures=0, current_activity="crunching"
         ),
+        budget_ledger=BudgetLedger(ExecutionBudget(max_steps=50)),
         _plan_snapshot=lambda: [
             {"id": "1", "content": "step seven", "status": "in_progress"}
         ],

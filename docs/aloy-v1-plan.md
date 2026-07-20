@@ -648,6 +648,76 @@ Gate:
 
 **Branch:** `aloy-v1-r8-release-gate`
 
+**First reliability slice implemented:** the worker now runs bounded,
+row-lock-aware Run and Task watchdogs before claiming new work. An expired Run
+with attempts remaining is reclaimed through the existing checkpoint-resume
+path and records a recovery Trail entry. An expired final attempt or an
+interrupted cancellation terminalizes once, clears its lease, reconciles its
+Task, Conversation, Surface, Schedule, and Trail projections, and becomes
+explicitly retryable where appropriate. A queued/in-progress Task whose Run is
+missing, mismatched, or already terminal is repaired from host truth. Stale
+provider executions remain `indeterminate` and are never submitted again
+blindly.
+
+**Second reliability slice implemented:** every Run producer resolves and
+freezes host-owned step, tool-call, token, cost, and active-duration ceilings
+before queueing; the worker re-clamps them under an organization row lock before
+claiming. A single kernel budget ledger follows an ordinary Agent, every hidden
+model call, Team coordination, members, and nested Teams, and restores its
+usage after checkpoint resume. Active duration excludes time pending in the
+queue or waiting on a user. Event bootstrap and Surface Builder specialist Runs
+use the same contract. Exhaustion is terminal and non-retryable, with durable
+usage, receipt, and Trail evidence; a failed Surface build retains the last
+working publication. Unknown model pricing fails closed whenever a cost ceiling
+is configured.
+
+Token and cost truth arrives after provider calls complete, so one call, or
+already in-flight parallel Team calls, can cross a ceiling; Aloy records the
+actual overage and permits no new model or tool action. Exact pre-call spend
+guarantees require a governed price catalog, conservative concurrent
+reservations, and provider output limits derived from the remaining budget.
+Those provider controls are a release-hardening follow-up, not a reason to
+undercount actual usage.
+
+**Third reliability slice implemented:** Conversation history now has a stable
+host-owned token allowance independent of a model's advertised context size.
+When that allowance is crossed, Pori rolls the already accepted summary and
+the next contiguous transcript prefix into one replacement summary. Aloy stores
+it as an immutable, versioned `ContextArtifact` with first/last message,
+timestamps, covered count, and content fingerprint; only a gap-free prefix can
+advance the boundary. Reopening hydrates the latest verified summary plus a
+bounded current-Conversation tail. It no longer loads up to 5,000 Event messages
+into every Run. `search_event_history` now page-faults a bounded candidate set
+through an async tenant/user/Event-scoped database handler, so older or sibling
+evidence remains available without automatic prompt injection. A fresh Life
+Conversation consequently starts transcript-clean while accepted personal
+memory still loads. Prompt caching remains an optimization over this stable
+prefix, never the source of durable truth.
+
+**Fourth reliability slice implemented:** provider execution and recovery are
+now distinct rails. A tool may expose a typed, read-only reconciler that
+survives capability snapshot filtering without exposing another model tool.
+`indeterminate` Proposals receive durable inspection leases and bounded
+exponential backoff; an unknown lookup never retries the write. Gmail sends are
+correlated by a deterministic RFC822 Message-ID, while Calendar inserts use a
+caller-chosen deterministic event ID. A provider success followed by simulated
+database commit loss now resolves to a receipt-backed `committed` state through
+provider lookup with exactly one send. Tools without proof remain visibly
+`indeterminate`.
+
+**Fifth release-readiness slice implemented:** the existing boot, product,
+backend, frontend, architecture, operator, and 60-second Career OS guidance now
+describes the durable Event/Surface system rather than the legacy Chat product.
+The generated-Surface browser gate no longer races Chrome navigation: it waits
+for the host-owned runtime document before transferring the secure
+`MessageChannel`, and each accessible interaction check receives its own
+bounded deadline. Pori now exports the shared budgeted-model wrapper through
+its public front door, so Event bootstrap and Surface Builder no longer import
+kernel internals. Kernel, backend, app, Python typing, and all three import
+boundary contracts pass on the final code. Responsive/accessibility evidence
+and real-provider University, Madrid, and Career acceptance remain explicit
+manual gates; this slice does not claim them from static inspection.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

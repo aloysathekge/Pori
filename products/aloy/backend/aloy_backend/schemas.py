@@ -61,12 +61,20 @@ class MembershipResponse(BaseModel):
 class RunRequest(BaseModel):
     task: str = Field(..., description="User task/prompt to execute")
     max_steps: int = Field(15, ge=1, le=10_000)
+    max_tool_calls: int | None = Field(default=None, ge=1, le=10_000)
+    max_tokens: int | None = Field(default=None, ge=1)
+    max_cost_usd: float | None = Field(default=None, ge=0, le=10_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
 
 class ChildRunCreate(BaseModel):
     task: str = Field(..., min_length=1, max_length=100_000)
     agent_id: str = Field("child_agent", min_length=1)
     max_steps: int = Field(5, ge=1, le=10_000)
+    max_tool_calls: int | None = Field(default=None, ge=1, le=10_000)
+    max_tokens: int | None = Field(default=None, ge=1)
+    max_cost_usd: float | None = Field(default=None, ge=0, le=10_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
     idempotency_key: str | None = Field(default=None, max_length=200)
 
 
@@ -79,6 +87,9 @@ class RunResponse(BaseModel):
     session_id: str
     status: str
     max_steps: int
+    max_tool_calls: int
+    max_tokens: int | None = None
+    max_cost_usd: float | None = None
     success: bool
     steps_taken: int
     final_answer: str | None = None

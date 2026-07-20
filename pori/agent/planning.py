@@ -25,6 +25,7 @@ from pori.llm import (
 )
 
 from ..evaluation import ActionResult, Evaluator
+from ..runtime import BudgetExceeded
 from ..utils.logging_config import ensure_logger_configured
 from .schemas import (
     AgentOutput,
@@ -186,6 +187,8 @@ async def _plan_if_needed(self) -> None:
                 )
             except Exception:
                 pass
+    except BudgetExceeded:
+        raise
     except Exception as e:
         logger.debug(f"Plan generation failed: {e}", extra={"task_id": self.task_id})
 
@@ -255,5 +258,7 @@ async def _reflect_and_update_plan(self, tool_results: List[ActionResult]) -> No
                     )
                 except Exception:
                     pass
+    except BudgetExceeded:
+        raise
     except Exception as e:
         logger.debug(f"Reflection failed: {e}", extra={"task_id": self.task_id})

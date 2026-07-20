@@ -280,10 +280,75 @@ class AgentMemory:
             AgentMessage.model_validate(message) for message in messages
         ]
 
+    def reset_host_hydrated_context(self) -> None:
+        """Discard transcript state that the product host will rebuild.
+
+        Product databases are authoritative for conversations and durable
+        summaries. A local memory-store snapshot may survive a process restart,
+        so appending host rows to it would duplicate or leak stale transcript
+        state. Durable typed memory and task/checkpoint state are left intact.
+        """
+        self.messages = []
+        self._event_history_messages = []
+        self.summaries = []
+        self._summary_message_id = None
+
     def hydrate_messages(self, messages: List[Dict[str, Any]]) -> None:
         """Load persisted messages without rewriting the backing memory store."""
         self.messages.extend(
             AgentMessage.model_validate(message) for message in messages
+        )
+
+    def hydrate_context_summary(
+        self,
+        summary_text: str,
+        *,
+        version: int,
+        source_start_message_id: str,
+        source_end_message_id: str,
+        source_message_count: int,
+        source_started_at: Any = None,
+        source_ended_at: Any = None,
+        content_fingerprint: str = "",
+    ) -> None:
+        """Load one host-verified durable Conversation summary.
+
+        This is runtime hydration only: the product database owns the artifact
+        and its provenance boundary. It is deliberately not persisted back to
+        the kernel memory store here.
+        """
+        self._summary_message_id = f"durable_summary_v{version}"
+        self.summaries.append(
+            {
+                "id": self._summary_message_id,
+                "timestamp": self._safe_from_iso(source_ended_at) or datetime.now(),
+                "summary": summary_text,
+                "durable": True,
+                "version": int(version),
+                "window_source_message_ids": [],
+                "source_message_ids": [
+                    source_start_message_id,
+                    *(
+                        [source_end_message_id]
+                        if source_end_message_id != source_start_message_id
+                        else []
+                    ),
+                ],
+                "source_start_message_id": source_start_message_id,
+                "source_end_message_id": source_end_message_id,
+                "source_message_count": int(source_message_count),
+                "source_started_at": (
+                    source_started_at.isoformat()
+                    if isinstance(source_started_at, datetime)
+                    else source_started_at
+                ),
+                "source_ended_at": (
+                    source_ended_at.isoformat()
+                    if isinstance(source_ended_at, datetime)
+                    else source_ended_at
+                ),
+                "content_fingerprint": content_fingerprint,
+            }
         )
 
     def get_recent_messages(self, n: int = 10) -> str:
@@ -357,21 +422,87 @@ class AgentMemory:
         """True if a summary is already cached for exactly this dropped-id set."""
         return any(
             isinstance(s, dict)
-            and s.get("source_message_ids") == dropped_ids
+            and (
+                s.get("window_source_message_ids") == dropped_ids
+                or (
+                    "window_source_message_ids" not in s
+                    and s.get("source_message_ids") == dropped_ids
+                )
+            )
             and s.get("summary")
             for s in self.summaries
         )
 
-    def store_context_summary(self, dropped_ids: List[str], summary_text: str) -> None:
+    def prepare_context_compression(
+        self, dropped: List[AgentMessage]
+    ) -> Tuple[str, List[AgentMessage], Dict[str, Any]]:
+        """Combine a durable prefix with only the newly dropped contiguous tail."""
+        previous = next(
+            (
+                item
+                for item in reversed(self.summaries)
+                if isinstance(item, dict)
+                and item.get("summary")
+                and item.get("source_end_message_id")
+            ),
+            None,
+        )
+        new_messages = list(dropped)
+        if previous:
+            ids = [message.id for message in dropped]
+            previous_end = str(previous["source_end_message_id"])
+            if previous_end in ids:
+                new_messages = dropped[ids.index(previous_end) + 1 :]
+
+        prior_count = int((previous or {}).get("source_message_count") or 0)
+        first = new_messages[0] if new_messages else None
+        last = new_messages[-1] if new_messages else None
+        provenance = {
+            "source_start_message_id": (
+                (previous or {}).get("source_start_message_id")
+                or (first.id if first else "")
+            ),
+            "source_end_message_id": (
+                last.id
+                if last
+                else str((previous or {}).get("source_end_message_id") or "")
+            ),
+            "source_message_count": prior_count + len(new_messages),
+            "source_started_at": (
+                (previous or {}).get("source_started_at")
+                or (
+                    first.timestamp.isoformat()
+                    if first and first.timestamp is not None
+                    else None
+                )
+            ),
+            "source_ended_at": (
+                last.timestamp.isoformat()
+                if last and last.timestamp is not None
+                else (previous or {}).get("source_ended_at")
+            ),
+        }
+        return str((previous or {}).get("summary") or ""), new_messages, provenance
+
+    def store_context_summary(
+        self,
+        dropped_ids: List[str],
+        summary_text: str,
+        *,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Cache a compression summary keyed by the dropped-message ids (AC-3)."""
         self._summary_message_id = f"summary_{uuid.uuid4().hex[:10]}"
+        details = dict(provenance or {})
         self.summaries.append(
             {
                 "id": self._summary_message_id,
                 "timestamp": datetime.now(),
                 "dropped_count": len(dropped_ids),
                 "source_message_ids": dropped_ids,
+                "window_source_message_ids": dropped_ids,
                 "summary": summary_text,
+                **details,
             }
         )
         self._persist()
@@ -393,22 +524,55 @@ class AgentMemory:
                     s
                     for s in reversed(self.summaries)
                     if isinstance(s, dict)
-                    and s.get("source_message_ids") == dropped_ids
+                    and (
+                        s.get("window_source_message_ids") == dropped_ids
+                        or (
+                            "window_source_message_ids" not in s
+                            and s.get("source_message_ids") == dropped_ids
+                        )
+                    )
                     and s.get("summary")
                 ),
                 None,
             )
             # An LLM summary (cached by the AC-3 compressor) is used when present;
             # otherwise fall back to the cheap deterministic role-count summary.
-            summary_text = (
-                str(cached_summary.get("summary"))
-                if isinstance(cached_summary, dict)
-                else self._summarize_messages(dropped)
-            )
+            if isinstance(cached_summary, dict):
+                summary_text = str(cached_summary.get("summary"))
+            else:
+                durable_summary = next(
+                    (
+                        s
+                        for s in reversed(self.summaries)
+                        if isinstance(s, dict) and s.get("durable") and s.get("summary")
+                    ),
+                    None,
+                )
+                parts = [
+                    str((durable_summary or {}).get("summary") or ""),
+                    self._summarize_messages(dropped),
+                ]
+                summary_text = "\n\n".join(part for part in parts if part)
             if summary_text:
                 if not cached_summary:
+                    # Preserve the legacy deterministic cache behavior. These
+                    # entries intentionally have no host provenance boundary,
+                    # so products cannot mistake them for durable artifacts.
                     self.store_context_summary(dropped_ids, summary_text)
                 structured.insert(0, {"role": "system", "content": summary_text})
+        elif include_summary_message:
+            durable_summary = next(
+                (
+                    s
+                    for s in reversed(self.summaries)
+                    if isinstance(s, dict) and s.get("durable") and s.get("summary")
+                ),
+                None,
+            )
+            if durable_summary:
+                structured.insert(
+                    0, {"role": "system", "content": str(durable_summary["summary"])}
+                )
         return structured
 
     def add_tool_call(

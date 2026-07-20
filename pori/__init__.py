@@ -87,6 +87,7 @@ from .hitl import (
 # The LLM interface type (products annotate against it; construct via
 # create_llm / get_configured_llm above).
 from .llm.base import BaseChatModel
+from .llm.budgeted import ensure_budgeted_chat_model
 from .llm.messages import (
     DocumentBlock,
     ImageBlock,
@@ -155,6 +156,7 @@ from .providers import (
 )
 from .retrieval import RetrievalEvidence, fuse_retrieval
 from .runtime import (
+    BUDGET_EXHAUSTION_CODES,
     BudgetExceeded,
     BudgetLedger,
     CancellationToken,
@@ -219,8 +221,10 @@ from .tools.registry import (
     CapabilityResolutionError,
     CapabilitySnapshot,
     CollisionPolicy,
+    ReconciliationStatus,
     ToolExecutor,
     ToolInfo,
+    ToolReconciliation,
     ToolRegistry,
     tool_registry,
 )
@@ -267,6 +271,7 @@ __all__ = [
     "RetrievalEvaluation",
     "evaluate_retrieval",
     # Runtime contracts
+    "BUDGET_EXHAUSTION_CODES",
     "ExecutionBudget",
     "BudgetExceeded",
     "BudgetLedger",
@@ -344,6 +349,8 @@ __all__ = [
     "ToolRegistry",
     "ToolExecutor",
     "ToolInfo",
+    "ToolReconciliation",
+    "ReconciliationStatus",
     "tool_registry",
     # Product integration seams (the kernel front door for embedding products —
     # see docs/codebase-review-2026-07-09.md: these were forced deep imports)
@@ -351,6 +358,7 @@ __all__ = [
     "ClarifyBridge",
     "LLMConfig",
     "BaseChatModel",
+    "ensure_budgeted_chat_model",
     "create_llm",
     "get_configured_llm",
     "SystemMessage",

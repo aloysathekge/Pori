@@ -42,6 +42,7 @@ from .models import (
     Task,
 )
 from .proposal_executor import proposal_tool_registry
+from .run_budgets import resolve_run_budget
 from .surface_commands import (
     SURFACE_COMMAND_CONTRACT_VERSION,
     ResolvedSurfaceCommand,
@@ -834,6 +835,7 @@ async def handle_surface_interaction(
                 "data_revision": project.data_revision,
             },
         )
+        budget = resolve_run_budget(context.policy)
         run = Run(
             organization_id=context.organization_id,
             user_id=context.user_id,
@@ -848,9 +850,12 @@ async def handle_surface_interaction(
                 "</trusted-surface-command>\n"
                 f"User request: {message}"
             ),
-            max_steps=context.policy.max_steps_per_run,
+            max_steps=budget.max_steps,
+            max_tool_calls=budget.max_tool_calls,
+            max_tokens=budget.max_tokens,
+            max_cost_usd=budget.max_cost_usd,
             max_attempts=context.policy.max_attempts,
-            timeout_seconds=context.policy.run_timeout_seconds,
+            timeout_seconds=budget.timeout_seconds,
             status="pending",
         )
         session.add(user_message)

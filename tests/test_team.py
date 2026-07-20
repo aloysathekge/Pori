@@ -9,7 +9,9 @@ import pytest
 from pydantic import BaseModel, Field
 
 from pori.agent import AgentOutput, AgentSettings
+from pori.llm import ToolCall, ToolTurn
 from pori.memory import AgentMemory
+from pori.runtime import BudgetLedger, ExecutionBudget
 from pori.team import (
     BroadcastSummary,
     DelegationPlan,
@@ -232,6 +234,104 @@ class TestModels:
 
 
 class TestRouterMode:
+    def test_successful_team_result_includes_complete_budget_usage(
+        self, event_loop, registry
+    ):
+        class MeteredTeamModel:
+            model = "gpt-4o-mini"
+
+            def __init__(self):
+                self.last_usage = None
+
+            def with_structured_output(self, output_model, include_raw=False):
+                return self
+
+            async def ainvoke(self, messages, output_format=None):
+                self.last_usage = {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "total_tokens": 15,
+                }
+                return RoutingDecision(
+                    chosen_member="analyst",
+                    reasoning="best fit",
+                )
+
+            async def ainvoke_tools(self, messages, tools, on_event=None):
+                self.last_usage = {
+                    "input_tokens": 20,
+                    "output_tokens": 10,
+                    "total_tokens": 30,
+                }
+                return ToolTurn(
+                    text="Complete",
+                    tool_calls=[
+                        ToolCall(
+                            name="answer",
+                            arguments={
+                                "final_answer": "Complete",
+                                "reasoning": "done",
+                            },
+                        )
+                    ],
+                )
+
+        team = Team(
+            task="Analyse this data",
+            coordinator_llm=MeteredTeamModel(),
+            members=[
+                MemberConfig(
+                    name="analyst",
+                    description="analyses",
+                )
+            ],
+            mode=TeamMode.ROUTER,
+            tools_registry=registry,
+        )
+
+        result = event_loop.run_until_complete(team.run())
+
+        assert result["budget_usage"] == result["metrics"]["budget_usage"]
+        assert result["budget_usage"]["llm_calls_used"] == 2
+        assert result["budget_usage"]["tokens_used"] == 45
+
+    def test_coordinator_budget_exhaustion_is_terminal(self, event_loop, registry):
+        class BudgetCoordinator:
+            model = "gpt-4o-mini"
+
+            def __init__(self):
+                self.last_usage = None
+
+            def with_structured_output(self, output_model, include_raw=False):
+                return self
+
+            async def ainvoke(self, messages, output_format=None):
+                self.last_usage = {
+                    "input_tokens": 30,
+                    "output_tokens": 20,
+                    "total_tokens": 50,
+                }
+                return RoutingDecision(
+                    chosen_member="analyst",
+                    reasoning="best fit",
+                )
+
+        team = Team(
+            task="Analyse this data",
+            coordinator_llm=BudgetCoordinator(),
+            members=[MemberConfig(name="analyst", description="analyses")],
+            mode=TeamMode.ROUTER,
+            tools_registry=registry,
+            budget_ledger=BudgetLedger(ExecutionBudget(max_tokens=10)),
+        )
+
+        result = event_loop.run_until_complete(team.run())
+
+        assert result["completed"] is False
+        assert result["stop_reason"] == "max_tokens"
+        assert result["budget_usage"]["llm_calls_used"] == 1
+        assert result["budget_usage"]["tokens_used"] == 50
+
     def test_router_routes_to_correct_member(self, event_loop, registry):
         coordinator = StructuredMockLLM(
             responses=[

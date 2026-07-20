@@ -17,6 +17,7 @@ from sqlmodel import col, select
 from ..database import get_session
 from ..events import ensure_life_event
 from ..models import Run, RunEventLog
+from ..run_budgets import narrow_budget_to_parent, resolve_run_budget
 from ..schemas import ChildRunCreate, RunEventLogResponse, RunRequest, RunResponse
 from ..tenancy import OrganizationContext, Permission, require_permission
 
@@ -35,6 +36,9 @@ def _run_response(run: Run) -> RunResponse:
         session_id=run.session_id,
         status=run.status,
         max_steps=run.max_steps,
+        max_tool_calls=run.max_tool_calls,
+        max_tokens=run.max_tokens,
+        max_cost_usd=run.max_cost_usd,
         success=run.success,
         steps_taken=run.steps_taken,
         final_answer=run.final_answer,
@@ -85,7 +89,11 @@ async def create_run(
     if active_count >= context.policy.max_concurrent_runs:
         raise HTTPException(status_code=429, detail="Organization run limit reached")
 
-    max_steps = min(req.max_steps, context.policy.max_steps_per_run)
+    budget = resolve_run_budget(
+        context.policy,
+        req.model_dump(exclude={"task"}),
+        default_max_steps=req.max_steps,
+    )
     life = await ensure_life_event(
         session,
         organization_id=context.organization_id,
@@ -98,10 +106,13 @@ async def create_run(
         agent_id="default_agent",
         session_id="pending",
         task=req.task,
-        max_steps=max_steps,
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
         status="pending",
         max_attempts=context.policy.max_attempts,
-        timeout_seconds=context.policy.run_timeout_seconds,
+        timeout_seconds=budget.timeout_seconds,
     )
     session.add(run)
     await session.commit()
@@ -189,7 +200,14 @@ async def create_child_run(
         row = existing.scalars().first()
         if row is not None:
             return _run_response(row)
-    max_steps = min(body.max_steps, context.policy.max_steps_per_run)
+    budget = narrow_budget_to_parent(
+        resolve_run_budget(
+            context.policy,
+            body.model_dump(exclude={"task", "agent_id", "idempotency_key"}),
+            default_max_steps=body.max_steps,
+        ),
+        parent,
+    )
     child = Run(
         user_id=context.user_id,
         organization_id=context.organization_id,
@@ -198,10 +216,13 @@ async def create_child_run(
         agent_id=body.agent_id,
         session_id="pending",
         task=body.task,
-        max_steps=max_steps,
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
         status="pending",
         max_attempts=context.policy.max_attempts,
-        timeout_seconds=context.policy.run_timeout_seconds,
+        timeout_seconds=budget.timeout_seconds,
         parent_run_id=parent.id,
         root_run_id=parent.root_run_id or parent.id,
         idempotency_key=body.idempotency_key,

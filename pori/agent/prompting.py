@@ -220,10 +220,11 @@ def _build_messages(self) -> List[BaseMessage]:
     recent_structured: List[Dict[str, Any]] = []
     try:
         if hasattr(self.memory, "get_token_limited_messages"):
+            history_tokens, history_reserve = self._history_context_limits()
             context_window = self.context_engine.build(
                 self.memory,
-                max_tokens=self.settings.context_window_tokens,
-                reserve_tokens=self.settings.context_window_reserve_tokens,
+                max_tokens=history_tokens,
+                reserve_tokens=history_reserve,
             )
             recent_structured = list(context_window.messages)
             self.context_diagnostics = context_window.diagnostics

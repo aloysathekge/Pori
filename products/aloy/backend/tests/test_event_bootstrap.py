@@ -198,11 +198,11 @@ async def test_bootstrap_executes_without_tools_and_publishes_grounded_brief(
         assert completed.status == "completed"
         assert completed.success is True
         assert completed.lease_owner is None
-        assert completed.metrics == {
-            "model": "fake-structured-model",
-            "structured_output": True,
-            "context_snapshot_version": 1,
-        }
+        assert completed.metrics["model"] == "fake-structured-model"
+        assert completed.metrics["structured_output"] is True
+        assert completed.metrics["context_snapshot_version"] == 1
+        assert completed.metrics["budget_usage"]["steps_used"] == 1
+        assert completed.metrics["budget_usage"]["llm_calls_used"] == 1
         assert brief.creator_run_id == run_id
         assert brief.source_context_snapshot_id == snapshot.id
         assert event is not None

@@ -18,12 +18,15 @@ from .config import settings
 from .context_ingestion import run_next_context_ingestion
 from .cron import tick_cron_jobs
 from .database import async_session
-from .models import Event, Organization, Run
+from .models import Event, EventTrailEntry, Organization, Run
 from .proposal_executor import (
     execute_next_approved_proposal,
     expire_due_proposals,
     reconcile_stale_executions,
 )
+from .proposal_reconciliation import reconcile_indeterminate_proposals
+from .run_budgets import resolve_run_budget
+from .run_watchdog import reconcile_orphaned_tasks, reconcile_stale_runs
 from .tenancy import OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend.worker")
@@ -39,7 +42,7 @@ async def claim_next_run(worker_id: str) -> str | None:
         candidate_statement = (
             select(Run.id)
             .where(
-                Run.cancel_requested == False,
+                Run.cancel_requested == False,  # noqa: E712 - SQL expression
                 or_(
                     col(Run.status) == "pending",
                     (col(Run.status) == "running")
@@ -109,7 +112,6 @@ async def claim_next_run(worker_id: str) -> str | None:
                     .select_from(Run)
                     .where(
                         Run.organization_id == candidate.organization_id,
-                        Run.user_id == candidate.user_id,
                         Run.id != candidate.id,
                         Run.status == "running",
                         active_lease,
@@ -118,6 +120,25 @@ async def claim_next_run(worker_id: str) -> str | None:
             ).scalar_one()
             if active_account >= account_cap:
                 continue
+
+            # Every producer can only narrow these values. Re-clamp at the
+            # worker admission boundary so legacy, gateway, Schedule, and
+            # specialist rows cannot bypass a newer organization policy.
+            budget = resolve_run_budget(
+                policy,
+                {
+                    "max_steps": candidate.max_steps,
+                    "max_tool_calls": candidate.max_tool_calls,
+                    "max_tokens": candidate.max_tokens,
+                    "max_cost_usd": candidate.max_cost_usd,
+                    "timeout_seconds": candidate.timeout_seconds,
+                },
+            )
+            candidate.max_steps = budget.max_steps
+            candidate.max_tool_calls = budget.max_tool_calls
+            candidate.max_tokens = budget.max_tokens
+            candidate.max_cost_usd = budget.max_cost_usd
+            candidate.timeout_seconds = budget.timeout_seconds
 
             if candidate.conversation_id:
                 active_conversation = (
@@ -164,21 +185,62 @@ async def claim_next_run(worker_id: str) -> str | None:
         if run is None:
             await session.rollback()
             return None
+        recovering_expired_lease = run.status == "running"
+        previous_lease_expires_at = run.lease_expires_at
         run.status = "running"
         run.attempt_count += 1
         run.lease_owner = worker_id
+        run.progress = {
+            **(run.progress or {}),
+            # Queue time and time waiting on a user are not execution. Each
+            # worker claim starts a fresh active interval while preserving the
+            # cumulative usage checkpoint from prior attempts.
+            "budget_attempt_started_at": now.isoformat(),
+        }
         lease_seconds = max(settings.worker_lease_seconds, run.timeout_seconds + 30)
         run.lease_expires_at = now + timedelta(seconds=lease_seconds)
         run.started_at = run.started_at or now
         session.add(run)
+        if (
+            recovering_expired_lease
+            and await session.get(Event, run.event_id) is not None
+        ):
+            session.add(
+                EventTrailEntry(
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    event_id=run.event_id,
+                    actor_id="worker:run-watchdog",
+                    kind="run_watchdog_recovered",
+                    summary="Recovered an interrupted Run from its last checkpoint",
+                    run_id=run.id,
+                    task_id=run.task_id,
+                    payload={
+                        "attempt_count": run.attempt_count,
+                        "max_attempts": run.max_attempts,
+                        "previous_lease_expires_at": (
+                            previous_lease_expires_at.isoformat()
+                            if previous_lease_expires_at
+                            else None
+                        ),
+                        "checkpoint_steps": int(
+                            (run.progress or {}).get("n_steps") or 0
+                        ),
+                    },
+                )
+            )
         await session.commit()
         return run.id
 
 
 async def run_once(worker_id: str | None = None) -> bool:
     resolved_worker_id = worker_id or default_worker_id()
+    await reconcile_stale_runs()
+    await reconcile_orphaned_tasks()
     await expire_due_proposals()
     await reconcile_stale_executions()
+    if await reconcile_indeterminate_proposals():
+        return True
     proposal_result = await execute_next_approved_proposal()
     if proposal_result is not None:
         return True

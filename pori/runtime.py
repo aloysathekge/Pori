@@ -11,7 +11,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,23 +49,60 @@ class ExecutionBudget(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     max_steps: Optional[int] = Field(default=None, ge=1)
+    max_tool_calls: Optional[int] = Field(default=None, ge=1)
     max_tokens: Optional[int] = Field(default=None, ge=1)
     max_cost_usd: Optional[float] = Field(default=None, ge=0.0)
     max_duration_seconds: Optional[float] = Field(default=None, gt=0.0)
 
 
+BUDGET_EXHAUSTION_CODES = frozenset(
+    {
+        "max_steps",
+        "max_tool_calls",
+        "max_tokens",
+        "max_cost_usd",
+        "max_duration_seconds",
+        "unpriced_model",
+    }
+)
+
+
 class BudgetExceeded(RuntimeError):
-    pass
+    """A named execution ceiling was reached."""
+
+    def __init__(self, message: str, *, code: str = "budget_exhausted"):
+        self.code = code
+        super().__init__(message)
 
 
 class BudgetLedger:
     """Mutable shared consumption ledger for a parent run and its children."""
 
-    def __init__(self, budget: ExecutionBudget):
+    def __init__(
+        self,
+        budget: ExecutionBudget,
+        *,
+        initial_usage: Optional[Mapping[str, Any]] = None,
+    ):
         self.budget = budget
-        self.steps_used = 0
-        self.tokens_used = 0
-        self.cost_used_usd = 0.0
+        usage = initial_usage or {}
+        self.steps_used = max(0, int(usage.get("steps_used") or 0))
+        self.tool_calls_used = max(0, int(usage.get("tool_calls_used") or 0))
+        self.llm_calls_used = max(0, int(usage.get("llm_calls_used") or 0))
+        self.input_tokens_used = max(0, int(usage.get("input_tokens_used") or 0))
+        self.output_tokens_used = max(0, int(usage.get("output_tokens_used") or 0))
+        self.cache_read_tokens_used = max(
+            0, int(usage.get("cache_read_tokens_used") or 0)
+        )
+        self.cache_write_tokens_used = max(
+            0, int(usage.get("cache_write_tokens_used") or 0)
+        )
+        self.tokens_used = max(0, int(usage.get("tokens_used") or 0))
+        self.cost_used_usd = max(0.0, float(usage.get("cost_used_usd") or 0.0))
+        self.unpriced_llm_calls = max(0, int(usage.get("unpriced_llm_calls") or 0))
+        self._duration_used_before_start = max(
+            0.0, float(usage.get("duration_seconds_used") or 0.0)
+        )
         # Wall-clock deadline (max_duration_seconds): armed by the first
         # start_clock() so parent + children share one clock.
         self._clock_started_at: Optional[float] = None
@@ -82,57 +119,142 @@ class BudgetLedger:
         if (
             self.budget.max_duration_seconds is not None
             and self._clock_started_at is not None
-            and time.monotonic() - self._clock_started_at
+            and self._duration_used_before_start
+            + (time.monotonic() - self._clock_started_at)
             > self.budget.max_duration_seconds
         ):
-            raise BudgetExceeded("Duration budget exceeded")
+            raise BudgetExceeded(
+                "Duration budget exceeded", code="max_duration_seconds"
+            )
+
+    def check_deadline(self) -> None:
+        """Fail before another model or tool action after the wall deadline."""
+        with self._lock:
+            self._check_deadline_locked()
+
+    def check_model_call_allowed(self) -> None:
+        """Fail before a provider call when no measurable budget remains."""
+        with self._lock:
+            self._check_deadline_locked()
+            if (
+                self.budget.max_tokens is not None
+                and self.tokens_used >= self.budget.max_tokens
+            ):
+                raise BudgetExceeded("Token budget exhausted", code="max_tokens")
+            if (
+                self.budget.max_cost_usd is not None
+                and self.cost_used_usd >= self.budget.max_cost_usd
+            ):
+                raise BudgetExceeded("Cost budget exhausted", code="max_cost_usd")
+            if self.budget.max_cost_usd is not None and self.unpriced_llm_calls:
+                raise BudgetExceeded(
+                    "Cost budget cannot be verified for this model",
+                    code="unpriced_model",
+                )
 
     def consume_step(self, count: int = 1) -> None:
         with self._lock:
             self._check_deadline_locked()
             next_value = self.steps_used + count
             if self.budget.max_steps is not None and next_value > self.budget.max_steps:
-                raise BudgetExceeded("Step budget exceeded")
+                raise BudgetExceeded("Step budget exceeded", code="max_steps")
             self.steps_used = next_value
 
-    def consume_tokens(self, count: int) -> None:
+    def consume_tool_call(self, count: int = 1) -> None:
+        """Reserve tool-call capacity before dispatching a model action."""
         if count <= 0:
             return
         with self._lock:
+            self._check_deadline_locked()
+            next_value = self.tool_calls_used + count
+            if (
+                self.budget.max_tool_calls is not None
+                and next_value > self.budget.max_tool_calls
+            ):
+                raise BudgetExceeded("Tool-call budget exceeded", code="max_tool_calls")
+            self.tool_calls_used = next_value
+
+    def record_llm_call(self) -> None:
+        """Record a completed provider call, including calls with no usage."""
+        with self._lock:
+            self.llm_calls_used += 1
+            self._check_deadline_locked()
+
+    def consume_tokens(
+        self,
+        count: int,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
+        if count <= 0:
+            return
+        with self._lock:
+            self.input_tokens_used += max(0, input_tokens)
+            self.output_tokens_used += max(0, output_tokens)
+            self.cache_read_tokens_used += max(0, cache_read_tokens)
+            self.cache_write_tokens_used += max(0, cache_write_tokens)
             next_value = self.tokens_used + count
+            # The provider call already happened. Preserve actual consumption
+            # even when it crossed the configured ceiling, then stop the loop.
+            self.tokens_used = next_value
+            self._check_deadline_locked()
             if (
                 self.budget.max_tokens is not None
                 and next_value > self.budget.max_tokens
             ):
-                raise BudgetExceeded("Token budget exceeded")
-            self.tokens_used = next_value
+                raise BudgetExceeded("Token budget exceeded", code="max_tokens")
 
     def consume_cost(self, amount_usd: float) -> None:
         if amount_usd <= 0:
             return
         with self._lock:
             next_value = self.cost_used_usd + amount_usd
+            # Cost is known only after provider usage arrives. Record the real
+            # charge before stopping so receipts never under-report an overage.
+            self.cost_used_usd = next_value
+            self._check_deadline_locked()
             if (
                 self.budget.max_cost_usd is not None
                 and next_value > self.budget.max_cost_usd
             ):
-                raise BudgetExceeded("Cost budget exceeded")
-            self.cost_used_usd = next_value
+                raise BudgetExceeded("Cost budget exceeded", code="max_cost_usd")
+
+    def record_unpriced_llm_call(self) -> None:
+        """Fail closed when a cost ceiling cannot be verified for the model."""
+        with self._lock:
+            self.unpriced_llm_calls += 1
+            if self.budget.max_cost_usd is not None:
+                raise BudgetExceeded(
+                    "Cost budget cannot be verified for this model",
+                    code="unpriced_model",
+                )
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             return {
                 "max_steps": self.budget.max_steps,
+                "max_tool_calls": self.budget.max_tool_calls,
                 "max_tokens": self.budget.max_tokens,
                 "max_cost_usd": self.budget.max_cost_usd,
                 "max_duration_seconds": self.budget.max_duration_seconds,
                 "steps_used": self.steps_used,
+                "tool_calls_used": self.tool_calls_used,
+                "llm_calls_used": self.llm_calls_used,
+                "input_tokens_used": self.input_tokens_used,
+                "output_tokens_used": self.output_tokens_used,
+                "cache_read_tokens_used": self.cache_read_tokens_used,
+                "cache_write_tokens_used": self.cache_write_tokens_used,
                 "tokens_used": self.tokens_used,
                 "cost_used_usd": self.cost_used_usd,
+                "unpriced_llm_calls": self.unpriced_llm_calls,
                 "duration_seconds_used": (
-                    time.monotonic() - self._clock_started_at
+                    self._duration_used_before_start
+                    + (time.monotonic() - self._clock_started_at)
                     if self._clock_started_at is not None
-                    else 0.0
+                    else self._duration_used_before_start
                 ),
             }
 
@@ -245,6 +367,7 @@ class ChildRunResult(BaseModel):
 
 
 __all__ = [
+    "BUDGET_EXHAUSTION_CODES",
     "ExecutionBudget",
     "BudgetExceeded",
     "BudgetLedger",

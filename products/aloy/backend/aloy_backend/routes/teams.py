@@ -15,6 +15,7 @@ from sqlmodel import col, select
 from ..database import get_session
 from ..events import ensure_life_event
 from ..models import Run, TeamConfig
+from ..run_budgets import resolve_run_budget
 from ..schemas import (
     TeamConfigCreate,
     TeamConfigResponse,
@@ -149,6 +150,10 @@ async def run_team(
         organization_id=context.organization_id,
         user_id=context.user_id,
     )
+    budget = resolve_run_budget(
+        context.policy,
+        {"max_steps": team_config.max_delegation_steps},
+    )
     run = Run(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -157,11 +162,12 @@ async def run_team(
         session_id="pending",
         team_config_id=team_id,
         task=req.task,
-        max_steps=min(
-            team_config.max_delegation_steps, context.policy.max_steps_per_run
-        ),
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
         max_attempts=context.policy.max_attempts,
-        timeout_seconds=context.policy.run_timeout_seconds,
+        timeout_seconds=budget.timeout_seconds,
         status="pending",
     )
     session.add(run)

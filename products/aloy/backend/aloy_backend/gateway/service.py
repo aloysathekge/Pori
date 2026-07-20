@@ -24,7 +24,9 @@ from sqlmodel import select
 from ..config import settings
 from ..database import async_session
 from ..events import ensure_life_event
-from ..models import Conversation, GatewayLink, GatewayPairingCode, Run
+from ..models import Conversation, GatewayLink, GatewayPairingCode, Organization, Run
+from ..run_budgets import resolve_run_budget
+from ..tenancy import OrganizationPolicy
 from .delivery import DeliveryRouter
 from .registry import build_adapters
 from .telegram import TelegramAdapter
@@ -120,6 +122,13 @@ async def enqueue_run_for_link(link: GatewayLink, task: str) -> str:
             event_id = life.id
         else:
             event_id = conversation.event_id
+        organization = await session.get(Organization, link.organization_id)
+        policy = (
+            OrganizationPolicy.model_validate(organization.policy or {})
+            if organization is not None
+            else OrganizationPolicy()
+        )
+        budget = resolve_run_budget(policy)
         run = Run(
             user_id=link.user_id,
             organization_id=link.organization_id,
@@ -128,6 +137,12 @@ async def enqueue_run_for_link(link: GatewayLink, task: str) -> str:
             session_id="pending",
             conversation_id=link.conversation_id,
             task=task,
+            max_steps=budget.max_steps,
+            max_tool_calls=budget.max_tool_calls,
+            max_tokens=budget.max_tokens,
+            max_cost_usd=budget.max_cost_usd,
+            timeout_seconds=budget.timeout_seconds,
+            max_attempts=policy.max_attempts,
             status="pending",
         )
         session.add(run)

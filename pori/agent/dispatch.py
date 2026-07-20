@@ -15,7 +15,7 @@ from ..evaluation import ActionResult
 from ..hitl import ActionRequest, ApprovalRequest, ReviewConfig
 from ..metrics import StepMetrics, ToolCallMetrics
 from ..observability import TOOL_CALL_END, TOOL_CALL_START
-from ..runtime import ReceiptStatus
+from ..runtime import BudgetExceeded, ReceiptStatus
 from ..utils.logging_config import ensure_logger_configured
 
 logger = ensure_logger_configured("pori.agent")
@@ -132,6 +132,10 @@ async def execute_actions(
             f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
         )
         logger.debug(f"Tool parameters: {params}", extra={"task_id": self.task_id})
+        # Count every model-requested tool action, including terminal, rejected,
+        # staged, and duplicate calls. Reserve before any dispatch so crossing
+        # the ceiling can never execute one extra action.
+        self.budget_ledger.consume_tool_call()
 
         # Duplicate handling: reuse last identical result instead of re-running
         try:
@@ -175,6 +179,10 @@ async def execute_actions(
                     continue
             # First time seeing this signature this step
             seen_signatures_this_step.add(sig)
+        except BudgetExceeded:
+            # This is a host-owned stop signal, not a failed tool result. Let
+            # Agent.run() terminalize the run without dispatching more actions.
+            raise
         except Exception as e:
             # If duplicate detection fails, proceed normally
             logger.debug(
@@ -652,6 +660,8 @@ async def execute_actions(
                     f"Tool '{tool_name}' failed. Retrying ({retry_count}/{self.settings.max_failures}).",
                 )
 
+        except BudgetExceeded:
+            raise
         except Exception as e:
             logger.error(
                 f"Error executing tool {tool_name}: {str(e)}",

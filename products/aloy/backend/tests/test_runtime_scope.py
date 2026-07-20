@@ -10,11 +10,19 @@ def test_authenticated_context_uses_server_owned_personal_tenant():
         session_id="session-1",
         agent_id="agent-1",
         max_steps=12,
+        max_tool_calls=20,
+        max_tokens=30_000,
+        max_cost_usd=1.25,
+        max_duration_seconds=90,
     )
 
     assert context.organization_id == "user:alice"
     assert context.user_id == "alice"
     assert context.budget.max_steps == 12
+    assert context.budget.max_tool_calls == 20
+    assert context.budget.max_tokens == 30_000
+    assert context.budget.max_cost_usd == 1.25
+    assert context.budget.max_duration_seconds == 90
     assert context.isolation_profile == "worker-process"
 
 

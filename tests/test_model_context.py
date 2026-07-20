@@ -56,3 +56,16 @@ def test_agent_respects_explicit_window_when_auto_off(tool_registry):
         memory=AgentMemory(store=create_memory_store(backend="memory")),
     )
     assert agent.settings.context_window_tokens == 5000
+
+
+def test_history_window_stays_bounded_on_large_context_models(tool_registry):
+    agent = Agent(
+        task="t",
+        llm=_LLM("claude-sonnet-4"),
+        tools_registry=tool_registry,
+        settings=AgentSettings(history_window_tokens=24_000),
+        memory=AgentMemory(store=create_memory_store(backend="memory")),
+    )
+    max_tokens, reserve_tokens = agent._history_context_limits()
+    assert agent.settings.context_window_tokens == 200_000
+    assert max_tokens - reserve_tokens == 24_000

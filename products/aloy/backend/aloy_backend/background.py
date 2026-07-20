@@ -12,6 +12,7 @@ from sqlmodel import select
 from pori import Agent, AgentMemory, AgentSettings, tool_registry
 
 from .approvals import proposal_write_gate
+from .config import settings
 from .conversation_runtime import (
     flush_context_artifact,
     flush_event_memory,
@@ -35,6 +36,11 @@ from .models import (
 )
 from .orchestrator import build_orchestrator, sandbox_base_dir
 from .research_outcomes import gate_and_index_research_run
+from .run_budgets import (
+    BUDGET_STOP_REASONS,
+    budget_ledger_for_run,
+    remaining_run_seconds,
+)
 from .run_outcome import (
     RunOutcome,
     json_safe,
@@ -71,9 +77,11 @@ from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import (
+    EVENT_HISTORY_SEARCH_CONTEXT_KEY,
     EVENT_RECORD_HANDLER_CONTEXT_KEY,
     SURFACE_STATE_CONTEXT_KEY,
     EventEvidenceRecorder,
+    EventHistorySearchHandler,
     EventRecordHandler,
     EventWebPageReader,
     SurfaceStateReader,
@@ -114,14 +122,21 @@ def _make_progress_checkpointer(
                 run = await beat_session.get(Run, run_id)
                 if run is None or run.lease_owner != worker_id:
                     return
-                previous_steps = int((run.progress or {}).get("n_steps") or 0)
+                previous_progress = dict(run.progress or {})
+                previous_steps = int(previous_progress.get("n_steps") or 0)
+                accounted_at = datetime.now(timezone.utc)
                 run.progress = {
                     "kernel_task_id": kernel_task_id,
                     "n_steps": agent.state.n_steps,
                     "consecutive_failures": agent.state.consecutive_failures,
                     "current_activity": agent.state.current_activity,
                     "plan": agent._plan_snapshot(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "budget_usage": agent.budget_ledger.snapshot(),
+                    "budget_attempt_started_at": previous_progress.get(
+                        "budget_attempt_started_at"
+                    ),
+                    "budget_accounted_at": accounted_at.isoformat(),
+                    "updated_at": accounted_at.isoformat(),
                 }
                 run.steps_taken = agent.state.n_steps
                 # Heartbeat: progress is proof of life — extend the lease so a
@@ -303,6 +318,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 raise PermissionError("Run owner no longer has organization access")
             policy = OrganizationPolicy.model_validate(organization.policy or {})
             permissions = ROLE_PERMISSIONS.get(membership.role, frozenset())
+            budget_ledger = budget_ledger_for_run(run)
+            # Include memory/tool setup in the Run's one durable wall clock.
+            # Agent.run() starts the same ledger idempotently.
+            budget_ledger.start_clock()
             skill_catalog = await load_skill_catalog(
                 session,
                 organization_id=run.organization_id,
@@ -318,6 +337,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 workspace_id=run.event_id,
                 agent_id=run.agent_id,
                 max_steps=run.max_steps,
+                max_tool_calls=run.max_tool_calls,
+                max_tokens=run.max_tokens,
+                max_cost_usd=run.max_cost_usd,
+                max_duration_seconds=float(run.timeout_seconds),
                 permissions=(permission.value for permission in permissions),
                 isolation_profile="worker-process",
             )
@@ -373,10 +396,36 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     run.task,
                     memory=memory,
                     run_context=run_context,
+                    budget_ledger=budget_ledger,
                 )
-                team_result = await asyncio.wait_for(
-                    team.run(), timeout=run.timeout_seconds
-                )
+                remaining_timeout = remaining_run_seconds(run)
+                if remaining_timeout <= 0:
+                    usage = budget_ledger.snapshot()
+                    team_result = {
+                        "completed": False,
+                        "steps_taken": run.steps_taken,
+                        "final_state": {},
+                        "metrics": {"budget_usage": usage},
+                        "stop_reason": "max_duration_seconds",
+                        "budget_error": "Duration budget exceeded",
+                        "budget_usage": usage,
+                    }
+                else:
+                    try:
+                        team_result = await asyncio.wait_for(
+                            team.run(), timeout=remaining_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        usage = budget_ledger.snapshot()
+                        team_result = {
+                            "completed": False,
+                            "steps_taken": run.steps_taken,
+                            "final_state": {},
+                            "metrics": {"budget_usage": usage},
+                            "stop_reason": "max_duration_seconds",
+                            "budget_error": "Duration budget exceeded",
+                            "budget_usage": usage,
+                        }
                 final_state = team_result.get("final_state") or {}
                 final: dict | None = {
                     "final_answer": final_state.get("final_answer"),
@@ -387,6 +436,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     "success": team_result.get("completed", False),
                     "steps_taken": team_result.get("steps_taken", 0),
                     "trace": None,
+                    "result": team_result,
                 }
             else:
                 # The worker path resolves the SAME capability surface as the
@@ -451,6 +501,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     "web_evidence_recorder": evidence_recorder,
                     "web_page_reader": EventWebPageReader(),
                     EVENT_RECORD_HANDLER_CONTEXT_KEY: event_record_handler,
+                    EVENT_HISTORY_SEARCH_CONTEXT_KEY: EventHistorySearchHandler(
+                        run_context=run_context,
+                        session_factory=async_session,
+                    ),
                     **(
                         {
                             SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
@@ -484,22 +538,57 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 )
                 if clarification_recorder is not None:
                     tool_context["clarify_handler"] = clarification_recorder
-                result = await asyncio.wait_for(
-                    orchestrator.execute_task(
-                        task=run.task,
-                        agent_settings=AgentSettings(max_steps=run.max_steps),
-                        run_context=run_context,
-                        memory=execution_memory,
-                        resume_task_id=kernel_task_id,
-                        on_step_end=checkpoint,
-                        sandbox_base_dir=sandbox_base_dir(),
-                        tool_context_extra=tool_context,
-                        mcp_servers=mcp_servers,
-                        hitl_handler=proposal_handler,
-                        hitl_config=proposal_config,
-                    ),
-                    timeout=run.timeout_seconds,
-                )
+                remaining_timeout = remaining_run_seconds(run)
+                if remaining_timeout <= 0:
+                    usage = budget_ledger.snapshot()
+                    result = {
+                        "success": False,
+                        "steps_taken": run.steps_taken,
+                        "result": {
+                            "metrics": {"budget_usage": usage},
+                            "stop_reason": "max_duration_seconds",
+                            "budget_error": "Duration budget exceeded",
+                            "budget_usage": usage,
+                        },
+                        "trace": None,
+                    }
+                else:
+                    try:
+                        result = await asyncio.wait_for(
+                            orchestrator.execute_task(
+                                task=run.task,
+                                agent_settings=AgentSettings(
+                                    max_steps=run.max_steps,
+                                    history_window_tokens=(
+                                        settings.conversation_history_window_tokens
+                                    ),
+                                ),
+                                run_context=run_context,
+                                memory=execution_memory,
+                                resume_task_id=kernel_task_id,
+                                on_step_end=checkpoint,
+                                sandbox_base_dir=sandbox_base_dir(),
+                                tool_context_extra=tool_context,
+                                mcp_servers=mcp_servers,
+                                hitl_handler=proposal_handler,
+                                hitl_config=proposal_config,
+                                budget_ledger=budget_ledger,
+                            ),
+                            timeout=remaining_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        usage = budget_ledger.snapshot()
+                        result = {
+                            "success": False,
+                            "steps_taken": run.steps_taken,
+                            "result": {
+                                "metrics": {"budget_usage": usage},
+                                "stop_reason": "max_duration_seconds",
+                                "budget_error": "Duration budget exceeded",
+                                "budget_usage": usage,
+                            },
+                            "trace": None,
+                        }
                 agent = result.get("agent")
                 final = agent.memory.get_final_answer() if agent else None
                 metrics = result.get("result", {}).get("metrics")
@@ -535,6 +624,67 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.selected_skills = json_safe(result.get("selected_skills")) or []
             run.artifacts = json_safe(result.get("artifacts")) or []
             run.plan = json_safe(result.get("plan")) or []
+            trace_data = json_safe(result.get("trace")) or {}
+            run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
+            run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
+            run.execution_receipts = trace_data.get("execution_receipts") or []
+            kernel_result = result.get("result") or {}
+            budget_usage = kernel_result.get("budget_usage")
+            if isinstance(budget_usage, dict):
+                run.metrics = run.metrics if isinstance(run.metrics, dict) else {}
+                run.metrics["budget_usage"] = json_safe(budget_usage)
+                accounted_at = datetime.now(timezone.utc).isoformat()
+                run.progress = {
+                    **(run.progress or {}),
+                    "budget_usage": json_safe(budget_usage),
+                    "budget_accounted_at": accounted_at,
+                    "updated_at": accounted_at,
+                }
+            budget_stop_reason = str(kernel_result.get("stop_reason") or "")
+            if budget_stop_reason in BUDGET_STOP_REASONS:
+                budget_error = str(
+                    kernel_result.get("budget_error") or "Run budget exhausted"
+                )
+                budget_receipt = {
+                    "kind": "run_budget",
+                    "status": "exhausted",
+                    "reason": budget_stop_reason,
+                    "error": budget_error,
+                    "usage": json_safe(budget_usage) or {},
+                }
+                run.success = False
+                run.metrics = run.metrics if isinstance(run.metrics, dict) else {}
+                run.metrics["budget_gate"] = budget_receipt
+                run.execution_receipts = [
+                    *(run.execution_receipts or []),
+                    budget_receipt,
+                ]
+                if not run.final_answer:
+                    run.final_answer = (
+                        "Aloy stopped this Run at its configured execution limit. "
+                        "You can review the progress and retry with a larger budget."
+                    )
+                    run.reasoning = budget_error
+                    final = {
+                        "final_answer": run.final_answer,
+                        "reasoning": run.reasoning,
+                    }
+                session.add(
+                    EventTrailEntry(
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        event_id=run.event_id,
+                        actor_id="worker:run-budget",
+                        kind="run_budget_exhausted",
+                        summary="Stopped a Run at its configured execution limit",
+                        run_id=run.id,
+                        task_id=run.task_id,
+                        payload={
+                            "reason": budget_stop_reason,
+                            "usage": json_safe(budget_usage) or {},
+                        },
+                    )
+                )
             usage = make_usage_record(
                 organization_id=run.organization_id,
                 user_id=run.user_id,
@@ -544,10 +694,6 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             )
             if usage is not None:
                 session.add(usage)
-            trace_data = json_safe(result.get("trace")) or {}
-            run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
-            run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
-            run.execution_receipts = trace_data.get("execution_receipts") or []
             if required_surface_interaction_id and not run.cancel_requested:
                 observed_interaction_ids = set(
                     surface_state_reader.interaction_ids

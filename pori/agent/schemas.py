@@ -50,6 +50,12 @@ class AgentSettings(BaseModel):
     context_window_auto: bool = True
     context_window_tokens: int = 3000
     context_window_reserve_tokens: int = 1200
+    # Optional host-owned ceiling for conversation history alone. Unlike the
+    # provider context length this stays stable when models change, keeping the
+    # transcript prefix fast and giving durable compaction a predictable
+    # threshold. The system prompt, tools, trusted context, and output reserve
+    # remain outside this allowance.
+    history_window_tokens: Optional[int] = Field(default=None, ge=512)
     # AC-3: when True (default), summarize context that would overflow the
     # window with an aux LLM call before it is dropped (instead of the cheap
     # deterministic stub). The call only fires on genuine overflow — with

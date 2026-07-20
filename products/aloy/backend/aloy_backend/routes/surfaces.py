@@ -38,7 +38,7 @@ from ..surface_publication import (
     published_surface_snapshot,
 )
 from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
-from ..tenancy import OrganizationContext, Permission
+from ..tenancy import OrganizationContext, Permission, require_permission
 
 router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
 logger = logging.getLogger("aloy_backend.routes.surfaces")
@@ -131,9 +131,7 @@ def _surface_activity_payload(run: Run) -> dict:
 @router.get("/project")
 async def get_surface_project(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     event = await _owned_event(session, context, event_id)
@@ -149,9 +147,7 @@ async def get_surface_project(
 @router.get("/builds")
 async def list_surface_builds(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     event = await _owned_event(session, context, event_id)
@@ -177,9 +173,7 @@ async def list_surface_builds(
 @router.get("/status")
 async def get_surface_activity(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict | None:
     """Return the latest durable Builder state, including pre-build work."""
@@ -207,9 +201,7 @@ async def get_surface_activity(
 @router.get("/runtime")
 async def get_published_surface_runtime(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     event = await _owned_event(session, context, event_id)
@@ -238,9 +230,7 @@ async def get_published_surface_runtime(
 @router.get("/publications")
 async def get_surface_publications(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     event = await _owned_event(session, context, event_id)
@@ -301,9 +291,7 @@ async def rollback_surface(
 async def get_surface_build(
     event_id: str,
     build_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     event = await _owned_event(session, context, event_id)
@@ -330,9 +318,7 @@ async def get_surface_build(
 async def get_surface_runtime_document(
     event_id: str,
     build_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Return an authenticated preview document for one immutable build.
@@ -391,9 +377,7 @@ async def get_surface_runtime_document(
 async def get_surface_runtime_context(
     event_id: str,
     build_id: str = Query(min_length=1, max_length=200),
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Return only the capabilities declared by one immutable build."""

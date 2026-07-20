@@ -22,6 +22,10 @@ def authenticated_run_context(
     permissions: Iterable[str] = (),
     organization_id: Optional[str] = None,
     max_steps: Optional[int] = None,
+    max_tool_calls: Optional[int] = None,
+    max_tokens: Optional[int] = None,
+    max_cost_usd: Optional[float] = None,
+    max_duration_seconds: Optional[float] = None,
     isolation_profile: str = "worker-process",
 ) -> RunContext:
     """Build run identity from trusted authentication and server-owned data."""
@@ -37,7 +41,13 @@ def authenticated_run_context(
         permissions=tuple(sorted(set(permissions))),
         credential_scope=f"organization:{tenant_id}",
         isolation_profile=isolation_profile,
-        budget=ExecutionBudget(max_steps=max_steps),
+        budget=ExecutionBudget(
+            max_steps=max_steps,
+            max_tool_calls=max_tool_calls,
+            max_tokens=max_tokens,
+            max_cost_usd=max_cost_usd,
+            max_duration_seconds=max_duration_seconds,
+        ),
     )
 
 

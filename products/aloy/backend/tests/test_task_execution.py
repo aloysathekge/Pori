@@ -85,6 +85,44 @@ async def test_work_queues_one_idempotent_durable_run(client, db_session_maker):
     assert [entry.payload["action"] for entry in entries] == ["created", "queued"]
 
 
+async def test_task_run_freezes_complete_execution_budget(client, db_session_maker):
+    event = (
+        await client.post(
+            "/v1/events",
+            json={"title": "Budgeted event", "summary": "Bounded work"},
+        )
+    ).json()
+    task = (
+        await client.post(
+            f"/v1/events/{event['id']}/tasks",
+            json={
+                "title": "Bounded task",
+                "budget_policy": {
+                    "max_steps": 7,
+                    "max_tool_calls": 9,
+                    "max_tokens": 12_345,
+                    "max_cost_usd": 0.75,
+                    "timeout_seconds": 180,
+                },
+            },
+        )
+    ).json()
+
+    queued = await client.post(f"/v1/events/{event['id']}/tasks/{task['id']}/work")
+    assert queued.status_code == 202
+    run_id = queued.json()["run"]["id"]
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, run_id)
+
+    assert run is not None
+    assert run.max_steps == 7
+    assert run.max_tool_calls == 9
+    assert run.max_tokens == 12_345
+    assert run.max_cost_usd == 0.75
+    assert run.timeout_seconds == 180
+
+
 async def test_life_task_reports_to_its_selected_origin_conversation(
     client, db_session_maker
 ):

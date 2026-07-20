@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from pori.llm import SystemMessage, UserMessage
 
+from ..runtime import BudgetExceeded
 from ..utils.logging_config import ensure_logger_configured
 from .schemas import CompletionValidation
 
@@ -175,6 +176,8 @@ async def _validate_answer_text(self, answer_text: str) -> Tuple[bool, str]:
             extra={"task_id": self.task_id},
         )
         return adequate, reason
+    except BudgetExceeded:
+        raise
     except Exception as e:
         logger.debug(
             f"Output validation failed open (accepting answer): {e}",

@@ -23,7 +23,7 @@ from ..file_backends import FILE_BACKEND_CONTEXT_KEY, FileBackend
 from ..hitl import HITLConfig, HITLHandler
 from ..memory import AgentMemory
 from ..profiles import RunProfile, RunProfileResolutionError
-from ..runtime import CancellationToken, RunContext
+from ..runtime import BudgetLedger, CancellationToken, RunContext
 from ..skill_provenance import use_write_origin
 from ..skills import SkillCatalog
 from ..skills_learn import build_background_review_prompt
@@ -180,6 +180,7 @@ class Orchestrator:
         mcp_servers: Optional[List["McpServerConfig"]] = None,
         task_attachments: Optional[List[Any]] = None,
         cancellation_token: Optional[CancellationToken] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent.
 
@@ -220,6 +221,7 @@ class Orchestrator:
                     mcp_servers=mcp_servers,
                     task_attachments=task_attachments,
                     cancellation_token=cancellation_token,
+                    budget_ledger=budget_ledger,
                 )
 
         if session_key is None:
@@ -260,6 +262,7 @@ class Orchestrator:
         mcp_servers: Optional[List["McpServerConfig"]] = None,
         task_attachments: Optional[List[Any]] = None,
         cancellation_token: Optional[CancellationToken] = None,
+        budget_ledger: Optional[BudgetLedger] = None,
     ) -> Dict[str, Any]:
         """Execute a task with a new agent."""
         # Create a unique ID for this task
@@ -339,6 +342,7 @@ class Orchestrator:
             resume_task_id=resume_task_id,
             task_attachments=task_attachments,
             cancellation_token=cancellation_token,
+            budget_ledger=budget_ledger,
         )
         self.agents[task_id] = agent
 

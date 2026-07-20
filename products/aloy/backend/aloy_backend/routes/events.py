@@ -78,7 +78,7 @@ from ..task_state import (
     resolve_task_origin,
     task_snapshot,
 )
-from ..tenancy import OrganizationContext, Permission
+from ..tenancy import OrganizationContext, Permission, require_permission
 from ..tools.research import event_record_payload
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -460,9 +460,7 @@ async def upload_event_cover(
 @router.get("/{event_id}/cover")
 async def get_event_cover(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ):
     event = await _load_event(session, context, event_id)
@@ -485,9 +483,7 @@ async def get_event_cover(
 
 @router.get("")
 async def list_events(
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     await ensure_life_event(
@@ -517,9 +513,7 @@ async def list_events(
 @router.get("/{event_id}")
 async def get_event_surface(
     event_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Recompute the trusted Event Surface from durable rows on every read."""
@@ -695,9 +689,7 @@ async def get_event_surface(
 async def list_event_evidence(
     event_id: str,
     limit: int = Query(default=100, ge=1, le=500),
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """Inspect immutable source observations committed inside this Event."""
@@ -742,9 +734,7 @@ async def list_event_records(
     event_id: str,
     namespace: str | None = Query(default=None, min_length=1, max_length=64),
     limit: int = Query(default=200, ge=1, le=500),
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """Read current evidence-backed canonical records for this Event."""
@@ -864,9 +854,7 @@ async def get_event_trail(
     event_id: str,
     cursor: str | None = None,
     limit: int = Query(DEFAULT_TRAIL_PAGE, ge=1, le=200),
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     await _load_event(session, context, event_id)
@@ -887,9 +875,7 @@ async def stream_event_changes(
     event_id: str,
     request: Request,
     cursor: str | None = None,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_READ)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """Replay durable Event changes, then follow new Trail rows over SSE."""
@@ -1252,9 +1238,7 @@ async def resume_task(
 async def stop_task(
     event_id: str,
     task_id: str,
-    context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_CANCEL)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CANCEL)),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     event = await _load_event(session, context, event_id)

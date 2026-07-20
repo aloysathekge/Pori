@@ -34,6 +34,7 @@ from .models import (
     SurfaceProject,
     SurfacePublication,
 )
+from .run_budgets import resolve_run_budget
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .skills import SURFACE_BUILDER_SKILL_ID
 from .tenancy import OrganizationPolicy
@@ -203,6 +204,10 @@ class SurfaceRequestHandler:
                 allowed_provider_profiles=(policy.allowed_provider_profiles or None),
                 allowed_models=policy.allowed_models or None,
             )
+            budget = resolve_run_budget(
+                policy,
+                {"max_steps": 40, "timeout_seconds": 900},
+            )
 
             conversation_id = event.primary_conversation_id
             run = Run(
@@ -219,8 +224,11 @@ class SurfaceRequestHandler:
                 run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
                 model_assignment=assignment.descriptor(),
                 task=_builder_task(params),
-                max_steps=min(40, policy.max_steps_per_run),
-                timeout_seconds=min(900, policy.run_timeout_seconds),
+                max_steps=budget.max_steps,
+                max_tool_calls=budget.max_tool_calls,
+                max_tokens=budget.max_tokens,
+                max_cost_usd=budget.max_cost_usd,
+                timeout_seconds=budget.timeout_seconds,
                 max_attempts=min(3, policy.max_attempts),
                 isolation_profile="worker-process",
             )

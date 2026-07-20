@@ -49,6 +49,7 @@ export interface EventTask {
     max_steps?: number;
     timeout_seconds?: number;
     max_tool_calls?: number;
+    max_tokens?: number;
     max_cost_usd?: number;
   };
   order: number;

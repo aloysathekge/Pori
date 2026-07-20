@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from pydantic import BaseModel
+from sqlalchemy import create_engine, inspect
 from sqlmodel import select
 
 import aloy_backend.proposal_executor as executor_module
@@ -26,8 +31,16 @@ from aloy_backend.proposal_executor import (
     expire_due_proposals,
     reconcile_stale_executions,
 )
+from aloy_backend.proposal_reconciliation import (
+    reconcile_indeterminate_proposals,
+    reconcile_proposal_outcome,
+)
 from pori import stable_fingerprint
-from pori.tools.registry import ToolRegistry
+from pori.tools.registry import (
+    ReconciliationStatus,
+    ToolReconciliation,
+    ToolRegistry,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,6 +64,57 @@ def _registry(calls: list[dict], *, delay: float = 0) -> ToolRegistry:
 
     registry = ToolRegistry()
     registry.register_tool("gmail_send", SendParams, send, "send")
+    return registry
+
+
+def _reconciling_registry(
+    calls: list[dict],
+    inspections: list[str],
+    provider_state: dict[str, str],
+    *,
+    unknown: bool = False,
+) -> ToolRegistry:
+    def send(params: SendParams, context: dict) -> dict:
+        attempt_id = context["execution_attempt_id"]
+        calls.append({"to": params.to, "attempt": attempt_id})
+        provider_state[attempt_id] = "provider-message-recovered"
+        return {"sent": True, "id": provider_state[attempt_id], "to": params.to}
+
+    def reconcile(params: SendParams, context: dict) -> ToolReconciliation:
+        del params
+        attempt_id = context["execution_attempt_id"]
+        inspections.append(attempt_id)
+        if unknown:
+            return ToolReconciliation(
+                status=ReconciliationStatus.UNKNOWN,
+                error="provider index is not ready",
+            )
+        provider_id = provider_state.get(attempt_id)
+        if provider_id is None:
+            return ToolReconciliation(
+                status=ReconciliationStatus.UNKNOWN,
+                error="provider has no visible operation",
+            )
+        return ToolReconciliation(
+            status=ReconciliationStatus.SUCCEEDED,
+            provider_operation_id=provider_id,
+            result={"sent": True, "id": provider_id, "reconciled": True},
+            evidence=(
+                {
+                    "provider": "fake-mail",
+                    "lookup": "execution_attempt_id",
+                },
+            ),
+        )
+
+    registry = ToolRegistry()
+    registry.register_tool(
+        "gmail_send",
+        SendParams,
+        send,
+        "send",
+        reconcile_fn=reconcile,
+    )
     return registry
 
 
@@ -405,6 +469,142 @@ async def test_receipt_persistence_crash_becomes_indeterminate_without_retry(
         )
 
 
+async def test_provider_success_database_crash_reconciles_without_duplicate_send(
+    db_session_maker, available_surface, monkeypatch
+):
+    calls: list[dict] = []
+    inspections: list[str] = []
+    provider_state: dict[str, str] = {}
+    registry = _reconciling_registry(calls, inspections, provider_state)
+    proposal = await _seed(
+        db_session_maker,
+        registry,
+        proposal_id="prop-crash-reconciled",
+        status="approved",
+    )
+    real_finalize = executor_module._finalize_execution
+
+    async def fail_finalize(*args, **kwargs):
+        raise RuntimeError("simulated database commit loss")
+
+    monkeypatch.setattr(executor_module, "_finalize_execution", fail_finalize)
+    first = await execute_proposal(
+        proposal.id, session_factory=db_session_maker, registry=registry
+    )
+    monkeypatch.setattr(executor_module, "_finalize_execution", real_finalize)
+
+    reconciled = await reconcile_proposal_outcome(
+        proposal.id,
+        session_factory=db_session_maker,
+        registry=registry,
+        now=datetime.now(timezone.utc) + timedelta(seconds=1),
+    )
+
+    assert first.status == "indeterminate"
+    assert reconciled.status == "committed" and reconciled.claimed is True
+    assert len(calls) == 1
+    assert inspections == [calls[0]["attempt"]]
+    async with db_session_maker() as session:
+        stored = await session.get(ActionProposal, proposal.id)
+        trails = (
+            (
+                await session.execute(
+                    select(EventTrailEntry)
+                    .where(EventTrailEntry.proposal_id == proposal.id)
+                    .order_by(EventTrailEntry.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert stored.status == "committed"
+        assert stored.provider_operation_id == "provider-message-recovered"
+        assert stored.receipt["backend"] == "aloy-proposal-reconciler"
+        assert stored.receipt["metadata"]["reconciled"] is True
+        assert [entry.kind for entry in trails] == [
+            "proposal_indeterminate",
+            "proposal_committed",
+        ]
+        assert trails[-1].payload["reconciled"] is True
+
+
+async def test_unknown_reconciliation_backs_off_and_never_resends(
+    db_session_maker, available_surface
+):
+    calls: list[dict] = []
+    inspections: list[str] = []
+    provider_state: dict[str, str] = {}
+    registry = _reconciling_registry(
+        calls,
+        inspections,
+        provider_state,
+        unknown=True,
+    )
+    proposal = await _seed(
+        db_session_maker,
+        registry,
+        proposal_id="prop-reconcile-unknown",
+        status="indeterminate",
+    )
+    now = datetime.now(timezone.utc)
+    async with db_session_maker() as session:
+        stored = await session.get(ActionProposal, proposal.id)
+        stored.execution_attempt_id = "attempt-unknown"
+        stored.reconciliation_next_at = now
+        session.add(stored)
+        await session.commit()
+
+    assert (
+        await reconcile_indeterminate_proposals(
+            session_factory=db_session_maker,
+            registry=registry,
+            now=now,
+        )
+        == 1
+    )
+    assert (
+        await reconcile_indeterminate_proposals(
+            session_factory=db_session_maker,
+            registry=registry,
+            now=now,
+        )
+        == 0
+    )
+
+    assert calls == []
+    assert inspections == ["attempt-unknown"]
+    async with db_session_maker() as session:
+        stored = await session.get(ActionProposal, proposal.id)
+        assert stored.status == "indeterminate"
+        assert stored.reconciliation_attempts == 1
+        assert executor_module._as_utc(stored.reconciliation_next_at) > now
+        assert "remains uncertain" in stored.error
+
+        # Automatic inspection is bounded. The final unknown lookup remains
+        # visible but stops polling until an explicit reconciliation request.
+        final_attempt_at = now + timedelta(minutes=1)
+        stored.reconciliation_attempts = 7
+        stored.reconciliation_next_at = final_attempt_at
+        session.add(stored)
+        await session.commit()
+
+    assert (
+        await reconcile_indeterminate_proposals(
+            session_factory=db_session_maker,
+            registry=registry,
+            now=final_attempt_at,
+        )
+        == 1
+    )
+    assert inspections == ["attempt-unknown", "attempt-unknown"]
+    async with db_session_maker() as session:
+        stored = await session.get(ActionProposal, proposal.id)
+        assert stored.status == "indeterminate"
+        assert stored.reconciliation_attempts == 8
+        assert stored.reconciliation_next_at is None
+        assert "paused after bounded attempts" in stored.error
+
+
 async def test_stale_execution_claim_reconciles_to_indeterminate(db_session_maker):
     registry = _registry([])
     proposal = await _seed(
@@ -599,11 +799,23 @@ async def test_conversation_approval_alias_resolves_durable_proposal(
 async def test_worker_tick_processes_approved_proposals_before_runs(monkeypatch):
     calls: list[str] = []
 
+    async def reconcile_runs():
+        calls.append("run-watchdog")
+        return 0
+
+    async def reconcile_tasks():
+        calls.append("task-watchdog")
+        return 0
+
     async def expire():
         calls.append("expire")
 
     async def reconcile():
-        calls.append("reconcile")
+        calls.append("reconcile-stale")
+
+    async def reconcile_outcomes():
+        calls.append("reconcile-outcomes")
+        return 0
 
     async def execute_next():
         calls.append("proposal")
@@ -614,9 +826,63 @@ async def test_worker_tick_processes_approved_proposals_before_runs(monkeypatch)
         return None
 
     monkeypatch.setattr(worker_module, "expire_due_proposals", expire)
+    monkeypatch.setattr(worker_module, "reconcile_stale_runs", reconcile_runs)
+    monkeypatch.setattr(worker_module, "reconcile_orphaned_tasks", reconcile_tasks)
     monkeypatch.setattr(worker_module, "reconcile_stale_executions", reconcile)
+    monkeypatch.setattr(
+        worker_module,
+        "reconcile_indeterminate_proposals",
+        reconcile_outcomes,
+    )
     monkeypatch.setattr(worker_module, "execute_next_approved_proposal", execute_next)
     monkeypatch.setattr(worker_module, "claim_next_run", claim_run)
 
     assert await worker_module.run_once("worker-1") is True
-    assert calls == ["expire", "reconcile", "proposal"]
+    assert calls == [
+        "run-watchdog",
+        "task-watchdog",
+        "expire",
+        "reconcile-stale",
+        "reconcile-outcomes",
+        "proposal",
+    ]
+
+
+def test_proposal_reconciliation_migration_round_trip(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'proposal-reconciliation.db'}")
+    metadata = sa.MetaData()
+    sa.Table("proposals", metadata, sa.Column("id", sa.String(), primary_key=True))
+    metadata.create_all(engine)
+    expected = {
+        "reconciliation_attempts",
+        "reconciliation_checked_at",
+        "reconciliation_next_at",
+    }
+
+    with engine.begin() as connection:
+        migration = importlib.import_module(
+            "aloy_backend.alembic.versions." "m5d6e7f8a9b0_proposal_reconciliation"
+        )
+        original_op = migration.op
+        migration.op = Operations(MigrationContext.configure(connection))
+        try:
+            migration.upgrade()
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("proposals")
+            }
+            assert expected <= columns
+            migration.downgrade()
+            assert {
+                column["name"]
+                for column in inspect(connection).get_columns("proposals")
+            } == {"id"}
+            migration.upgrade()
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("proposals")
+            }
+            assert expected <= columns
+        finally:
+            migration.op = original_op
+    engine.dispose()
