@@ -24,6 +24,7 @@ TaskStatus = Literal[
 ]
 TaskPriority = Literal["low", "normal", "high", "urgent"]
 TaskExecutionMode = Literal["manual"]
+TaskExecutionProfile = Literal["general", "sourced_research"]
 
 
 class TaskBudgetPolicy(BaseModel):
@@ -74,6 +75,7 @@ MUTABLE_TASK_FIELDS = frozenset(
         "priority",
         "due_at",
         "execution_mode",
+        "execution_profile",
         "assigned_agent_id",
         "origin_conversation_id",
         "result_summary",
@@ -104,6 +106,7 @@ def task_snapshot(task: Task) -> dict[str, Any]:
             else None
         ),
         "execution_mode": task.execution_mode,
+        "execution_profile": task.execution_profile,
         "assigned_agent_id": task.assigned_agent_id,
         "origin_conversation_id": task.origin_conversation_id,
         "current_run_id": task.current_run_id,
@@ -298,6 +301,7 @@ __all__ = [
     "TASK_STATUSES",
     "TERMINAL_TASK_STATUSES",
     "TaskExecutionMode",
+    "TaskExecutionProfile",
     "TaskBudgetPolicy",
     "TaskPriority",
     "TaskStateError",

@@ -101,13 +101,15 @@ manifest is:
 }
 ```
 
-Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`, `useInteractions`, and
+Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`,
+`useEventRecords(namespace)`, `useInteractions`, and
 `useCommandAttempts` for reactive reads. Their exact V1 shapes are:
 
 ```ts
 useEvent<T>(): T | null
 useTasks(): Array<Record<string, unknown>>
 useSurfaceData<T>(namespace: string): Array<SurfaceDataRecord<T>>
+useEventRecords<T>(namespace: string): Array<EventRecord<T>>
 useInteractions(): SurfaceInteraction[]
 useCommandAttempts(): SurfaceCommandAttempt[]
 useSurfaceRuntime(): { status: 'disconnected' | 'healthy' | 'degraded'; message?: string }
@@ -117,6 +119,11 @@ useSurfaceRuntime(): { status: 'disconnected' | 'healthy' | 'degraded'; message?
 `record.data`, use `record.key` as its canonical identity, and never destructure
 it as `{data, status, error}`. `useCommandAttempts` takes no namespace argument;
 filter its returned records by `name` only when the view needs a subset.
+`useEventRecords` is the read-only projection for evidence-backed canonical
+Event knowledge produced by sourced research. Declare `records:<namespace>` in
+the manifest. Each record includes posture, confidence, and inspectable source
+references. Never copy it into `data:<namespace>` merely to display it, and
+never present `unverified` fields as confirmed facts.
 Interaction records are the durable
 way to render accepted commands through queued, running, approval, execution,
 committed, rejected, failed, or indeterminate outcomes. Command-attempt records

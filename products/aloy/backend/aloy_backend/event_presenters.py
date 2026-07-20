@@ -87,6 +87,7 @@ def task_payload(task: Task) -> dict[str, Any]:
         "priority": task.priority,
         "due_at": _utc_payload(task.due_at),
         "execution_mode": task.execution_mode,
+        "execution_profile": task.execution_profile,
         "assigned_agent_id": task.assigned_agent_id,
         "current_run_id": task.current_run_id,
         "result_summary": task.result_summary,

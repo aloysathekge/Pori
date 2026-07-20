@@ -15,6 +15,7 @@ from aloy_backend.models import (
     ActionProposal,
     Event,
     EventTrailEntry,
+    KnowledgeEntry,
     Message,
     Organization,
     Run,
@@ -197,6 +198,63 @@ def _action_request(build_id: str, revision_id: str, *, key: str) -> dict:
         "reason": "Send the approved research summary.",
         "idempotency_key": key,
     }
+
+
+async def test_surface_reads_evidence_backed_event_records_without_copying_truth(
+    client, db_session_maker
+):
+    event = await _create_event(client, "Career OS")
+    evidence_refs = [
+        {
+            "evidence_id": "evd_source",
+            "url": "https://example.com/jobs",
+            "title": "Example jobs",
+            "retrieved_at": "2026-07-19T12:00:00+00:00",
+        }
+    ]
+    async with db_session_maker() as session:
+        session.add(
+            KnowledgeEntry(
+                id="erec_surface_company",
+                organization_id="user:test-user",
+                user_id="test-user",
+                event_id=event["id"],
+                content="Example — AI Engineer",
+                tags=["event_record", "event_record:career.opportunities"],
+                source="agent",
+                conflict_key="event_record:career.opportunities:example",
+                metadata_={
+                    "record_type": "event_record",
+                    "namespace": "career.opportunities",
+                    "record_key": "example",
+                    "title": "Example — AI Engineer",
+                    "summary": "Current opening",
+                    "data": {"company": "Example", "role": "AI Engineer"},
+                    "posture": "observed",
+                    "revision": 1,
+                    "evidence_refs": evidence_refs,
+                },
+            )
+        )
+        await session.commit()
+    build_id, _ = await _seed_runtime(
+        db_session_maker,
+        event["id"],
+        SurfaceManifest(capabilities=["records:career.opportunities"]).model_dump(
+            mode="json"
+        ),
+    )
+
+    response = await client.get(
+        f"/v1/events/{event['id']}/surface/context", params={"build_id": build_id}
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert set(data) == {"interactions", "command_attempts", "records"}
+    record = data["records"]["career.opportunities"][0]
+    assert record["key"] == "example"
+    assert record["data"]["role"] == "AI Engineer"
+    assert record["evidence_refs"] == evidence_refs
 
 
 async def test_surface_context_and_durable_dispatch_are_capability_scoped_and_exactly_once(

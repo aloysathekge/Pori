@@ -138,6 +138,12 @@ def _define_standard_groups(registry) -> None:
             max_output_chars=50_000,
         ),
         CapabilityGroup(
+            name="internet_read",
+            description="Bounded direct reading of public HTTP and HTTPS pages.",
+            tool_names=frozenset({"read_web_page", "fetch_url"}),
+            max_output_chars=50_000,
+        ),
+        CapabilityGroup(
             name="evolution",
             description="Governed self-evolution proposal drafting.",
             tool_names=frozenset({"propose_evolution"}),

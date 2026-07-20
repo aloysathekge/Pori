@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from .models import ActionProposal, Conversation, Event, Message, Run, Task
-from .task_state import TaskStateError, mutate_task, validate_task_transition
+from .run_profiles import SOURCED_RESEARCH_RUN_PROFILE
+from .task_state import mutate_task
 from .tenancy import OrganizationContext
 
 TaskControl = Literal["work", "retry", "resume"]
@@ -81,6 +82,7 @@ def assemble_task_instructions(event: Event, task: Task) -> str:
             f"Instructions: {instructions}",
             f"Definition of done: {definition}",
             f"Priority: {task.priority}",
+            f"Execution profile: {task.execution_profile}",
             "Work only within this Event and its selected Conversation context.",
             "If required information is missing, use ask_user instead of guessing.",
             (
@@ -310,6 +312,11 @@ async def queue_task_run(
             max_attempts=context.policy.max_attempts,
             timeout_seconds=timeout_seconds,
             status="pending",
+            run_profile=(
+                SOURCED_RESEARCH_RUN_PROFILE.descriptor()
+                if task.execution_profile == "sourced_research"
+                else None
+            ),
         )
         run.root_run_id = run.id
         session.add(run)

@@ -549,6 +549,41 @@ Scope:
 - persist sourced company records and report artifacts for use through the R5
   Surface SDK rather than hardcoding a Career-OS product page.
 
+Implementation contract (R6):
+
+- Pori owns the provider-neutral `web_search` and `read_web_page` contracts;
+  Aloy supplies an Event-scoped evidence recorder and its SSRF-safe public-page
+  reader through tool context. Search vendors never enter product records.
+- Every successful observation carries URL, title, retrieval time, provider,
+  content hash, and—inside an Event—a committed evidence ID before the model
+  receives it. Repeated observations in one Run are idempotent.
+- Raw fetched excerpts, canonical records, and report indexes remain durable in
+  Event memory but are excluded from mutable automatic prompt hydration. Models
+  read their compact projection on demand, preserving provenance, context
+  budgets, and prompt-cache reuse.
+- `event_record_upsert` is generic by namespace. `observed` and `inferred`
+  records fail closed without same-user, same-organization, same-Event evidence;
+  unsupported facts use `unverified`. Revisions supersede rather than erase.
+- A Task explicitly freezes `execution_profile=sourced_research`; this choice is
+  made semantically by Aloy's Task tool call, not by a title/keyword patch. Its
+  immutable Run profile requires search, page reading, durable records, and a
+  cited Markdown report.
+- The worker completion gate rejects a research Run that lacks committed web
+  evidence, at least one observed/inferred Event record grounded in that Run's
+  evidence, a stored Markdown artifact, or a citation to an observed source
+  URL. An `unverified` placeholder cannot satisfy the gate. Gate evaluation can
+  recover evidence and records from durable Run provenance after a worker
+  restart rather than depending on process-local collectors. Accepted reports
+  are indexed with Task, Run, file, record, and evidence links.
+- Surfaces declare `records:<namespace>` and read the host-owned projection with
+  `useEventRecords(namespace)`. This is read-only evidence-backed truth and is
+  separate from model-authored source and mutable `data:<namespace>` UI state.
+- `/events/{event_id}/evidence` and `/events/{event_id}/records` provide bounded,
+  tenant-scoped inspection. The Trail records evidence batches, record revisions,
+  report indexing, and the Run's durable research quality-gate receipt. Generic
+  memory views, reset, delete, search, export, and retention controls exclude
+  canonical evidence, Event records, and report indexes.
+
 Gate:
 
 - the Career OS Task finds a defined set of current US startup opportunities;

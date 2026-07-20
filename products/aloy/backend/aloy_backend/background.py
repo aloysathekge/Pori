@@ -34,6 +34,7 @@ from .models import (
     TeamConfig,
 )
 from .orchestrator import build_orchestrator, sandbox_base_dir
+from .research_outcomes import gate_and_index_research_run
 from .run_outcome import (
     RunOutcome,
     json_safe,
@@ -41,6 +42,7 @@ from .run_outcome import (
     make_usage_record,
     store_run_artifacts,
 )
+from .run_profiles import resolve_persisted_run_profile
 from .run_surface import resolve_run_surface
 from .runtime import authenticated_run_context
 from .schedule_runtime import (
@@ -63,7 +65,15 @@ from .task_execution import (
 from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
-from .tools import SURFACE_STATE_CONTEXT_KEY, SurfaceStateReader, TaskMutationHandler
+from .tools import (
+    EVENT_RECORD_HANDLER_CONTEXT_KEY,
+    SURFACE_STATE_CONTEXT_KEY,
+    EventEvidenceRecorder,
+    EventRecordHandler,
+    EventWebPageReader,
+    SurfaceStateReader,
+    TaskMutationHandler,
+)
 from .tools.surface_requests import SURFACE_REQUEST_CONTEXT_KEY
 
 logger = logging.getLogger("aloy_backend")
@@ -260,6 +270,8 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 return
 
         clarification_recorder = DurableClarificationRecorder() if run.task_id else None
+        evidence_recorder: EventEvidenceRecorder | None = None
+        event_record_handler: EventRecordHandler | None = None
         conversation: Conversation | None = None
 
         try:
@@ -394,6 +406,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     ),
                     allowed_models=policy.allowed_models or None,
                     skill_catalog=skill_catalog,
+                    run_profile=resolve_persisted_run_profile(run.run_profile),
                     enable_surface_requests=bool(run.event_id and not run.cron_job_id),
                 )
                 proposal_handler, proposal_config = proposal_write_gate(
@@ -401,6 +414,16 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     tools_registry=getattr(
                         orchestrator, "tools_registry", tool_registry()
                     ),
+                    session_factory=async_session,
+                )
+                evidence_recorder = EventEvidenceRecorder(
+                    run_context=run_context,
+                    task_id=run.task_id,
+                    session_factory=async_session,
+                )
+                event_record_handler = EventRecordHandler(
+                    run_context=run_context,
+                    task_id=run.task_id,
                     session_factory=async_session,
                 )
                 tool_context = {
@@ -413,6 +436,9 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         run_context=run_context,
                         session_factory=async_session,
                     ),
+                    "web_evidence_recorder": evidence_recorder,
+                    "web_page_reader": EventWebPageReader(),
+                    EVENT_RECORD_HANDLER_CONTEXT_KEY: event_record_handler,
                     **(
                         {
                             SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
@@ -531,6 +557,38 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         agent_id=run.agent_id,
                     ),
                 )
+            if (
+                (run.run_profile or {}).get("profile_id") == "aloy.sourced-research"
+                and evidence_recorder is not None
+                and event_record_handler is not None
+                and not run.cancel_requested
+            ):
+                research_gate = await gate_and_index_research_run(
+                    session,
+                    run=run,
+                    artifacts=run.artifacts,
+                    evidence_ids=evidence_recorder.evidence_ids,
+                    record_ids=event_record_handler.record_ids,
+                )
+                receipts = list(run.execution_receipts or [])
+                receipts.append(research_gate.receipt())
+                run.execution_receipts = receipts
+                run.metrics = dict(run.metrics or {})
+                run.metrics["research_gate"] = research_gate.receipt()
+                if not research_gate.accepted:
+                    run.success = False
+                    failure = "Research quality gate failed: " + "; ".join(
+                        research_gate.errors
+                    )
+                    run.final_answer = (
+                        f"{run.final_answer}\n\n{failure}"
+                        if run.final_answer
+                        else failure
+                    )
+                    final = {
+                        "final_answer": run.final_answer,
+                        "reasoning": run.reasoning,
+                    }
             trace_record = make_trace_record(
                 organization_id=run.organization_id,
                 user_id=run.user_id,

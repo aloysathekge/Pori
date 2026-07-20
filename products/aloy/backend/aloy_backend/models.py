@@ -601,6 +601,7 @@ class Task(SQLModel, table=True):
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
     execution_mode: str = Field(default="manual", index=True)
+    execution_profile: str = Field(default="general", index=True)
     assigned_agent_id: str | None = Field(default=None, index=True)
     current_run_id: str | None = Field(default=None, index=True)
     result_summary: str = ""

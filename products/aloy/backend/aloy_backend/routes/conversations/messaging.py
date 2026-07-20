@@ -63,7 +63,11 @@ from ...surface_requests import SurfaceRequestHandler
 from ...team_execution import build_team_from_config
 from ...tenancy import OrganizationContext, Permission
 from ...tools import (
+    EVENT_RECORD_HANDLER_CONTEXT_KEY,
     SURFACE_STATE_CONTEXT_KEY,
+    EventEvidenceRecorder,
+    EventRecordHandler,
+    EventWebPageReader,
     SurfaceStateReader,
     TaskMutationHandler,
 )
@@ -698,6 +702,15 @@ async def _run_blocking(
                 session_factory=async_session,
             ),
             SURFACE_STATE_CONTEXT_KEY: SurfaceStateReader(
+                run_context=run_context,
+                session_factory=async_session,
+            ),
+            "web_evidence_recorder": EventEvidenceRecorder(
+                run_context=run_context,
+                session_factory=async_session,
+            ),
+            "web_page_reader": EventWebPageReader(),
+            EVENT_RECORD_HANDLER_CONTEXT_KEY: EventRecordHandler(
                 run_context=run_context,
                 session_factory=async_session,
             ),

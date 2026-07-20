@@ -29,6 +29,7 @@ from .models import (
     Conversation,
     Event,
     EventTrailEntry,
+    KnowledgeEntry,
     Message,
     Run,
     StoredFile,
@@ -57,6 +58,7 @@ from .surface_manifest import (
 )
 from .surface_state import surface_record_payload
 from .tenancy import OrganizationContext
+from .tools.research import event_record_payload
 
 MAX_INTERACTION_PAYLOAD_BYTES = 128 * 1024
 
@@ -371,6 +373,44 @@ async def surface_runtime_context(
         )
         data["trail"] = [trail_payload(row) for row in trail]
 
+    record_namespaces = sorted(
+        capability.removeprefix("records:")
+        for capability in capabilities
+        if capability.startswith("records:")
+    )
+    if record_namespaces:
+        memory_rows = list(
+            (
+                await session.execute(
+                    select(KnowledgeEntry)
+                    .where(
+                        KnowledgeEntry.organization_id == context.organization_id,
+                        KnowledgeEntry.user_id == context.user_id,
+                        KnowledgeEntry.event_id == event.id,
+                        KnowledgeEntry.status == "active",
+                    )
+                    .order_by(col(KnowledgeEntry.updated_at).desc())
+                    .limit(2000)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        records_by_namespace: dict[str, list[dict[str, Any]]] = {
+            namespace: [] for namespace in record_namespaces
+        }
+        for memory_row in memory_rows:
+            metadata = memory_row.metadata_ or {}
+            namespace = metadata.get("namespace")
+            if (
+                metadata.get("record_type") == "event_record"
+                and namespace in records_by_namespace
+            ):
+                records_by_namespace[str(namespace)].append(
+                    event_record_payload(memory_row)
+                )
+        data["records"] = records_by_namespace
+
     namespaces = sorted(
         capability.removeprefix("data:")
         for capability in capabilities
@@ -399,8 +439,8 @@ async def surface_runtime_context(
             .all()
         )
         namespaced: dict[str, list[dict[str, Any]]] = {name: [] for name in namespaces}
-        for row in records:
-            namespaced[row.namespace].append(_record_payload(row))
+        for surface_record in records:
+            namespaced[surface_record.namespace].append(_record_payload(surface_record))
         data["surface"] = namespaced
 
     return {

@@ -23,6 +23,12 @@ from .memory_records import create_record, record_to_row, row_to_record
 from .models import Event, EventBrief, EventTrailEntry, KnowledgeEntry
 from .scope_resolver import ORG, resolve_layered
 
+_CANONICAL_RECORD_TYPES = frozenset({"web_evidence", "event_record", "research_report"})
+
+
+def _is_user_managed_memory(row: KnowledgeEntry) -> bool:
+    return (row.metadata_ or {}).get("record_type") not in _CANONICAL_RECORD_TYPES
+
 
 @dataclass(frozen=True)
 class EventMemoryMutationError(Exception):
@@ -70,8 +76,16 @@ async def list_event_memory(
         )
         .order_by(col(KnowledgeEntry.updated_at).desc())
     )
-    event_rows = resolve_layered(event_result.scalars().all(), event_id=event_id)
-    global_rows = resolve_layered(global_result.scalars().all())
+    event_rows = [
+        row
+        for row in resolve_layered(event_result.scalars().all(), event_id=event_id)
+        if _is_user_managed_memory(row)
+    ]
+    global_rows = [
+        row
+        for row in resolve_layered(global_result.scalars().all())
+        if _is_user_managed_memory(row)
+    ]
     return (
         event_rows[:event_limit],
         global_rows[:global_limit],
@@ -328,6 +342,10 @@ async def _load_mutable_event_memory(
         raise EventMemoryMutationError("Event memory not found", status_code=404)
     if not allow_deleted and row.status != MemoryStatus.ACTIVE.value:
         raise EventMemoryMutationError("Event memory is no longer active")
+    if not _is_user_managed_memory(row):
+        raise EventMemoryMutationError(
+            "Canonical Event evidence and records are read-only here"
+        )
     return row
 
 

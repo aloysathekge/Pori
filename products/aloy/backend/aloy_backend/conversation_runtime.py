@@ -139,6 +139,17 @@ async def load_event_memory(
         # unrelated Event; current pointers are written with their owner.
         if "file-library" in (entry.tags or []) and entry.event_id != resolved_event_id:
             continue
+        # Canonical evidence/records are durable Event state, not mutable prompt
+        # memory. Loading fetched excerpts into each turn would destroy context
+        # budgets; loading records here would also let memory tools rewrite their
+        # provenance envelope. Models read them through event_records_list, while
+        # exact evidence remains inspectable through refs and the evidence endpoint.
+        if (entry.metadata_ or {}).get("record_type") in {
+            "web_evidence",
+            "event_record",
+            "research_report",
+        }:
+            continue
         record = row_to_record(entry)
         if not record.is_retrievable():
             continue

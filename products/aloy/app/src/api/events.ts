@@ -40,6 +40,7 @@ export interface EventTask {
   priority: 'low' | 'normal' | 'high' | 'urgent';
   due_at: string | null;
   execution_mode: 'manual';
+  execution_profile: 'general' | 'sourced_research';
   assigned_agent_id: string | null;
   current_run_id: string | null;
   result_summary: string;
@@ -358,7 +359,9 @@ export function createEventTask(eventId: string, title: string) {
 export function updateEventTask(
   eventId: string,
   taskId: string,
-  data: Partial<Pick<EventTask, 'title' | 'status' | 'order'>>,
+  data: Partial<
+    Pick<EventTask, 'title' | 'status' | 'order' | 'execution_profile'>
+  >,
 ) {
   return apiFetch<EventTask>(`/events/${eventId}/tasks/${taskId}`, {
     method: 'PATCH',

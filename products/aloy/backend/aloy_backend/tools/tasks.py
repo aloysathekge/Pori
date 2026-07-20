@@ -19,6 +19,7 @@ from ..models import Event, EventTrailEntry, Task
 from ..task_state import (
     TaskBudgetPolicy,
     TaskExecutionMode,
+    TaskExecutionProfile,
     TaskPriority,
     TaskStateError,
     TaskStatus,
@@ -37,6 +38,7 @@ class TaskCreateParams(BaseModel):
     priority: TaskPriority = "normal"
     due_at: datetime | None = None
     execution_mode: TaskExecutionMode = "manual"
+    execution_profile: TaskExecutionProfile = "general"
     assigned_agent_id: str | None = Field(default=None, max_length=200)
     origin_conversation_id: str | None = None
     budget_policy: TaskBudgetPolicy = Field(default_factory=TaskBudgetPolicy)
@@ -54,6 +56,7 @@ class TaskUpdateParams(BaseModel):
     priority: TaskPriority | None = None
     due_at: datetime | None = None
     execution_mode: TaskExecutionMode | None = None
+    execution_profile: TaskExecutionProfile | None = None
     assigned_agent_id: str | None = Field(default=None, max_length=200)
     origin_conversation_id: str | None = None
     result_summary: str | None = Field(default=None, max_length=50_000)
@@ -127,6 +130,7 @@ class TaskMutationHandler:
                 priority=params.priority,
                 due_at=params.due_at,
                 execution_mode=params.execution_mode,
+                execution_profile=params.execution_profile,
                 assigned_agent_id=params.assigned_agent_id,
                 budget_policy=params.budget_policy.model_dump(exclude_none=True),
                 order=order,
@@ -246,7 +250,9 @@ def register_task_tools(registry) -> None:
                 "definition of done. This updates internal working state directly "
                 "and records it in the Trail. Never create Tasks merely to represent "
                 "rows, sections, navigation, schedule entries, or other display data "
-                "for a Surface; request_event_surface owns that visual experience."
+                "for a Surface; request_event_surface owns that visual experience. "
+                "Set execution_profile=sourced_research when completion requires "
+                "current public-web evidence and a cited durable report."
             ),
         )
     if "task_update" not in registry.tools:
