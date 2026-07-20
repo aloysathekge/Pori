@@ -1,66 +1,83 @@
-# Aloy app — frontend architecture
+# Aloy app architecture
 
-React 19 + Vite + Tailwind v4 SPA (`@aloy/app`), talking to the Aloy backend's
-`/v1` HTTP+SSE API. Shared event constants/types come from `@pori/client`
-(workspace package).
+The Aloy app is a React 19, Vite, TypeScript, and Tailwind host for the durable
+product model. It talks to the backend only through `/v1` REST and SSE and uses
+`@pori/client` for shared transport contracts.
 
-## Layout (`src/`)
-- `pages/` — one component per route (13 routes in `App.tsx`): ChatPage plus
-  resource pages (AgentConfigs, Teams, Skills, Memory, Files, Schedules,
-  Traces, Usage, Connections, Settings) and Login/Signup.
-- `components/` — `chat/` (Composer, MessageList/MessageBubble, Markdown,
-  ArtifactDrawer, ClarifyPrompt, RunReplay, StreamingIndicator, ...),
-  `layout/AppLayout.tsx`, `settings/`, and `ui/` (small in-house primitives:
-  Button, Card, Modal, ... — no component library).
-- `hooks/` — the three chat hooks (below).
-- `api/` — one module per backend resource; all go through `client.ts`.
-- `contexts/` — auth only (`AuthContext.tsx` + `useAuth`), Supabase-backed.
-- `types/index.ts` — app-side response/wire types; `lib/` — tiny utilities.
+## Product shell
 
-## State conventions (deliberate)
-No global store (no Redux/Zustand). State is local `useState` owned by the
-page that renders it, with reusable stateful logic extracted into hooks. The
-only context is auth. Cross-page data is refetched, not cached globally.
+- **Today** is the attention lens across Life and active Events.
+- **New conversation** creates a transcript-isolated Conversation inside the
+  permanent Life Event.
+- **New Event** creates a dedicated Event and its one canonical Conversation.
+- **Event Workbench** composes Conversation, generated Surface, opened files,
+  and Event context without making any pane the source of truth.
+- **Connections** and **Schedules** expose user capabilities and durable wakes.
+  Legacy Agent configuration remains operator-owned and absent from ordinary
+  customer navigation.
 
-## API layer contract
-`api/client.ts` owns `BASE_URL` (`VITE_API_BASE_URL`), attaches the Supabase
-bearer token via an injected token getter (`setTokenGetter`, wired by auth),
-and exposes three transports:
-- `apiFetch<T>` — JSON in/out; non-2xx throws `ApiError { status, message }`.
-- `apiStreamFetch` — returns the raw `Response` for SSE consumption.
-- `apiUploadFile` — multipart via XHR so upload progress is observable.
+## Source layout
 
-Every other `api/*.ts` module is a typed wrapper over these — components
-never call `fetch` directly, and error handling can always `instanceof
-ApiError`.
+- `pages/` owns route-level composition.
+- `components/workbench/` owns flexible Event workspace layout.
+- `components/surfaces/` owns the generated-app iframe host and bridge.
+- `components/chat/` owns Conversation rendering and input.
+- `components/layout/` owns the global shell and responsive navigation.
+- `components/ui/` contains host-owned primitives.
+- `hooks/` owns reusable stateful behavior such as streaming and attachments.
+- `api/` contains typed backend wrappers; components do not call `fetch`
+  directly.
+- `contexts/` contains Supabase-backed auth.
 
-## The three chat hooks (`src/hooks/`)
-- `useConversations` — the conversation list + active selection. Page-
-  agnostic: routing (navigate-on-create/delete) stays with the caller.
-- `useStreamingRun` — one streaming run: the SSE lifecycle (send → frames →
-  final message), streaming text/thinking/tool/plan state, clarify
-  (`ClarifyState`) pause/resume, stop, and re-attach to a live run. Appends
-  into the caller's message list via a passed `setMessages`.
-- `useAttachments` — the composer's pending images/files and the attachment
-  ladder (inline text → native doc → durable upload to object storage), with
-  client-side caps mirroring the backend's.
+There is no global Redux/Zustand store. Page state stays local, durable truth is
+refetched from the backend, and live invalidation arrives through SSE.
 
-ChatPage composes all three; the hooks own behavior, the page owns routing
-and layout.
+## Transport contract
 
-## SSE streaming model
-`api/sse.ts` consumes the backend's kernel `PoriEvent` stream (see
-`aloy_backend/streaming.py`): `text_delta` / `thinking_delta` /
-`tool_call_start|end` / step frames / `clarification_request`, then a flat
-final `message` frame. Consumers pass an `SSECallbacks` object; the reader
-enforces a 90s idle timeout (server keepalives ~15s, so silence means a
-stalled stream) and supports aborting via `AbortSignal`. Clarify answers go
-back over plain POST (`submitClarification`); `attachLiveRun` re-joins an
-in-flight run after reload.
+`api/client.ts` attaches the Supabase bearer token and exposes JSON, streaming,
+and upload transports. Non-success JSON responses become typed `ApiError`s.
+`api/sse.ts` handles Pori event frames, CRLF/trailing-buffer correctness,
+caller cancellation, reconnect, and an idle watchdog.
 
-## Gates
-TypeScript is maximally strict: `strict`, `noUnusedLocals`,
-`noUnusedParameters`, `noUncheckedIndexedAccess` (tsconfig.app.json). CI
-(`.github/workflows/ci.yml`, "Aloy app" job) runs `tsc -b`, then
-`eslint . --max-warnings 0` — warnings fail the build — then `vite build`.
-Keep changes warning-clean, not just error-clean.
+The app never treats a transport acknowledgement as completed work. Task and
+Surface interaction status is rendered from the durable lifecycle returned by
+the host.
+
+## Surface isolation and bridge
+
+A generated Surface runs in a sandboxed iframe and communicates through a
+session-bound `MessageChannel`. The host validates protocol version, Event,
+publication, capabilities, command schemas, and interaction identity. The
+Surface cannot call the API directly, read host files, hold provider tokens, or
+execute a protected action.
+
+Presentation-only changes remain inside the generated app. Durable state,
+reasoning, external action, automation, and source-change commands cross the
+bridge as distinct typed effects. The host persists the exact interaction and
+returns its queued/running/approval/terminal lifecycle to the Surface.
+
+Conversation, Surface, files, and Event context remain peer workspace regions.
+Opening or updating one must not erase local state or steal focus in another.
+
+## Responsive and accessibility contract
+
+The global sidebar becomes mobile navigation; Workbench panes collapse into
+focused views; context tabs remain operable without overlap; generated
+Surfaces fill their pane and adapt internally. Keyboard operation, visible
+focus, semantic names, contrast, reduced motion, touch targets, modal focus,
+and overflow are release gates at desktop, tablet, and phone widths. Static
+source review cannot substitute for signed-in interaction evidence.
+
+## Verification
+
+TypeScript uses strict checking, including unused and unchecked-index gates.
+From this directory run:
+
+```bash
+npm run test
+npm run lint -- --max-warnings 0
+npm run build
+```
+
+The unit bridge tests and build checks do not replace real generated-Surface or
+manual viewport acceptance.

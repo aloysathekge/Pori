@@ -16,10 +16,10 @@ from pori import (
     BudgetLedger,
     SystemMessage,
     UserMessage,
+    ainvoke_structured,
+    ensure_budgeted_chat_model,
     stable_fingerprint,
 )
-from pori.llm import ensure_budgeted_chat_model
-from pori.utils.llm_logging import ainvoke_structured
 
 from .database import async_session
 from .event_context import (

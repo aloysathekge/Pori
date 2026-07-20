@@ -705,6 +705,19 @@ database commit loss now resolves to a receipt-backed `committed` state through
 provider lookup with exactly one send. Tools without proof remain visibly
 `indeterminate`.
 
+**Fifth release-readiness slice implemented:** the existing boot, product,
+backend, frontend, architecture, operator, and 60-second Career OS guidance now
+describes the durable Event/Surface system rather than the legacy Chat product.
+The generated-Surface browser gate no longer races Chrome navigation: it waits
+for the host-owned runtime document before transferring the secure
+`MessageChannel`, and each accessible interaction check receives its own
+bounded deadline. Pori now exports the shared budgeted-model wrapper through
+its public front door, so Event bootstrap and Surface Builder no longer import
+kernel internals. Kernel, backend, app, Python typing, and all three import
+boundary contracts pass on the final code. Responsive/accessibility evidence
+and real-provider University, Madrid, and Career acceptance remain explicit
+manual gates; this slice does not claim them from static inspection.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

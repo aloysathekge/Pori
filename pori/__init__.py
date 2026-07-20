@@ -87,6 +87,7 @@ from .hitl import (
 # The LLM interface type (products annotate against it; construct via
 # create_llm / get_configured_llm above).
 from .llm.base import BaseChatModel
+from .llm.budgeted import ensure_budgeted_chat_model
 from .llm.messages import (
     DocumentBlock,
     ImageBlock,
@@ -357,6 +358,7 @@ __all__ = [
     "ClarifyBridge",
     "LLMConfig",
     "BaseChatModel",
+    "ensure_budgeted_chat_model",
     "create_llm",
     "get_configured_llm",
     "SystemMessage",

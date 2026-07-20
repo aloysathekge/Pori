@@ -100,7 +100,7 @@ the duration of one request**, never a store.
 |---|---|---|---|
 | Request memory | one request | in-flight work | Python variables |
 | **Database** | forever, structured | messages, runs, tokens, config | SQLite dev / Postgres prod via SQLModel |
-| **Object storage** (S3-style) | forever, blobs | uploaded files, big artifacts | *future slice* |
+| **Object storage** (S3-style) | forever, blobs | uploaded files, artifacts, generated projects | local dev store / S3-compatible hosted store |
 | Cache (Redis…) | seconds–hours | rate limits, sessions, queues | *future — today in-process* |
 
 Note the review finding that maps here: `CLARIFY_BRIDGES` and the rate limiter
@@ -282,6 +282,31 @@ desktop will be a *tool provider*. The seams absorb the change.
 - **When two designs disagree** (Hermes vs Aloy), ask what *constraint*
   each was solving. Copy code where constraints match; change course where
   they don't.
+
+---
+
+## 11. Aloy's durable recovery loop
+
+The current Aloy runtime applies the hosted rules above at every failure
+boundary:
+
+1. A Run producer persists the requested work and freezes its step, tool-call,
+   token, cost, and active-duration budget before queueing it.
+2. The worker claims the Run with a lease, checkpoints useful progress, and
+   renews its heartbeat while it works.
+3. If the process dies, a watchdog repairs the expired lease and an eligible
+   Run resumes from durable state instead of relying on the dead process.
+4. Conversation growth is bounded in prompts, not in storage. Verified
+   contiguous transcript prefixes become immutable summary artifacts; older
+   history is retrieved on demand inside the owning Event scope.
+5. A protected external write is never inferred from a missing database
+   receipt. The Proposal becomes indeterminate and a separate read-only lookup
+   attempts to prove the provider outcome without repeating the consequence.
+
+These are one architecture, not independent patches: durable intent makes
+recovery possible, frozen budgets make recovery bounded, scoped history makes
+long-lived Events fast, and read-only reconciliation makes external recovery
+safe.
 
 ---
 

@@ -113,8 +113,8 @@ def inspect_surface_runtime(
         )
         try:
             active_port = profile / "DevToolsActivePort"
-            deadline = time.monotonic() + INSPECTION_TIMEOUT_SECONDS
-            while not active_port.is_file() and time.monotonic() < deadline:
+            startup_deadline = time.monotonic() + INSPECTION_TIMEOUT_SECONDS
+            while not active_port.is_file() and time.monotonic() < startup_deadline:
                 if process.poll() is not None:
                     break
                 time.sleep(0.05)
@@ -154,6 +154,23 @@ def inspect_surface_runtime(
                     return message_id
 
                 send("Runtime.enable")
+                ready, load_exceptions = _wait_for_runtime_document(
+                    socket,
+                    send=send,
+                    deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
+                )
+                if load_exceptions:
+                    return [
+                        _diagnostic("runtime_exception", message)
+                        for message in load_exceptions[:20]
+                    ]
+                if not ready:
+                    return [
+                        _diagnostic(
+                            "runtime_inspector_failed",
+                            "The Surface runtime document did not become ready",
+                        )
+                    ]
                 smoke_context = json.dumps(context, ensure_ascii=True, default=str)
                 smoke_commands = json.dumps(
                     {
@@ -263,7 +280,7 @@ def inspect_surface_runtime(
                     },
                 )
                 exceptions: list[str] = []
-                settle_deadline = min(deadline, time.monotonic() + SETTLE_SECONDS)
+                settle_deadline = time.monotonic() + SETTLE_SECONDS
                 while time.monotonic() < settle_deadline:
                     try:
                         message = json.loads(socket.recv(timeout=0.2))
@@ -301,7 +318,8 @@ def inspect_surface_runtime(
                     },
                 )
                 result: dict[str, Any] = {}
-                while time.monotonic() < deadline:
+                result_deadline = time.monotonic() + INSPECTION_TIMEOUT_SECONDS
+                while time.monotonic() < result_deadline:
                     try:
                         message = json.loads(socket.recv(timeout=0.5))
                     except TimeoutError:
@@ -342,7 +360,7 @@ def inspect_surface_runtime(
                             send=send,
                             check=check,
                             manifest=manifest,
-                            deadline=deadline,
+                            deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
                         )
                     )
                 return diagnostics
@@ -394,6 +412,51 @@ def _receive_evaluation(
         result = remote.get("value")
         break
     return result, exceptions
+
+
+def _wait_for_runtime_document(
+    socket,
+    *,
+    send,
+    deadline: float,
+) -> tuple[bool, list[str]]:
+    """Wait until navigation and the host-owned runtime script have settled.
+
+    Chrome exposes a page target before its file navigation has necessarily
+    completed. Injecting the MessageChannel into that early target can post to
+    the initial document before the Surface SDK installs its listener, or even
+    into a document that navigation then replaces. Readiness is therefore an
+    explicit inspection stage rather than a timing assumption.
+    """
+    exceptions: list[str] = []
+    expression = (
+        "({ready:document.readyState==='complete',"
+        "hasRoot:Boolean(document.getElementById('root'))})"
+    )
+    while time.monotonic() < deadline:
+        result_id = send(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "returnByValue": True,
+            },
+        )
+        result, observed = _receive_evaluation(
+            socket,
+            result_id=result_id,
+            deadline=min(deadline, time.monotonic() + 0.5),
+        )
+        exceptions.extend(observed)
+        if exceptions:
+            return False, exceptions
+        if (
+            isinstance(result, dict)
+            and result.get("ready") is True
+            and result.get("hasRoot") is True
+        ):
+            return True, []
+        time.sleep(0.05)
+    return False, exceptions
 
 
 def _interaction_expression(step: dict[str, Any]) -> str:

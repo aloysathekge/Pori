@@ -28,11 +28,11 @@ from pori import (
     UserMessage,
     ainvoke_structured,
     create_llm,
+    ensure_budgeted_chat_model,
     estimate_llm_call_cost,
     normalize_usage,
     stable_fingerprint,
 )
-from pori.llm import ensure_budgeted_chat_model
 
 from .database import async_session
 from .model_roles import ModelAssignment, ModelRole

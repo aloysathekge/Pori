@@ -1,48 +1,88 @@
-# `products/aloy/backend` — Aloy backend
+# Aloy backend
 
-The Aloy backend, **adopted from the existing `aloy_backend` service** (our own
-FastAPI product) rather than rebuilt. It **composes the Pori kernel** and adds the
-product plane: tenancy, auth, persistence, and the surface the web/desktop apps
-talk to over REST + SSE.
+The Aloy backend is the hosted product plane around the product-neutral Pori
+kernel. FastAPI exposes tenant-scoped REST and SSE; SQLAlchemy/SQLModel and
+Alembic persist product truth; a leased worker executes durable work.
 
-## Stack
+## Responsibilities
 
-FastAPI · SQLAlchemy 2 · Alembic · asyncpg (**PostgreSQL**) · Pydantic ·
-uvicorn · Docker. Auth is **Supabase JWT** (verified server-side via JWKS in
-`aloy_backend/auth.py`). Composes `pori` (the kernel) via
-`[tool.uv.sources] pori = { path = "../../..", editable = true }`.
+- verify Supabase identity and organization membership;
+- enforce user, organization, Event, Conversation, and capability scope;
+- own Life and dedicated Event topology;
+- persist Conversations, Tasks, Runs, files, memory, evidence, records,
+  Proposals, receipts, Trail, Schedules, and Surface revisions;
+- assemble bounded Pori Runs from trusted product context;
+- stream foreground and durable state to the app;
+- compile and publish generated Surfaces outside the trusted application
+  boundary;
+- recover expired work and reconcile uncertain external outcomes.
 
-## Routes (`aloy_backend/routes/`)
+Pori never imports this package. Aloy imports Pori and supplies resolved tools,
+memory, policy, files, and model configuration for one Run.
 
-`organizations`, `users` (**tenancy**), `conversations`, `memory`, `teams`,
-`traces`, `usage`, `skills`, `evolution`, `agent_configs`, `runs`.
+## Execution rails
 
-## Dependency rule
+### Foreground Conversation
 
-Imports `pori` (kernel) + (later) `extensions/pori-*`; **never imported by them.**
-Surfaces (`products/aloy/app`, `products/aloy/desktop`) reach it only over REST + SSE.
+The API persists the user message, assembles the current Conversation with
+accepted owning-Event state, runs Pori, streams events over SSE, and commits the
+terminal outcome through the shared finalizer.
 
-## Migration status (docs/Aloy.md — "adopt aloy_backend, unify on PoriEvent")
+### Durable work
 
-- [x] **Stage 3.1** — copy `aloy_backend` → here; wire the kernel path to the repo
-  root (`../../..`); drop `aloy_backend`'s AI-tooling cruft; all Python
-  syntax-compiles clean.
-- [ ] **Stage 3.2 — boot** — bring the stack up locally. Copy-paste guide in
-  [`../BOOT.md`](../BOOT.md): defaults to **SQLite** (no Postgres needed), needs
-  only a free Supabase project (auth) + an LLM key. `uv sync` → `alembic upgrade
-  head` → `uvicorn aloy_backend.api:app`. *(Written; run it to verify end to end.)*
-- [x] **Stage 3.3 — unify on `PoriEvent`** — `streaming.py` now **relays the
-  kernel's live `PoriEvent` stream** (`run_start`/`step_*`/`text_delta`/
-  `thinking_delta`/`tool_call_start|end`/`run_end`) via `execute_task(on_event=…)`,
-  replacing the step-polling `status/step/message`. Contract now matches
-  `@pori/client`. A final `message` frame is kept for DB persistence. (Delegation
-  already surfaces as `delegate_task` tool events.)
-- [x] **Stage 3.3b — clarify buttons** — `streaming.py` now runs the agent in a
-  **worker thread** with a **`ClarifyBridge`** (harvested from `pori/api`), emits
-  `clarification_request` frames, and `POST /v1/conversations/clarify/{id}`
-  (`resolve_clarification`) resumes the paused run. Frontend renders the buttons.
-- [ ] `pori/api` → trivial reference server once the frontend consumes this.
-- [ ] Reconcile the two `config.yaml` / duplicate settings with the kernel.
+The worker claims pending Runs with database leases. Tasks, Schedules, Event
+bootstrap, context ingestion, and Surface builds survive API closure because
+their intent and progress are durable. Checkpoints and heartbeats allow another
+worker to resume eligible work after a lease expires.
 
-Gateway (Slack/Telegram) will **harvest Hermes's gateway architecture**
-(`references/hermes-agent-deep-dives/gateway-messaging.md`) when we add it.
+Before claiming new work, each loop repairs expired Runs and orphaned Tasks.
+Terminal watchdog results reconcile Task, Conversation, Surface, Schedule, and
+Trail projections once.
+
+### Protected consequences
+
+External writes follow Proposal -> user decision -> execution -> receipt. If a
+provider may have accepted a write before Aloy committed the receipt, the
+Proposal becomes `indeterminate`. A separate read-only reconciler uses the
+stable operation identity; it never blindly repeats the consequence.
+
+## Context longevity
+
+Conversation hydration uses a stable host-owned token allowance rather than a
+provider's maximum context. Accepted contiguous transcript prefixes become
+immutable, versioned `ContextArtifact` summaries. A Run receives the latest
+verified summary plus a bounded recent tail. Older Event history remains
+durable and is page-faulted through a tenant/user/Event-scoped search handler.
+
+## Budget contract
+
+Every Run freezes ceilings for steps, tool calls, tokens, cost, and active
+duration. A single kernel ledger follows the root Agent, hidden model calls,
+Teams, members, and nested Teams, including checkpoint resume. Actual provider
+usage is recorded even when one in-flight call crosses a ceiling; no further
+model or tool action is then allowed.
+
+## Generated Surface boundary
+
+The Builder returns one structured source candidate without model-visible
+filesystem or build tools. The host persists, validates, compiles, inspects,
+and publishes it. Generated code receives the Surface SDK rather than backend
+credentials or direct provider/network access. A failed candidate cannot
+replace the last verified publication.
+
+## Local development
+
+Use [the Aloy boot and operator guide](../BOOT.md). Package entry points are:
+
+```text
+aloy-backend          API
+aloy-backend-worker   durable worker
+aloy-backend-gateway  optional messaging gateway
+```
+
+Run backend verification from this directory:
+
+```bash
+uv run --no-sync pytest tests/ -q
+uv run --no-sync mypy aloy_backend/ --ignore-missing-imports
+```
