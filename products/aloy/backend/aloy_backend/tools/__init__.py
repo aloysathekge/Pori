@@ -48,10 +48,13 @@ from .surface_builds import (
     register_surface_build_tools,
 )
 from .surface_state import (
+    SURFACE_INTERACTION_READ_TOOL_NAME,
     SURFACE_STATE_CONTEXT_KEY,
     SURFACE_STATE_READ_TOOL_NAME,
+    SurfaceInteractionReadParams,
     SurfaceStateReader,
     register_surface_state_tools,
+    surface_interaction_read_tool,
 )
 from .surfaces import (
     SURFACE_AUTHORING_CONTEXT_KEY,
@@ -173,6 +176,7 @@ __all__ = [
     "SURFACE_AUTHORING_TOOL_NAMES",
     "SURFACE_BUILD_CONTEXT_KEY",
     "SURFACE_BUILD_TOOL_NAMES",
+    "SURFACE_INTERACTION_READ_TOOL_NAME",
     "SURFACE_STATE_CONTEXT_KEY",
     "SURFACE_STATE_READ_TOOL_NAME",
     "gmail_draft_preview",
@@ -188,4 +192,6 @@ __all__ = [
     "EventRecordHandler",
     "EventWebPageReader",
     "SurfaceStateReader",
+    "SurfaceInteractionReadParams",
+    "surface_interaction_read_tool",
 ]

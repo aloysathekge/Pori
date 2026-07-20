@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
+import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -33,6 +34,12 @@ from aloy_backend.surface_lifecycle import (
 )
 from aloy_backend.surface_manifest import SurfaceManifest, validate_intent_payload
 from aloy_backend.tools.gmail import GmailSendParams
+from aloy_backend.tools.surface_state import (
+    SURFACE_STATE_CONTEXT_KEY,
+    SurfaceInteractionReadParams,
+    SurfaceStateReader,
+    surface_interaction_read_tool,
+)
 from pori.tools.registry import ToolRegistry
 
 
@@ -478,16 +485,16 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
     client,
     db_session_maker,
 ):
-    event = await _create_event(client, "Career OS")
+    event = await _create_event(client, "Planning Event")
     manifest = SurfaceManifest.model_validate(
         {
             "intents": {
-                "career.review_pipeline": {
+                "event.review_selection": {
                     "class": "reasoning",
                     "schema": {
                         "type": "object",
-                        "properties": {"view": {"type": "string"}},
-                        "required": ["view"],
+                        "properties": {"selectionId": {"type": "string"}},
+                        "required": ["selectionId"],
                         "additionalProperties": False,
                     },
                 }
@@ -503,10 +510,10 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
             "code_revision_id": revision_id,
             "data_revision": 0,
             "method": "command",
-            "name": "career.review_pipeline",
-            "component_id": "review-pipeline",
-            "payload": {"view": hostile_value},
-            "idempotency_key": "career-review-pipeline-1",
+            "name": "event.review_selection",
+            "component_id": "review-selection",
+            "payload": {"selectionId": hostile_value},
+            "idempotency_key": "event-review-selection-1",
         },
     )
     assert response.status_code == 202, response.text
@@ -516,11 +523,45 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
     assert result["trigger"]["context_snapshot_fingerprint"]
 
     async with db_session_maker() as session:
+        event_row = await session.get(Event, event["id"])
+        assert event_row is not None
+    reader = SurfaceStateReader(
+        run_context=SimpleNamespace(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=event_row.id,
+        ),
+        session_factory=db_session_maker,
+    )
+    read = await surface_interaction_read_tool(
+        SurfaceInteractionReadParams(interaction_id=response.json()["id"]),
+        {SURFACE_STATE_CONTEXT_KEY: reader},
+    )
+    assert read["interaction"]["name"] == "event.review_selection"
+    assert read["interaction"]["status"] == "queued"
+    assert read["untrusted_input"] == {"payload": {"selectionId": hostile_value}}
+
+    other_event = await _create_event(client, "Private University")
+    other_reader = SurfaceStateReader(
+        run_context=SimpleNamespace(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=other_event["id"],
+        ),
+        session_factory=db_session_maker,
+    )
+    with pytest.raises(ValueError, match="unavailable in this Event"):
+        await surface_interaction_read_tool(
+            SurfaceInteractionReadParams(interaction_id=response.json()["id"]),
+            {SURFACE_STATE_CONTEXT_KEY: other_reader},
+        )
+
+    async with db_session_maker() as session:
         run = (await session.execute(select(Run))).scalars().one()
         message = (await session.execute(select(Message))).scalars().one()
         assert hostile_value not in run.task
         assert "<trusted-surface-command>" in run.task
-        assert message.metadata_["surface_input"]["view"] == hostile_value
+        assert message.metadata_["surface_input"]["selectionId"] == hostile_value
 
 
 async def test_surface_ask_aloy_queues_one_canonical_conversation_run(

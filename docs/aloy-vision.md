@@ -444,6 +444,14 @@ conflicted, and retryable states and reconcile the interface from canonical
 data. V1 contracts remain readable while the stricter command contract is
 introduced and existing Surfaces are migrated deliberately.
 
+The initial SDK response says only that the host accepted or committed the
+command. For reasoning and protected actions, the same durable interaction then
+moves through `queued`, `running`, `waiting_approval`, `approved`, `executing`,
+and a terminal `completed`, `committed`, `rejected`, `failed`, `cancelled`, or
+`indeterminate` state. Generated React follows that host-owned record through
+the reactive SDK; it never invents success from a click handler, closed dialog,
+optimistic card move, or transport acknowledgement.
+
 Aloy accesses Surface changes through the Event, not by inspecting the iframe.
 Every committed command advances `data_revision`, records actor, provenance,
 and semantic Trail evidence, and invalidates the old Event context snapshot.
@@ -473,10 +481,23 @@ determines whether that command is allowed, whether it may wake Aloy, and which
 approval policy applies. A normal card move never starts a model. A deliberate
 **Review my pipeline** action does. A payment receipt may trigger a configured
 follow-up, but only through an explicit Event automation. Immediate and
-background wakes carry a trusted host-rendered envelope containing Event,
-command, selected entity references, state revision, and snapshot fingerprint;
-Surface payloads remain structured data and cannot inject hidden system
-instructions.
+background wakes carry a trusted host-rendered envelope containing the Event,
+command, interaction ID, state revision, and snapshot fingerprint. Before
+acting, Aloy uses the Event-scoped `surface_interaction_read` tool to resolve
+that ID to the exact accepted component, payload, and current lifecycle. The
+returned payload is explicitly untrusted user input, not host instruction. Aloy
+reads canonical current records separately through `surface_state_read` and
+other Event tools. This lets a control say “compare these hotels” or “prepare
+this application” without copying arbitrary generated-UI text into the system
+prompt or forcing the user to repeat their selection in Conversation.
+
+This is the reusable Event operating loop, not Career, University, or travel
+logic: Surface intent → trusted host validation → canonical state, Run, or
+Proposal → visible lifecycle → receipt or reasoning outcome → refreshed
+Surface, Conversation, Today, and Trail. A Surface interaction creates or
+updates a canonical Task only when Aloy determines that genuine executable work
+with a definition of done exists; routine UI state is never inflated into Task
+spam.
 
 Trigger execution is idempotent, rate-limited, depth-limited, and deduplicated.
 An agent-originated state change cannot recursively wake itself without an

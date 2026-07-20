@@ -8,6 +8,10 @@ from aloy_backend.run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from aloy_backend.skills import _load_bundled_skill_catalog
 from aloy_backend.tools.surface_builds import SURFACE_BUILD_TOOL_NAMES
 from aloy_backend.tools.surface_requests import SURFACE_REQUEST_TOOL_NAME
+from aloy_backend.tools.surface_state import (
+    SURFACE_INTERACTION_READ_TOOL_NAME,
+    SURFACE_STATE_READ_TOOL_NAME,
+)
 from aloy_backend.tools.surfaces import SURFACE_AUTHORING_TOOL_NAMES
 from pori import LLMConfig, MemoryFileBackend, RunProfile
 
@@ -71,9 +75,12 @@ def test_ordinary_event_agent_can_request_but_cannot_author_a_surface(monkeypatc
 
     assert orchestrator.llm is llm
     assert SURFACE_REQUEST_TOOL_NAME in orchestrator.tools_registry.tools
+    assert SURFACE_STATE_READ_TOOL_NAME in orchestrator.tools_registry.tools
+    assert SURFACE_INTERACTION_READ_TOOL_NAME in orchestrator.tools_registry.tools
     assert "Do this even when the user does not know or say the term Surface" in (
         orchestrator.system_prompt or ""
     )
+    assert "call\nsurface_interaction_read" in (orchestrator.system_prompt or "")
     assert not (SURFACE_AUTHORING_TOOL_NAMES | SURFACE_BUILD_TOOL_NAMES).intersection(
         orchestrator.tools_registry.tools
     )

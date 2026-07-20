@@ -17,9 +17,11 @@ New Event → continuous Event conversation → executable Task → durable Run
           → evidence + artifact → Proposal → decision → receipt
 ```
 
-The Career OS proof is complete only when its research Task produces sourced
-work and one approved Gmail consequence without losing continuity or
-duplicating the action after a crash.
+The V1 proof is complete only when the same domain-neutral Event loop works for
+University, travel, career, and future Events: understand context, perform
+bounded work, present it in Conversation or a Surface, accept a user decision,
+stage any consequence for approval, execute it once, and reconcile evidence
+back into the Event without losing continuity.
 
 ## 2. Locked product contract
 
@@ -58,6 +60,16 @@ duplicating the action after a crash.
 16. Aloy is one user-facing assistant. Specialist model roles and legacy
     AgentConfig infrastructure are operator-owned, absent from customer
     navigation, and never user-selected when starting an ordinary Conversation.
+17. A trusted Surface trigger contains an interaction ID, not model-trusted
+    form contents. Aloy reads that interaction through an Event-scoped tool and
+    treats its payload as user input, never as system instructions.
+18. Accepted Surface work has one durable lifecycle visible to generated UI:
+    queued, running, waiting for approval, executing, and a terminal outcome.
+    A transport acknowledgement is not a completion claim.
+19. Surface commands do not manufacture Tasks. State-only changes persist
+    without a Run; explicit reasoning starts a Run; external consequences stage
+    a Proposal. A canonical Task is created or changed only when genuine work
+    with a useful definition of done exists.
 
 ## 3. Branch and merge policy
 
@@ -594,26 +606,40 @@ Gate:
   without changing canonical artifact or evidence truth;
 - cross-Event retrieval leakage remains zero.
 
-### R7 — Career OS decision and receipt loop
+### R7 — generic Event operating loop
 
-**Branch:** `aloy-v1-r7-career-os-loop`
+**Branch:** `aloy-v1-r7-event-operating-loop`
 
 Scope:
 
-- let the research Task stage a Gmail summary Proposal linked to the Task;
-- keep the Task `waiting_approval` until the Proposal resolves;
-- approve from the Event Surface or Today;
-- send to the founder's own address through the existing safe executor;
-- commit the receipt and finish the Task only after evidence exists;
-- reflect the result live in Conversation, Surface, Today, and Trail.
+- let Aloy retrieve the exact accepted Surface interaction from its trusted
+  interaction ID without placing untrusted generated-UI payloads in the system
+  prompt;
+- expose the durable interaction lifecycle through the Surface SDK so controls
+  can render queued, running, approval, execution, completion, rejection,
+  failure, cancellation, and indeterminate states from host truth;
+- keep local presentation, durable state, reasoning, external action,
+  automation, and source-change effects distinct;
+- reconcile reasoning outcomes and Proposal receipts into the canonical Event
+  Conversation, Surface projection, Today, and Trail;
+- keep `automation` and `source_change` fail-closed until their separately
+  governed Schedule and Builder routes are complete;
+- exercise the same contract with University, Madrid, and Career acceptance
+  cases; no domain name or payload shape may be compiled into the runtime.
 
 Gate:
 
-- no email is sent before durable approval;
-- rejection produces no provider call;
-- approval produces one provider call and one committed receipt;
-- Task completion cannot precede receipt persistence;
-- the complete Career OS loop works on the founder account.
+- a Surface reasoning command can retrieve its exact validated payload only
+  inside its tenant, user, and Event scope;
+- generated UI follows the accepted interaction beyond the initial request and
+  never presents `accepted` as `completed`;
+- a state-only command persists once without waking a model;
+- a reasoning command starts one canonical Event Run and records one outcome;
+- an external action produces no provider call before approval, rejection
+  produces none, and approval produces at most one call plus one receipt;
+- Conversation, Surface, Today, and Trail converge on the same terminal state;
+- the tests pass with domain-neutral fixtures and at least one acceptance case
+  each from University, Madrid, and Career.
 
 ### R8 — reliability, context longevity, and release
 
