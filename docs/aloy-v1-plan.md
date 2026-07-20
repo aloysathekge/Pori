@@ -648,6 +648,17 @@ Gate:
 
 **Branch:** `aloy-v1-r8-release-gate`
 
+**First reliability slice implemented:** the worker now runs bounded,
+row-lock-aware Run and Task watchdogs before claiming new work. An expired Run
+with attempts remaining is reclaimed through the existing checkpoint-resume
+path and records a recovery Trail entry. An expired final attempt or an
+interrupted cancellation terminalizes once, clears its lease, reconciles its
+Task, Conversation, Surface, Schedule, and Trail projections, and becomes
+explicitly retryable where appropriate. A queued/in-progress Task whose Run is
+missing, mismatched, or already terminal is repaired from host truth. Stale
+provider executions remain `indeterminate` and are never submitted again
+blindly.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

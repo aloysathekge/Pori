@@ -599,6 +599,14 @@ async def test_conversation_approval_alias_resolves_durable_proposal(
 async def test_worker_tick_processes_approved_proposals_before_runs(monkeypatch):
     calls: list[str] = []
 
+    async def reconcile_runs():
+        calls.append("run-watchdog")
+        return 0
+
+    async def reconcile_tasks():
+        calls.append("task-watchdog")
+        return 0
+
     async def expire():
         calls.append("expire")
 
@@ -614,9 +622,17 @@ async def test_worker_tick_processes_approved_proposals_before_runs(monkeypatch)
         return None
 
     monkeypatch.setattr(worker_module, "expire_due_proposals", expire)
+    monkeypatch.setattr(worker_module, "reconcile_stale_runs", reconcile_runs)
+    monkeypatch.setattr(worker_module, "reconcile_orphaned_tasks", reconcile_tasks)
     monkeypatch.setattr(worker_module, "reconcile_stale_executions", reconcile)
     monkeypatch.setattr(worker_module, "execute_next_approved_proposal", execute_next)
     monkeypatch.setattr(worker_module, "claim_next_run", claim_run)
 
     assert await worker_module.run_once("worker-1") is True
-    assert calls == ["expire", "reconcile", "proposal"]
+    assert calls == [
+        "run-watchdog",
+        "task-watchdog",
+        "expire",
+        "reconcile",
+        "proposal",
+    ]

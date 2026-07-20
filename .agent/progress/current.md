@@ -2,14 +2,16 @@
 
 ## Active Task
 
-R6 sourced-research architecture is merged. R7's deterministic implementation
-is complete on `aloy-v1-r7-event-operating-loop`: exact Event-scoped interaction
-reads, a durable resume-safe context receipt, fail-closed reasoning completion,
-reactive Run/Proposal lifecycle, Today approval visibility, and receipt
-reconciliation. The focused worker/Proposal/Surface regression suite passes 57
-tests, backend typing and formatting are clean, and the Surface SDK builds. Live
-University, Madrid, and Career model acceptance remains deferred while provider
-credits are unavailable.
+R7's generic Event operating loop is merged through PR #197. R8 is active on
+`aloy-v1-r8-release-gate`. Its first reliability slice adds bounded Run and Task
+watchdogs: recoverable expired Runs resume from their checkpoint with Trail
+evidence, exhausted or cancelled leases terminalize exactly once, orphaned Task
+state converges to a retryable/accurate status, and protected external actions
+remain on the existing no-blind-retry indeterminate path. The focused recovery,
+worker, Proposal, and Task suite passes 31 tests; backend mypy passes across 121
+source files and changed-file formatting/lint are clean. Live University,
+Madrid, and Career model acceptance remains deferred while provider credits are
+unavailable.
 
 ## Decisions Made
 
@@ -46,6 +48,10 @@ credits are unavailable.
   terminal outcome rather than claiming success from `accepted`.
 - R7 is a generic Event operating loop. University, Madrid, and Career are
   acceptance examples, never runtime branches or hardcoded product behavior.
+- An expired Run remains resumable only while a safe attempt remains. Once the
+  final leased attempt is lost, the watchdog fails it and its active Task once;
+  cancellation wins over recovery, and provider-side uncertainty is never
+  converted into a blind external-action retry.
 - Ordinary Event Runs may request a Surface but never receive authoring,
   build, preview, or publication tools.
 - Schedule/display/navigation records remain Surface data; they are not Tasks
