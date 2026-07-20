@@ -15,8 +15,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .surface_manifest import SurfaceManifest
+from .surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
 
-SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@1"
+SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@2"
 SURFACE_QUALITY_RECEIPT_KEY = "surface_quality"
 
 REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
@@ -26,9 +27,9 @@ REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
     {"id": "mobile", "width": 390, "height": 844, "compact": True},
     {"id": "mobile_narrow", "width": 360, "height": 800, "compact": True},
 )
+REQUIRED_SURFACE_STATE_VIEWPORTS: tuple[str, ...] = ("wide", "mobile")
 
 _PLANNED_EVIDENCE = (
-    "state_matrix",
     "focus_indicator_audit",
     "contrast_audit",
     "surface_critic",
@@ -89,6 +90,32 @@ def create_surface_quality_receipt(
         and not item["accessibility"].get("duplicate_ids")
         for item in viewports
     )
+    state_matrix = dict(inspection_evidence.get("state_matrix") or {})
+    state_observations = list(state_matrix.get("observations") or [])
+    expected_states = list(REQUIRED_SURFACE_STATE_FIXTURES)
+    expected_state_viewports = list(REQUIRED_SURFACE_STATE_VIEWPORTS)
+    expected_combinations = [
+        (state, viewport)
+        for state in expected_states
+        for viewport in expected_state_viewports
+    ]
+    observed_combinations = [
+        (str(item.get("state") or ""), str(item.get("viewport_id") or ""))
+        for item in state_observations
+        if isinstance(item, dict)
+    ]
+    state_matrix_passed = (
+        state_matrix.get("passed") is True
+        and state_matrix.get("required_states") == expected_states
+        and state_matrix.get("required_viewports") == expected_state_viewports
+        and observed_combinations == expected_combinations
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("capture"), dict)
+            and bool(item["capture"].get("sha256"))
+            for item in state_observations
+        )
+    )
     checks: dict[str, dict[str, Any]] = {
         "deterministic_validation": {
             "status": "passed" if validation_passed else "failed",
@@ -112,6 +139,11 @@ def create_surface_quality_receipt(
             "status": "passed" if accessibility_passed else "failed",
             "scope": "deterministic_dom",
         },
+        "state_matrix": {
+            "status": "passed" if state_matrix_passed else "failed",
+            "required_states": expected_states,
+            "required_viewports": expected_state_viewports,
+        },
     }
     passed = (
         validation_passed
@@ -119,6 +151,7 @@ def create_surface_quality_receipt(
         and checks["declared_interactions"]["status"] in {"passed", "not_applicable"}
         and viewport_passed
         and accessibility_passed
+        and state_matrix_passed
     )
     receipt: dict[str, Any] = {
         "policy_version": SURFACE_QUALITY_POLICY_VERSION,
@@ -177,6 +210,8 @@ def surface_quality_receipt_error(build: Any) -> str | None:
         return "required viewport inspection did not pass"
     if dict(checks.get("accessibility_audit") or {}).get("status") != "passed":
         return "deterministic accessibility inspection did not pass"
+    if dict(checks.get("state_matrix") or {}).get("status") != "passed":
+        return "required Surface state inspection did not pass"
     return None
 
 
@@ -184,6 +219,7 @@ __all__ = [
     "SURFACE_QUALITY_POLICY_VERSION",
     "SURFACE_QUALITY_RECEIPT_KEY",
     "REQUIRED_SURFACE_VIEWPORTS",
+    "REQUIRED_SURFACE_STATE_VIEWPORTS",
     "create_surface_quality_receipt",
     "surface_quality_receipt_error",
 ]

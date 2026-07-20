@@ -26,7 +26,14 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
-from .surface_quality import REQUIRED_SURFACE_VIEWPORTS
+from .surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+)
+from .surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    surface_state_fixture_context,
+)
 from .surface_runtime import SurfaceRuntimeDocument
 
 INSPECTION_TIMEOUT_SECONDS = 8.0
@@ -96,6 +103,12 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
           : false;
       })
     : [];
+  const resourceStateRegions = [...document.querySelectorAll(
+    '[data-aloy-resource][data-aloy-resource-state]'
+  )].filter(visible).map(element => ({
+    resource: element.getAttribute('data-aloy-resource'),
+    state: element.getAttribute('data-aloy-resource-state'),
+  }));
   const root = document.getElementById('root');
   return resolve({
     viewport: { width: viewportWidth, height: viewportHeight },
@@ -118,6 +131,7 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
       duplicate_ids: duplicateIds.slice(0, 20),
       small_touch_targets: smallTouchTargets.length,
       small_touch_target_samples: smallTouchTargets.slice(0, 10).map(sample),
+      resource_state_regions: resourceStateRegions.slice(0, 20),
     },
   });
 })))
@@ -303,6 +317,9 @@ def inspect_surface_runtime(
                     "(() => {"
                     "const channel = new MessageChannel();"
                     "let currentContext=" + smoke_context + ";"
+                    "window.__aloySetSmokeContext=next=>{currentContext=next;"
+                    "channel.port1.postMessage({protocol:'1',type:'context',"
+                    "sessionId:'runtime-smoke',context:currentContext});};"
                     "const commands=" + smoke_commands + ";"
                     "window.__aloySmokeMessages = [];"
                     "window.__aloySmokePort = channel.port1;"
@@ -460,6 +477,15 @@ def inspect_surface_runtime(
                     evidence_sink["viewport_matrix"] = viewport_evidence
                     evidence_sink["_capture_blobs"] = captures
                 diagnostics.extend(viewport_diagnostics)
+                if diagnostics:
+                    return diagnostics
+                state_diagnostics, state_evidence, state_captures = (
+                    _inspect_state_matrix(socket, send=send, context=context)
+                )
+                if evidence_sink is not None:
+                    evidence_sink["state_matrix"] = state_evidence
+                    evidence_sink["_capture_blobs"].extend(state_captures)
+                diagnostics.extend(state_diagnostics)
                 if diagnostics or manifest is None:
                     return diagnostics
                 # Interaction paths execute at a stable wide composition after
@@ -743,6 +769,246 @@ def _inspect_viewport_matrix(
         "passed": not diagnostics
         and len(observations) == len(REQUIRED_SURFACE_VIEWPORTS),
         "viewports": observations,
+    }
+    return diagnostics, evidence, captures
+
+
+def _inspect_state_matrix(
+    socket,
+    *,
+    send,
+    context: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """Exercise public non-ready states at trusted desktop and mobile sizes."""
+    diagnostics: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    captures: list[dict[str, Any]] = []
+    viewports = {
+        str(item["id"]): item
+        for item in REQUIRED_SURFACE_VIEWPORTS
+        if str(item["id"]) in REQUIRED_SURFACE_STATE_VIEWPORTS
+    }
+    for state in REQUIRED_SURFACE_STATE_FIXTURES:
+        fixture = surface_state_fixture_context(context, state)
+        for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS:
+            viewport = viewports[viewport_id]
+            command_id = send(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": viewport["width"],
+                    "height": viewport["height"],
+                    "deviceScaleFactor": 1,
+                    "mobile": bool(viewport["compact"]),
+                },
+            )
+            if (
+                _receive_command_result(
+                    socket,
+                    result_id=command_id,
+                    deadline=time.monotonic() + 2.0,
+                )
+                is None
+            ):
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_viewport_emulation_failed",
+                        f"The trusted browser could not apply the {state} fixture viewport",
+                        viewport=viewport,
+                    )
+                )
+                continue
+            set_id = send(
+                "Runtime.evaluate",
+                {
+                    "expression": (
+                        "new Promise(resolve=>{window.__aloySetSmokeContext("
+                        + json.dumps(fixture, ensure_ascii=True, default=str)
+                        + ");requestAnimationFrame(()=>requestAnimationFrame("
+                        "()=>setTimeout(()=>resolve(true),50)));})"
+                    ),
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            _, exceptions = _receive_evaluation(
+                socket,
+                result_id=set_id,
+                deadline=time.monotonic() + 3.0,
+            )
+            if exceptions:
+                diagnostics.extend(
+                    _viewport_diagnostic(
+                        "state_runtime_exception",
+                        f"The {state} state failed: {message}",
+                        viewport=viewport,
+                    )
+                    for message in exceptions[:10]
+                )
+                continue
+            audit_id = send(
+                "Runtime.evaluate",
+                {
+                    "expression": _VIEWPORT_AUDIT_EXPRESSION,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            result, exceptions = _receive_evaluation(
+                socket,
+                result_id=audit_id,
+                deadline=time.monotonic() + 3.0,
+            )
+            if exceptions or not isinstance(result, dict):
+                diagnostics.extend(
+                    _viewport_diagnostic(
+                        "state_audit_failed",
+                        f"The {state} state returned no valid audit evidence: {message}",
+                        viewport=viewport,
+                    )
+                    for message in (
+                        exceptions[:10] or ["no browser observation was returned"]
+                    )
+                )
+                continue
+            layout = dict(result.get("layout") or {})
+            accessibility = dict(result.get("accessibility") or {})
+            expected_resources = set(dict(fixture.get("resource_states") or {}))
+            state_regions = list(accessibility.get("resource_state_regions") or [])
+            matching_regions = [
+                item
+                for item in state_regions
+                if isinstance(item, dict)
+                and item.get("resource") in expected_resources
+                and item.get("state") == state
+            ]
+            if int(layout.get("root_children") or 0) < 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_empty_root",
+                        f"The {state} state mounted no visible React root",
+                        viewport=viewport,
+                    )
+                )
+            if int(layout.get("horizontal_overflow_px") or 0) > 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_viewport_overflow",
+                        f"The {state} state creates page-level horizontal overflow",
+                        viewport=viewport,
+                    )
+                )
+            if int(layout.get("clipped_controls") or 0) > 0:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_clipped_control",
+                        f"The {state} state clips a visible interactive control",
+                        viewport=viewport,
+                    )
+                )
+            if int(accessibility.get("main_landmarks") or 0) != 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_main_landmark",
+                        f"The {state} state must expose exactly one main landmark",
+                        viewport=viewport,
+                    )
+                )
+            if int(accessibility.get("unnamed_controls") or 0) > 0:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_unnamed_control",
+                        f"The {state} state contains an unnamed control",
+                        viewport=viewport,
+                    )
+                )
+            if expected_resources and not matching_regions:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_region_missing",
+                        (
+                            f"The {state} state exposes no visible SDK-bound "
+                            "resource region"
+                        ),
+                        viewport=viewport,
+                    )
+                )
+            screenshot_id = send(
+                "Page.captureScreenshot",
+                {
+                    "format": "png",
+                    "fromSurface": True,
+                    "captureBeyondViewport": False,
+                },
+            )
+            screenshot = _receive_command_result(
+                socket,
+                result_id=screenshot_id,
+                deadline=time.monotonic() + 3.0,
+            )
+            encoded = str((screenshot or {}).get("data") or "")
+            try:
+                png = base64.b64decode(encoded, validate=True)
+            except ValueError:
+                png = b""
+            observation = {
+                "state": state,
+                "viewport_id": viewport_id,
+                "requested_width": viewport["width"],
+                "requested_height": viewport["height"],
+                "layout": layout,
+                "accessibility": accessibility,
+                "matching_resource_regions": len(matching_regions),
+            }
+            if not png or len(png) > MAX_SURFACE_CAPTURE_BYTES:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_capture_failed",
+                        f"The {state} state produced no safe viewport capture",
+                        viewport=viewport,
+                    )
+                )
+            else:
+                checksum = hashlib.sha256(png).hexdigest()
+                observation["capture"] = {
+                    "sha256": checksum,
+                    "size_bytes": len(png),
+                    "content_type": "image/png",
+                }
+                captures.append(
+                    {
+                        "name": f"state-{state}-{viewport_id}.png",
+                        "content_type": "image/png",
+                        "sha256": checksum,
+                        "data": png,
+                    }
+                )
+            observations.append(observation)
+
+    # Interaction checks must always start from the canonical ready context.
+    reset_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "window.__aloySetSmokeContext("
+                + json.dumps(context, ensure_ascii=True, default=str)
+                + ");true"
+            ),
+            "returnByValue": True,
+        },
+    )
+    _receive_evaluation(
+        socket,
+        result_id=reset_id,
+        deadline=time.monotonic() + 2.0,
+    )
+    evidence = {
+        "policy_version": "aloy-surface-states@1",
+        "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+        "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+        "passed": not diagnostics
+        and len(observations)
+        == len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS),
+        "observations": observations,
     }
     return diagnostics, evidence, captures
 

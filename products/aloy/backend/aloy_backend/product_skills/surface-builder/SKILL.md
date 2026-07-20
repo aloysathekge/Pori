@@ -52,6 +52,11 @@ all use the same runtime and safety contract.
    host renders wide 1440px, split 640px, tablet 768px, mobile 390px, and narrow
    mobile 360px compositions and rejects page overflow, clipped controls, or
    missing deterministic accessibility evidence.
+   For each data-driven primary region, call `useSurfaceResourceState` with its
+   exact capability name and spread `feedbackProps` onto the visible region.
+   Render honest loading, empty, stale, error, permission-denied, pending, and
+   indeterminate views from that host-owned value. Never infer failure from an
+   empty array and never add inspection-only branches.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics in the next complete candidate.
    Every declared intent must include an accessible executable

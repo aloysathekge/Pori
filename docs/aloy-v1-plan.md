@@ -783,17 +783,24 @@ Delivery slices:
    Builder, SDK, quality, interaction, Proposal, and publication paths. No
    University, travel, or Career conditional may enter Aloy runtime code.
 
-**Implemented viewport foundation:** the trusted local browser now renders
+**Implemented viewport and state foundation:** the trusted local browser now renders
 1440px wide, 640px split, 768px tablet, 390px mobile, and 360px narrow-mobile
 compositions. It blocks page overflow, horizontally clipped controls, missing
 main landmarks, unnamed controls, missing image alternatives, keyboard-
 unreachable custom controls, duplicate ids, missing captures, and capture
 storage failure. Capture hashes and deterministic DOM observations are bound
 into the exact-build receipt; local PNGs are retained beside the immutable
-bundle. Small compact touch targets are recorded for later scoring. Required
-non-populated state fixtures, focus-indicator/contrast analysis, remote capture
-transport, independent Critic, and primary-job simulation remain follow-ups;
-this foundation does not claim them.
+bundle. The real runtime context now carries a versioned host-owned state for
+each capability-scoped resource, and `useSurfaceResourceState` exposes the same
+contract to generated React. The publication browser drives loading, empty,
+stale, error, permission-denied, pending, and indeterminate states through that
+public context at wide and mobile sizes. A visible primary region must bind the
+SDK state and transition with it; inspection-only branches cannot satisfy the
+gate. Those 14 state captures and observations join the five baseline captures
+in the exact-build receipt. Small compact touch targets are recorded for later
+scoring. Focus-indicator/contrast analysis, long-content and approval fixtures,
+remote capture transport, independent Critic, and primary-job simulation remain
+follow-ups; this foundation does not claim them.
 
 Gate:
 
@@ -894,11 +901,11 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 ## 8. Immediate next action
 
 R8 is merged into `aloy-v1` as PR #198. R9 is active on
-`aloy-v1-r9-surface-quality`. Finish the exact-build quality-receipt slice, then
-extend its evidence contract with the required viewport/state capture matrix
-and deterministic responsive/accessibility audit. Add the independent Critic
-only after those host-owned facts are durable. Reviewed SDK primitives and
-widgets follow that gate; University and Madrid are proofs of the ordinary
-pipeline, not special runtime behavior. Keep `main` untouched until the R9
-gate, manual product QA, live-provider proofs, remote sandbox acceptance, and
-dogfooding exit criteria all pass.
+`aloy-v1-r9-surface-quality`. Exact-build receipts, the five-viewport baseline,
+and the first public state matrix are complete. Add deterministic keyboard
+focus-indicator and contrast evidence next, followed by long-content and
+approval fixtures. Add the independent Critic only after those host-owned facts
+are durable. Reviewed SDK primitives and widgets follow that gate; University
+and Madrid are proofs of the ordinary pipeline, not special runtime behavior.
+Keep `main` untouched until the R9 gate, manual product QA, live-provider proofs,
+remote sandbox acceptance, and dogfooding exit criteria all pass.

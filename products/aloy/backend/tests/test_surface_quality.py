@@ -4,11 +4,13 @@ from types import SimpleNamespace
 
 from aloy_backend.surface_manifest import SurfaceManifest
 from aloy_backend.surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
     REQUIRED_SURFACE_VIEWPORTS,
     SURFACE_QUALITY_RECEIPT_KEY,
     create_surface_quality_receipt,
     surface_quality_receipt_error,
 )
+from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
 
 
 def _inspection_evidence() -> dict:
@@ -32,7 +34,22 @@ def _inspection_evidence() -> dict:
                 }
                 for viewport_id in required
             ],
-        }
+        },
+        "state_matrix": {
+            "policy_version": "aloy-surface-states@1",
+            "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+            "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+            "passed": True,
+            "observations": [
+                {
+                    "state": state,
+                    "viewport_id": viewport_id,
+                    "capture": {"sha256": f"state-{state}-{viewport_id}"},
+                }
+                for state in REQUIRED_SURFACE_STATE_FIXTURES
+                for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+            ],
+        },
     }
 
 

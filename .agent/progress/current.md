@@ -5,7 +5,8 @@
 R9 is active on `aloy-v1-r9-surface-quality`, branched from the PR #198 merge
 on `aloy-v1`. Exact-build quality receipts plus the first deterministic
 viewport/accessibility evidence slice are complete. The next slice is the
-host-owned state contract used by both real Surfaces and trusted inspection.
+host-owned state contract used by both real Surfaces and trusted inspection;
+that slice is complete on the R9 branch. Focus and contrast are next.
 
 ## Decisions Made
 
@@ -13,10 +14,14 @@ host-owned state contract used by both real Surfaces and trusted inspection.
   `main`.
 - Quality evidence belongs to the trusted host and exact retained build. The
   Builder, Critic, and generated application never receive publication power.
-- The first policy covers deterministic validation, runtime, declared
-  interactions, five responsive viewports, capture integrity, and basic DOM
-  accessibility. State variants, focus indicators, contrast, Critic, and
-  primary-job evidence remain explicit planned extensions.
+- The second policy covers deterministic validation, runtime, declared
+  interactions, five responsive viewports, seven public resource states at
+  desktop/mobile sizes, capture integrity, and basic DOM accessibility. Focus
+  indicators, contrast, Critic, and primary-job evidence remain explicit
+  planned extensions.
+- Resource state is real product context, not a publication-test flag. Generated
+  code consumes it through `useSurfaceResourceState` and binds its visible
+  primary region using SDK-owned feedback props.
 - A stricter new-publication gate must not remove rollback to a previously
   published legacy last-good build.
 
@@ -30,19 +35,20 @@ host-owned state contract used by both real Surfaces and trusted inspection.
   checksum, bundle hash, checks, diagnostics, policy, and fingerprint.
 - All Surface-focused backend verification passes: `82 passed`, including
   build, pipeline, publication, SDK, Event Surface, and live compatibility.
+- The resource-state slice passes its 47 focused backend tests, 126-file mypy
+  gate, SDK/app TypeScript builds, app lint, and all 7 bridge tests.
 - The full backend suite exceeded a bounded six-minute command deadline without
   reporting a failure; it is not recorded as passing or failing.
 
 ## Blockers
 
-- Non-populated state captures, focus-indicator and contrast audits, remote
-  capture transport, independent Critic, reviewed widget registry, and
+- Focus-indicator and contrast audits, long-content and approval fixtures,
+  remote capture transport, independent Critic, reviewed widget registry, and
   primary-job simulation remain R9 work.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
 
 ## Next Session Should Start With
 
-Add the host-owned state-fixture contract for loading, empty, stale, error, and
-pending/indeterminate views, then add deterministic focus-indicator and contrast
-evidence. Add the independent Critic only after those facts are durable.
+Add deterministic focus-indicator and contrast evidence, then long-content and
+approval fixtures. Add the independent Critic only after those facts are durable.

@@ -36,7 +36,11 @@ from aloy_backend.surface_builds import (
     SurfacePreviewParams,
 )
 from aloy_backend.surface_manifest import SurfaceManifest
-from aloy_backend.surface_quality import REQUIRED_SURFACE_VIEWPORTS
+from aloy_backend.surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+)
+from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
 from aloy_backend.surface_runtime import (
     InvalidSurfaceBundle,
     build_surface_runtime_document,
@@ -99,7 +103,22 @@ def _inspection_evidence() -> dict:
                 }
                 for viewport_id in required
             ],
-        }
+        },
+        "state_matrix": {
+            "policy_version": "aloy-surface-states@1",
+            "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+            "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+            "passed": True,
+            "observations": [
+                {
+                    "state": state,
+                    "viewport_id": viewport_id,
+                    "capture": {"sha256": f"state-{state}-{viewport_id}"},
+                }
+                for state in REQUIRED_SURFACE_STATE_FIXTURES
+                for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+            ],
+        },
     }
 
 
@@ -163,7 +182,10 @@ async def test_local_development_bundle_is_browser_safe():
     assert [item["id"] for item in matrix["viewports"]] == [
         str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS
     ]
-    assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS)
+    assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS) + (
+        len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS)
+    )
+    assert evidence["state_matrix"]["passed"] is True
     assert all(item["capture"]["sha256"] for item in matrix["viewports"])
 
 
@@ -291,10 +313,11 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { useSurfaceCommand } from "@aloy/surface"; '
+            'import { useSurfaceCommand, useSurfaceResourceState } from "@aloy/surface"; '
             "export default function App(){const [company,setCompany]=useState('');"
+            "const resource=useSurfaceResourceState('data:career');"
             "const save=useSurfaceCommand('career.application_created',{componentId:'add-application'});"
-            "return <main><form onSubmit={async event=>{event.preventDefault();try{await save.execute("
+            "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();try{await save.execute("
             "{applicationId:'smoke',company});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
@@ -339,9 +362,10 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         files={
             "/src/App.tsx": (
                 'import React, { useState } from "react"; '
-                'import { command } from "@aloy/surface"; '
+                'import { command, useSurfaceResourceState } from "@aloy/surface"; '
                 "export default function App(){const [company,setCompany]=useState('');"
-                "return <main><form onSubmit={async event=>{event.preventDefault();await command("
+                "const resource=useSurfaceResourceState('data:career');"
+                "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();await command("
                 "'career.application_created',{applicationId:'smoke',company});}}>"
                 "<label>Company<input aria-label='Company' value={company} "
                 "onChange={event=>setCompany(event.target.value)}/></label>"
@@ -376,7 +400,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         context,
         manifest=broken,
     )
-    assert {item["code"] for item in diagnostics} == {"runtime_interaction_step_failed"}
+    assert {item["code"] for item in diagnostics} == {"state_region_missing"}
 
 
 async def test_local_browser_gate_projects_accepted_state_between_checks():
@@ -460,13 +484,14 @@ async def test_local_browser_gate_projects_accepted_state_between_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { useSurfaceCommand, useSurfaceData } from "@aloy/surface"; '
+            'import { useSurfaceCommand, useSurfaceData, useSurfaceResourceState } from "@aloy/surface"; '
             "type Application={applicationId:string;company:string;stage:string};"
             "export default function App(){const [company,setCompany]=useState('');"
             "const applications=useSurfaceData<Application>('career');"
+            "const resource=useSurfaceResourceState('data:career');"
             "const create=useSurfaceCommand<Application>('career.application_created');"
             "const move=useSurfaceCommand<{applicationId:string;stage:string}>('career.stage_changed');"
-            "return <main><form onSubmit={async event=>{event.preventDefault();try{await create.execute("
+            "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();try{await create.execute("
             "{applicationId:'smoke',company,stage:'applied'});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
@@ -733,6 +758,7 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
                 "runtime_inspection": "passed",
                 "viewport_inspection": "passed",
                 "accessibility_inspection": "passed",
+                "state_inspection": "passed",
                 "inspection_evidence": _inspection_evidence(),
             },
         )
@@ -875,15 +901,23 @@ async def test_local_preview_retains_viewport_quality_evidence(
     assert preview["quality_gate"]["checks"]["accessibility_audit"]["status"] == (
         "passed"
     )
+    assert preview["quality_gate"]["checks"]["state_matrix"]["status"] == "passed"
     captures = [
         item
         for item in preview["preview_artifacts"]
         if item["kind"] == "viewport_capture"
     ]
     assert [item["name"] for item in captures] == [
-        f"{item['id']}.png" for item in REQUIRED_SURFACE_VIEWPORTS
+        *[f"{item['id']}.png" for item in REQUIRED_SURFACE_VIEWPORTS],
+        *[
+            f"state-{state}-{viewport_id}.png"
+            for state in REQUIRED_SURFACE_STATE_FIXTURES
+            for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+        ],
     ]
-    assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS)
+    assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS) + (
+        len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS)
+    )
     assert "_capture_blobs" not in preview["quality_gate"]["evidence"]
 
 

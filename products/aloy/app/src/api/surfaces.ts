@@ -40,6 +40,7 @@ export interface SurfaceRuntimeContext {
   protocol_version: '1';
   command_contract_version: '1';
   sdk_version: '1';
+  resource_state_version?: '1';
   event_id: string;
   project_id: string;
   build_id: string;
@@ -47,6 +48,19 @@ export interface SurfaceRuntimeContext {
   data_revision: number;
   capabilities: string[];
   widgets: string[];
+  resource_states?: Record<string, {
+    status:
+      | 'loading'
+      | 'ready'
+      | 'empty'
+      | 'stale'
+      | 'error'
+      | 'permission_denied'
+      | 'pending'
+      | 'indeterminate';
+    message?: string;
+    retryable: boolean;
+  }>;
   data: Record<string, unknown>;
 }
 

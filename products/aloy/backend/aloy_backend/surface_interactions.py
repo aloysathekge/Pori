@@ -57,6 +57,10 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_resource_states import (
+    SURFACE_RESOURCE_STATE_VERSION,
+    surface_resource_states,
+)
 from .surface_state import surface_record_payload
 from .tenancy import OrganizationContext
 from .tools.research import event_record_payload
@@ -448,6 +452,7 @@ async def surface_runtime_context(
         "protocol_version": SURFACE_PROTOCOL_VERSION,
         "command_contract_version": SURFACE_COMMAND_CONTRACT_VERSION,
         "sdk_version": manifest.sdk_version,
+        "resource_state_version": SURFACE_RESOURCE_STATE_VERSION,
         "event_id": event.id,
         "project_id": project.id,
         "build_id": build.id,
@@ -455,6 +460,7 @@ async def surface_runtime_context(
         "data_revision": project.data_revision,
         "capabilities": manifest.capabilities,
         "widgets": manifest.widgets,
+        "resource_states": surface_resource_states(manifest, data),
         "data": data,
     }
 

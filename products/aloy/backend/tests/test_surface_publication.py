@@ -33,7 +33,11 @@ from aloy_backend.surface_builds import (
     SurfacePreviewParams,
 )
 from aloy_backend.surface_publication import SurfacePublicationParams
-from aloy_backend.surface_quality import REQUIRED_SURFACE_VIEWPORTS
+from aloy_backend.surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+)
+from aloy_backend.surface_resource_states import REQUIRED_SURFACE_STATE_FIXTURES
 
 
 def _inspection_evidence() -> dict:
@@ -57,7 +61,22 @@ def _inspection_evidence() -> dict:
                 }
                 for viewport_id in required
             ],
-        }
+        },
+        "state_matrix": {
+            "policy_version": "aloy-surface-states@1",
+            "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+            "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+            "passed": True,
+            "observations": [
+                {
+                    "state": state,
+                    "viewport_id": viewport_id,
+                    "capture": {"sha256": f"state-{state}-{viewport_id}"},
+                }
+                for state in REQUIRED_SURFACE_STATE_FIXTURES
+                for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+            ],
+        },
     }
 
 
@@ -77,6 +96,7 @@ class FakeBuildRunner:
                 "interaction_inspection": "passed",
                 "viewport_inspection": "passed",
                 "accessibility_inspection": "passed",
+                "state_inspection": "passed",
                 "inspection_evidence": _inspection_evidence(),
             },
         )
