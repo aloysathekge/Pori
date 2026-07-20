@@ -182,9 +182,10 @@ V1 SDK capabilities should cover:
 - reactive subscriptions to Event data revisions;
 - `useSurfaceInteraction(id)` and controller lifecycle state for a command's
   host-owned Run, Proposal, execution, and terminal outcome;
-- typed `useProposals()`, `usePendingApprovals()`, `useReceipts()`, and
-  `useTrail()` projections; generated code may explain these records but never
-  owns approval or execution controls;
+- typed `useProposals()`, `useSurfaceApprovalState()`, `useReceipts()`, and
+  `useTrail()` projections; generated code may explain these records and bind a
+  visible approval-summary region, but never owns approval or execution
+  controls;
 - structured `dispatch(name, payload)` intents;
 - `askAloy(message, context)` for an explicit model turn;
 - `requestAction(action)` for host-validated consequential intent;
@@ -401,7 +402,7 @@ revision follows this bounded loop:
 
 ```text
 understand Event → write brief → generate/patch → isolated build
-→ render required states → deterministic audit → independent critique
+→ render required states → deterministic audit → evidence receipt
 → simulate primary user jobs → repair → publish or retain last-good
 ```
 
@@ -421,20 +422,26 @@ references for Aloy's warm, calm, legible, information-dense visual language.
 ### 13.2 Required evidence
 
 Every candidate renders wide desktop, laptop, default and narrow split,
-tablet, and mobile views. It also renders representative populated, loading,
-empty, stale/offline, error, long-content, and pending/indeterminate states when
-applicable. Screenshots and browser diagnostics remain build artifacts.
+tablet, and mobile views. It also renders loading, empty, stale/offline, error,
+permission-denied, pending, indeterminate, dense long-content, and protected
+approval-required states when applicable. Approval scenarios use ordinary
+pending Proposal and `waiting_approval` Interaction truth; they never expose
+generated approval controls or an inspection-only switch. The five baseline
+viewport screenshots remain build artifacts; state compositions retain compact
+host-signed DOM, accessibility, contrast, and layout fingerprints instead of
+multiplying image storage and latency.
 
 Deterministic checks block publication for build/runtime errors, undeclared or
 dead intents, accessibility failures, overflow, broken focus, poor contrast,
 missing states, unauthorized capabilities, truth/provenance violations,
 non-idempotent meaningful interactions, or Proposal-rail bypass.
 
-A vision-capable **Surface Critic**, separate from the Builder, evaluates
-hierarchy, composition, density, typography, consistency, action clarity,
-responsive adaptation, state quality, Event specificity, trust, and host/UI
-distinction. Findings identify viewport, state, region, severity, and repair
-direction. The Critic cannot waive deterministic security or truth gates.
+An optional vision-capable **Surface Critic** may later evaluate selected
+representative captures asynchronously for hierarchy, density, action clarity,
+and polish. It is advisory, is not required for V1 publication, and can never
+publish, block last-good recovery, or waive deterministic security or truth
+gates. Aloy should add it only if measured Builder quality justifies its cost
+and latency.
 
 ### 13.3 User-job simulation
 
@@ -463,8 +470,6 @@ one ambiguous click does not authorize a permanent redesign.
 The publish service—not the Builder or Critic—atomically publishes only when:
 
 - every hard gate and primary user job passes;
-- no blocking Critic finding remains;
-- the weighted quality score meets its calibrated threshold;
 - the candidate still descends from the expected current revision;
 - last-good recovery is available.
 

@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from aloy_backend.surface_manifest import SurfaceManifest
+from aloy_backend.surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+    SURFACE_QUALITY_RECEIPT_KEY,
+    create_surface_quality_receipt,
+    surface_quality_receipt_error,
+)
+from aloy_backend.surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
+
+
+def _inspection_evidence() -> dict:
+    required = [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS]
+    return {
+        "viewport_matrix": {
+            "policy_version": "aloy-surface-viewports@1",
+            "required": required,
+            "passed": True,
+            "viewports": [
+                {
+                    "id": viewport_id,
+                    "capture": {"sha256": f"capture-{viewport_id}"},
+                    "accessibility": {
+                        "main_landmarks": 1,
+                        "unnamed_controls": 0,
+                        "images_missing_alt": 0,
+                        "keyboard_unreachable": 0,
+                        "duplicate_ids": [],
+                    },
+                    "focus": {
+                        "passed": True,
+                        "controls": 0,
+                        "visited": 0,
+                        "visible_indicators": 0,
+                    },
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
+                }
+                for viewport_id in required
+            ],
+        },
+        "state_matrix": {
+            "policy_version": SURFACE_STATE_POLICY_VERSION,
+            "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+            "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+            "passed": True,
+            "observations": [
+                {
+                    "state": state,
+                    "viewport_id": viewport_id,
+                    "fingerprint": f"state-{state}-{viewport_id}",
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
+                }
+                for state in REQUIRED_SURFACE_STATE_FIXTURES
+                for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+            ],
+        },
+        "timings": {
+            "policy_version": "aloy-surface-timings@1",
+            "runtime_bootstrap_ms": 100.0,
+            "viewport_matrix_ms": 200.0,
+            "state_matrix_ms": 300.0,
+            "interaction_checks_ms": 0.0,
+            "total_ms": 600.0,
+        },
+    }
+
+
+def _build(receipt: dict | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        resource_metrics=(
+            {SURFACE_QUALITY_RECEIPT_KEY: receipt} if receipt is not None else {}
+        ),
+    )
+
+
+def test_quality_receipt_is_bound_to_exact_source_and_bundle():
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=_inspection_evidence(),
+    )
+    build = _build(receipt)
+
+    assert receipt["passed"] is True
+    assert surface_quality_receipt_error(build) is None
+
+    build.bundle_sha256 = "different-bundle"
+    assert "different source or bundle" in (surface_quality_receipt_error(build) or "")
+
+
+def test_quality_receipt_fails_closed_for_runtime_failure_and_tampering():
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=False,
+        runtime_diagnostics=[{"code": "runtime_exception", "message": "render failed"}],
+        inspection_evidence=_inspection_evidence(),
+    )
+    assert "did not pass" in (surface_quality_receipt_error(_build(receipt)) or "")
+
+    receipt["passed"] = True
+    assert "fingerprint is invalid" in (
+        surface_quality_receipt_error(_build(receipt)) or ""
+    )
+
+
+@pytest.mark.parametrize("evidence_key", ["focus", "contrast"])
+def test_quality_receipt_requires_focus_and_contrast_evidence(evidence_key: str):
+    evidence = _inspection_evidence()
+    evidence["viewport_matrix"]["viewports"][0][evidence_key]["passed"] = False
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=evidence,
+    )
+
+    assert receipt["passed"] is False
+    assert (
+        receipt["checks"][
+            (
+                f"{evidence_key}_indicator_audit"
+                if evidence_key == "focus"
+                else "contrast_audit"
+            )
+        ]["status"]
+        == "failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "timings",
+    [
+        {},
+        {
+            "policy_version": "aloy-surface-timings@1",
+            "runtime_bootstrap_ms": 100.0,
+            "viewport_matrix_ms": 200.0,
+            "state_matrix_ms": 300.0,
+            "interaction_checks_ms": 0.0,
+            "total_ms": 50.0,
+        },
+    ],
+)
+def test_quality_receipt_requires_reconciled_latency_telemetry(timings: dict):
+    evidence = _inspection_evidence()
+    evidence["timings"] = timings
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=evidence,
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["checks"]["latency_telemetry"]["status"] == "failed"
+
+
+def test_quality_receipt_rejects_legacy_state_policy():
+    evidence = _inspection_evidence()
+    evidence["state_matrix"]["policy_version"] = "aloy-surface-states@1"
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=SurfaceManifest(),
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=evidence,
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["checks"]["state_matrix"]["status"] == "failed"

@@ -49,6 +49,7 @@ HOST_FAILURE_CODES = frozenset(
         "runtime_bundle_unavailable",
         "runtime_inspector_failed",
         "runtime_inspector_unavailable",
+        "surface_quality_evidence_incomplete",
     }
 )
 

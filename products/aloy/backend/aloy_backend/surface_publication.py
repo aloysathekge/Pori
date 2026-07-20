@@ -23,6 +23,7 @@ from .models import (
 )
 from .storage import ObjectStore
 from .surface_authoring import SurfaceAuthoringError, SurfaceConflictError
+from .surface_quality import surface_quality_receipt_error
 from .surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 
 
@@ -86,7 +87,12 @@ def _request_fingerprint(
     return hashlib.sha256(encoded).hexdigest()
 
 
-async def _verify_artifact(build: SurfaceBuild, object_store: ObjectStore) -> None:
+async def _verify_artifact(
+    build: SurfaceBuild,
+    object_store: ObjectStore,
+    *,
+    require_quality: bool,
+) -> None:
     if (
         build.status != "succeeded"
         or build.validation_result.get("passed") is not True
@@ -96,6 +102,12 @@ async def _verify_artifact(build: SurfaceBuild, object_store: ObjectStore) -> No
         raise SurfaceAuthoringError(
             "Only a successful, validated Surface build can be published"
         )
+    if require_quality:
+        quality_error = surface_quality_receipt_error(build)
+        if quality_error is not None:
+            raise SurfaceAuthoringError(
+                "Surface publication quality gate failed: " + quality_error
+            )
 
     def read_bundle() -> bytes:
         with object_store.open(build.bundle_key or "") as stream:
@@ -280,7 +292,14 @@ async def change_surface_publication(
         raise SurfaceConflictError(
             "Published Surface changed; read the project and retry against the current pointer"
         )
-    await _verify_artifact(build, object_store)
+    # A new publication must carry a passing receipt bound to this exact build.
+    # Rollback remains available for a previously published legacy last-good
+    # build so introducing a stricter policy cannot remove recovery authority.
+    await _verify_artifact(
+        build,
+        object_store,
+        require_quality=action == "publish",
+    )
 
     publication = SurfacePublication(
         organization_id=organization_id,

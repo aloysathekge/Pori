@@ -377,8 +377,10 @@ or a model claim is insufficient. Failed attempts retain the last-good
 published Surface.
 
 Surface generation is a product-owned specialist role. Aloy's developers and
-operators choose the Builder model, its versioned skill, budgets, and the
-independent Critic model; end users do not select these components. The
+operators choose the Builder model, its versioned skill, and budgets; end users
+do not select these components. An optional advisory visual Critic may be an
+operator-owned background evaluation later, but it is not a V1 publication
+dependency. The
 Conversation model may be optimized for latency and dialogue while the Builder
 is allocated to a model proven to author and repair constrained React projects.
 Changing either model is an operator configuration change, not University,
@@ -542,7 +544,7 @@ opportunity or request
 → isolated candidate build
 → deterministic checks
 → viewport and state renders
-→ independent critique
+→ evidence receipt
 → primary user-job simulation
 → bounded repair
 → publish
@@ -618,11 +620,15 @@ reload.
 
 Surface quality is engineered rather than requested with the word “beautiful.”
 Every publish candidate is built in isolation, rendered at required viewports
-and states, checked deterministically, critiqued independently, exercised
-against the Event's primary user jobs, and repaired within bounded limits. A
-failed or weak candidate never replaces the last-good revision. The Surface
-Builder skill teaches the model how to work, but schemas, tools, sandboxing,
-CSP, host bridges, and the publish service enforce the boundary.
+and host-owned states, checked deterministically, exercised against the Event's
+primary user jobs, and repaired within bounded limits. Dense real-world content
+and approval-required scenarios use the same public context shapes as the live
+Surface; generated code receives no inspection-only escape hatch and no
+approval authority. A failed or weak candidate never replaces the last-good
+revision. Optional visual critique may run asynchronously when measured quality
+justifies it, but it is not a V1 publication dependency. The Surface Builder
+skill teaches the model how to work, while schemas, tools, sandboxing, CSP,
+host bridges, and the publish service enforce the boundary.
 
 Publishing is versioned and risk-aware. A safe visual repair or read-only view
 may publish automatically after passing the gate. A major navigation change
@@ -1122,7 +1128,7 @@ Before a Surface exists, the trusted Workbench remains fully usable through
 Conversation, Tasks, Files, Trail, and context status. It may say **Your
 Surface will take shape as Aloy understands this Event**. A published first
 Surface contains only evidence-supported views and actions and passes the same
-build, capability, Critic, and last-good publication gates as every later
+deterministic build, capability, and last-good publication gates as every later
 revision.
 
 New sources update the Event Brief incrementally. They do not rebuild the

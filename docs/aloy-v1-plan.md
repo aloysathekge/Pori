@@ -274,7 +274,7 @@ sandbox, publication, and quality contract as rich experiences. Delivery is
 split into the following independently merged branches:
 
 1. **`aloy-v1-r5-builder-control-plane`** - developer-owned Surface Builder and
-   Surface Critic model roles kept independent from ordinary Conversation
+   optional advisory Critic roles kept independent from ordinary Conversation
    AgentConfig; immutable assignment provenance; capability/policy checks;
    skill version; model usage, cost, and timing diagnostics. A Builder role
    must be explicitly configured and qualified before it can receive a Run.
@@ -350,8 +350,8 @@ split into the following independently merged branches:
    richer diagnostics, last-good continuity, immutable runtime preparation,
    and authenticated private cache.
 6. **`aloy-v1-r5-surface-quality`** - deterministic authority/build checks,
-   required viewport/state captures, accessibility and overflow checks,
-   independent Critic, primary-job simulation, bounded repair, feedback,
+   required viewport/state evidence, accessibility and overflow checks,
+   primary-job simulation, bounded repair, feedback,
    pinning, revision history, and rollback.
 7. **`aloy-v1-r5-university-proof`** - repeatable natural-language University
    generation without the word Surface, fake Tasks, or hardcoded domain logic;
@@ -405,8 +405,8 @@ Scope:
   workspace preferences;
 - add the Aloy Surface Builder skill for project, SDK, interaction, truth,
   accessibility, preview, and repair guidance;
-- implement the brief, required viewport/state capture, deterministic audit,
-  independent Surface Critic, primary user-job simulation, bounded repair, and
+- implement the brief, required viewport/state evidence, deterministic audit,
+  primary user-job simulation, bounded repair, and
   quality scorecard contract in §13 of
   [`aloy-surface-spec.md`](./aloy-surface-spec.md);
 - choose and document the privileged Map widget adapter, tiles/geocoding
@@ -743,6 +743,87 @@ Gate:
   are green;
 - both entry flows and the 60-second Career OS demonstration are repeatable.
 
+### R9 - Surface quality and showcase foundation
+
+**Branch:** `aloy-v1-r9-surface-quality`
+
+R9 turns Surface quality from a trusted-pipeline convention into durable,
+build-bound evidence. It then layers responsive evidence, reviewed building
+blocks, primary-job simulation, and repeatable showcases onto that same
+publication contract. R9 does not merge Aloy V1 to `main`; `aloy-v1` remains
+the integration branch until the complete product acceptance gate passes.
+
+Delivery slices:
+
+1. **Exact-build quality receipt:** trusted preview records a fingerprinted
+   receipt bound to the build, source revision, source checksum, and retained
+   bundle. New publication fails closed without that receipt. Rollback remains
+   available for a previously published legacy last-good build.
+2. **Viewport and state evidence:** render the required wide, split, tablet,
+   and mobile compositions plus applicable populated, loading, empty, stale,
+   error, long-content, approval, and indeterminate states. Retain the five
+   baseline captures plus compact state observations, overflow/focus/
+   accessibility diagnostics, timings, and fingerprints as build evidence.
+3. **Optional asynchronous visual review:** defer a vision-capable Critic until
+   measured Builder quality demonstrates a need. If introduced, it receives
+   only selected representative captures, remains advisory and asynchronous,
+   and never becomes a V1 publication dependency or waiver mechanism.
+4. **Primary-job simulation and bounded repair:** freeze the requested user
+   jobs, execute their accessible pointer and keyboard paths, validate typed
+   outcomes against Event truth, and allow only bounded complete-candidate
+   repairs. Exhaustion retains the last-good publication.
+5. **Reviewed SDK foundations and widgets:** provide calm responsive tokens,
+   primitives, and a versioned host registry. Privileged widgets such as Map
+   are host-owned adapters with explicit data, credential, attribution,
+   privacy, fallback, and mobile contracts; generated code receives no direct
+   provider or network authority.
+6. **Generic showcase proofs:** create University first and Madrid second as
+   installable onboarding/marketing seeds using ordinary Event context,
+   Builder, SDK, quality, interaction, Proposal, and publication paths. No
+   University, travel, or Career conditional may enter Aloy runtime code.
+
+**Implemented viewport and state foundation:** the trusted local browser now renders
+1440px wide, 640px split, 768px tablet, 390px mobile, and 360px narrow-mobile
+compositions. It blocks page overflow, horizontally clipped controls, missing
+main landmarks, unnamed controls, missing image alternatives, keyboard-
+unreachable custom controls, duplicate ids, missing captures, and capture
+storage failure. Capture hashes and deterministic DOM observations are bound
+into the exact-build receipt; local PNGs are retained beside the immutable
+bundle. The real runtime context now carries a versioned host-owned state for
+each capability-scoped resource, and `useSurfaceResourceState` exposes the same
+contract to generated React. The publication browser drives loading, empty,
+stale, error, permission-denied, pending, and indeterminate states plus dense
+long-content and approval-required scenarios through that public context at
+wide and mobile sizes. Long content populates only ordinary capability-scoped
+Event shapes. Approval uses a pending Proposal and `waiting_approval`
+Interaction; `useSurfaceApprovalState` binds a visible summary while decision
+controls remain host-owned. A visible primary region must bind the SDK state
+and transition with it; inspection-only branches cannot satisfy the gate. Those
+18 state observations retain compact trusted fingerprints while only the five
+baseline viewport PNGs are stored. The browser also tabs through every visible enabled
+control at all five baseline sizes, blocks unreachable controls, premature focus
+cycles, and missing visible focus indicators, and records stronger 2px/3:1
+outline evidence without falsely claiming the optional AAA criterion. Text is
+measured against its effective solid backdrop in all five baseline and 18 state
+compositions; normal text must reach 4.5:1 and large text 3:1, while an
+unresolvable image/gradient backdrop fails closed. Small compact touch targets
+are recorded for later scoring. Remote evidence transport and primary-job
+simulation remain follow-ups; this foundation does not claim them.
+
+Gate:
+
+- a build that was not inspected, whose receipt was altered, or whose source or
+  bundle differs from the receipt cannot be newly published;
+- every required viewport and applicable state has trusted retained evidence,
+  and blocking accessibility, overflow, focus, runtime, or interaction findings
+  prevent publication;
+- primary user jobs succeed through accessible UI paths and converge with
+  canonical Event state exactly once;
+- failed repair, widget, or evidence infrastructure leaves the current
+  last-good Surface live and exposes an actionable diagnostic;
+- University and Madrid pass through the same domain-neutral contracts and
+  remain useful at mobile, split-pane, and wide-desktop widths.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -825,14 +906,12 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 ## 8. Immediate next action
 
-R4 is merged into `aloy-v1` as PR #172. The authoring-harness, virtual
-filesystem, and Surface persistence slices are merged through PR #175. The
-isolated build + diagnostics + preview-metadata slice is implemented on
-`aloy-v1-r5-surface-build-preview`.
-
-Finish and merge `aloy-v1-event-bootstrap`, then close Event-memory
-inspect/correct/forget/promote controls and connection refresh/revocation.
-After those trusted-context controls, create the first evidence-grounded
-bootstrap Surface plus sanitized cover brief. Create the University showcase
-through that ordinary path, followed by the reviewed-widget phase and Madrid.
-Do not add provider-specific research or Gmail behavior to this phase.
+R8 is merged into `aloy-v1` as PR #198. R9 is active on
+`aloy-v1-r9-surface-quality`. Exact-build receipts, the five-viewport baseline,
+the public lifecycle, long-content, and approval state matrix, keyboard-focus
+traversal, visible focus evidence, and deterministic text contrast are complete.
+Add primary-job simulation next. A visual Critic is deferred and optional, not
+a publication gate. Reviewed SDK primitives and widgets follow; University and
+Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
+`main` untouched until the R9 gate, manual product QA, live-provider proofs,
+remote sandbox acceptance, and dogfooding exit criteria all pass.

@@ -9,6 +9,8 @@ uncaught exception, missing bridge acknowledgement, or empty React root.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import shutil
@@ -24,10 +26,362 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+)
+from .surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+    surface_fixture_applicable,
+    surface_state_fixture_context,
+)
 from .surface_runtime import SurfaceRuntimeDocument
 
 INSPECTION_TIMEOUT_SECONDS = 8.0
 SETTLE_SECONDS = 1.5
+MAX_SURFACE_CAPTURE_BYTES = 4 * 1024 * 1024
+
+_VIEWPORT_AUDIT_EXPRESSION = r"""
+new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const accessibleName = element => {
+    const direct = element.getAttribute('aria-label');
+    if (direct && direct.trim()) return direct.trim();
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const text = labelledBy.split(/\s+/)
+        .map(id => document.getElementById(id)?.textContent || '')
+        .join(' ').trim();
+      if (text) return text;
+    }
+    if ('labels' in element && element.labels?.length) {
+      const text = [...element.labels].map(label => label.textContent || '').join(' ').trim();
+      if (text) return text;
+    }
+    const title = element.getAttribute('title');
+    if (title && title.trim()) return title.trim();
+    return (element.textContent || '').replace(/\s+/g, ' ').trim();
+  };
+  const sample = element => ({
+    tag: element.tagName.toLowerCase(),
+    role: element.getAttribute('role'),
+    name: accessibleName(element).slice(0, 120),
+    id: (element.id || '').slice(0, 120),
+  });
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+  const pageWidth = Math.max(
+    document.documentElement.scrollWidth,
+    document.body?.scrollWidth || 0,
+  );
+  const controls = [...document.querySelectorAll(
+    'button,a[href],input:not([type=hidden]),select,textarea,[role=button],[role=link],[role=checkbox],[role=radio],[role=combobox],[role=textbox]'
+  )].filter(visible).filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true');
+  const clippedControls = controls.filter(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.left < -1 || rect.right > viewportWidth + 1;
+  });
+  const unnamedControls = controls.filter(element => !accessibleName(element));
+  const imagesMissingAlt = [...document.querySelectorAll('img:not([alt])')].filter(visible);
+  const keyboardUnreachable = controls.filter(element => {
+    const role = element.getAttribute('role');
+    const native = ['BUTTON','A','INPUT','SELECT','TEXTAREA'].includes(element.tagName);
+    return element.tabIndex < 0 && (native
+      || ['button','link','checkbox','radio','combobox','textbox'].includes(role || ''));
+  });
+  const ids = [...document.querySelectorAll('[id]')].map(element => element.id).filter(Boolean);
+  const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+  const compact = window.innerWidth <= 768;
+  const smallTouchTargets = compact
+    ? controls.filter(element => {
+        const rect = element.getBoundingClientRect();
+        return ['BUTTON','A'].includes(element.tagName) || element.getAttribute('role') === 'button'
+          ? rect.width < 44 || rect.height < 44
+          : false;
+      })
+    : [];
+  const resourceStateRegions = [...document.querySelectorAll(
+    '[data-aloy-resource][data-aloy-resource-state]'
+  )].filter(visible).map(element => ({
+    resource: element.getAttribute('data-aloy-resource'),
+    state: element.getAttribute('data-aloy-resource-state'),
+  }));
+  const approvalStateRegions = [...document.querySelectorAll(
+    '[data-aloy-approval-state]'
+  )].filter(visible).map(element => ({
+    state: element.getAttribute('data-aloy-approval-state'),
+  }));
+  const root = document.getElementById('root');
+  return resolve({
+    viewport: { width: viewportWidth, height: viewportHeight },
+    layout: {
+      page_width: pageWidth,
+      horizontal_overflow_px: Math.max(0, pageWidth - viewportWidth),
+      root_children: root?.childElementCount || 0,
+      clipped_controls: clippedControls.length,
+      clipped_control_samples: clippedControls.slice(0, 10).map(sample),
+    },
+    accessibility: {
+      main_landmarks: document.querySelectorAll('main,[role=main]').length,
+      controls: controls.length,
+      unnamed_controls: unnamedControls.length,
+      unnamed_control_samples: unnamedControls.slice(0, 10).map(sample),
+      images_missing_alt: imagesMissingAlt.length,
+      image_samples: imagesMissingAlt.slice(0, 10).map(sample),
+      keyboard_unreachable: keyboardUnreachable.length,
+      keyboard_unreachable_samples: keyboardUnreachable.slice(0, 10).map(sample),
+      duplicate_ids: duplicateIds.slice(0, 20),
+      small_touch_targets: smallTouchTargets.length,
+      small_touch_target_samples: smallTouchTargets.slice(0, 10).map(sample),
+      resource_state_regions: resourceStateRegions.slice(0, 20),
+      approval_state_regions: approvalStateRegions.slice(0, 20),
+    },
+  });
+})))
+""".strip()
+
+_CONTRAST_AUDIT_EXPRESSION = r"""
+(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const parseColor = value => {
+    if (!value || value === 'transparent') return [0, 0, 0, 0];
+    const match = value.match(/^rgba?\((.*)\)$/i);
+    if (!match) return null;
+    const parts = match[1].trim().split(/[\s,\/]+/).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.some(Number.isNaN)) return null;
+    return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
+  };
+  const blend = (front, back) => {
+    const alpha = front[3] + back[3] * (1 - front[3]);
+    if (alpha <= 0) return [255, 255, 255, 1];
+    return [
+      (front[0] * front[3] + back[0] * back[3] * (1 - front[3])) / alpha,
+      (front[1] * front[3] + back[1] * back[3] * (1 - front[3])) / alpha,
+      (front[2] * front[3] + back[2] * back[3] * (1 - front[3])) / alpha,
+      alpha,
+    ];
+  };
+  const background = element => {
+    const layers = [];
+    let node = element;
+    while (node instanceof Element) {
+      const style = getComputedStyle(node);
+      if (style.backgroundImage && style.backgroundImage !== 'none') {
+        return { color: null, reason: 'background_image' };
+      }
+      const color = parseColor(style.backgroundColor);
+      if (!color) return { color: null, reason: 'unparsed_background' };
+      layers.push(color);
+      node = node.parentElement;
+    }
+    let result = [255, 255, 255, 1];
+    for (const layer of layers.reverse()) result = blend(layer, result);
+    return { color: result, reason: null };
+  };
+  const luminance = color => {
+    const channels = color.slice(0, 3).map(value => {
+      const normalized = value / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const ratio = (first, second) => {
+    const a = luminance(first);
+    const b = luminance(second);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const elements = [];
+  const seen = new Set();
+  let node;
+  while ((node = walker.nextNode())) {
+    if (!(node.textContent || '').trim()) continue;
+    const element = node.parentElement;
+    if (!element || seen.has(element) || !visible(element)) continue;
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(element.tagName)) continue;
+    if (element.closest('[aria-hidden=true],[hidden],[disabled],[aria-disabled=true]')) continue;
+    seen.add(element);
+    elements.push(element);
+  }
+  const samples = [];
+  let measured = 0;
+  let failures = 0;
+  let unmeasurable = 0;
+  let minimum = null;
+  for (const element of elements.slice(0, 1000)) {
+    const style = getComputedStyle(element);
+    const foreground = parseColor(style.color);
+    const backdrop = background(element);
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!foreground || !backdrop.color) {
+      unmeasurable += 1;
+      if (samples.length < 20) samples.push({ text, outcome: 'unmeasurable', reason: backdrop.reason });
+      continue;
+    }
+    const renderedForeground = blend(foreground, backdrop.color);
+    const contrast = ratio(renderedForeground, backdrop.color);
+    const fontSize = Number.parseFloat(style.fontSize) || 0;
+    const fontWeight = Number.parseInt(style.fontWeight, 10) || 400;
+    const large = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+    const required = large ? 3 : 4.5;
+    const passed = contrast + 0.001 >= required;
+    measured += 1;
+    if (!passed) failures += 1;
+    minimum = minimum === null ? contrast : Math.min(minimum, contrast);
+    if ((!passed || samples.length < 5) && samples.length < 20) {
+      samples.push({
+        text,
+        outcome: passed ? 'passed' : 'failed',
+        ratio: Number(contrast.toFixed(3)),
+        required,
+        font_size_px: fontSize,
+        font_weight: fontWeight,
+        foreground: style.color,
+        background: backdrop.color.map(value => Number(value.toFixed(2))),
+      });
+    }
+  }
+  return {
+    policy_version: 'aloy-surface-contrast@1',
+    passed: failures === 0 && unmeasurable === 0,
+    text_nodes: elements.length,
+    measured,
+    failures,
+    unmeasurable,
+    minimum_ratio: minimum === null ? null : Number(minimum.toFixed(3)),
+    samples,
+  };
+})()
+""".strip()
+
+_FOCUS_SETUP_EXPRESSION = r"""
+(() => {
+  const visible = element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const candidates = [...document.querySelectorAll(
+    'button,a[href],input:not([type=hidden]),select,textarea,[contenteditable=true],[tabindex]'
+  )].filter(visible).filter(element => !element.disabled
+    && element.getAttribute('aria-disabled') !== 'true' && element.tabIndex >= 0);
+  const radioGroups = new Map();
+  for (const element of candidates) {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) continue;
+    const group = radioGroups.get(element.name) || [];
+    group.push(element);
+    radioGroups.set(element.name, group);
+  }
+  const controls = candidates.filter(element => {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name) return true;
+    const group = radioGroups.get(element.name) || [];
+    const checked = group.find(item => item.checked);
+    return element === (checked || group[0]);
+  }).slice(0, 200);
+  const style = element => {
+    const value = getComputedStyle(element);
+    return {
+      outline_style: value.outlineStyle,
+      outline_width: Number.parseFloat(value.outlineWidth) || 0,
+      outline_color: value.outlineColor,
+      box_shadow: value.boxShadow,
+      border_color: value.borderColor,
+      border_width: value.borderWidth,
+      background_color: value.backgroundColor,
+      color: value.color,
+    };
+  };
+  window.__aloyFocusBaseline = {};
+  controls.forEach((element, index) => {
+    const id = String(index);
+    element.setAttribute('data-aloy-focus-index', id);
+    window.__aloyFocusBaseline[id] = style(element);
+  });
+  document.activeElement?.blur();
+  document.body.setAttribute('tabindex', '-1');
+  document.body.focus();
+  return { count: controls.length };
+})()
+""".strip()
+
+_FOCUS_OBSERVATION_EXPRESSION = r"""
+(() => {
+  const element = document.activeElement;
+  if (!(element instanceof Element)) return { index: null, visible_indicator: false };
+  const index = element.getAttribute('data-aloy-focus-index');
+  const value = getComputedStyle(element);
+  const baseline = (window.__aloyFocusBaseline || {})[index] || {};
+  const outlineWidth = Number.parseFloat(value.outlineWidth) || 0;
+  const outlineVisible = !['none', 'hidden'].includes(value.outlineStyle)
+    && outlineWidth >= 1 && value.outlineColor !== 'transparent';
+  const parseColor = color => {
+    if (!color || color === 'transparent') return null;
+    const match = color.match(/^rgba?\((.*)\)$/i);
+    if (!match) return null;
+    const parts = match[1].trim().split(/[\s,\/]+/).filter(Boolean).map(Number);
+    return parts.length >= 3 && !parts.some(Number.isNaN)
+      && (parts.length < 4 || parts[3] > 0) ? parts.slice(0, 3) : null;
+  };
+  const luminance = color => {
+    const channels = color.map(item => {
+      const normalized = item / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  let backgroundElement = element.parentElement;
+  let backgroundColor = null;
+  while (backgroundElement && !backgroundColor) {
+    backgroundColor = parseColor(getComputedStyle(backgroundElement).backgroundColor);
+    backgroundElement = backgroundElement.parentElement;
+  }
+  backgroundColor = backgroundColor || [255, 255, 255];
+  const outlineColor = parseColor(value.outlineColor);
+  const outlineContrast = outlineColor
+    ? (Math.max(luminance(outlineColor), luminance(backgroundColor)) + 0.05)
+      / (Math.min(luminance(outlineColor), luminance(backgroundColor)) + 0.05)
+    : null;
+  const shadowChanged = value.boxShadow !== baseline.box_shadow && value.boxShadow !== 'none';
+  const borderChanged = value.borderColor !== baseline.border_color
+    || value.borderWidth !== baseline.border_width;
+  const fillChanged = value.backgroundColor !== baseline.background_color
+    || value.color !== baseline.color;
+  return {
+    index,
+    tag: element.tagName.toLowerCase(),
+    name: (element.getAttribute('aria-label') || element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    visible_indicator: outlineVisible || shadowChanged || borderChanged || fillChanged,
+    strong_outline: outlineVisible && outlineWidth >= 2
+      && outlineContrast !== null && outlineContrast >= 3,
+    signals: {
+      outline: outlineVisible,
+      outline_width: outlineWidth,
+      outline_style: value.outlineStyle,
+      outline_color: value.outlineColor,
+      outline_contrast: outlineContrast === null ? null : Number(outlineContrast.toFixed(3)),
+      shadow_changed: shadowChanged,
+      border_changed: borderChanged,
+      fill_changed: fillChanged,
+    },
+  };
+})()
+""".strip()
 
 
 def _browser_executable() -> str | None:
@@ -60,6 +414,7 @@ def inspect_surface_runtime(
     context: dict[str, Any],
     *,
     manifest: SurfaceManifest | None = None,
+    evidence_sink: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Execute the exact runtime and every manifest-declared UI interaction.
 
@@ -67,6 +422,8 @@ def inspect_surface_runtime(
     selectors. Each declared intent must be reachable through a visible user
     path and produce the expected typed SDK request before publication.
     """
+    inspection_started = time.monotonic()
+    timings: dict[str, Any] = {"policy_version": "aloy-surface-timings@1"}
     browser = _browser_executable()
     if browser is None:
         return [
@@ -139,7 +496,11 @@ def inspect_surface_runtime(
                 return [
                     _diagnostic("runtime_inspector_failed", "No browser page exists")
                 ]
-            socket = connect(str(target["webSocketDebuggerUrl"]), open_timeout=2)
+            socket = connect(
+                str(target["webSocketDebuggerUrl"]),
+                open_timeout=2,
+                max_size=16 * 1024 * 1024,
+            )
             try:
                 message_id = 0
 
@@ -154,6 +515,7 @@ def inspect_surface_runtime(
                     return message_id
 
                 send("Runtime.enable")
+                send("Page.enable")
                 ready, load_exceptions = _wait_for_runtime_document(
                     socket,
                     send=send,
@@ -203,6 +565,9 @@ def inspect_surface_runtime(
                     "(() => {"
                     "const channel = new MessageChannel();"
                     "let currentContext=" + smoke_context + ";"
+                    "window.__aloySetSmokeContext=next=>{currentContext=next;"
+                    "channel.port1.postMessage({protocol:'1',type:'context',"
+                    "sessionId:'runtime-smoke',context:currentContext});};"
                     "const commands=" + smoke_commands + ";"
                     "window.__aloySmokeMessages = [];"
                     "window.__aloySmokePort = channel.port1;"
@@ -351,8 +716,71 @@ def inspect_surface_runtime(
                             "The Surface mounted no visible React root",
                         )
                     )
-                if diagnostics or manifest is None:
+                if diagnostics:
                     return diagnostics
+                runtime_ready_at = time.monotonic()
+                timings["runtime_bootstrap_ms"] = round(
+                    (runtime_ready_at - inspection_started) * 1000,
+                    3,
+                )
+                viewport_started = time.monotonic()
+                viewport_diagnostics, viewport_evidence, captures = (
+                    _inspect_viewport_matrix(socket, send=send)
+                )
+                timings["viewport_matrix_ms"] = round(
+                    (time.monotonic() - viewport_started) * 1000,
+                    3,
+                )
+                if evidence_sink is not None:
+                    evidence_sink["viewport_matrix"] = viewport_evidence
+                    evidence_sink["_capture_blobs"] = captures
+                diagnostics.extend(viewport_diagnostics)
+                if diagnostics:
+                    timings["state_matrix_ms"] = 0.0
+                    timings["interaction_checks_ms"] = 0.0
+                    timings["total_ms"] = round(
+                        (time.monotonic() - inspection_started) * 1000,
+                        3,
+                    )
+                    if evidence_sink is not None:
+                        evidence_sink["timings"] = timings
+                    return diagnostics
+                state_started = time.monotonic()
+                state_diagnostics, state_evidence = _inspect_state_matrix(
+                    socket,
+                    send=send,
+                    context=context,
+                    manifest=manifest,
+                )
+                timings["state_matrix_ms"] = round(
+                    (time.monotonic() - state_started) * 1000,
+                    3,
+                )
+                if evidence_sink is not None:
+                    evidence_sink["state_matrix"] = state_evidence
+                diagnostics.extend(state_diagnostics)
+                if diagnostics or manifest is None:
+                    timings["interaction_checks_ms"] = 0.0
+                    timings["total_ms"] = round(
+                        (time.monotonic() - inspection_started) * 1000,
+                        3,
+                    )
+                    if evidence_sink is not None:
+                        evidence_sink["timings"] = timings
+                    return diagnostics
+                # Interaction paths execute at a stable wide composition after
+                # every required responsive composition has been inspected.
+                wide = REQUIRED_SURFACE_VIEWPORTS[0]
+                send(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "width": wide["width"],
+                        "height": wide["height"],
+                        "deviceScaleFactor": 1,
+                        "mobile": False,
+                    },
+                )
+                interaction_started = time.monotonic()
                 for check in manifest.interaction_checks:
                     diagnostics.extend(
                         _execute_interaction_check(
@@ -363,6 +791,16 @@ def inspect_surface_runtime(
                             deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
                         )
                     )
+                timings["interaction_checks_ms"] = round(
+                    (time.monotonic() - interaction_started) * 1000,
+                    3,
+                )
+                timings["total_ms"] = round(
+                    (time.monotonic() - inspection_started) * 1000,
+                    3,
+                )
+                if evidence_sink is not None:
+                    evidence_sink["timings"] = timings
                 return diagnostics
             finally:
                 socket.close()
@@ -412,6 +850,702 @@ def _receive_evaluation(
         result = remote.get("value")
         break
     return result, exceptions
+
+
+def _receive_command_result(
+    socket,
+    *,
+    result_id: int,
+    deadline: float,
+) -> dict[str, Any] | None:
+    while time.monotonic() < deadline:
+        try:
+            message = json.loads(socket.recv(timeout=0.25))
+        except TimeoutError:
+            continue
+        if message.get("id") != result_id:
+            continue
+        if message.get("error"):
+            return None
+        result = message.get("result")
+        return dict(result) if isinstance(result, dict) else None
+    return None
+
+
+def _viewport_diagnostic(
+    code: str,
+    message: str,
+    *,
+    viewport: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostic = _diagnostic(code, message)
+    diagnostic["viewport"] = str(viewport["id"])
+    return diagnostic
+
+
+def _inspect_contrast(
+    socket,
+    *,
+    send,
+    viewport: dict[str, Any],
+    state: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    result_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": _CONTRAST_AUDIT_EXPRESSION,
+            "returnByValue": True,
+        },
+    )
+    result, exceptions = _receive_evaluation(
+        socket,
+        result_id=result_id,
+        deadline=time.monotonic() + 3.0,
+    )
+    diagnostics: list[dict[str, Any]] = []
+    if exceptions or not isinstance(result, dict):
+        for message in exceptions[:10] or [
+            "No deterministic contrast evidence returned"
+        ]:
+            diagnostic = _viewport_diagnostic(
+                "contrast_audit_failed",
+                message,
+                viewport=viewport,
+            )
+            if state is not None:
+                diagnostic["state"] = state
+            diagnostics.append(diagnostic)
+        return diagnostics, {}
+    if result.get("passed") is not True:
+        failures = int(result.get("failures") or 0)
+        unmeasurable = int(result.get("unmeasurable") or 0)
+        diagnostic = _viewport_diagnostic(
+            "contrast_text_failed",
+            (
+                f"{failures} text region(s) miss the WCAG contrast threshold and "
+                f"{unmeasurable} region(s) have no deterministic solid backdrop"
+            ),
+            viewport=viewport,
+        )
+        if state is not None:
+            diagnostic["state"] = state
+        diagnostics.append(diagnostic)
+    return diagnostics, result
+
+
+def _inspect_keyboard_focus(
+    socket,
+    *,
+    send,
+    viewport: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    setup_id = send(
+        "Runtime.evaluate",
+        {"expression": _FOCUS_SETUP_EXPRESSION, "returnByValue": True},
+    )
+    setup, exceptions = _receive_evaluation(
+        socket,
+        result_id=setup_id,
+        deadline=time.monotonic() + 3.0,
+    )
+    if exceptions or not isinstance(setup, dict):
+        return [
+            _viewport_diagnostic(
+                "focus_audit_failed",
+                (exceptions[0] if exceptions else "Focus setup returned no evidence"),
+                viewport=viewport,
+            )
+        ], {}
+    expected = int(setup.get("count") or 0)
+    visited: list[dict[str, Any]] = []
+    visited_indexes: set[str] = set()
+    repeated_before_complete = False
+    for _ in range(expected + 2):
+        key_down = send(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyDown",
+                "key": "Tab",
+                "code": "Tab",
+                "windowsVirtualKeyCode": 9,
+                "nativeVirtualKeyCode": 9,
+            },
+        )
+        _receive_command_result(
+            socket,
+            result_id=key_down,
+            deadline=time.monotonic() + 1.0,
+        )
+        key_up = send(
+            "Input.dispatchKeyEvent",
+            {
+                "type": "keyUp",
+                "key": "Tab",
+                "code": "Tab",
+                "windowsVirtualKeyCode": 9,
+                "nativeVirtualKeyCode": 9,
+            },
+        )
+        _receive_command_result(
+            socket,
+            result_id=key_up,
+            deadline=time.monotonic() + 1.0,
+        )
+        observation_id = send(
+            "Runtime.evaluate",
+            {"expression": _FOCUS_OBSERVATION_EXPRESSION, "returnByValue": True},
+        )
+        observation, focus_exceptions = _receive_evaluation(
+            socket,
+            result_id=observation_id,
+            deadline=time.monotonic() + 2.0,
+        )
+        if focus_exceptions or not isinstance(observation, dict):
+            break
+        index = observation.get("index")
+        if index is None:
+            if len(visited_indexes) >= expected:
+                break
+            continue
+        index = str(index)
+        if index in visited_indexes:
+            if len(visited_indexes) < expected:
+                repeated_before_complete = True
+            break
+        visited_indexes.add(index)
+        visited.append(observation)
+        if len(visited_indexes) >= expected:
+            break
+
+    cleanup_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "document.activeElement?.blur();"
+                "document.body.removeAttribute('tabindex');"
+                "document.querySelectorAll('[data-aloy-focus-index]').forEach("
+                "element=>element.removeAttribute('data-aloy-focus-index'));true"
+            ),
+            "returnByValue": True,
+        },
+    )
+    _receive_evaluation(
+        socket,
+        result_id=cleanup_id,
+        deadline=time.monotonic() + 2.0,
+    )
+    expected_indexes = {str(index) for index in range(expected)}
+    missing = sorted(expected_indexes - visited_indexes, key=int)
+    missing_indicators = [
+        item for item in visited if item.get("visible_indicator") is not True
+    ]
+    diagnostics: list[dict[str, Any]] = []
+    if missing:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_order_unreachable",
+                f"Keyboard traversal did not reach {len(missing)} visible control(s)",
+                viewport=viewport,
+            )
+        )
+    if repeated_before_complete:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_keyboard_trap",
+                "Keyboard traversal repeated before reaching every visible control",
+                viewport=viewport,
+            )
+        )
+    if missing_indicators:
+        diagnostics.append(
+            _viewport_diagnostic(
+                "focus_indicator_missing",
+                (
+                    f"{len(missing_indicators)} keyboard-focusable control(s) expose "
+                    "no visible focus indicator"
+                ),
+                viewport=viewport,
+            )
+        )
+    evidence = {
+        "policy_version": "aloy-surface-focus@1",
+        "passed": not diagnostics,
+        "controls": expected,
+        "visited": len(visited_indexes),
+        "missing_indexes": missing,
+        "trap_detected": repeated_before_complete,
+        "visible_indicators": len(visited) - len(missing_indicators),
+        "strong_outline_indicators": sum(
+            1 for item in visited if item.get("strong_outline") is True
+        ),
+        "observations": visited,
+    }
+    return diagnostics, evidence
+
+
+def _inspect_viewport_matrix(
+    socket,
+    *,
+    send,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    diagnostics: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    captures: list[dict[str, Any]] = []
+    for viewport in REQUIRED_SURFACE_VIEWPORTS:
+        command_id = send(
+            "Emulation.setDeviceMetricsOverride",
+            {
+                "width": viewport["width"],
+                "height": viewport["height"],
+                "deviceScaleFactor": 1,
+                "mobile": bool(viewport["compact"]),
+            },
+        )
+        if (
+            _receive_command_result(
+                socket,
+                result_id=command_id,
+                deadline=time.monotonic() + 2.0,
+            )
+            is None
+        ):
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_emulation_failed",
+                    "The trusted browser could not apply a required viewport",
+                    viewport=viewport,
+                )
+            )
+            continue
+        result_id = send(
+            "Runtime.evaluate",
+            {
+                "expression": _VIEWPORT_AUDIT_EXPRESSION,
+                "awaitPromise": True,
+                "returnByValue": True,
+            },
+        )
+        result, exceptions = _receive_evaluation(
+            socket,
+            result_id=result_id,
+            deadline=time.monotonic() + 3.0,
+        )
+        if exceptions or not isinstance(result, dict):
+            diagnostics.extend(
+                _viewport_diagnostic(
+                    "viewport_audit_failed",
+                    message,
+                    viewport=viewport,
+                )
+                for message in (
+                    exceptions[:10]
+                    or ["The required viewport returned no audit evidence"]
+                )
+            )
+            continue
+        observation = {
+            "id": viewport["id"],
+            "requested_width": viewport["width"],
+            "requested_height": viewport["height"],
+            "compact": viewport["compact"],
+            **result,
+        }
+        layout = dict(result.get("layout") or {})
+        accessibility = dict(result.get("accessibility") or {})
+        if int(layout.get("horizontal_overflow_px") or 0) > 1:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_page_overflow",
+                    "The Surface creates page-level horizontal overflow",
+                    viewport=viewport,
+                )
+            )
+        if int(layout.get("clipped_controls") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_clipped_control",
+                    "A visible interactive control is clipped horizontally",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("main_landmarks") or 0) != 1:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_main_landmark",
+                    "The Surface must expose exactly one visible main landmark",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("unnamed_controls") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_unnamed_control",
+                    "A visible interactive control has no accessible name",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("images_missing_alt") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_image_alt",
+                    "A visible image has no alt attribute",
+                    viewport=viewport,
+                )
+            )
+        if int(accessibility.get("keyboard_unreachable") or 0) > 0:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_keyboard_unreachable",
+                    "A custom interactive control is not keyboard reachable",
+                    viewport=viewport,
+                )
+            )
+        if accessibility.get("duplicate_ids"):
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "accessibility_duplicate_id",
+                    "The Surface contains duplicate DOM ids",
+                    viewport=viewport,
+                )
+            )
+        contrast_diagnostics, contrast_evidence = _inspect_contrast(
+            socket,
+            send=send,
+            viewport=viewport,
+        )
+        diagnostics.extend(contrast_diagnostics)
+        observation["contrast"] = contrast_evidence
+        screenshot_id = send(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "fromSurface": True,
+                "captureBeyondViewport": False,
+            },
+        )
+        screenshot = _receive_command_result(
+            socket,
+            result_id=screenshot_id,
+            deadline=time.monotonic() + 3.0,
+        )
+        encoded = str((screenshot or {}).get("data") or "")
+        try:
+            png = base64.b64decode(encoded, validate=True)
+        except ValueError:
+            png = b""
+        if not png or len(png) > MAX_SURFACE_CAPTURE_BYTES:
+            diagnostics.append(
+                _viewport_diagnostic(
+                    "viewport_capture_failed",
+                    (
+                        "The trusted browser produced no viewport capture"
+                        if not png
+                        else "The trusted viewport capture exceeded the safe size limit"
+                    ),
+                    viewport=viewport,
+                )
+            )
+        else:
+            checksum = hashlib.sha256(png).hexdigest()
+            observation["capture"] = {
+                "sha256": checksum,
+                "size_bytes": len(png),
+                "content_type": "image/png",
+            }
+            captures.append(
+                {
+                    "name": f"{viewport['id']}.png",
+                    "content_type": "image/png",
+                    "sha256": checksum,
+                    "data": png,
+                }
+            )
+        focus_diagnostics, focus_evidence = _inspect_keyboard_focus(
+            socket,
+            send=send,
+            viewport=viewport,
+        )
+        diagnostics.extend(focus_diagnostics)
+        observation["focus"] = focus_evidence
+        observations.append(observation)
+    evidence = {
+        "policy_version": "aloy-surface-viewports@1",
+        "required": [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS],
+        "passed": not any(
+            str(item.get("code") or "").startswith(("viewport_", "accessibility_"))
+            for item in diagnostics
+        )
+        and len(observations) == len(REQUIRED_SURFACE_VIEWPORTS),
+        "viewports": observations,
+    }
+    return diagnostics, evidence, captures
+
+
+def _inspect_state_matrix(
+    socket,
+    *,
+    send,
+    context: dict[str, Any],
+    manifest: SurfaceManifest | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Exercise public non-ready states at trusted desktop and mobile sizes."""
+    diagnostics: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    viewports = {
+        str(item["id"]): item
+        for item in REQUIRED_SURFACE_VIEWPORTS
+        if str(item["id"]) in REQUIRED_SURFACE_STATE_VIEWPORTS
+    }
+    approval_contract_applicable = surface_fixture_applicable(
+        manifest,
+        "approval_required",
+        list(context.get("capabilities") or []),
+    )
+    for state in REQUIRED_SURFACE_STATE_FIXTURES:
+        fixture = surface_state_fixture_context(context, state, manifest=manifest)
+        applicable = surface_fixture_applicable(
+            manifest,
+            state,
+            list(context.get("capabilities") or []),
+        )
+        for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS:
+            viewport = viewports[viewport_id]
+            command_id = send(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": viewport["width"],
+                    "height": viewport["height"],
+                    "deviceScaleFactor": 1,
+                    "mobile": bool(viewport["compact"]),
+                },
+            )
+            if (
+                _receive_command_result(
+                    socket,
+                    result_id=command_id,
+                    deadline=time.monotonic() + 2.0,
+                )
+                is None
+            ):
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_viewport_emulation_failed",
+                        f"The trusted browser could not apply the {state} fixture viewport",
+                        viewport=viewport,
+                    )
+                )
+                continue
+            set_id = send(
+                "Runtime.evaluate",
+                {
+                    "expression": (
+                        "new Promise(resolve=>{window.__aloySetSmokeContext("
+                        + json.dumps(fixture, ensure_ascii=True, default=str)
+                        + ");requestAnimationFrame(()=>requestAnimationFrame("
+                        "()=>setTimeout(()=>resolve(true),50)));})"
+                    ),
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            _, exceptions = _receive_evaluation(
+                socket,
+                result_id=set_id,
+                deadline=time.monotonic() + 3.0,
+            )
+            if exceptions:
+                diagnostics.extend(
+                    _viewport_diagnostic(
+                        "state_runtime_exception",
+                        f"The {state} state failed: {message}",
+                        viewport=viewport,
+                    )
+                    for message in exceptions[:10]
+                )
+                continue
+            audit_id = send(
+                "Runtime.evaluate",
+                {
+                    "expression": _VIEWPORT_AUDIT_EXPRESSION,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            result, exceptions = _receive_evaluation(
+                socket,
+                result_id=audit_id,
+                deadline=time.monotonic() + 3.0,
+            )
+            if exceptions or not isinstance(result, dict):
+                diagnostics.extend(
+                    _viewport_diagnostic(
+                        "state_audit_failed",
+                        f"The {state} state returned no valid audit evidence: {message}",
+                        viewport=viewport,
+                    )
+                    for message in (
+                        exceptions[:10] or ["no browser observation was returned"]
+                    )
+                )
+                continue
+            layout = dict(result.get("layout") or {})
+            accessibility = dict(result.get("accessibility") or {})
+            expected_resource_states = dict(fixture.get("resource_states") or {})
+            expected_resources = set(expected_resource_states)
+            state_regions = list(accessibility.get("resource_state_regions") or [])
+            matching_regions = [
+                item
+                for item in state_regions
+                if isinstance(item, dict)
+                and item.get("resource") in expected_resources
+                and item.get("state")
+                == dict(expected_resource_states[str(item.get("resource"))]).get(
+                    "status"
+                )
+            ]
+            approval_regions = list(accessibility.get("approval_state_regions") or [])
+            if int(layout.get("root_children") or 0) < 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_empty_root",
+                        f"The {state} state mounted no visible React root",
+                        viewport=viewport,
+                    )
+                )
+            if int(layout.get("horizontal_overflow_px") or 0) > 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_viewport_overflow",
+                        f"The {state} state creates page-level horizontal overflow",
+                        viewport=viewport,
+                    )
+                )
+            if int(layout.get("clipped_controls") or 0) > 0:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_clipped_control",
+                        f"The {state} state clips a visible interactive control",
+                        viewport=viewport,
+                    )
+                )
+            if int(accessibility.get("main_landmarks") or 0) != 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_main_landmark",
+                        f"The {state} state must expose exactly one main landmark",
+                        viewport=viewport,
+                    )
+                )
+            if int(accessibility.get("unnamed_controls") or 0) > 0:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_unnamed_control",
+                        f"The {state} state contains an unnamed control",
+                        viewport=viewport,
+                    )
+                )
+            if applicable and expected_resources and not matching_regions:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_region_missing",
+                        (
+                            f"The {state} state exposes no visible SDK-bound "
+                            "resource region"
+                        ),
+                        viewport=viewport,
+                    )
+                )
+            expected_approval_state = (
+                "required" if state == "approval_required" else "clear"
+            )
+            matching_approval_regions = sum(
+                1
+                for item in approval_regions
+                if isinstance(item, dict)
+                and item.get("state") == expected_approval_state
+            )
+            if approval_contract_applicable and matching_approval_regions < 1:
+                diagnostics.append(
+                    _viewport_diagnostic(
+                        "state_approval_region_missing",
+                        (
+                            "The Surface exposes no visible SDK-bound approval "
+                            f"summary in the expected {expected_approval_state} state"
+                        ),
+                        viewport=viewport,
+                    )
+                )
+            contrast_diagnostics, contrast_evidence = _inspect_contrast(
+                socket,
+                send=send,
+                viewport=viewport,
+                state=state,
+            )
+            diagnostics.extend(contrast_diagnostics)
+            observation = {
+                "state": state,
+                "viewport_id": viewport_id,
+                "requested_width": viewport["width"],
+                "requested_height": viewport["height"],
+                "applicable": applicable,
+                "fixture_bytes": len(
+                    json.dumps(
+                        fixture,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=True,
+                        default=str,
+                    ).encode("utf-8")
+                ),
+                "layout": layout,
+                "accessibility": accessibility,
+                "matching_resource_regions": len(matching_regions),
+                "expected_approval_state": (
+                    expected_approval_state if approval_contract_applicable else None
+                ),
+                "matching_approval_regions": matching_approval_regions,
+                "contrast": contrast_evidence,
+            }
+            observation["fingerprint"] = hashlib.sha256(
+                json.dumps(
+                    observation,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
+            observations.append(observation)
+
+    # Interaction checks must always start from the canonical ready context.
+    reset_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "window.__aloySetSmokeContext("
+                + json.dumps(context, ensure_ascii=True, default=str)
+                + ");true"
+            ),
+            "returnByValue": True,
+        },
+    )
+    _receive_evaluation(
+        socket,
+        result_id=reset_id,
+        deadline=time.monotonic() + 2.0,
+    )
+    evidence = {
+        "policy_version": SURFACE_STATE_POLICY_VERSION,
+        "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+        "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+        "passed": not any(
+            str(item.get("code") or "").startswith("state_") for item in diagnostics
+        )
+        and len(observations)
+        == len(REQUIRED_SURFACE_STATE_FIXTURES) * len(REQUIRED_SURFACE_STATE_VIEWPORTS),
+        "observations": observations,
+    }
+    return diagnostics, evidence
 
 
 def _wait_for_runtime_document(

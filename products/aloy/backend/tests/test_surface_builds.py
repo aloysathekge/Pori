@@ -36,6 +36,14 @@ from aloy_backend.surface_builds import (
     SurfacePreviewParams,
 )
 from aloy_backend.surface_manifest import SurfaceManifest
+from aloy_backend.surface_quality import (
+    REQUIRED_SURFACE_STATE_VIEWPORTS,
+    REQUIRED_SURFACE_VIEWPORTS,
+)
+from aloy_backend.surface_resource_states import (
+    REQUIRED_SURFACE_STATE_FIXTURES,
+    SURFACE_STATE_POLICY_VERSION,
+)
 from aloy_backend.surface_runtime import (
     InvalidSurfaceBundle,
     build_surface_runtime_document,
@@ -77,6 +85,70 @@ class MemoryObjectStore:
         return None
 
 
+def _inspection_evidence() -> dict:
+    required = [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS]
+    return {
+        "viewport_matrix": {
+            "policy_version": "aloy-surface-viewports@1",
+            "required": required,
+            "passed": True,
+            "viewports": [
+                {
+                    "id": viewport_id,
+                    "capture": {"sha256": f"capture-{viewport_id}"},
+                    "accessibility": {
+                        "main_landmarks": 1,
+                        "unnamed_controls": 0,
+                        "images_missing_alt": 0,
+                        "keyboard_unreachable": 0,
+                        "duplicate_ids": [],
+                    },
+                    "focus": {
+                        "passed": True,
+                        "controls": 0,
+                        "visited": 0,
+                        "visible_indicators": 0,
+                    },
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
+                }
+                for viewport_id in required
+            ],
+        },
+        "state_matrix": {
+            "policy_version": SURFACE_STATE_POLICY_VERSION,
+            "required_states": list(REQUIRED_SURFACE_STATE_FIXTURES),
+            "required_viewports": list(REQUIRED_SURFACE_STATE_VIEWPORTS),
+            "passed": True,
+            "observations": [
+                {
+                    "state": state,
+                    "viewport_id": viewport_id,
+                    "fingerprint": f"state-{state}-{viewport_id}",
+                    "contrast": {
+                        "passed": True,
+                        "failures": 0,
+                        "unmeasurable": 0,
+                    },
+                }
+                for state in REQUIRED_SURFACE_STATE_FIXTURES
+                for viewport_id in REQUIRED_SURFACE_STATE_VIEWPORTS
+            ],
+        },
+        "timings": {
+            "policy_version": "aloy-surface-timings@1",
+            "runtime_bootstrap_ms": 100.0,
+            "viewport_matrix_ms": 200.0,
+            "state_matrix_ms": 300.0,
+            "interaction_checks_ms": 0.0,
+            "total_ms": 600.0,
+        },
+    }
+
+
 async def test_local_development_builder_fails_closed_without_pinned_toolchain(
     tmp_path,
 ):
@@ -114,6 +186,7 @@ async def test_local_development_bundle_is_browser_safe():
     assert "process is not defined" not in script
     assert "aloy.surface.connect" in script
     runtime = build_surface_runtime_document(result.bundle)
+    evidence: dict = {}
     diagnostics = inspect_surface_runtime(
         runtime,
         {
@@ -128,8 +201,245 @@ async def test_local_development_bundle_is_browser_safe():
             "widgets": [],
             "data": {"interactions": []},
         },
+        evidence_sink=evidence,
     )
     assert diagnostics == []
+    matrix = evidence["viewport_matrix"]
+    assert matrix["passed"] is True
+    assert [item["id"] for item in matrix["viewports"]] == [
+        str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS
+    ]
+    assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS)
+    assert evidence["state_matrix"]["passed"] is True
+    assert evidence["timings"]["policy_version"] == "aloy-surface-timings@1"
+    assert evidence["timings"]["total_ms"] >= evidence["timings"]["state_matrix_ms"]
+    assert all(item["capture"]["sha256"] for item in matrix["viewports"])
+
+
+async def test_local_browser_gate_rejects_overflow_and_unnamed_controls():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="broken-responsive-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                "export default function App(){return <main style={{width:900}}>"
+                "<button aria-label=''></button></main>}"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    evidence: dict = {}
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": [],
+            "widgets": [],
+            "data": {"interactions": []},
+        },
+        evidence_sink=evidence,
+    )
+
+    codes = {item["code"] for item in diagnostics}
+    assert "viewport_page_overflow" in codes
+    assert "accessibility_unnamed_control" in codes
+    assert evidence["viewport_matrix"]["passed"] is False
+
+
+async def test_local_browser_gate_rejects_hidden_focus_and_low_contrast():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="broken-focus-contrast-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                "export default function App(){return <main style={{background:'#fff'}}>"
+                "<p style={{color:'#aaa'}}>Important deadline</p>"
+                "<button style={{outline:'none',boxShadow:'none'}}>Continue</button>"
+                "</main>}"
+            )
+        },
+        manifest={},
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": [],
+            "widgets": [],
+            "data": {"interactions": []},
+        },
+    )
+
+    codes = {item["code"] for item in diagnostics}
+    assert "focus_indicator_missing" in codes
+    assert "contrast_text_failed" in codes
+
+
+async def test_local_browser_gate_proves_sdk_bound_approval_state():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["proposals"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="approval-state-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceApprovalState, useSurfaceResourceState } from "@aloy/surface"; '
+                "export default function App(){"
+                "const resource=useSurfaceResourceState('proposals');"
+                "const approval=useSurfaceApprovalState();"
+                "return <main {...resource.feedbackProps}><section {...approval.feedbackProps}>"
+                "{approval.required?'Approval waiting':'No approval waiting'}"
+                "</section></main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    evidence: dict = {}
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["proposals"],
+            "widgets": [],
+            "data": {"proposals": [], "interactions": []},
+        },
+        manifest=manifest,
+        evidence_sink=evidence,
+    )
+
+    assert diagnostics == []
+    approval_observations = [
+        item
+        for item in evidence["state_matrix"]["observations"]
+        if item["state"] == "approval_required"
+    ]
+    assert len(approval_observations) == len(REQUIRED_SURFACE_STATE_VIEWPORTS)
+    assert all(item["applicable"] is True for item in approval_observations)
+    assert all(item["matching_approval_regions"] == 1 for item in approval_observations)
+    assert all(
+        item["matching_approval_regions"] == 1
+        and item["expected_approval_state"] == "clear"
+        for item in evidence["state_matrix"]["observations"]
+        if item["state"] != "approval_required"
+    )
+
+
+async def test_local_browser_gate_rejects_missing_approval_summary_region():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["proposals"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="missing-approval-state-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceResourceState } from "@aloy/surface"; '
+                "export default function App(){"
+                "const resource=useSurfaceResourceState('proposals');"
+                "return <main {...resource.feedbackProps}>Proposal workspace</main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["proposals"],
+            "widgets": [],
+            "data": {"proposals": [], "interactions": []},
+        },
+        manifest=manifest,
+    )
+
+    assert "state_approval_region_missing" in {item["code"] for item in diagnostics}
+
+
+async def test_local_browser_gate_rejects_long_content_page_overflow():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest(capabilities=["tasks"])
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="long-content-overflow-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import { useSurfaceResourceState, useTasks } from "@aloy/surface"; '
+                "export default function App(){const tasks=useTasks();"
+                "const resource=useSurfaceResourceState('tasks');"
+                "return <main {...resource.feedbackProps}><div style={{display:'flex',flexWrap:'nowrap'}}>"
+                "{tasks.map((task,index)=><article key={index} style={{minWidth:420}}>"
+                "{String(task.title)}</article>)}</div></main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["tasks"],
+            "widgets": [],
+            "data": {"tasks": [], "interactions": []},
+        },
+        manifest=manifest,
+    )
+
+    assert any(
+        item["code"] == "state_viewport_overflow"
+        and item.get("viewport") in REQUIRED_SURFACE_STATE_VIEWPORTS
+        for item in diagnostics
+    )
 
 
 async def test_local_browser_gate_rejects_render_exception():
@@ -215,17 +525,18 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { useSurfaceCommand } from "@aloy/surface"; '
+            'import { useSurfaceCommand, useSurfaceResourceState } from "@aloy/surface"; '
             "export default function App(){const [company,setCompany]=useState('');"
+            "const resource=useSurfaceResourceState('data:career');"
             "const save=useSurfaceCommand('career.application_created',{componentId:'add-application'});"
-            "return <form onSubmit={async event=>{event.preventDefault();try{await save.execute("
+            "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();try{await save.execute("
             "{applicationId:'smoke',company});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
             "<button type='submit' disabled={save.pending}>Save</button>"
             "<p {...save.feedbackProps}>{save.status==='pending'?'Saving':"
             "save.status==='committed'?'Application saved':save.error?.message||'Ready'}</p>"
-            "</form>}"
+            "</form></main>}"
         )
     }
     result = await LocalDevelopmentSurfaceBuildRunner().build(
@@ -263,13 +574,14 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         files={
             "/src/App.tsx": (
                 'import React, { useState } from "react"; '
-                'import { command } from "@aloy/surface"; '
+                'import { command, useSurfaceResourceState } from "@aloy/surface"; '
                 "export default function App(){const [company,setCompany]=useState('');"
-                "return <form onSubmit={async event=>{event.preventDefault();await command("
+                "const resource=useSurfaceResourceState('data:career');"
+                "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();await command("
                 "'career.application_created',{applicationId:'smoke',company});}}>"
                 "<label>Company<input aria-label='Company' value={company} "
                 "onChange={event=>setCompany(event.target.value)}/></label>"
-                "<button type='submit'>Save</button></form>}"
+                "<button type='submit'>Save</button></form></main>}"
             )
         },
         manifest=manifest.model_dump(mode="json", by_alias=True),
@@ -289,7 +601,9 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
     )
     broken_result = await LocalDevelopmentSurfaceBuildRunner().build(
         build_id="broken-interactive-local-toolchain",
-        files={"/src/App.tsx": "export default () => <button>Save</button>"},
+        files={
+            "/src/App.tsx": "export default () => <main><button>Save</button></main>"
+        },
         manifest=broken.model_dump(mode="json", by_alias=True),
     )
     assert broken_result.bundle is not None
@@ -298,7 +612,7 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         context,
         manifest=broken,
     )
-    assert {item["code"] for item in diagnostics} == {"runtime_interaction_step_failed"}
+    assert {item["code"] for item in diagnostics} == {"state_region_missing"}
 
 
 async def test_local_browser_gate_projects_accepted_state_between_checks():
@@ -382,13 +696,14 @@ async def test_local_browser_gate_projects_accepted_state_between_checks():
     files = {
         "/src/App.tsx": (
             'import React, { useState } from "react"; '
-            'import { useSurfaceCommand, useSurfaceData } from "@aloy/surface"; '
+            'import { useSurfaceCommand, useSurfaceData, useSurfaceResourceState } from "@aloy/surface"; '
             "type Application={applicationId:string;company:string;stage:string};"
             "export default function App(){const [company,setCompany]=useState('');"
             "const applications=useSurfaceData<Application>('career');"
+            "const resource=useSurfaceResourceState('data:career');"
             "const create=useSurfaceCommand<Application>('career.application_created');"
             "const move=useSurfaceCommand<{applicationId:string;stage:string}>('career.stage_changed');"
-            "return <div><form onSubmit={async event=>{event.preventDefault();try{await create.execute("
+            "return <main {...resource.feedbackProps}><form onSubmit={async event=>{event.preventDefault();try{await create.execute("
             "{applicationId:'smoke',company,stage:'applied'});}catch{}}}>"
             "<label>Company<input aria-label='Company' value={company} "
             "onChange={event=>setCompany(event.target.value)}/></label>"
@@ -399,7 +714,7 @@ async def test_local_browser_gate_projects_accepted_state_between_checks():
             "onChange={async event=>{try{await move.execute({applicationId:record.data.applicationId,"
             "stage:event.target.value});}catch{}}}>"
             "<option value='applied'>Applied</option><option value='interview'>Interview</option>"
-            "</select>)}<p {...move.feedbackProps}>{move.status}</p></div>}"
+            "</select>)}<p {...move.feedbackProps}>{move.status}</p></main>}"
         )
     }
     result = await LocalDevelopmentSurfaceBuildRunner().build(
@@ -653,6 +968,12 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
             resource_metrics={
                 "duration_ms": 12,
                 "runtime_inspection": "passed",
+                "viewport_inspection": "passed",
+                "accessibility_inspection": "passed",
+                "state_inspection": "passed",
+                "focus_inspection": "passed",
+                "contrast_inspection": "passed",
+                "inspection_evidence": _inspection_evidence(),
             },
         )
     )
@@ -752,6 +1073,59 @@ async def test_surface_build_retains_bundle_and_exposes_only_safe_metadata(
     )
     assert invalid_runtime.status_code == 409
     assert "valid ZIP" in invalid_runtime.json()["detail"]
+
+
+async def test_local_preview_retains_viewport_quality_evidence(
+    client,
+    db_session_maker,
+):
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    event = await _create_event(client, "Responsive proof")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content=(
+            "export default () => <main><h1>Responsive proof</h1>"
+            "<button style={{minWidth:44,minHeight:44}}>Open timetable</button>"
+            "</main>"
+        ),
+    )
+    store = MemoryObjectStore()
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=LocalDevelopmentSurfaceBuildRunner(),
+        object_store=store,
+        session_factory=db_session_maker,
+    )
+    built = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-responsive-proof-0001",
+        )
+    )
+    if built["status"] == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+
+    preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
+
+    assert preview["preview_ready"] is True
+    assert preview["quality_gate"]["passed"] is True
+    assert preview["quality_gate"]["checks"]["viewport_matrix"]["status"] == ("passed")
+    assert preview["quality_gate"]["checks"]["accessibility_audit"]["status"] == (
+        "passed"
+    )
+    assert preview["quality_gate"]["checks"]["state_matrix"]["status"] == "passed"
+    captures = [
+        item
+        for item in preview["preview_artifacts"]
+        if item["kind"] == "viewport_capture"
+    ]
+    assert [item["name"] for item in captures] == [
+        f"{item['id']}.png" for item in REQUIRED_SURFACE_VIEWPORTS
+    ]
+    assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS)
+    assert "_capture_blobs" not in preview["quality_gate"]["evidence"]
 
 
 def test_surface_runtime_rejects_non_contract_entries_and_missing_script():

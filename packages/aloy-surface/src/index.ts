@@ -146,6 +146,7 @@ export interface SurfaceContext {
   protocol_version: '1';
   command_contract_version: '1';
   sdk_version: '1';
+  resource_state_version?: '1';
   event_id: string;
   project_id: string;
   build_id: string;
@@ -153,6 +154,7 @@ export interface SurfaceContext {
   data_revision: number;
   capabilities: string[];
   widgets: string[];
+  resource_states?: Record<string, SurfaceResourceSnapshot>;
   data: {
     event?: Record<string, unknown>;
     tasks?: Array<Record<string, unknown>>;
@@ -164,6 +166,46 @@ export interface SurfaceContext {
     command_attempts?: SurfaceCommandAttempt[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
     records?: Record<string, Array<EventRecord>>;
+  };
+}
+
+export type SurfaceResourceStatus =
+  | 'loading'
+  | 'ready'
+  | 'empty'
+  | 'stale'
+  | 'error'
+  | 'permission_denied'
+  | 'pending'
+  | 'indeterminate';
+
+export interface SurfaceResourceSnapshot {
+  status: SurfaceResourceStatus;
+  message?: string;
+  retryable: boolean;
+}
+
+export interface SurfaceResourceState extends SurfaceResourceSnapshot {
+  resource: string;
+  feedbackProps: {
+    'data-aloy-resource': string;
+    'data-aloy-resource-state': SurfaceResourceStatus;
+    'aria-busy': boolean;
+  };
+}
+
+export type SurfaceApprovalStatus = 'loading' | 'clear' | 'required';
+
+export interface SurfaceApprovalState {
+  status: SurfaceApprovalStatus;
+  required: boolean;
+  proposals: SurfaceProposal[];
+  interactions: SurfaceInteraction[];
+  feedbackProps: {
+    'data-aloy-approval-state': SurfaceApprovalStatus;
+    role: 'status';
+    'aria-live': 'polite';
+    'aria-atomic': true;
   };
 }
 
@@ -594,6 +636,48 @@ export function useSurfaceRuntime(): SurfaceRuntimeState {
   );
 }
 
+/** Read the host-owned lifecycle state for one capability-scoped resource. */
+export function useSurfaceResourceState(resource: string): SurfaceResourceState {
+  const current = useSurfaceContext();
+  if (!current) {
+    return {
+      resource,
+      status: 'loading',
+      message: 'Aloy is loading this Event data.',
+      retryable: true,
+      feedbackProps: {
+        'data-aloy-resource': resource,
+        'data-aloy-resource-state': 'loading',
+        'aria-busy': true,
+      },
+    };
+  }
+  const declared = current.resource_states?.[resource];
+  const value = resource.startsWith('data:')
+    ? current.data.surface?.[resource.slice(5)]
+    : resource.startsWith('records:')
+      ? current.data.records?.[resource.slice(8)]
+      : current.data[resource as keyof typeof current.data];
+  const empty = value == null
+    || (Array.isArray(value) && value.length === 0)
+    || (typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value as Record<string, unknown>).length === 0);
+  const snapshot = declared ?? {
+    status: empty ? 'empty' : 'ready',
+    message: empty ? 'No Event data exists here yet.' : 'This Event data is current.',
+    retryable: false,
+  } satisfies SurfaceResourceSnapshot;
+  return {
+    resource,
+    ...snapshot,
+    feedbackProps: {
+      'data-aloy-resource': resource,
+      'data-aloy-resource-state': snapshot.status,
+      'aria-busy': snapshot.status === 'loading' || snapshot.status === 'pending',
+    },
+  };
+}
+
 export function useEvent<T = Record<string, unknown>>(): T | null {
   return (useSurfaceContext()?.data.event as T | undefined) ?? null;
 }
@@ -628,6 +712,39 @@ export function usePendingApprovals(): SurfaceProposal[] {
     () => proposals.filter((proposal) => proposal.status === 'pending'),
     [proposals],
   );
+}
+
+/**
+ * Describe whether the Surface has a protected action waiting on the user.
+ * Approval controls remain host-owned; generated UI may only summarize and
+ * link to that trusted region.
+ */
+export function useSurfaceApprovalState(): SurfaceApprovalState {
+  const current = useSurfaceContext();
+  const proposals = usePendingApprovals();
+  const interactions = useMemo(
+    () => (current?.data.interactions ?? []).filter(
+      (interaction) => interaction.status === 'waiting_approval',
+    ),
+    [current],
+  );
+  const status: SurfaceApprovalStatus = !current
+    ? 'loading'
+    : proposals.length > 0 || interactions.length > 0
+      ? 'required'
+      : 'clear';
+  return {
+    status,
+    required: status === 'required',
+    proposals,
+    interactions,
+    feedbackProps: {
+      'data-aloy-approval-state': status,
+      role: 'status',
+      'aria-live': 'polite',
+      'aria-atomic': true,
+    },
+  };
 }
 
 /** Read receipt-backed external outcomes; absence of a receipt is not success. */

@@ -24,7 +24,12 @@ from .models import (
     SurfaceProject,
     SurfaceRevision,
 )
-from .storage import ObjectStore, get_object_store, surface_bundle_key
+from .storage import (
+    ObjectStore,
+    get_object_store,
+    surface_bundle_key,
+    surface_preview_artifact_key,
+)
 from .surface_authoring import SurfaceAuthoringError, SurfaceConflictError
 from .surface_build_runner import (
     MAX_SURFACE_BUILD_LOG_CHARS,
@@ -38,6 +43,10 @@ from .surface_manifest import SurfaceManifest
 from .surface_publication import (
     SurfacePublicationParams,
     change_surface_publication,
+)
+from .surface_quality import (
+    SURFACE_QUALITY_RECEIPT_KEY,
+    create_surface_quality_receipt,
 )
 from .surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 from .surface_runtime_inspection import inspect_surface_runtime
@@ -486,6 +495,7 @@ class SurfaceBuildHandler:
             preview_ready = build.status == "succeeded"
             runtime_diagnostics: list[dict[str, Any]] = []
             runtime_proven = False
+            inspection_evidence: dict[str, Any] = {}
             if preview_ready and build.resource_metrics.get("backend") == "local_dev":
                 from .surface_interactions import surface_runtime_context
                 from .tenancy import OrganizationContext, OrganizationPolicy
@@ -527,6 +537,7 @@ class SurfaceBuildHandler:
                             document,
                             runtime_context,
                             manifest=manifest,
+                            evidence_sink=inspection_evidence,
                         )
                     except (FileNotFoundError, InvalidSurfaceBundle) as exc:
                         runtime_diagnostics = [
@@ -542,12 +553,20 @@ class SurfaceBuildHandler:
             elif (
                 preview_ready
                 and build.resource_metrics.get("runtime_inspection") == "passed"
+                and build.resource_metrics.get("viewport_inspection") == "passed"
+                and build.resource_metrics.get("accessibility_inspection") == "passed"
+                and build.resource_metrics.get("state_inspection") == "passed"
+                and build.resource_metrics.get("focus_inspection") == "passed"
+                and build.resource_metrics.get("contrast_inspection") == "passed"
                 and (
                     not manifest.interaction_checks
                     or build.resource_metrics.get("interaction_inspection") == "passed"
                 )
             ):
                 runtime_proven = True
+                inspection_evidence = dict(
+                    build.resource_metrics.get("inspection_evidence") or {}
+                )
             elif preview_ready:
                 runtime_diagnostics = [
                     {
@@ -560,8 +579,124 @@ class SurfaceBuildHandler:
                     }
                 ]
                 preview_ready = False
+            capture_values = list(inspection_evidence.pop("_capture_blobs", []) or [])
+            retained_captures: list[dict[str, Any]] = []
+            if preview_ready and capture_values:
+                object_store = self._object_store or get_object_store()
+                for capture in capture_values:
+                    if not isinstance(capture, dict):
+                        continue
+                    data = capture.get("data")
+                    checksum = str(capture.get("sha256") or "")
+                    name = str(capture.get("name") or "viewport.png")
+                    content_type = str(capture.get("content_type") or "image/png")
+                    if not isinstance(data, bytes) or not checksum:
+                        runtime_diagnostics.append(
+                            {
+                                "stage": "runtime",
+                                "code": "viewport_capture_invalid",
+                                "severity": "error",
+                                "message": "Trusted viewport capture evidence was invalid",
+                            }
+                        )
+                        continue
+                    key = surface_preview_artifact_key(
+                        event.organization_id,
+                        event.id,
+                        build.id,
+                        checksum,
+                        name,
+                    )
+                    try:
+                        await asyncio.to_thread(
+                            object_store.put,
+                            key,
+                            io.BytesIO(data),
+                            content_type=content_type,
+                        )
+                    except Exception as exc:
+                        runtime_diagnostics.append(
+                            {
+                                "stage": "runtime",
+                                "code": "viewport_capture_storage_failed",
+                                "severity": "error",
+                                "message": (
+                                    "Trusted viewport capture could not be retained: "
+                                    f"{exc}"
+                                ),
+                            }
+                        )
+                        continue
+                    retained_captures.append(
+                        {
+                            "kind": "viewport_capture",
+                            "name": name,
+                            "content_type": content_type,
+                            "sha256": checksum,
+                            "size_bytes": len(data),
+                        }
+                    )
+            if runtime_diagnostics:
+                preview_ready = False
+                runtime_proven = False
+            if retained_captures:
+                existing_artifacts = [
+                    item
+                    for item in list(build.preview_artifacts or [])
+                    if item.get("kind") != "viewport_capture"
+                ]
+                build.preview_artifacts = _public_preview_artifacts(
+                    [*existing_artifacts, *retained_captures]
+                )
+            quality_receipt = create_surface_quality_receipt(
+                build_id=build.id,
+                revision_id=build.revision_id,
+                source_checksum=build.source_checksum,
+                bundle_sha256=build.bundle_sha256,
+                validation_passed=build.validation_result.get("passed") is True,
+                manifest=manifest,
+                runtime_proven=runtime_proven,
+                runtime_diagnostics=runtime_diagnostics,
+                inspection_evidence=inspection_evidence,
+            )
+            if quality_receipt.get("passed") is not True:
+                preview_ready = False
+                if not runtime_diagnostics:
+                    runtime_diagnostics.append(
+                        {
+                            "stage": "quality",
+                            "code": "surface_quality_evidence_incomplete",
+                            "severity": "error",
+                            "message": (
+                                "The trusted build produced incomplete viewport, "
+                                "state, focus, contrast, or accessibility evidence"
+                            ),
+                        }
+                    )
+                    quality_receipt = create_surface_quality_receipt(
+                        build_id=build.id,
+                        revision_id=build.revision_id,
+                        source_checksum=build.source_checksum,
+                        bundle_sha256=build.bundle_sha256,
+                        validation_passed=(
+                            build.validation_result.get("passed") is True
+                        ),
+                        manifest=manifest,
+                        runtime_proven=runtime_proven,
+                        runtime_diagnostics=runtime_diagnostics,
+                        inspection_evidence=inspection_evidence,
+                    )
+            build.resource_metrics = {
+                **dict(build.resource_metrics or {}),
+                SURFACE_QUALITY_RECEIPT_KEY: quality_receipt,
+            }
+            session.add(build)
+            await session.commit()
             payload["preview_ready"] = preview_ready
             payload["execution_available"] = runtime_proven
+            payload["quality_gate"] = quality_receipt
+            payload["resource_metrics"] = build.resource_metrics
+            payload["preview_artifacts"] = build.preview_artifacts
             payload["runtime_diagnostics"] = runtime_diagnostics
             payload["diagnostics"] = [
                 *list(payload.get("diagnostics") or []),

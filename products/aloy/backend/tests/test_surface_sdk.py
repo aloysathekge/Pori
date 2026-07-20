@@ -294,6 +294,10 @@ async def test_surface_context_and_durable_dispatch_are_capability_scoped_and_ex
     assert context["data_revision"] == 0
     assert context["data"]["event"]["title"] == "University"
     assert context["data"]["tasks"][0]["title"] == "Study MAT204"
+    assert context["resource_state_version"] == "1"
+    assert context["resource_states"]["event"]["status"] == "ready"
+    assert context["resource_states"]["tasks"]["status"] == "ready"
+    assert context["resource_states"]["data:academic"]["status"] == "empty"
     assert set(context["data"]) == {
         "event",
         "tasks",

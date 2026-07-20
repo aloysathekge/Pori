@@ -46,6 +46,25 @@ all use the same runtime and safety contract.
    widths, navigation, tables, maps, timelines, kanban boards, forms, and charts
    must recompose without page-level horizontal overflow, clipped actions, or
    pointer-only controls. Keep primary touch actions at least 44 pixels.
+   Use exactly one visible `main` landmark. Give every visible interactive
+   control an accessible name, keep custom controls keyboard reachable, give
+   every image an `alt` attribute, and never emit duplicate DOM ids. Aloy's
+   host renders wide 1440px, split 640px, tablet 768px, mobile 390px, and narrow
+   mobile 360px compositions and rejects page overflow, clipped controls, or
+   missing deterministic accessibility evidence.
+   For each data-driven primary region, call `useSurfaceResourceState` with its
+   exact capability name and spread `feedbackProps` onto the visible region.
+   Render honest loading, empty, stale, error, permission-denied, pending, and
+   indeterminate views from that host-owned value. Never infer failure from an
+   empty array and never add inspection-only branches. Treat long titles,
+   descriptions, lists, tables, and evidence as ordinary input: wrap prose,
+   constrain internal scrollers, virtualize or paginate dense collections when
+   appropriate, and never solve density with page-level horizontal overflow.
+   Preserve a visible keyboard focus indicator on every control; never ship
+   `outline: none` without a stronger replacement. Use deterministic solid
+   backdrops behind text so the host can prove at least 4.5:1 contrast for
+   normal text and 3:1 for large text. Treat browser-reported focus and contrast
+   failures as blocking diagnostics, not visual preferences.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
    diagnostics in the next complete candidate.
    Every declared intent must include an accessible executable
@@ -115,6 +134,7 @@ useSurfaceInteraction(id: string | null | undefined): SurfaceInteraction | null
 useLatestSurfaceInteraction(name: string, componentId?: string): SurfaceInteraction | null
 useProposals(): SurfaceProposal[]
 usePendingApprovals(): SurfaceProposal[]
+useSurfaceApprovalState(): SurfaceApprovalState
 useReceipts(): SurfaceReceipt[]
 useTrail(): SurfaceTrailEntry[]
 useCommandAttempts(): SurfaceCommandAttempt[]
@@ -192,11 +212,14 @@ that the host durably accepted the request. Continue with
 waiting-approval, executing, and terminal feedback. Never label an accepted
 request complete. Approval UI itself remains host-owned even when the generated
 Surface links to or summarizes the pending Proposal.
-Use `usePendingApprovals()` to explain what is waiting and direct the user to
-the host approval region. Use `useReceipts()` to render confirmed external
-outcomes and `useTrail()` for a bounded semantic history. Never put Approve,
-Reject, credential, payment-confirmation, or provider-execution authority in
-generated code; those controls remain in Aloy's trusted host.
+Use `useSurfaceApprovalState()` to explain what is waiting and direct the user
+to the host approval region. Spread its `feedbackProps` onto the persistently
+visible summary region so the trusted host can verify the pending state. Its
+`proposals` and `interactions` identify the work, but it never grants decision
+authority. Use `useReceipts()` to render confirmed external outcomes and
+`useTrail()` for a bounded semantic history. Never put Approve, Reject,
+credential, payment-confirmation, or provider-execution authority in generated
+code; those controls remain in Aloy's trusted host.
 
 Keep that feedback element mounted when a dialog closes or a canonical record
 changes identity. The host publication gate exercises each
