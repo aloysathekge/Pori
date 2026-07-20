@@ -810,6 +810,9 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                           </button>
                           <div className="min-w-0 flex-1">
                             <p className={`text-sm leading-5 ${task.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-300'}`}>{task.title}</p>
+                            {task.execution_profile === 'sourced_research' && (
+                              <p className="mt-1 text-[11px] font-medium text-sky-700">Sourced research · evidence and cited report required</p>
+                            )}
                             {task.status === 'queued' && <p className="mt-1 text-xs text-zinc-500">Waiting for this Event&apos;s work slot. You can leave Aloy open or closed.</p>}
                             {task.status === 'in_progress' && <p className="mt-1 text-xs text-accent-700">Aloy is working durably in the background.</p>}
                             {task.status === 'blocked' && <p className="mt-1 text-xs text-amber-700">Needs your input: {task.blocker || 'more information is required'}</p>}

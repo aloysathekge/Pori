@@ -2,9 +2,10 @@
 
 ## Active Task
 
-Complete and review `aloy-v1-file-references`: make user files first-class
-Conversation input through direct upload, `+`, and `@`, with dedicated-Event
-isolation and intentional Life-wide selection.
+R6 sourced-research architecture is complete on
+`aloy-v1-r6-research-tools`; live model acceptance remains pending model
+credits. After merge, begin R7's Career OS decision/approval/receipt loop using
+the new evidence-backed Event records rather than domain-hardcoded product state.
 
 ## Decisions Made
 
@@ -21,6 +22,13 @@ isolation and intentional Life-wide selection.
   infrastructure are operator-owned and absent from customer navigation.
 - Event creation must remain available even when context ingestion is pending or fails.
 - Prompt caching is a latency/cost optimization, never durable memory or truth.
+- Raw web evidence, evidence-backed Event records, and report indexes are durable
+  but excluded from mutable automatic prompt hydration; models read their compact
+  projection on demand.
+- Research work is selected semantically through an explicit Task execution
+  profile. The host must not infer it from title keywords.
+- Model-authored Surfaces read canonical research records through a read-only
+  `records:<namespace>` capability. Mutable Surface data remains separate.
 - Confidential/restricted Event evidence disables application-owned message-prefix caching.
 - Surface opportunity detection belongs to the ordinary Event model's product
   judgment, not a keyword trigger or separate classifier call.
@@ -56,6 +64,31 @@ isolation and intentional Life-wide selection.
   code authority.
 
 ## Important Discoveries
+
+- The active R6 branch now commits normalized search/page observations to Event
+  memory before returning evidence IDs, rejects cross-Event evidence references,
+  versions generic Event records, and exposes bounded evidence/record inspection.
+  Aloy's direct page reader reuses the existing DNS/peer/redirect-bounded SSRF
+  defense. Raw source excerpts do not pollute every future prompt.
+- `sourced_research` Tasks freeze a provider-neutral Run profile. Completion now
+  fails closed without evidence, an observed/inferred record grounded in that
+  Run's evidence, a stored Markdown report, and a citation to an observed URL.
+  Unverified placeholders cannot pass. The gate recovers durable evidence and
+  records by Run provenance after a worker restart. Accepted reports are linked
+  to the Task, Run, StoredFile, record IDs, and evidence in memory and Trail.
+- Canonical evidence, records, and report indexes are separated from user-managed
+  memory: generic memory list/search/export/reset/delete/retention controls do
+  not expose or mutate them. Repeated observations and record writes are
+  idempotent within a Run.
+- Surface SDK v1 now supports read-only `records:<namespace>` projections through
+  `useEventRecords`; mutable `data:<namespace>` commands cannot rewrite that
+  canonical truth. Full kernel verification passes (`618 passed, 1 skipped`).
+  The full backend suite reached `373 passed` with three concurrent SDK-build/
+  Chrome handshake failures; all three exact tests passed sequentially once the
+  shared SDK toolchain was stable. Focused Task/research/Surface tests pass
+  (`41`). Kernel mypy passes across `109` files, backend mypy across `119` files,
+  app lint/build and SDK TypeScript pass, and the migration passes an
+  upgrade-downgrade-upgrade on SQLite.
 
 - The `aloy-v1-file-references` branch adds direct My Files uploads,
   Conversation-scoped file search, `@` mentions, a `+` upload/existing-file

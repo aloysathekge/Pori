@@ -29,6 +29,26 @@ export interface SurfaceDataRecord<T = Record<string, unknown>> {
   evidence_refs: Array<Record<string, unknown>>;
 }
 
+export interface EventRecord<T = Record<string, unknown>> {
+  id: string;
+  namespace: string;
+  key: string;
+  title: string;
+  summary: string;
+  data: T;
+  posture: 'observed' | 'inferred' | 'unverified';
+  confidence: number;
+  revision: number;
+  evidence_refs: Array<{
+    evidence_id: string;
+    url: string;
+    title: string;
+    retrieved_at: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SurfaceInteraction {
   id: string;
   event_id: string;
@@ -89,6 +109,7 @@ export interface SurfaceContext {
     interactions: SurfaceInteraction[];
     command_attempts?: SurfaceCommandAttempt[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
+    records?: Record<string, Array<EventRecord>>;
   };
 }
 
@@ -524,6 +545,14 @@ export function useSurfaceData<T = Record<string, unknown>>(
 ): Array<SurfaceDataRecord<T>> {
   const records = useSurfaceContext()?.data.surface?.[namespace] ?? [];
   return records as Array<SurfaceDataRecord<T>>;
+}
+
+/** Read host-owned, evidence-backed Event records. Generated code cannot mutate them. */
+export function useEventRecords<T = Record<string, unknown>>(
+  namespace: string,
+): Array<EventRecord<T>> {
+  const records = useSurfaceContext()?.data.records?.[namespace] ?? [];
+  return records as Array<EventRecord<T>>;
 }
 
 export function useTasks(): Array<Record<string, unknown>> {

@@ -49,6 +49,7 @@ from ..models import (
     Event,
     EventSetupContextItem,
     EventTrailEntry,
+    KnowledgeEntry,
     Run,
     StoredFile,
     Task,
@@ -69,6 +70,7 @@ from ..task_execution import (
 from ..task_state import (
     TaskBudgetPolicy,
     TaskExecutionMode,
+    TaskExecutionProfile,
     TaskPriority,
     TaskStateError,
     TaskStatus,
@@ -77,6 +79,7 @@ from ..task_state import (
     task_snapshot,
 )
 from ..tenancy import OrganizationContext, Permission
+from ..tools.research import event_record_payload
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -104,6 +107,7 @@ class TaskCreateBody(BaseModel):
     priority: TaskPriority = "normal"
     due_at: datetime | None = None
     execution_mode: TaskExecutionMode = "manual"
+    execution_profile: TaskExecutionProfile = "general"
     assigned_agent_id: str | None = Field(default=None, max_length=200)
     origin_conversation_id: str | None = None
     budget_policy: TaskBudgetPolicy = Field(default_factory=TaskBudgetPolicy)
@@ -120,6 +124,7 @@ class TaskUpdateBody(BaseModel):
     priority: TaskPriority | None = None
     due_at: datetime | None = None
     execution_mode: TaskExecutionMode | None = None
+    execution_profile: TaskExecutionProfile | None = None
     assigned_agent_id: str | None = Field(default=None, max_length=200)
     origin_conversation_id: str | None = None
     result_summary: str | None = Field(default=None, max_length=50_000)
@@ -686,6 +691,90 @@ async def get_event_surface(
     }
 
 
+@router.get("/{event_id}/evidence")
+async def list_event_evidence(
+    event_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, Any]]:
+    """Inspect immutable source observations committed inside this Event."""
+    await _load_event(session, context, event_id)
+    rows = list(
+        (
+            await session.execute(
+                select(KnowledgeEntry)
+                .where(
+                    KnowledgeEntry.organization_id == context.organization_id,
+                    KnowledgeEntry.user_id == context.user_id,
+                    KnowledgeEntry.event_id == event_id,
+                    KnowledgeEntry.status == "active",
+                )
+                .order_by(col(KnowledgeEntry.event_at).desc())
+                .limit(2000)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    evidence = [row for row in rows if "web_evidence" in (row.tags or [])][:limit]
+    return [
+        {
+            "id": row.id,
+            "url": (row.metadata_ or {}).get("url"),
+            "title": (row.metadata_ or {}).get("title"),
+            "retrieved_at": (row.metadata_ or {}).get("retrieved_at"),
+            "provider": (row.metadata_ or {}).get("provider"),
+            "query": (row.metadata_ or {}).get("query"),
+            "kind": (row.metadata_ or {}).get("kind"),
+            "content_sha256": (row.metadata_ or {}).get("content_sha256"),
+            "excerpt": row.content[:4000],
+            "provenance": row.provenance or {},
+        }
+        for row in evidence
+    ]
+
+
+@router.get("/{event_id}/records")
+async def list_event_records(
+    event_id: str,
+    namespace: str | None = Query(default=None, min_length=1, max_length=64),
+    limit: int = Query(default=200, ge=1, le=500),
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict[str, Any]]:
+    """Read current evidence-backed canonical records for this Event."""
+    await _load_event(session, context, event_id)
+    rows = list(
+        (
+            await session.execute(
+                select(KnowledgeEntry)
+                .where(
+                    KnowledgeEntry.organization_id == context.organization_id,
+                    KnowledgeEntry.user_id == context.user_id,
+                    KnowledgeEntry.event_id == event_id,
+                    KnowledgeEntry.status == "active",
+                )
+                .order_by(col(KnowledgeEntry.updated_at).desc())
+                .limit(2000)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    records = [
+        row
+        for row in rows
+        if (row.metadata_ or {}).get("record_type") == "event_record"
+        and (namespace is None or (row.metadata_ or {}).get("namespace") == namespace)
+    ][:limit]
+    return [event_record_payload(row) for row in records]
+
+
 @router.post("/{event_id}/bootstrap", status_code=202)
 async def retry_event_bootstrap(
     event_id: str,
@@ -997,6 +1086,7 @@ async def create_task(
         priority=body.priority,
         due_at=body.due_at,
         execution_mode=body.execution_mode,
+        execution_profile=body.execution_profile,
         assigned_agent_id=body.assigned_agent_id,
         budget_policy=body.budget_policy.model_dump(exclude_none=True),
         order=order,

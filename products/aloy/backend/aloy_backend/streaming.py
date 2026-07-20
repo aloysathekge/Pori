@@ -43,8 +43,12 @@ from .approvals import (
 from .event_log import EventLogCollector
 from .surface_requests import SurfaceRequestHandler
 from .tools import (
+    EVENT_RECORD_HANDLER_CONTEXT_KEY,
     GOOGLE_WRITE_TOOLS,
     SURFACE_STATE_CONTEXT_KEY,
+    EventEvidenceRecorder,
+    EventRecordHandler,
+    EventWebPageReader,
     SurfaceStateReader,
     TaskMutationHandler,
     gmail_draft_preview,
@@ -133,6 +137,15 @@ async def stream_agent_execution(
             owner_loop=serving_loop,
         )
         merged_tool_context[SURFACE_STATE_CONTEXT_KEY] = SurfaceStateReader(
+            run_context=run_context,
+            owner_loop=serving_loop,
+        )
+        merged_tool_context["web_evidence_recorder"] = EventEvidenceRecorder(
+            run_context=run_context,
+            owner_loop=serving_loop,
+        )
+        merged_tool_context["web_page_reader"] = EventWebPageReader()
+        merged_tool_context[EVENT_RECORD_HANDLER_CONTEXT_KEY] = EventRecordHandler(
             run_context=run_context,
             owner_loop=serving_loop,
         )

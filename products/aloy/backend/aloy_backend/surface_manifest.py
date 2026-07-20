@@ -16,7 +16,7 @@ MAX_INTERACTION_CHECKS = 100
 MAX_INTERACTION_CHECK_STEPS = 20
 
 _CAPABILITY = re.compile(
-    r"^(?:event|tasks|files|proposals|receipts|trail|ask_aloy|data:[a-z][a-z0-9_.-]{0,63})$"
+    r"^(?:event|tasks|files|proposals|receipts|trail|ask_aloy|(?:data|records):[a-z][a-z0-9_.-]{0,63})$"
 )
 _INTENT_NAME = re.compile(r"^[a-z][a-z0-9_.-]{2,127}$")
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")

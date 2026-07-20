@@ -47,6 +47,18 @@ A queued Surface request means building has started, not that a Surface is live;
 never claim readiness until the host reports a verified publication.
 """.strip()
 
+EVENT_RESEARCH_ROUTING_PROMPT = """
+When work depends on current public facts, perform sourced research rather than
+answering from model memory. Use web_search to discover sources and
+read_web_page for material claims; their evidence receipts are Event-scoped.
+Persist reusable structured findings with event_record_upsert, citing those
+evidence ids. Use event_records_list to inspect existing canonical findings
+instead of guessing or recreating them. Mark unsupported or inaccessible claims
+unverified instead of inventing them. If you create a Task whose definition of done requires current
+web research and a cited report, set execution_profile=sourced_research; this is
+a semantic decision expressed in the Task tool call, never a keyword rule.
+""".strip()
+
 
 def sandbox_base_dir() -> str:
     """The resolved filesystem jail root. Always available — even with the
@@ -141,6 +153,7 @@ def build_orchestrator(
     from .tools import (
         register_google_tools,
         register_library_tools,
+        register_research_tools,
         register_surface_authoring_tools,
         register_surface_build_tools,
         register_surface_state_tools,
@@ -150,6 +163,7 @@ def build_orchestrator(
 
     register_google_tools(registry)
     register_library_tools(registry)
+    register_research_tools(registry)
     register_task_tools(registry)
     register_surface_state_tools(registry)
     product_denied_tools = set(denied_tools)
@@ -205,6 +219,7 @@ def build_orchestrator(
         for block in (
             configured_system_prompt,
             EVENT_SURFACE_ROUTING_PROMPT if enable_surface_requests else None,
+            EVENT_RESEARCH_ROUTING_PROMPT if enable_surface_requests else None,
         )
         if block
     ]

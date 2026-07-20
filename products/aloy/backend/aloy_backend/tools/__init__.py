@@ -34,6 +34,14 @@ from .gmail import (
     gmail_send_tool,
 )
 from .library import LIBRARY_TOOL_NAMES, FetchMyFileParams, fetch_my_file_tool
+from .research import (
+    EVENT_RECORD_HANDLER_CONTEXT_KEY,
+    EVENT_RECORD_TOOL_NAMES,
+    EventEvidenceRecorder,
+    EventRecordHandler,
+    EventWebPageReader,
+    register_research_tools,
+)
 from .surface_builds import (
     SURFACE_BUILD_CONTEXT_KEY,
     SURFACE_BUILD_TOOL_NAMES,
@@ -159,6 +167,8 @@ __all__ = [
     "GOOGLE_TOOL_NAMES",
     "GOOGLE_WRITE_TOOLS",
     "LIBRARY_TOOL_NAMES",
+    "EVENT_RECORD_HANDLER_CONTEXT_KEY",
+    "EVENT_RECORD_TOOL_NAMES",
     "SURFACE_AUTHORING_CONTEXT_KEY",
     "SURFACE_AUTHORING_TOOL_NAMES",
     "SURFACE_BUILD_CONTEXT_KEY",
@@ -168,10 +178,14 @@ __all__ = [
     "gmail_draft_preview",
     "register_google_tools",
     "register_library_tools",
+    "register_research_tools",
     "register_surface_authoring_tools",
     "register_surface_build_tools",
     "register_surface_state_tools",
     "register_task_tools",
     "TaskMutationHandler",
+    "EventEvidenceRecorder",
+    "EventRecordHandler",
+    "EventWebPageReader",
     "SurfaceStateReader",
 ]

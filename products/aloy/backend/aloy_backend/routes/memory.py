@@ -43,6 +43,20 @@ router = APIRouter(prefix="/me/memory", tags=["memory"])
 
 DEFAULT_LABELS = ("persona", "human", "notes")
 DEFAULT_CHAR_LIMIT = 2000
+_CANONICAL_EVENT_RECORD_TYPES = frozenset(
+    {"web_evidence", "event_record", "research_report"}
+)
+
+
+def _is_canonical_event_state(entry: KnowledgeEntry) -> bool:
+    return (entry.metadata_ or {}).get("record_type") in _CANONICAL_EVENT_RECORD_TYPES
+
+
+def _user_managed_entries(
+    entries: list[KnowledgeEntry],
+) -> list[KnowledgeEntry]:
+    """Keep canonical Event truth out of generic memory views and controls."""
+    return [entry for entry in entries if not _is_canonical_event_state(entry)]
 
 
 # ---- helpers ----
@@ -122,7 +136,11 @@ async def reset_memory(
             KnowledgeEntry.user_id == context.user_id,
         )
     )
-    entries = entries_result.scalars().all()
+    entries = [
+        entry
+        for entry in entries_result.scalars().all()
+        if not _is_canonical_event_state(entry)
+    ]
     catalog = MemoryCatalog(row_to_record(entry) for entry in entries)
     try:
         for record in list(catalog.records()):
@@ -158,7 +176,10 @@ async def list_knowledge(
         )
         .order_by(col(KnowledgeEntry.created_at).desc())
     )
-    records = [row_to_record(entry) for entry in result.scalars().all()]
+    records = [
+        row_to_record(entry)
+        for entry in _user_managed_entries(list(result.scalars().all()))
+    ]
     records = [record for record in records if record.is_retrievable()]
     return [record_response(record) for record in records[offset : offset + limit]]
 
@@ -202,7 +223,7 @@ async def create_knowledge_entry(
             KnowledgeEntry.user_id == context.user_id,
         )
     )
-    existing_rows = result.scalars().all()
+    existing_rows = _user_managed_entries(list(result.scalars().all()))
     existing_by_id = {entry.id: entry for entry in existing_rows}
     try:
         catalog = apply_conflict_policy(
@@ -231,8 +252,17 @@ async def delete_knowledge_entry(
 ) -> None:
     """Delete a specific knowledge entry."""
     entry = await session.get(KnowledgeEntry, entry_id)
-    if not entry or entry.organization_id != context.organization_id:
+    if (
+        not entry
+        or entry.organization_id != context.organization_id
+        or entry.user_id != context.user_id
+    ):
         raise HTTPException(status_code=404, detail="Entry not found")
+    if _is_canonical_event_state(entry):
+        raise HTTPException(
+            status_code=409,
+            detail="Canonical Event evidence and records are not mutable memory",
+        )
     catalog = MemoryCatalog([row_to_record(entry)])
     try:
         deleted = catalog.delete(entry_id, row_to_record(entry).scope, hard=hard)
@@ -275,7 +305,10 @@ async def search_archival(
     )
     result = await session.execute(stmt)
     hits = search_records(
-        (row_to_record(entry) for entry in result.scalars().all()),
+        (
+            row_to_record(entry)
+            for entry in _user_managed_entries(list(result.scalars().all()))
+        ),
         scope=request_scope(
             context.user_id,
             organization_id=context.organization_id,
@@ -315,7 +348,10 @@ async def export_memory(
             KnowledgeEntry.user_id == context.user_id,
         )
     )
-    records = [row_to_record(entry) for entry in result.scalars().all()]
+    records = [
+        row_to_record(entry)
+        for entry in _user_managed_entries(list(result.scalars().all()))
+    ]
     return MemoryExportResponse(
         records=[
             record_response(record)
@@ -338,7 +374,7 @@ async def prune_expired_memory(
             KnowledgeEntry.user_id == context.user_id,
         )
     )
-    entries = result.scalars().all()
+    entries = _user_managed_entries(list(result.scalars().all()))
     records_by_id = {entry.id: row_to_record(entry) for entry in entries}
     expired = [
         entry
