@@ -1,11 +1,15 @@
-# Current State - 2026-07-19
+# Current State - 2026-07-20
 
 ## Active Task
 
-R6 sourced-research architecture is complete on
-`aloy-v1-r6-research-tools`; live model acceptance remains pending model
-credits. After merge, begin R7's Career OS decision/approval/receipt loop using
-the new evidence-backed Event records rather than domain-hardcoded product state.
+R6 sourced-research architecture is merged. R7's deterministic implementation
+is complete on `aloy-v1-r7-event-operating-loop`: exact Event-scoped interaction
+reads, a durable resume-safe context receipt, fail-closed reasoning completion,
+reactive Run/Proposal lifecycle, Today approval visibility, and receipt
+reconciliation. The focused worker/Proposal/Surface regression suite passes 57
+tests, backend typing and formatting are clean, and the Surface SDK builds. Live
+University, Madrid, and Career model acceptance remains deferred while provider
+credits are unavailable.
 
 ## Decisions Made
 
@@ -32,6 +36,16 @@ the new evidence-backed Event records rather than domain-hardcoded product state
 - Confidential/restricted Event evidence disables application-owned message-prefix caching.
 - Surface opportunity detection belongs to the ordinary Event model's product
   judgment, not a keyword trigger or separate classifier call.
+- A trusted Surface wake carries an interaction ID. Aloy resolves it through an
+  Event-scoped tool; generated-UI payload remains explicitly untrusted input.
+- Surface-triggered Run success is host-gated by a durable proof that the exact
+  originating interaction was read. The proof survives worker/process loss;
+  an ungrounded answer fails and its artifacts are discarded.
+- Surface request acknowledgement and durable work lifecycle are separate.
+  Generated UI must follow host truth through Run, approval, execution, and a
+  terminal outcome rather than claiming success from `accepted`.
+- R7 is a generic Event operating loop. University, Madrid, and Career are
+  acceptance examples, never runtime branches or hardcoded product behavior.
 - Ordinary Event Runs may request a Surface but never receive authoring,
   build, preview, or publication tools.
 - Schedule/display/navigation records remain Surface data; they are not Tasks
@@ -459,13 +473,10 @@ the new evidence-backed Event records rather than domain-hardcoded product state
 
 ## Next Session Should Start With
 
-Review and commit the Event-memory controls branch, then visually smoke the
-Event settings and Memory dialog when the desktop browser bootstrap is available. After that, add
-evidence-gated automatic consolidation so only confirmed statements,
-corrections, decisions, and durable outcomes become accepted Event memory.
-Then restore qualified Builder provider access and rebuild the retained Career
-OS draft through the normal Builder and verify the typecheck, sequential browser
-checks, Save feedback, canonical data preservation, and atomic publication.
-After that, enable the separately governed `source_change` and `automation` routes.
-Do not patch individual generated applications or continue showcase/widget work
-until the command runtime owns their persistence and wake behavior.
+Review, commit, and merge the completed deterministic R7 operating-loop changes
+into `aloy-v1`. Keep `source_change` and `automation` fail-closed until their
+separately governed Builder and Schedule contracts are delivered. When provider
+access returns, run the same acceptance matrix through University, Madrid, and
+Career Surfaces without patching any individual generated application. Then
+begin R8's crash-window, watchdog, budget, context-longevity, responsive, and
+release gates.

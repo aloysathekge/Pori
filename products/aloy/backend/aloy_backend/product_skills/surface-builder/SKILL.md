@@ -111,6 +111,12 @@ useTasks(): Array<Record<string, unknown>>
 useSurfaceData<T>(namespace: string): Array<SurfaceDataRecord<T>>
 useEventRecords<T>(namespace: string): Array<EventRecord<T>>
 useInteractions(): SurfaceInteraction[]
+useSurfaceInteraction(id: string | null | undefined): SurfaceInteraction | null
+useLatestSurfaceInteraction(name: string, componentId?: string): SurfaceInteraction | null
+useProposals(): SurfaceProposal[]
+usePendingApprovals(): SurfaceProposal[]
+useReceipts(): SurfaceReceipt[]
+useTrail(): SurfaceTrailEntry[]
 useCommandAttempts(): SurfaceCommandAttempt[]
 useSurfaceRuntime(): { status: 'disconnected' | 'healthy' | 'degraded'; message?: string }
 ```
@@ -178,6 +184,19 @@ return <>
   </div>
 </>;
 ```
+
+For reasoning and external actions, `save.status === 'accepted'` means only
+that the host durably accepted the request. Continue with
+`save.lifecycleStatus` and `save.interaction` (or
+`useSurfaceInteraction(receipt.id)`) to render queued, running,
+waiting-approval, executing, and terminal feedback. Never label an accepted
+request complete. Approval UI itself remains host-owned even when the generated
+Surface links to or summarizes the pending Proposal.
+Use `usePendingApprovals()` to explain what is waiting and direct the user to
+the host approval region. Use `useReceipts()` to render confirmed external
+outcomes and `useTrail()` for a bounded semantic history. Never put Approve,
+Reject, credential, payment-confirmation, or provider-execution authority in
+generated code; those controls remain in Aloy's trusted host.
 
 Keep that feedback element mounted when a dialog closes or a canonical record
 changes identity. The host publication gate exercises each

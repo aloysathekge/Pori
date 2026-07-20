@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -10,6 +12,8 @@ from sqlalchemy import create_engine, inspect
 from sqlmodel import col, func, select
 
 import aloy_backend.proposal_executor as executor_module
+from aloy_backend import background as background_module
+from aloy_backend.background import execute_claimed_run
 from aloy_backend.event_context import refresh_event_context_snapshot
 from aloy_backend.models import (
     ActionProposal,
@@ -33,6 +37,12 @@ from aloy_backend.surface_lifecycle import (
 )
 from aloy_backend.surface_manifest import SurfaceManifest, validate_intent_payload
 from aloy_backend.tools.gmail import GmailSendParams
+from aloy_backend.tools.surface_state import (
+    SURFACE_STATE_CONTEXT_KEY,
+    SurfaceInteractionReadParams,
+    SurfaceStateReader,
+    surface_interaction_read_tool,
+)
 from pori.tools.registry import ToolRegistry
 
 
@@ -130,7 +140,7 @@ def _selection_manifest() -> dict:
 def _action_manifest() -> dict:
     return SurfaceManifest.model_validate(
         {
-            "capabilities": ["proposals"],
+            "capabilities": ["proposals", "receipts", "trail"],
             "intents": {
                 "career.email_summary": {
                     "class": "external_action",
@@ -478,16 +488,16 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
     client,
     db_session_maker,
 ):
-    event = await _create_event(client, "Career OS")
+    event = await _create_event(client, "Planning Event")
     manifest = SurfaceManifest.model_validate(
         {
             "intents": {
-                "career.review_pipeline": {
+                "event.review_selection": {
                     "class": "reasoning",
                     "schema": {
                         "type": "object",
-                        "properties": {"view": {"type": "string"}},
-                        "required": ["view"],
+                        "properties": {"selectionId": {"type": "string"}},
+                        "required": ["selectionId"],
                         "additionalProperties": False,
                     },
                 }
@@ -503,10 +513,10 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
             "code_revision_id": revision_id,
             "data_revision": 0,
             "method": "command",
-            "name": "career.review_pipeline",
-            "component_id": "review-pipeline",
-            "payload": {"view": hostile_value},
-            "idempotency_key": "career-review-pipeline-1",
+            "name": "event.review_selection",
+            "component_id": "review-selection",
+            "payload": {"selectionId": hostile_value},
+            "idempotency_key": "event-review-selection-1",
         },
     )
     assert response.status_code == 202, response.text
@@ -516,11 +526,260 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
     assert result["trigger"]["context_snapshot_fingerprint"]
 
     async with db_session_maker() as session:
+        event_row = await session.get(Event, event["id"])
+        assert event_row is not None
+    reader = SurfaceStateReader(
+        run_context=SimpleNamespace(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=event_row.id,
+        ),
+        session_factory=db_session_maker,
+    )
+    read = await surface_interaction_read_tool(
+        SurfaceInteractionReadParams(interaction_id=response.json()["id"]),
+        {SURFACE_STATE_CONTEXT_KEY: reader},
+    )
+    assert read["interaction"]["name"] == "event.review_selection"
+    assert read["interaction"]["status"] == "queued"
+    assert read["untrusted_input"] == {"payload": {"selectionId": hostile_value}}
+    assert reader.interaction_ids == frozenset({response.json()["id"]})
+
+    other_event = await _create_event(client, "Private University")
+    other_reader = SurfaceStateReader(
+        run_context=SimpleNamespace(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=other_event["id"],
+        ),
+        session_factory=db_session_maker,
+    )
+    with pytest.raises(ValueError, match="unavailable in this Event"):
+        await surface_interaction_read_tool(
+            SurfaceInteractionReadParams(interaction_id=response.json()["id"]),
+            {SURFACE_STATE_CONTEXT_KEY: other_reader},
+        )
+    assert other_reader.interaction_ids == frozenset()
+
+    async with db_session_maker() as session:
         run = (await session.execute(select(Run))).scalars().one()
         message = (await session.execute(select(Message))).scalars().one()
         assert hostile_value not in run.task
         assert "<trusted-surface-command>" in run.task
-        assert message.metadata_["surface_input"]["view"] == hostile_value
+        assert message.metadata_["surface_input"]["selectionId"] == hostile_value
+
+
+async def test_surface_reasoning_worker_fails_closed_then_reconciles_exact_context(
+    client,
+    db_session_maker,
+    monkeypatch,
+):
+    event = await _create_event(client, "Long-lived planning")
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["trail"],
+            "intents": {
+                "event.compare_selection": {
+                    "class": "reasoning",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "selectionIds": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                            }
+                        },
+                        "required": ["selectionIds"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        }
+    ).model_dump(mode="json", by_alias=True)
+    build_id, revision_id = await _seed_runtime(db_session_maker, event["id"], manifest)
+
+    class FakeMemory:
+        def get_final_answer(self):
+            return {
+                "final_answer": "The selected options were compared.",
+                "reasoning": "Used the accepted Event Surface interaction.",
+            }
+
+    class FakeOrchestrator:
+        tools_registry = ToolRegistry()
+        interaction_id: str | None = None
+        read_context = False
+
+        async def execute_task(self, **kwargs):
+            if self.read_context:
+                assert self.interaction_id is not None
+                await surface_interaction_read_tool(
+                    SurfaceInteractionReadParams(interaction_id=self.interaction_id),
+                    kwargs["tool_context_extra"],
+                )
+            return {
+                "success": True,
+                "steps_taken": 1,
+                "agent": SimpleNamespace(
+                    memory=FakeMemory(),
+                    context_diagnostics=None,
+                ),
+                "selected_skills": [],
+                "artifacts": (
+                    []
+                    if self.read_context
+                    else [{"kind": "file", "path": "unsafe-without-context.md"}]
+                ),
+                "plan": [],
+                "result": {"metrics": None},
+                "trace": {"execution_receipts": []},
+            }
+
+    fake = FakeOrchestrator()
+    monkeypatch.setattr(background_module, "async_session", db_session_maker)
+    monkeypatch.setattr(
+        background_module,
+        "build_orchestrator",
+        lambda **kwargs: fake,
+    )
+
+    async def queue_and_lease(key: str, selection_id: str) -> tuple[str, str]:
+        response = await client.post(
+            f"/v1/events/{event['id']}/surface/interactions",
+            json={
+                "build_id": build_id,
+                "code_revision_id": revision_id,
+                "data_revision": 0,
+                "method": "command",
+                "name": "event.compare_selection",
+                "component_id": "compare-selection",
+                "payload": {"selectionIds": [selection_id]},
+                "idempotency_key": key,
+            },
+        )
+        assert response.status_code == 202, response.text
+        run_id = response.json()["handling_run_id"]
+        async with db_session_maker() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            run.status = "running"
+            run.attempt_count = 1
+            run.lease_owner = "worker-r7"
+            run.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+            session.add(run)
+            await session.commit()
+        return response.json()["id"], run_id
+
+    failed_interaction_id, failed_run_id = await queue_and_lease(
+        "event-context-gate-failed-1",
+        "option-a",
+    )
+    fake.interaction_id = failed_interaction_id
+    await execute_claimed_run(failed_run_id, "worker-r7")
+
+    async with db_session_maker() as session:
+        failed_run = await session.get(Run, failed_run_id)
+        failed_interaction = await session.get(
+            SurfaceInteraction, failed_interaction_id
+        )
+        assert failed_run is not None and failed_interaction is not None
+        assert failed_run.status == "completed"
+        assert failed_run.success is False
+        assert failed_run.artifacts == []
+        assert (
+            failed_run.metrics["surface_interaction_context_gate"]["accepted"] is False
+        )
+        assert failed_interaction.status == "failed"
+        assert "did not read" in (failed_interaction.error or "")
+
+    completed_interaction_id, completed_run_id = await queue_and_lease(
+        "event-context-gate-completed-1",
+        "option-b",
+    )
+    fake.interaction_id = completed_interaction_id
+    fake.read_context = True
+    await execute_claimed_run(completed_run_id, "worker-r7")
+
+    async with db_session_maker() as session:
+        completed_run = await session.get(Run, completed_run_id)
+        completed_interaction = await session.get(
+            SurfaceInteraction, completed_interaction_id
+        )
+        assert completed_run is not None and completed_interaction is not None
+        assert completed_run.status == "completed"
+        assert completed_run.success is True
+        assert (
+            completed_run.metrics["surface_interaction_context_gate"]["accepted"]
+            is True
+        )
+        assert completed_interaction.status == "completed"
+        assert completed_interaction.context_read_run_id == completed_run_id
+        assert completed_interaction.context_read_at is not None
+        assert completed_interaction.outcome_message_id is not None
+        lifecycle = list(
+            (
+                await session.execute(
+                    select(EventTrailEntry).where(
+                        EventTrailEntry.run_id == completed_run_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {entry.kind for entry in lifecycle} == {
+            "surface_reasoning_requested",
+            "surface_reasoning_started",
+            "surface_reasoning_completed",
+        }
+
+    context = await client.get(
+        f"/v1/events/{event['id']}/surface/context",
+        params={"build_id": build_id},
+    )
+    assert context.status_code == 200
+    statuses = {
+        item["id"]: item["status"] for item in context.json()["data"]["interactions"]
+    }
+    assert statuses[failed_interaction_id] == "failed"
+    assert statuses[completed_interaction_id] == "completed"
+
+    resumed_interaction_id, resumed_run_id = await queue_and_lease(
+        "event-context-gate-resumed-1",
+        "option-c",
+    )
+    async with db_session_maker() as session:
+        event_row = await session.get(Event, event["id"])
+        assert event_row is not None
+    prior_worker_reader = SurfaceStateReader(
+        run_context=SimpleNamespace(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=event_row.id,
+            run_id=resumed_run_id,
+        ),
+        session_factory=db_session_maker,
+    )
+    await surface_interaction_read_tool(
+        SurfaceInteractionReadParams(interaction_id=resumed_interaction_id),
+        {SURFACE_STATE_CONTEXT_KEY: prior_worker_reader},
+    )
+    fake.read_context = False
+    fake.interaction_id = resumed_interaction_id
+    await execute_claimed_run(resumed_run_id, "worker-r7")
+
+    async with db_session_maker() as session:
+        resumed_run = await session.get(Run, resumed_run_id)
+        resumed_interaction = await session.get(
+            SurfaceInteraction, resumed_interaction_id
+        )
+        assert resumed_run is not None and resumed_interaction is not None
+        assert resumed_run.success is True
+        assert resumed_interaction.status == "completed"
+        assert resumed_run.metrics["surface_interaction_context_gate"][
+            "observed_interaction_ids"
+        ] == [resumed_interaction_id]
 
 
 async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
@@ -692,6 +951,13 @@ async def test_surface_external_action_stages_proposal_without_execution(
     assert response.status_code == 202, response.text
     assert response.json()["status"] == "waiting_approval"
     assert response.json()["proposal_id"]
+    today = (await client.get("/v1/today")).json()
+    event_summary = next(
+        item for item in today["events"] if item["event"]["id"] == event["id"]
+    )
+    assert [item["id"] for item in event_summary["needs_decision"]] == [
+        response.json()["proposal_id"]
+    ]
     async with db_session_maker() as session:
         proposal = (await session.execute(select(ActionProposal))).scalars().one()
         assert proposal.tool == "gmail_send"
@@ -714,6 +980,13 @@ async def test_surface_external_action_stages_proposal_without_execution(
     )
     assert rejected.status_code == 200
     assert repeated.status_code == 409
+    today_after_rejection = (await client.get("/v1/today")).json()
+    rejected_summary = next(
+        item
+        for item in today_after_rejection["events"]
+        if item["event"]["id"] == event["id"]
+    )
+    assert rejected_summary["needs_decision"] == []
     async with db_session_maker() as session:
         interaction = (
             (await session.execute(select(SurfaceInteraction))).scalars().one()
@@ -819,6 +1092,26 @@ async def test_surface_action_execution_reconciles_receipt_exactly_once(
         assert len(outcome_cards) == 2
         assert outcome_cards[-1].metadata_["status"] == "committed"
 
+    context = await client.get(
+        f"/v1/events/{event['id']}/surface/context",
+        params={"build_id": build_id},
+    )
+    assert context.status_code == 200
+    surface_data = context.json()["data"]
+    assert surface_data["interactions"][0]["status"] == "committed"
+    assert surface_data["proposals"][0]["status"] == "committed"
+    assert surface_data["receipts"][0]["proposal_id"] == staged.json()["proposal_id"]
+    assert surface_data["receipts"][0]["receipt"]["status"] == "succeeded"
+    assert {item["kind"] for item in surface_data["trail"]}.issuperset(
+        {"proposal_staged", "surface_action_started", "proposal_committed"}
+    )
+    today = (await client.get("/v1/today")).json()
+    event_summary = next(
+        item for item in today["events"] if item["event"]["id"] == event["id"]
+    )
+    assert event_summary["needs_decision"] == []
+    assert event_summary["changed_proposals"][0]["id"] == staged.json()["proposal_id"]
+
 
 def test_surface_manifest_and_payload_validation_fail_closed():
     schema = {
@@ -913,6 +1206,45 @@ def test_surface_command_attempt_migration_round_trip(tmp_path):
             assert "surface_command_attempts" not in set(
                 inspect(connection).get_table_names()
             )
+        finally:
+            migration.op = original_op
+    engine.dispose()
+
+
+def test_surface_context_read_receipt_migration_round_trip(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'surface-context-read.db'}")
+    metadata = sa.MetaData()
+    sa.Table(
+        "surface_interactions",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+    )
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        migration = importlib.import_module(
+            "aloy_backend.alembic.versions."
+            "j2a3b4c5d6e7_surface_interaction_context_receipts"
+        )
+        original_op = migration.op
+        migration.op = Operations(MigrationContext.configure(connection))
+        try:
+            migration.upgrade()
+            inspector = inspect(connection)
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("surface_interactions")
+            }
+            assert {"context_read_run_id", "context_read_at"} <= columns
+            indexes = {
+                index["name"] for index in inspector.get_indexes("surface_interactions")
+            }
+            assert "ix_surface_interactions_context_read_run_id" in indexes
+            migration.downgrade()
+            remaining = {
+                column["name"]
+                for column in inspect(connection).get_columns("surface_interactions")
+            }
+            assert "context_read_run_id" not in remaining
         finally:
             migration.op = original_op
     engine.dispose()

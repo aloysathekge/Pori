@@ -49,6 +49,20 @@ export interface EventRecord<T = Record<string, unknown>> {
   updated_at: string;
 }
 
+export type SurfaceInteractionStatus =
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'waiting_approval'
+  | 'approved'
+  | 'executing'
+  | 'committed'
+  | 'completed'
+  | 'rejected'
+  | 'failed'
+  | 'cancelled'
+  | 'indeterminate';
+
 export interface SurfaceInteraction {
   id: string;
   event_id: string;
@@ -57,7 +71,7 @@ export interface SurfaceInteraction {
   name: string;
   interaction_class: string;
   component_id: string;
-  status: string;
+  status: SurfaceInteractionStatus;
   handling_run_id: string | null;
   proposal_id: string | null;
   request_message_id: string | null;
@@ -66,6 +80,46 @@ export interface SurfaceInteraction {
   error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SurfaceProposal {
+  id: string;
+  event_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  reason: string;
+  impact: string;
+  risk: string;
+  routing: string;
+  status: string;
+  expires_at: string | null;
+  decided_at: string | null;
+  provider_operation_id: string | null;
+  receipt: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SurfaceReceipt {
+  proposal_id: string;
+  tool: string;
+  receipt: Record<string, unknown>;
+  status: string;
+  updated_at: string;
+}
+
+export interface SurfaceTrailEntry {
+  id: string;
+  kind: string;
+  summary: string;
+  actor_id: string | null;
+  run_id: string | null;
+  proposal_id: string | null;
+  task_id: string | null;
+  evidence_refs: Array<Record<string, unknown>>;
+  payload: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface SurfaceCommandAttempt {
@@ -103,9 +157,9 @@ export interface SurfaceContext {
     event?: Record<string, unknown>;
     tasks?: Array<Record<string, unknown>>;
     files?: Array<Record<string, unknown>>;
-    proposals?: Array<Record<string, unknown>>;
-    receipts?: Array<Record<string, unknown>>;
-    trail?: Array<Record<string, unknown>>;
+    proposals?: SurfaceProposal[];
+    receipts?: SurfaceReceipt[];
+    trail?: SurfaceTrailEntry[];
     interactions: SurfaceInteraction[];
     command_attempts?: SurfaceCommandAttempt[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
@@ -160,6 +214,7 @@ export interface SurfaceCommandFeedbackProps {
   'aria-atomic': true;
   'data-aloy-command-name': string;
   'data-aloy-command-status': SurfaceCommandStatus;
+  'data-aloy-interaction-status': SurfaceInteractionStatus | '';
 }
 
 export interface SurfaceCommandController<
@@ -170,6 +225,9 @@ export interface SurfaceCommandController<
   pending: boolean;
   result: TResult | null;
   error: SurfaceRequestError | null;
+  /** Durable host lifecycle after the command request is accepted. */
+  interaction: SurfaceInteraction | null;
+  lifecycleStatus: SurfaceInteractionStatus | null;
   execute: (input: TInput) => Promise<TResult>;
   retry: () => Promise<TResult>;
   reset: () => void;
@@ -559,8 +617,78 @@ export function useTasks(): Array<Record<string, unknown>> {
   return useSurfaceContext()?.data.tasks ?? [];
 }
 
+/** Read Proposal truth. Approval controls themselves remain host-owned. */
+export function useProposals(): SurfaceProposal[] {
+  return useSurfaceContext()?.data.proposals ?? [];
+}
+
+export function usePendingApprovals(): SurfaceProposal[] {
+  const proposals = useProposals();
+  return useMemo(
+    () => proposals.filter((proposal) => proposal.status === 'pending'),
+    [proposals],
+  );
+}
+
+/** Read receipt-backed external outcomes; absence of a receipt is not success. */
+export function useReceipts(): SurfaceReceipt[] {
+  return useSurfaceContext()?.data.receipts ?? [];
+}
+
+export function useTrail(): SurfaceTrailEntry[] {
+  return useSurfaceContext()?.data.trail ?? [];
+}
+
 export function useInteractions(): SurfaceInteraction[] {
   return useSurfaceContext()?.data.interactions ?? [];
+}
+
+/** Follow one accepted command through Run, approval, execution, and outcome. */
+export function useSurfaceInteraction(
+  interactionId: string | null | undefined,
+): SurfaceInteraction | null {
+  const interactions = useInteractions();
+  return useMemo(
+    () => interactions.find((item) => item.id === interactionId) ?? null,
+    [interactionId, interactions],
+  );
+}
+
+/** Find the newest durable interaction emitted by one generated control. */
+export function useLatestSurfaceInteraction(
+  name: string,
+  componentId?: string,
+): SurfaceInteraction | null {
+  const interactions = useInteractions();
+  return useMemo(
+    () => interactions.find(
+      (item) => item.name === name
+        && (!componentId || item.component_id === componentId),
+    ) ?? null,
+    [componentId, interactions, name],
+  );
+}
+
+export function isSurfaceInteractionTerminal(
+  status: SurfaceInteractionStatus | null | undefined,
+): boolean {
+  return status === 'committed'
+    || status === 'completed'
+    || status === 'rejected'
+    || status === 'failed'
+    || status === 'cancelled'
+    || status === 'indeterminate';
+}
+
+export function isSurfaceInteractionActive(
+  status: SurfaceInteractionStatus | null | undefined,
+): boolean {
+  return status === 'pending'
+    || status === 'queued'
+    || status === 'running'
+    || status === 'waiting_approval'
+    || status === 'approved'
+    || status === 'executing';
 }
 
 export function useCommandAttempts(): SurfaceCommandAttempt[] {
@@ -649,6 +777,17 @@ export function useSurfaceCommand<
     null,
   );
   const inFlight = useRef<Promise<TResult> | null>(null);
+  const interactions = useInteractions();
+  const resultInteractionId = (
+    result
+    && typeof result === 'object'
+    && !Array.isArray(result)
+    && typeof (result as { id?: unknown }).id === 'string'
+  ) ? (result as unknown as { id: string }).id : null;
+  const interaction = useMemo(
+    () => interactions.find((item) => item.id === resultInteractionId) ?? null,
+    [interactions, resultInteractionId],
+  );
 
   const run = useCallback(
     (input: TInput, requestId: string): Promise<TResult> => {
@@ -726,8 +865,9 @@ export function useSurfaceCommand<
       'aria-atomic': true,
       'data-aloy-command-name': name,
       'data-aloy-command-status': status,
+      'data-aloy-interaction-status': interaction?.status ?? '',
     }),
-    [name, status],
+    [interaction?.status, name, status],
   );
 
   return {
@@ -735,6 +875,8 @@ export function useSurfaceCommand<
     pending: status === 'pending',
     result,
     error,
+    interaction,
+    lifecycleStatus: interaction?.status ?? null,
     execute,
     retry,
     reset,

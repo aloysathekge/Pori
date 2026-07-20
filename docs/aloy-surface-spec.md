@@ -110,6 +110,9 @@ user interaction
 
 Examples include selecting a hotel, reporting an assignment submitted,
 requesting a study plan, shortlisting a company, or approving an action.
+For work that outlives the request acknowledgement, the Surface follows the
+accepted interaction record from queued or approval state to its terminal Run
+outcome or receipt. It does not infer completion from local React state.
 
 ### 4.2 Slower code-evolution loop
 
@@ -177,6 +180,11 @@ V1 SDK capabilities should cover:
 - Event metadata and namespaced Surface data;
 - tenant-scoped Tasks, artifacts, Proposals, receipts, and selected Trail data;
 - reactive subscriptions to Event data revisions;
+- `useSurfaceInteraction(id)` and controller lifecycle state for a command's
+  host-owned Run, Proposal, execution, and terminal outcome;
+- typed `useProposals()`, `usePendingApprovals()`, `useReceipts()`, and
+  `useTrail()` projections; generated code may explain these records but never
+  owns approval or execution controls;
 - structured `dispatch(name, payload)` intents;
 - `askAloy(message, context)` for an explicit model turn;
 - `requestAction(action)` for host-validated consequential intent;
@@ -200,6 +208,22 @@ host validates the declared schema and current tenant/Event before persistence.
 The model must not be invoked for every mouse movement or presentation-only
 interaction. Meaningful user choices must not disappear into iframe-local
 state.
+
+When a reasoning interaction wakes Aloy, the trusted Run envelope contains the
+interaction ID and canonical snapshot identity but not a model-trusted copy of
+the generated UI payload. Aloy must call `surface_interaction_read` with that
+ID. The tool re-authorizes tenant, user, and Event scope, returns the exact
+accepted interaction, and labels its payload `untrusted_input`. Canonical
+mutable state is read separately. This preserves both useful selection context
+and the prompt-injection boundary.
+
+Successful resolution writes a durable, Run-bound context-read receipt on the
+interaction. Worker completion fails closed unless the receipt matches the
+originating interaction and Run. The completion gate reads the durable receipt
+as well as current-process instrumentation so safe checkpoint resume works
+across worker crashes. A model answer without that proof becomes a failed
+interaction with retry guidance and cannot publish artifacts as if it used the
+selection.
 
 ## 7. Truth, evidence, and consequences
 
