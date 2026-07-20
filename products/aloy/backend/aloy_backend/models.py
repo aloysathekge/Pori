@@ -528,6 +528,14 @@ class SurfaceInteraction(SQLModel, table=True):
     result_data_revision: int | None = Field(default=None, index=True)
     status: str = Field(index=True)
     handling_run_id: str | None = Field(default=None, index=True)
+    # Durable proof that the originating Run re-authorized and read this exact
+    # interaction. This survives worker/process loss between the tool call and
+    # terminal completion-gate evaluation.
+    context_read_run_id: str | None = Field(default=None, index=True)
+    context_read_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
     proposal_id: str | None = Field(default=None, index=True)
     request_message_id: str | None = Field(default=None, index=True)
     outcome_message_id: str | None = Field(default=None, index=True)

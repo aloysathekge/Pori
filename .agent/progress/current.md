@@ -2,11 +2,14 @@
 
 ## Active Task
 
-R6 sourced-research architecture is merged. R7 is active on
-`aloy-v1-r7-event-operating-loop`: complete the domain-neutral path from a
-validated Surface command to exact Event-scoped interaction context, visible
-Run/Proposal lifecycle, and a reconciled reasoning outcome or receipt. Live
-model acceptance remains deferred while provider credits are unavailable.
+R6 sourced-research architecture is merged. R7's deterministic implementation
+is complete on `aloy-v1-r7-event-operating-loop`: exact Event-scoped interaction
+reads, a durable resume-safe context receipt, fail-closed reasoning completion,
+reactive Run/Proposal lifecycle, Today approval visibility, and receipt
+reconciliation. The focused worker/Proposal/Surface regression suite passes 57
+tests, backend typing and formatting are clean, and the Surface SDK builds. Live
+University, Madrid, and Career model acceptance remains deferred while provider
+credits are unavailable.
 
 ## Decisions Made
 
@@ -35,6 +38,9 @@ model acceptance remains deferred while provider credits are unavailable.
   judgment, not a keyword trigger or separate classifier call.
 - A trusted Surface wake carries an interaction ID. Aloy resolves it through an
   Event-scoped tool; generated-UI payload remains explicitly untrusted input.
+- Surface-triggered Run success is host-gated by a durable proof that the exact
+  originating interaction was read. The proof survives worker/process loss;
+  an ungrounded answer fails and its artifacts are discarded.
 - Surface request acknowledgement and durable work lifecycle are separate.
   Generated UI must follow host truth through Run, approval, execution, and a
   terminal outcome rather than claiming success from `accepted`.
@@ -467,10 +473,10 @@ model acceptance remains deferred while provider credits are unavailable.
 
 ## Next Session Should Start With
 
-Finish R7's generic operating-loop gate: verify exact Surface interaction reads,
-reactive SDK lifecycle feedback, canonical reasoning reconciliation, and the
-existing approval/executor/receipt path together. Keep `source_change` and
-`automation` fail-closed until their separately governed Builder and Schedule
-contracts are delivered. When provider access returns, run the same acceptance
-matrix through University, Madrid, and Career Surfaces without patching any
-individual generated application.
+Review, commit, and merge the completed deterministic R7 operating-loop changes
+into `aloy-v1`. Keep `source_change` and `automation` fail-closed until their
+separately governed Builder and Schedule contracts are delivered. When provider
+access returns, run the same acceptance matrix through University, Madrid, and
+Career Surfaces without patching any individual generated application. Then
+begin R8's crash-window, watchdog, budget, context-longevity, responsive, and
+release gates.

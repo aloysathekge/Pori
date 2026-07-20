@@ -37,7 +37,7 @@ def _action_label(tool: str) -> str:
     return tool.replace("_", " ").strip().capitalize() or "External action"
 
 
-async def _interaction_for_run(
+async def surface_interaction_for_run(
     session: AsyncSession, run_id: str
 ) -> SurfaceInteraction | None:
     return (
@@ -122,7 +122,7 @@ async def stage_surface_action_message(
 
 async def mark_surface_run_started(session: AsyncSession, *, run: Run) -> bool:
     """Move a queued Surface reasoning request to running exactly once."""
-    interaction = await _interaction_for_run(session, run.id)
+    interaction = await surface_interaction_for_run(session, run.id)
     if interaction is None or interaction.status != "queued":
         return False
     now = _utcnow()
@@ -171,7 +171,7 @@ async def reconcile_surface_run(
     status = _run_interaction_status(run)
     if status is None:
         return None
-    interaction = await _interaction_for_run(session, run.id)
+    interaction = await surface_interaction_for_run(session, run.id)
     if interaction is None:
         return None
     if interaction.status in RUN_TERMINAL_STATUSES:
@@ -371,4 +371,5 @@ __all__ = [
     "reconcile_surface_proposal",
     "reconcile_surface_run",
     "stage_surface_action_message",
+    "surface_interaction_for_run",
 ]

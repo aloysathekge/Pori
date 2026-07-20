@@ -182,6 +182,9 @@ V1 SDK capabilities should cover:
 - reactive subscriptions to Event data revisions;
 - `useSurfaceInteraction(id)` and controller lifecycle state for a command's
   host-owned Run, Proposal, execution, and terminal outcome;
+- typed `useProposals()`, `usePendingApprovals()`, `useReceipts()`, and
+  `useTrail()` projections; generated code may explain these records but never
+  owns approval or execution controls;
 - structured `dispatch(name, payload)` intents;
 - `askAloy(message, context)` for an explicit model turn;
 - `requestAction(action)` for host-validated consequential intent;
@@ -213,6 +216,14 @@ ID. The tool re-authorizes tenant, user, and Event scope, returns the exact
 accepted interaction, and labels its payload `untrusted_input`. Canonical
 mutable state is read separately. This preserves both useful selection context
 and the prompt-injection boundary.
+
+Successful resolution writes a durable, Run-bound context-read receipt on the
+interaction. Worker completion fails closed unless the receipt matches the
+originating interaction and Run. The completion gate reads the durable receipt
+as well as current-process instrumentation so safe checkpoint resume works
+across worker crashes. A model answer without that proof becomes a failed
+interaction with retry guidance and cannot publish artifacts as if it used the
+selection.
 
 ## 7. Truth, evidence, and consequences
 

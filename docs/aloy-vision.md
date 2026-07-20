@@ -491,6 +491,13 @@ other Event tools. This lets a control say “compare these hotels” or “prep
 this application” without copying arbitrary generated-UI text into the system
 prompt or forcing the user to repeat their selection in Conversation.
 
+The host records a durable context-read receipt on the interaction when the
+originating Run resolves it. A Surface-triggered Run cannot finish successfully
+unless that exact receipt exists. The receipt survives worker loss, so a
+resumed Run does not have to guess or falsely fail after an earlier process
+already loaded the interaction. Text generation alone never satisfies this
+gate.
+
 This is the reusable Event operating loop, not Career, University, or travel
 logic: Surface intent → trusted host validation → canonical state, Run, or
 Proposal → visible lifecycle → receipt or reasoning outcome → refreshed

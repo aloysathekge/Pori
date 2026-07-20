@@ -82,6 +82,46 @@ export interface SurfaceInteraction {
   updated_at: string;
 }
 
+export interface SurfaceProposal {
+  id: string;
+  event_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  reason: string;
+  impact: string;
+  risk: string;
+  routing: string;
+  status: string;
+  expires_at: string | null;
+  decided_at: string | null;
+  provider_operation_id: string | null;
+  receipt: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SurfaceReceipt {
+  proposal_id: string;
+  tool: string;
+  receipt: Record<string, unknown>;
+  status: string;
+  updated_at: string;
+}
+
+export interface SurfaceTrailEntry {
+  id: string;
+  kind: string;
+  summary: string;
+  actor_id: string | null;
+  run_id: string | null;
+  proposal_id: string | null;
+  task_id: string | null;
+  evidence_refs: Array<Record<string, unknown>>;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface SurfaceCommandAttempt {
   id: string;
   event_id: string;
@@ -117,9 +157,9 @@ export interface SurfaceContext {
     event?: Record<string, unknown>;
     tasks?: Array<Record<string, unknown>>;
     files?: Array<Record<string, unknown>>;
-    proposals?: Array<Record<string, unknown>>;
-    receipts?: Array<Record<string, unknown>>;
-    trail?: Array<Record<string, unknown>>;
+    proposals?: SurfaceProposal[];
+    receipts?: SurfaceReceipt[];
+    trail?: SurfaceTrailEntry[];
     interactions: SurfaceInteraction[];
     command_attempts?: SurfaceCommandAttempt[];
     surface?: Record<string, Array<SurfaceDataRecord>>;
@@ -577,6 +617,28 @@ export function useTasks(): Array<Record<string, unknown>> {
   return useSurfaceContext()?.data.tasks ?? [];
 }
 
+/** Read Proposal truth. Approval controls themselves remain host-owned. */
+export function useProposals(): SurfaceProposal[] {
+  return useSurfaceContext()?.data.proposals ?? [];
+}
+
+export function usePendingApprovals(): SurfaceProposal[] {
+  const proposals = useProposals();
+  return useMemo(
+    () => proposals.filter((proposal) => proposal.status === 'pending'),
+    [proposals],
+  );
+}
+
+/** Read receipt-backed external outcomes; absence of a receipt is not success. */
+export function useReceipts(): SurfaceReceipt[] {
+  return useSurfaceContext()?.data.receipts ?? [];
+}
+
+export function useTrail(): SurfaceTrailEntry[] {
+  return useSurfaceContext()?.data.trail ?? [];
+}
+
 export function useInteractions(): SurfaceInteraction[] {
   return useSurfaceContext()?.data.interactions ?? [];
 }
@@ -605,6 +667,28 @@ export function useLatestSurfaceInteraction(
     ) ?? null,
     [componentId, interactions, name],
   );
+}
+
+export function isSurfaceInteractionTerminal(
+  status: SurfaceInteractionStatus | null | undefined,
+): boolean {
+  return status === 'committed'
+    || status === 'completed'
+    || status === 'rejected'
+    || status === 'failed'
+    || status === 'cancelled'
+    || status === 'indeterminate';
+}
+
+export function isSurfaceInteractionActive(
+  status: SurfaceInteractionStatus | null | undefined,
+): boolean {
+  return status === 'pending'
+    || status === 'queued'
+    || status === 'running'
+    || status === 'waiting_approval'
+    || status === 'approved'
+    || status === 'executing';
 }
 
 export function useCommandAttempts(): SurfaceCommandAttempt[] {

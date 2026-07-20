@@ -51,11 +51,16 @@ from .schedule_runtime import (
 )
 from .skills import load_skill_catalog
 from .surface_builder import execute_claimed_surface_builder
-from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
+from .surface_lifecycle import (
+    mark_surface_run_started,
+    reconcile_surface_run,
+    surface_interaction_for_run,
+)
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
     SurfaceRequestHandler,
 )
+from .surface_run_gate import evaluate_surface_interaction_context
 from .task_execution import (
     DurableClarificationRecorder,
     add_task_lifecycle_message,
@@ -272,9 +277,15 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         clarification_recorder = DurableClarificationRecorder() if run.task_id else None
         evidence_recorder: EventEvidenceRecorder | None = None
         event_record_handler: EventRecordHandler | None = None
+        surface_state_reader: SurfaceStateReader | None = None
+        required_surface_interaction_id: str | None = None
+        surface_gate_error: str | None = None
         conversation: Conversation | None = None
 
         try:
+            surface_interaction = await surface_interaction_for_run(session, run.id)
+            if surface_interaction is not None:
+                required_surface_interaction_id = surface_interaction.id
             if await mark_surface_run_started(session, run=run):
                 # Surface reasoning has its own semantic start transition so
                 # Event SSE can refresh generated UI while the Run works.
@@ -426,16 +437,17 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     task_id=run.task_id,
                     session_factory=async_session,
                 )
+                surface_state_reader = SurfaceStateReader(
+                    run_context=run_context,
+                    session_factory=async_session,
+                )
                 tool_context = {
                     **surface.tool_context_extra,
                     "task_mutator": TaskMutationHandler(
                         run_context=run_context,
                         session_factory=async_session,
                     ),
-                    SURFACE_STATE_CONTEXT_KEY: SurfaceStateReader(
-                        run_context=run_context,
-                        session_factory=async_session,
-                    ),
+                    SURFACE_STATE_CONTEXT_KEY: surface_state_reader,
                     "web_evidence_recorder": evidence_recorder,
                     "web_page_reader": EventWebPageReader(),
                     EVENT_RECORD_HANDLER_CONTEXT_KEY: event_record_handler,
@@ -536,6 +548,48 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.prompt_fingerprint = trace_data.get("prompt_fingerprint")
             run.tool_surface_fingerprint = trace_data.get("tool_surface_fingerprint")
             run.execution_receipts = trace_data.get("execution_receipts") or []
+            if required_surface_interaction_id and not run.cancel_requested:
+                observed_interaction_ids = set(
+                    surface_state_reader.interaction_ids
+                    if surface_state_reader is not None
+                    else ()
+                )
+                # The reader also persists proof on the interaction. A fresh
+                # session makes a resumed worker see a successful read from a
+                # prior process even when all in-memory instrumentation is gone.
+                async with async_session() as read_session:
+                    durable_interaction = await surface_interaction_for_run(
+                        read_session, run.id
+                    )
+                    if (
+                        durable_interaction is not None
+                        and durable_interaction.context_read_run_id == run.id
+                    ):
+                        observed_interaction_ids.add(durable_interaction.id)
+                surface_gate = evaluate_surface_interaction_context(
+                    required_interaction_id=required_surface_interaction_id,
+                    observed_interaction_ids=observed_interaction_ids,
+                )
+                gate_receipt = surface_gate.receipt()
+                run.execution_receipts = [
+                    *(run.execution_receipts or []),
+                    gate_receipt,
+                ]
+                run.metrics = run.metrics if isinstance(run.metrics, dict) else {}
+                run.metrics["surface_interaction_context_gate"] = gate_receipt
+                if not surface_gate.accepted:
+                    surface_gate_error = surface_gate.errors[0]
+                    run.success = False
+                    run.artifacts = []
+                    run.final_answer = (
+                        "Aloy could not safely load the selection from this "
+                        "Surface. Please retry the action."
+                    )
+                    run.reasoning = surface_gate_error
+                    final = {
+                        "final_answer": run.final_answer,
+                        "reasoning": run.reasoning,
+                    }
             if run.artifacts:
                 store_run_artifacts(
                     session,
@@ -719,6 +773,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 session,
                 run=run,
                 outcome_message=surface_outcome_message,
+                error=surface_gate_error,
             )
             await record_schedule_terminal_trail(session, run=run)
 

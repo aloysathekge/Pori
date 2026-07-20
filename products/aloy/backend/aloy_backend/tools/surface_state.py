@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,6 +47,12 @@ class SurfaceStateReader:
         self._run_context = run_context
         self._session_factory = session_factory
         self._owner_loop = owner_loop
+        self._interaction_ids: set[str] = set()
+
+    @property
+    def interaction_ids(self) -> frozenset[str]:
+        """Interaction ids successfully re-authorized and returned this Run."""
+        return frozenset(self._interaction_ids)
 
     async def _read(self, params: SurfaceStateReadParams) -> dict[str, Any]:
         if not self._run_context.event_id:
@@ -91,6 +98,14 @@ class SurfaceStateReader:
             )
             if interaction is None:
                 raise ValueError("Surface interaction is unavailable in this Event")
+            run_id = getattr(self._run_context, "run_id", None)
+            if run_id and interaction.handling_run_id == run_id:
+                if interaction.context_read_run_id != run_id:
+                    interaction.context_read_run_id = run_id
+                    interaction.context_read_at = datetime.now(timezone.utc)
+                    session.add(interaction)
+                    await session.commit()
+            self._interaction_ids.add(interaction.id)
             return {
                 "event_id": interaction.event_id,
                 "interaction": {

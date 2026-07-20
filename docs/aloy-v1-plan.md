@@ -631,6 +631,9 @@ Gate:
 
 - a Surface reasoning command can retrieve its exact validated payload only
   inside its tenant, user, and Event scope;
+- a Surface-triggered Run cannot succeed or retain artifacts unless its durable
+  receipt proves that it read the exact originating interaction; that proof
+  survives worker restart and checkpoint resume;
 - generated UI follows the accepted interaction beyond the initial request and
   never presents `accepted` as `completed`;
 - a state-only command persists once without waking a model;
