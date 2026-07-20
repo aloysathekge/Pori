@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from .models import ActionProposal, Conversation, Event, Message, Run, Task
+from .run_budgets import resolve_run_budget
 from .run_profiles import SOURCED_RESEARCH_RUN_PROFILE
 from .task_state import mutate_task
 from .tenancy import OrganizationContext
@@ -164,18 +165,6 @@ async def _active_current_run(
     return None
 
 
-def _bounded_run_settings(task: Task, context: OrganizationContext) -> tuple[int, int]:
-    budget = task.budget_policy or {}
-    requested_steps = int(budget.get("max_steps") or context.policy.max_steps_per_run)
-    requested_timeout = int(
-        budget.get("timeout_seconds") or context.policy.run_timeout_seconds
-    )
-    return (
-        min(requested_steps, context.policy.max_steps_per_run),
-        min(requested_timeout, context.policy.run_timeout_seconds),
-    )
-
-
 async def _transition_to_queued(
     session: AsyncSession,
     *,
@@ -227,7 +216,7 @@ async def queue_task_run(
         raise TaskExecutionError("Event is archived")
 
     conversation = await _selected_conversation(session, event=event, task=task)
-    max_steps, timeout_seconds = _bounded_run_settings(task, context)
+    budget = resolve_run_budget(context.policy, task.budget_policy or {})
 
     if control == "resume":
         run = (
@@ -281,8 +270,11 @@ async def queue_task_run(
         run.lease_owner = None
         run.lease_expires_at = None
         run.attempt_count = 0
-        run.max_steps = max_steps
-        run.timeout_seconds = timeout_seconds
+        run.max_steps = budget.max_steps
+        run.max_tool_calls = budget.max_tool_calls
+        run.max_tokens = budget.max_tokens
+        run.max_cost_usd = budget.max_cost_usd
+        run.timeout_seconds = budget.timeout_seconds
         session.add(run)
     else:
         if control == "retry" and task.status == "cancelled":
@@ -308,9 +300,12 @@ async def queue_task_run(
             session_id=conversation.id,
             conversation_id=conversation.id,
             task=assemble_task_instructions(event, task),
-            max_steps=max_steps,
+            max_steps=budget.max_steps,
+            max_tool_calls=budget.max_tool_calls,
+            max_tokens=budget.max_tokens,
+            max_cost_usd=budget.max_cost_usd,
             max_attempts=context.policy.max_attempts,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=budget.timeout_seconds,
             status="pending",
             run_profile=(
                 SOURCED_RESEARCH_RUN_PROFILE.descriptor()

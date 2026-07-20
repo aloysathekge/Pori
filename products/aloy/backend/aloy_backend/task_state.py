@@ -35,6 +35,7 @@ class TaskBudgetPolicy(BaseModel):
     max_steps: int | None = Field(default=None, ge=1, le=10_000)
     timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
     max_tool_calls: int | None = Field(default=None, ge=1, le=10_000)
+    max_tokens: int | None = Field(default=None, ge=1)
     max_cost_usd: float | None = Field(default=None, ge=0, le=10_000)
 
 

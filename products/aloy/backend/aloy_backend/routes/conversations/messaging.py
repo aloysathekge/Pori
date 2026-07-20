@@ -52,6 +52,7 @@ from ...provisioning import (
     uploads_task_block,
 )
 from ...rate_limit import rate_limited_permission
+from ...run_budgets import RunBudgetLimits, resolve_run_budget
 from ...run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ...run_surface import resolve_run_surface
 from ...runtime import authenticated_run_context
@@ -77,6 +78,28 @@ from ._helpers import _load_conv, _maybe_generate_title, _render_file_block
 logger = logging.getLogger("aloy_backend")
 
 router = APIRouter()
+
+
+def _conversation_budget(
+    context: OrganizationContext,
+    *,
+    max_steps: int,
+) -> RunBudgetLimits:
+    return resolve_run_budget(
+        context.policy,
+        {"max_steps": max_steps},
+        default_max_steps=max_steps,
+    )
+
+
+def _budget_context_kwargs(budget: RunBudgetLimits) -> dict[str, Any]:
+    return {
+        "max_steps": budget.max_steps,
+        "max_tool_calls": budget.max_tool_calls,
+        "max_tokens": budget.max_tokens,
+        "max_cost_usd": budget.max_cost_usd,
+        "max_duration_seconds": float(budget.timeout_seconds),
+    }
 
 
 # ---- helpers shared by streaming and non-streaming paths ----
@@ -262,6 +285,7 @@ async def _enqueue_durable_run(
     requested_steps = (
         team_config.max_delegation_steps if team_config is not None else req.max_steps
     )
+    budget = _conversation_budget(context, max_steps=requested_steps)
     run = Run(
         organization_id=context.organization_id,
         user_id=context.user_id,
@@ -275,9 +299,12 @@ async def _enqueue_durable_run(
         conversation_id=conv.id,
         team_config_id=team_config.id if team_config is not None else None,
         task=task_content,
-        max_steps=min(requested_steps, context.policy.max_steps_per_run),
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
         max_attempts=context.policy.max_attempts,
-        timeout_seconds=context.policy.run_timeout_seconds,
+        timeout_seconds=budget.timeout_seconds,
         status="pending",
     )
     session.add(run)
@@ -305,6 +332,10 @@ async def _run_team_inline(
     if not team_config or team_config.organization_id != context.organization_id:
         raise HTTPException(status_code=404, detail="Team config not found")
 
+    budget = _conversation_budget(
+        context,
+        max_steps=team_config.max_delegation_steps,
+    )
     team_context = authenticated_run_context(
         user_id=context.user_id,
         organization_id=context.organization_id,
@@ -314,10 +345,7 @@ async def _run_team_inline(
         workspace_id=conv.event_id,
         agent_id=f"team:{team_config.id}",
         permissions=context.permissions,
-        max_steps=min(
-            team_config.max_delegation_steps,
-            context.policy.max_steps_per_run,
-        ),
+        **_budget_context_kwargs(budget),
         isolation_profile="shared-process",
     )
     team = build_team_from_config(
@@ -582,6 +610,7 @@ def _stream_response(
     """Streaming mode: run the agent behind an SSE frame generator; all
     persistence funnels through the ``StreamPersister`` finalizer."""
     memory, task_content, resume_task_id, orchestrator, agent_settings, surface = setup
+    budget = _conversation_budget(context, max_steps=agent_settings.max_steps)
     stream_context = authenticated_run_context(
         user_id=context.user_id,
         organization_id=context.organization_id,
@@ -590,7 +619,7 @@ def _stream_response(
         event_id=conv.event_id,
         workspace_id=conv.event_id,
         agent_id=conv.agent_config_id or "default_agent",
-        max_steps=agent_settings.max_steps,
+        **_budget_context_kwargs(budget),
         permissions=context.permissions,
         isolation_profile="shared-process",
     )
@@ -678,6 +707,7 @@ async def _run_blocking(
     error message), and return the assistant message."""
     memory, task_content, _, orchestrator, agent_settings, surface = setup
     try:
+        budget = _conversation_budget(context, max_steps=agent_settings.max_steps)
         run_context = authenticated_run_context(
             user_id=context.user_id,
             organization_id=context.organization_id,
@@ -686,7 +716,7 @@ async def _run_blocking(
             event_id=conv.event_id,
             workspace_id=conv.event_id,
             agent_id=conv.agent_config_id or "default_agent",
-            max_steps=agent_settings.max_steps,
+            **_budget_context_kwargs(budget),
             permissions=context.permissions,
             isolation_profile="shared-process",
         )

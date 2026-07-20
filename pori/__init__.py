@@ -155,6 +155,7 @@ from .providers import (
 )
 from .retrieval import RetrievalEvidence, fuse_retrieval
 from .runtime import (
+    BUDGET_EXHAUSTION_CODES,
     BudgetExceeded,
     BudgetLedger,
     CancellationToken,
@@ -267,6 +268,7 @@ __all__ = [
     "RetrievalEvaluation",
     "evaluate_retrieval",
     # Runtime contracts
+    "BUDGET_EXHAUSTION_CODES",
     "ExecutionBudget",
     "BudgetExceeded",
     "BudgetLedger",

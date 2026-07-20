@@ -2,6 +2,7 @@
 
 from .anthropic import ChatAnthropic
 from .base import BaseChatModel
+from .budgeted import BudgetedChatModel, ensure_budgeted_chat_model
 from .fireworks import ChatFireworks
 from .google import ChatGoogle
 from .messages import (
@@ -50,6 +51,8 @@ __all__ = [
     "content_text",
     "normalize_usage",
     "BaseChatModel",
+    "BudgetedChatModel",
+    "ensure_budgeted_chat_model",
     "ChatAnthropic",
     "ChatFireworks",
     "ChatGoogle",

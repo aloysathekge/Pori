@@ -92,6 +92,22 @@ def make_usage_record(
     if not metrics or not isinstance(metrics, dict):
         return None
     tokens = metrics.get("tokens") or {}
+    budget_usage = metrics.get("budget_usage") or {}
+    input_tokens = max(
+        int(tokens.get("input", 0)),
+        int(budget_usage.get("input_tokens_used", 0)),
+    )
+    output_tokens = max(
+        int(tokens.get("output", 0)),
+        int(budget_usage.get("output_tokens_used", 0)),
+    )
+    total_tokens = max(
+        int(tokens.get("total", 0)),
+        int(budget_usage.get("tokens_used", 0)),
+        input_tokens + output_tokens,
+    )
+    metric_cost = float((metrics.get("cost_usd") or "$0").replace("$", "") or 0)
+    budget_cost = float(budget_usage.get("cost_used_usd") or 0)
     return UsageRecord(
         organization_id=organization_id,
         user_id=user_id,
@@ -99,10 +115,10 @@ def make_usage_record(
         conversation_id=conversation_id,
         provider=(metrics.get("model") or "").split("/")[0],
         model=(metrics.get("model") or "").split("/")[-1],
-        input_tokens=int(tokens.get("input", 0)),
-        output_tokens=int(tokens.get("output", 0)),
-        total_tokens=int(tokens.get("total", 0)),
-        estimated_cost=float((metrics.get("cost_usd") or "$0").replace("$", "") or 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        estimated_cost=max(metric_cost, budget_cost),
     )
 
 
@@ -421,6 +437,11 @@ async def persist_run_outcome(
     agent_id = outcome.agent_id or conv.agent_config_id or "default_agent"
     org_id = outcome.organization_id or context.organization_id
     trace = outcome.trace if isinstance(outcome.trace, dict) else None
+    budget_usage = (
+        (outcome.metrics or {}).get("budget_usage")
+        if isinstance(outcome.metrics, dict)
+        else {}
+    ) or {}
 
     # Extraction OUT before the message row is built, so the artifact entries
     # persisted into metadata already carry their file_id pointers.
@@ -460,6 +481,10 @@ async def persist_run_outcome(
         conversation_id=conv.id,
         task=outcome.task,
         max_steps=0,
+        max_tool_calls=int(budget_usage.get("max_tool_calls") or 100),
+        max_tokens=budget_usage.get("max_tokens"),
+        max_cost_usd=budget_usage.get("max_cost_usd"),
+        timeout_seconds=int(budget_usage.get("max_duration_seconds") or 900),
         status=(
             "cancelled"
             if outcome.stopped

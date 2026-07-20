@@ -68,6 +68,9 @@ class OrganizationPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_steps_per_run: int = Field(default=50, ge=1, le=10_000)
+    max_tool_calls_per_run: int = Field(default=100, ge=1, le=10_000)
+    max_tokens_per_run: int | None = Field(default=None, ge=1)
+    max_cost_usd_per_run: float | None = Field(default=None, ge=0, le=10_000)
     max_concurrent_runs: int = Field(default=5, ge=1, le=1_000)
     max_attempts: int = Field(default=3, ge=1, le=20)
     max_child_runs_per_run: int = Field(default=10, ge=0, le=1_000)

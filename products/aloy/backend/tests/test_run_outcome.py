@@ -19,7 +19,11 @@ from aloy_backend.models import (
     TraceRecord,
     UsageRecord,
 )
-from aloy_backend.run_outcome import build_run_outcome, persist_run_outcome
+from aloy_backend.run_outcome import (
+    build_run_outcome,
+    make_usage_record,
+    persist_run_outcome,
+)
 from aloy_backend.tenancy import OrganizationContext, OrganizationPolicy
 from aloy_backend.worker import claim_next_run
 from pori import AgentMemory
@@ -85,6 +89,31 @@ async def _make_conv(session) -> Conversation:
 
 
 class TestFinalizer:
+    async def test_usage_prefers_complete_budget_metering(self):
+        usage = make_usage_record(
+            organization_id=ORG,
+            user_id=USER,
+            run_id="run-budget-usage",
+            conversation_id=None,
+            metrics={
+                "model": "openai/gpt-4o-mini",
+                "tokens": {"input": 10, "output": 5, "total": 15},
+                "cost_usd": "$0.0001",
+                "budget_usage": {
+                    "input_tokens_used": 30,
+                    "output_tokens_used": 20,
+                    "tokens_used": 50,
+                    "cost_used_usd": 0.0002,
+                },
+            },
+        )
+
+        assert usage is not None
+        assert usage.input_tokens == 30
+        assert usage.output_tokens == 20
+        assert usage.total_tokens == 50
+        assert usage.estimated_cost == 0.0002
+
     async def test_persists_the_full_row_set(self, db_session_maker):
         async with db_session_maker() as session:
             conv = await _make_conv(session)

@@ -24,6 +24,7 @@ from .proposal_executor import (
     expire_due_proposals,
     reconcile_stale_executions,
 )
+from .run_budgets import resolve_run_budget
 from .run_watchdog import reconcile_orphaned_tasks, reconcile_stale_runs
 from .tenancy import OrganizationPolicy
 
@@ -110,7 +111,6 @@ async def claim_next_run(worker_id: str) -> str | None:
                     .select_from(Run)
                     .where(
                         Run.organization_id == candidate.organization_id,
-                        Run.user_id == candidate.user_id,
                         Run.id != candidate.id,
                         Run.status == "running",
                         active_lease,
@@ -119,6 +119,25 @@ async def claim_next_run(worker_id: str) -> str | None:
             ).scalar_one()
             if active_account >= account_cap:
                 continue
+
+            # Every producer can only narrow these values. Re-clamp at the
+            # worker admission boundary so legacy, gateway, Schedule, and
+            # specialist rows cannot bypass a newer organization policy.
+            budget = resolve_run_budget(
+                policy,
+                {
+                    "max_steps": candidate.max_steps,
+                    "max_tool_calls": candidate.max_tool_calls,
+                    "max_tokens": candidate.max_tokens,
+                    "max_cost_usd": candidate.max_cost_usd,
+                    "timeout_seconds": candidate.timeout_seconds,
+                },
+            )
+            candidate.max_steps = budget.max_steps
+            candidate.max_tool_calls = budget.max_tool_calls
+            candidate.max_tokens = budget.max_tokens
+            candidate.max_cost_usd = budget.max_cost_usd
+            candidate.timeout_seconds = budget.timeout_seconds
 
             if candidate.conversation_id:
                 active_conversation = (
@@ -170,6 +189,13 @@ async def claim_next_run(worker_id: str) -> str | None:
         run.status = "running"
         run.attempt_count += 1
         run.lease_owner = worker_id
+        run.progress = {
+            **(run.progress or {}),
+            # Queue time and time waiting on a user are not execution. Each
+            # worker claim starts a fresh active interval while preserving the
+            # cumulative usage checkpoint from prior attempts.
+            "budget_attempt_started_at": now.isoformat(),
+        }
         lease_seconds = max(settings.worker_lease_seconds, run.timeout_seconds + 30)
         run.lease_expires_at = now + timedelta(seconds=lease_seconds)
         run.started_at = run.started_at or now

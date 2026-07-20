@@ -659,6 +659,26 @@ missing, mismatched, or already terminal is repaired from host truth. Stale
 provider executions remain `indeterminate` and are never submitted again
 blindly.
 
+**Second reliability slice implemented:** every Run producer resolves and
+freezes host-owned step, tool-call, token, cost, and active-duration ceilings
+before queueing; the worker re-clamps them under an organization row lock before
+claiming. A single kernel budget ledger follows an ordinary Agent, every hidden
+model call, Team coordination, members, and nested Teams, and restores its
+usage after checkpoint resume. Active duration excludes time pending in the
+queue or waiting on a user. Event bootstrap and Surface Builder specialist Runs
+use the same contract. Exhaustion is terminal and non-retryable, with durable
+usage, receipt, and Trail evidence; a failed Surface build retains the last
+working publication. Unknown model pricing fails closed whenever a cost ceiling
+is configured.
+
+Token and cost truth arrives after provider calls complete, so one call, or
+already in-flight parallel Team calls, can cross a ceiling; Aloy records the
+actual overage and permits no new model or tool action. Exact pre-call spend
+guarantees require a governed price catalog, conservative concurrent
+reservations, and provider output limits derived from the remaining budget.
+Those provider controls are a release-hardening follow-up, not a reason to
+undercount actual usage.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

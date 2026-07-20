@@ -3,15 +3,19 @@
 ## Active Task
 
 R7's generic Event operating loop is merged through PR #197. R8 is active on
-`aloy-v1-r8-release-gate`. Its first reliability slice adds bounded Run and Task
-watchdogs: recoverable expired Runs resume from their checkpoint with Trail
-evidence, exhausted or cancelled leases terminalize exactly once, orphaned Task
-state converges to a retryable/accurate status, and protected external actions
-remain on the existing no-blind-retry indeterminate path. The focused recovery,
-worker, Proposal, and Task suite passes 31 tests; backend mypy passes across 121
-source files and changed-file formatting/lint are clean. Live University,
-Madrid, and Career model acceptance remains deferred while provider credits are
-unavailable.
+`aloy-v1-r8-release-gate`. The first reliability slice is committed at
+`2f20691`; it adds bounded Run and Task watchdog recovery. The second slice is
+implemented and uncommitted: every Run now freezes organization-owned step,
+tool-call, token, cost, and active-duration limits; worker admission re-clamps
+them; one durable ledger meters every Agent/Team/model/tool path across retry;
+and ordinary, Event bootstrap, and Surface Builder exhaustion produces a
+terminal receipt and Trail record without another retry. Full kernel tests pass
+(`624 passed, 1 skipped`). The complete backend suite is covered in stable
+groups: `314` unaffected non-Surface tests passed before one outdated fake-Agent
+fixture failed, its corrected recovery group passes `15`, and all `77` Surface
+tests pass. Kernel mypy passes across `110` files, backend mypy across `122`, and
+app lint/build pass. Live University, Madrid, and Career model acceptance
+remains deferred while provider credits are unavailable.
 
 ## Decisions Made
 
@@ -52,6 +56,17 @@ unavailable.
   final leased attempt is lost, the watchdog fails it and its active Task once;
   cancellation wins over recovery, and provider-side uncertainty is never
   converted into a blind external-action retry.
+- Run budgets are host policy, not model advice. Producers freeze them before
+  queueing and the worker re-clamps them at admission under the organization
+  lock. A child may narrow but never broaden its parent's ceilings.
+- One `BudgetLedger` meters ordinary action calls plus planning, reflection,
+  compression, validation, salvage, Team coordination, members, and nested
+  Teams. The durable checkpoint restores that same aggregate on retry.
+- Run duration means active execution time. Queue delay and user-blocked wait
+  do not consume it. Token/cost totals are recorded after provider truth
+  arrives, so a completed call or already in-flight parallel Team calls may
+  cross a ceiling but no new action is allowed. A configured cost ceiling fails
+  closed for unknown pricing.
 - Ordinary Event Runs may request a Surface but never receive authoring,
   build, preview, or publication tools.
 - Schedule/display/navigation records remain Surface data; they are not Tasks
@@ -84,6 +99,18 @@ unavailable.
   code authority.
 
 ## Important Discoveries
+
+- R8's budget boundary cannot live only in the ordinary Agent loop: Team
+  coordinators, validation/compression helpers, Event bootstrap, and Surface
+  Builder all call models outside the primary action path. The reusable
+  budgeted-model proxy now meters those paths centrally, while every queued Run
+  producer freezes the same host-resolved limits and worker admission provides
+  a second policy boundary.
+- Budget exhaustion is now a first-class terminal outcome rather than a generic
+  model/tool failure. It retains real usage even when the completed provider
+  call crosses the ceiling, emits a `run_budget` execution receipt and
+  `run_budget_exhausted` Trail entry, avoids automatic retry, and preserves the
+  last good Surface publication.
 
 - The active R6 branch now commits normalized search/page observations to Event
   memory before returning evidence IDs, rejects cross-Event evidence references,
@@ -479,10 +506,11 @@ unavailable.
 
 ## Next Session Should Start With
 
-Review, commit, and merge the completed deterministic R7 operating-loop changes
-into `aloy-v1`. Keep `source_change` and `automation` fail-closed until their
-separately governed Builder and Schedule contracts are delivered. When provider
-access returns, run the same acceptance matrix through University, Madrid, and
-Career Surfaces without patching any individual generated application. Then
-begin R8's crash-window, watchdog, budget, context-longevity, responsive, and
-release gates.
+Review and commit R8's complete budget slice, then begin the context-longevity
+gate: define compaction thresholds over paginated Conversation history, persist
+summary provenance/version boundaries, prove older Event evidence remains
+retrievable on demand, and verify that a fresh Life Conversation stays
+transcript-clean while accepted personal memory still loads. Keep
+`source_change` and `automation` fail-closed. When provider access returns, run
+the University, Madrid, and Career acceptance matrix without patching any
+individual generated application.

@@ -34,6 +34,7 @@ from pori.llm import (
     DocumentBlock,
     ImageBlock,
     UserMessage,
+    ensure_budgeted_chat_model,
     normalize_usage,
 )
 from pori.llm.error_classifier import classify_error
@@ -312,6 +313,7 @@ class Agent:
         self.skill_limit = skill_limit
         self.model_capabilities = model_capabilities or frozenset()
         self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
+        self.llm = ensure_budgeted_chat_model(self.llm, self.budget_ledger)
         self.cancellation_token = cancellation_token or CancellationToken()
         self.evolution_repository = evolution_repository
         self.tool_authorization_policy = (
@@ -502,8 +504,7 @@ class Agent:
             # Reflection adds an LLM call after acting. In auto mode it is only
             # used for failed/unclear progress, and never after a final answer.
             if self._should_reflect(tool_results):
-                with fail_open("reflection", logger):
-                    await self._reflect_and_update_plan(tool_results)
+                await self._reflect_and_update_plan(tool_results)
             else:
                 logger.debug(
                     "Skipping reflection: disabled or task is complete",
@@ -515,6 +516,12 @@ class Agent:
             # the run loop wind down.
             if step_span:
                 step_span.finish(SpanStatus.OK)
+            raise
+        except BudgetExceeded as exhausted:
+            # A budget stop belongs to the whole Run. It is not a retryable
+            # model/tool failure and must reach Agent.run() unchanged.
+            if step_span:
+                step_span.finish(SpanStatus.ERROR, error=str(exhausted))
             raise
         except FatalAgentError as fatal:
             logger.error(
@@ -593,10 +600,11 @@ class Agent:
     def _record_llm_call_metrics(
         self, step_metrics: StepMetrics, llm_duration: float
     ) -> None:
-        """Record token/cost metrics for the step's LLM call and charge the budget.
+        """Record step metrics for the primary LLM call.
 
-        Fail-open for bookkeeping errors, but a ``BudgetExceeded`` raised while
-        charging the ledger propagates so the run stops.
+        The model wrapper charges every provider call centrally, including
+        planning, reflection, compression, validation, and Team coordination.
+        This method only preserves the primary step's detailed telemetry.
         """
         step_number = self.state.n_steps + 1
         try:
@@ -626,11 +634,6 @@ class Agent:
                 duration_seconds=llm_duration,
             )
             step_metrics.llm_calls.append(llm_metrics)
-            self.budget_ledger.consume_tokens(tokens.total_tokens)
-            if cost is not None:
-                self.budget_ledger.consume_cost(cost)
-        except BudgetExceeded:
-            raise
         except Exception as metrics_err:
             logger.debug(
                 f"Failed to record LLM call metrics: {metrics_err}",
@@ -707,6 +710,10 @@ class Agent:
             return await self._invoke_for_action()
         except RunCancelled:
             raise
+        except BudgetExceeded:
+            # Host-owned stop signal: never classify or wrap it as a retryable
+            # provider failure.
+            raise
         except Exception as e:
             classified = classify_error(e)
             if classified.should_compress:
@@ -720,6 +727,8 @@ class Agent:
                         reserve_tokens=self.settings.context_window_reserve_tokens,
                     )
                     return await self._invoke_for_action()
+                except BudgetExceeded:
+                    raise
                 except Exception:
                     pass  # fall through to the normal failure handling
             if classified.should_fail_fast:
@@ -795,6 +804,7 @@ class Agent:
         """
         self._on_event = on_event
         self._stream = stream
+        budget_exhaustion: Optional[BudgetExceeded] = None
         # Arm the wall-clock budget (max_duration_seconds); idempotent, so a
         # shared ledger measures from the first run that starts.
         self.budget_ledger.start_clock()
@@ -863,6 +873,7 @@ class Agent:
                 current_task = self.memory.tasks.get(self.task_id)
                 if current_task:
                     current_task.status = "failed"
+                budget_exhaustion = exc
                 break
 
             if self.state.stopped:
@@ -912,6 +923,7 @@ class Agent:
                 current_task = self.memory.tasks.get(self.task_id)
                 if current_task:
                     current_task.status = "failed"
+                budget_exhaustion = exc
                 break
 
             # Notify observers that the step finished (after plan/reflect)
@@ -957,17 +969,48 @@ class Agent:
         current_task = self.memory.tasks.get(self.task_id)
         completed = current_task is not None and current_task.status == "completed"
 
+        if budget_exhaustion is not None:
+            stop_reason = budget_exhaustion.code
+            budget_error = str(budget_exhaustion)
+        elif not completed and self.state.n_steps >= self.settings.max_steps:
+            stop_reason = "max_steps"
+            budget_error = (
+                f"Step budget exhausted after {self.settings.max_steps} steps"
+            )
+        elif (
+            not completed
+            and self.state.consecutive_failures >= self.settings.max_failures
+        ):
+            stop_reason = "failure_limit"
+            budget_error = None
+        elif self.cancellation_token.cancelled or self.state.stopped:
+            stop_reason = "cancelled"
+            budget_error = None
+        else:
+            stop_reason = None
+            budget_error = None
+
         # Salvage: a run that dies without an answer still delivers a handoff.
+        # A step ceiling may still produce the established no-tool partial
+        # handoff. Token, cost, duration, and tool-call exhaustion cannot spend
+        # another provider call; the model wrapper enforces those ceilings if
+        # salvage itself would cross one.
         partial_result = None
         if (
             not completed
+            and budget_exhaustion is None
             and self.settings.salvage_summary
             and self.state.n_steps > 0
             and not self.cancellation_token.cancelled
             and not self.state.stopped
             and self.memory.get_final_answer() is None
         ):
-            partial_result = await self._salvage_best_effort_summary()
+            try:
+                partial_result = await self._salvage_best_effort_summary()
+            except BudgetExceeded as exc:
+                budget_exhaustion = exc
+                stop_reason = exc.code
+                budget_error = str(exc)
 
         # Finalize metrics
         if self._run_metrics is not None:
@@ -1029,6 +1072,12 @@ class Agent:
         )
         self._emit(RUN_END, {"completed": completed, "steps": self.state.n_steps})
 
+        budget_usage = self.budget_ledger.snapshot()
+        metrics_summary = (
+            self._run_metrics.summary() if self._run_metrics is not None else {}
+        )
+        metrics_summary["budget_usage"] = budget_usage
+
         return {
             "task": self.task,
             "completed": completed,
@@ -1037,9 +1086,7 @@ class Agent:
                 skill.manifest.skill_id for skill in self.selected_skills
             ],
             "final_state": self.state.dict(),
-            "metrics": (
-                self._run_metrics.summary() if self._run_metrics is not None else None
-            ),
+            "metrics": metrics_summary,
             "trace": self._trace.to_dict() if self._trace else None,
             "run_context": self.run_context.model_dump(mode="json"),
             "execution_receipts": [
@@ -1047,7 +1094,9 @@ class Agent:
             ],
             "artifacts": self._run_artifacts(),
             "plan": self._plan_snapshot(),
-            "budget_usage": self.budget_ledger.snapshot(),
+            "budget_usage": budget_usage,
+            "stop_reason": stop_reason,
+            "budget_error": budget_error,
             "partial_result": partial_result,
         }
 
@@ -1095,6 +1144,8 @@ class Agent:
                 extra={"task_id": self.task_id},
             )
             return partial
+        except BudgetExceeded:
+            raise
         except Exception as salvage_err:
             logger.debug(
                 f"Salvage summary failed (fail-open): {salvage_err}",

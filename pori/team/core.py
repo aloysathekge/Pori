@@ -8,9 +8,16 @@ from typing import Any, Dict, List, Optional
 from pori.agent import Agent, AgentSettings
 from pori.hitl import HITLConfig, HITLHandler
 from pori.llm.base import BaseChatModel
+from pori.llm.budgeted import ensure_budgeted_chat_model
 from pori.llm.messages import BaseMessage, SystemMessage, UserMessage
 from pori.memory import AgentMemory
-from pori.runtime import BudgetLedger, CancellationToken, RunContext
+from pori.runtime import (
+    BUDGET_EXHAUSTION_CODES,
+    BudgetExceeded,
+    BudgetLedger,
+    CancellationToken,
+    RunContext,
+)
 from pori.tools.registry import ToolRegistry
 
 from .models import (
@@ -52,7 +59,6 @@ class Team:
         cancellation_token: Optional[CancellationToken] = None,
     ):
         self.task = task
-        self.coordinator_llm = coordinator_llm
         self.members = {m.name: m for m in members}
         self.mode = mode
         self.tools_registry = tools_registry or ToolRegistry()
@@ -68,6 +74,10 @@ class Team:
             session_id=f"team-{uuid.uuid4().hex[:12]}",
         )
         self.budget_ledger = budget_ledger or BudgetLedger(self.run_context.budget)
+        self.coordinator_llm = ensure_budgeted_chat_model(
+            coordinator_llm,
+            self.budget_ledger,
+        )
         self.cancellation_token = cancellation_token or CancellationToken()
 
     def _child_run_context(self, member_name: str) -> RunContext:
@@ -90,19 +100,46 @@ class Team:
 
     async def run(self) -> Dict[str, Any]:
         """Run the team. Returns the same shape as ``Agent.run()``."""
+        self.budget_ledger.start_clock()
         logger.info(f"[{self.name}] Starting team run in {self.mode.value} mode")
         logger.info(f"\n[Team:{self.name}] Starting in {self.mode.value} mode")
         logger.info(f"[Team:{self.name}] Task: {self.task}")
         logger.info(f"[Team:{self.name}] Members: {', '.join(self.members.keys())}")
 
-        if self.mode == TeamMode.ROUTER:
-            return await self._run_router()
-        elif self.mode == TeamMode.BROADCAST:
-            return await self._run_broadcast()
-        elif self.mode == TeamMode.DELEGATE:
-            return await self._run_delegate()
-        else:
-            raise ValueError(f"Unknown team mode: {self.mode}")
+        try:
+            if self.mode == TeamMode.ROUTER:
+                result = await self._run_router()
+            elif self.mode == TeamMode.BROADCAST:
+                result = await self._run_broadcast()
+            elif self.mode == TeamMode.DELEGATE:
+                result = await self._run_delegate()
+            else:
+                raise ValueError(f"Unknown team mode: {self.mode}")
+        except BudgetExceeded as exhausted:
+            usage = self.budget_ledger.snapshot()
+            return {
+                "task": self.task,
+                "completed": False,
+                "steps_taken": int(usage.get("steps_used") or 0),
+                "final_state": {"error": str(exhausted)},
+                "metrics": {"budget_usage": usage},
+                "stop_reason": exhausted.code,
+                "budget_error": str(exhausted),
+                "budget_usage": usage,
+            }
+
+        # Team coordination and every member/nested-team call share this one
+        # ledger. Publish its complete meter on successful and ordinary error
+        # outcomes too, so durable usage never collapses to only one member's
+        # primary step telemetry.
+        usage = self.budget_ledger.snapshot()
+        metrics = result.get("metrics")
+        result["metrics"] = {
+            **(metrics if isinstance(metrics, dict) else {}),
+            "budget_usage": usage,
+        }
+        result["budget_usage"] = usage
+        return result
 
     # ------------------------------------------------------------------
     # Router mode
@@ -182,6 +219,8 @@ class Team:
         # Normalise exceptions
         member_results: List[MemberRunResult] = []
         for i, r in enumerate(results):
+            if isinstance(r, BudgetExceeded):
+                raise r
             if isinstance(r, BaseException):
                 member_results.append(
                     MemberRunResult(
@@ -318,6 +357,8 @@ class Team:
             )
 
             for step, result in zip(ready, batch_results):
+                if isinstance(result, BudgetExceeded):
+                    raise result
                 if isinstance(result, BaseException):
                     result = MemberRunResult(
                         member_name=step.member_name,
@@ -421,6 +462,8 @@ class Team:
                 logger.info(f"[Member:{config.name}] Error: {result.error}")
             logger.info(f"{'='*50}")
             return result
+        except BudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"[{self.name}] Member '{config.name}' failed: {e}")
             logger.info(f"[Member:{config.name}] FAILED: {e}")
@@ -486,6 +529,12 @@ class Team:
         )
 
         result = await agent.run()
+        stop_reason = str(result.get("stop_reason") or "")
+        if stop_reason in BUDGET_EXHAUSTION_CODES:
+            raise BudgetExceeded(
+                str(result.get("budget_error") or "Run budget exhausted"),
+                code=stop_reason,
+            )
 
         # Extract final answer
         answer_data = member_memory.get_final_answer()
@@ -549,6 +598,12 @@ class Team:
         )
 
         result = await nested_team.run()
+        stop_reason = str(result.get("stop_reason") or "")
+        if stop_reason in BUDGET_EXHAUSTION_CODES:
+            raise BudgetExceeded(
+                str(result.get("budget_error") or "Run budget exhausted"),
+                code=stop_reason,
+            )
 
         final_answer = None
         if result.get("final_state"):

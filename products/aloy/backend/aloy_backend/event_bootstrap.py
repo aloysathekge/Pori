@@ -11,7 +11,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from pori import SystemMessage, UserMessage, stable_fingerprint
+from pori import (
+    BudgetExceeded,
+    BudgetLedger,
+    SystemMessage,
+    UserMessage,
+    stable_fingerprint,
+)
+from pori.llm import ensure_budgeted_chat_model
 from pori.utils.llm_logging import ainvoke_structured
 
 from .database import async_session
@@ -30,6 +37,12 @@ from .models import (
     Run,
 )
 from .orchestrator import build_orchestrator
+from .run_budgets import (
+    budget_ledger_for_run,
+    remaining_run_seconds,
+    resolve_run_budget,
+)
+from .run_outcome import make_usage_record
 from .run_profiles import EVENT_BOOTSTRAP_RUN_PROFILE
 from .tenancy import OrganizationPolicy
 
@@ -169,6 +182,15 @@ async def queue_event_bootstrap_if_ready(
         session.add(event)
         return snapshot, None, False
 
+    organization = await session.get(Organization, organization_id)
+    if organization is None:
+        raise ValueError("Event organization is unavailable")
+    policy = OrganizationPolicy.model_validate(organization.policy or {})
+    budget = resolve_run_budget(
+        policy,
+        {"max_steps": 3, "timeout_seconds": 180},
+    )
+
     existing = (
         (
             await session.execute(
@@ -195,8 +217,14 @@ async def queue_event_bootstrap_if_ready(
             existing.completed_at = None
             existing.lease_owner = None
             existing.lease_expires_at = None
+            existing.progress = None
             existing.final_answer = None
             existing.reasoning = None
+            existing.max_steps = budget.max_steps
+            existing.max_tool_calls = budget.max_tool_calls
+            existing.max_tokens = budget.max_tokens
+            existing.max_cost_usd = budget.max_cost_usd
+            existing.timeout_seconds = budget.timeout_seconds
             session.add(existing)
             session.add(
                 EventTrailEntry(
@@ -232,8 +260,11 @@ async def queue_event_bootstrap_if_ready(
         context_snapshot_id=snapshot.id,
         run_profile=EVENT_BOOTSTRAP_RUN_PROFILE.descriptor(),
         task="Create the evidence-grounded Event Brief for this frozen snapshot.",
-        max_steps=1,
-        timeout_seconds=180,
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
+        timeout_seconds=budget.timeout_seconds,
         max_attempts=3,
     )
     try:
@@ -342,6 +373,7 @@ async def execute_claimed_event_bootstrap(
 ) -> bool:
     """Execute one leased bootstrap Run and publish only against its snapshot."""
     async with async_session() as session:
+        budget_ledger: BudgetLedger | None = None
         run = await session.get(Run, run_id)
         if (
             run is None
@@ -416,6 +448,8 @@ async def execute_claimed_event_bootstrap(
             await session.commit()
 
             policy = OrganizationPolicy.model_validate(organization.policy or {})
+            budget_ledger = budget_ledger_for_run(run)
+            budget_ledger.start_clock()
             orchestrator = orchestrator_builder(
                 allowed_tools=(),
                 allowed_capability_groups=(),
@@ -424,6 +458,7 @@ async def execute_claimed_event_bootstrap(
                 run_profile=EVENT_BOOTSTRAP_RUN_PROFILE,
             )
             model_name = str(getattr(orchestrator.llm, "model", "unknown"))
+            model = ensure_budgeted_chat_model(orchestrator.llm, budget_ledger)
             messages = [
                 SystemMessage(content=EVENT_BOOTSTRAP_RUN_PROFILE.system_prompt),
                 UserMessage(
@@ -437,21 +472,34 @@ async def execute_claimed_event_bootstrap(
                     cacheable=snapshot.provider_cache_allowed,
                 ),
             ]
-            response = await asyncio.wait_for(
-                ainvoke_structured(
-                    orchestrator.llm,
-                    EventBriefPayload,
-                    messages,
-                    include_raw=True,
-                    meta={
-                        "run_id": run.id,
-                        "run_kind": EVENT_BOOTSTRAP_RUN_KIND,
-                        "snapshot_id": snapshot.id,
-                        "profile": EVENT_BOOTSTRAP_RUN_PROFILE.profile_id,
-                    },
-                ),
-                timeout=run.timeout_seconds,
-            )
+            budget_ledger.consume_step()
+            remaining_timeout = remaining_run_seconds(run)
+            if remaining_timeout <= 0:
+                raise BudgetExceeded(
+                    "Duration budget exceeded",
+                    code="max_duration_seconds",
+                )
+            try:
+                response = await asyncio.wait_for(
+                    ainvoke_structured(
+                        model,
+                        EventBriefPayload,
+                        messages,
+                        include_raw=True,
+                        meta={
+                            "run_id": run.id,
+                            "run_kind": EVENT_BOOTSTRAP_RUN_KIND,
+                            "snapshot_id": snapshot.id,
+                            "profile": EVENT_BOOTSTRAP_RUN_PROFILE.profile_id,
+                        },
+                    ),
+                    timeout=remaining_timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                raise BudgetExceeded(
+                    "Duration budget exceeded",
+                    code="max_duration_seconds",
+                ) from exc
             parsed = response.get("parsed") if isinstance(response, dict) else None
             if parsed is None:
                 raise ValueError("The bootstrap model returned no valid Event Brief")
@@ -486,7 +534,8 @@ async def execute_claimed_event_bootstrap(
                 raise ValueError("Event is unavailable")
             run.status = "completed"
             run.success = True
-            run.steps_taken = 1
+            budget_usage = budget_ledger.snapshot()
+            run.steps_taken = int(budget_usage["steps_used"])
             run.final_answer = f"Published Event Brief version {brief.version}."
             run.reasoning = "Structured, evidence-validated Event bootstrap."
             run.prompt_fingerprint = stable_fingerprint(
@@ -500,9 +549,15 @@ async def execute_claimed_event_bootstrap(
                 "model": model_name,
                 "structured_output": True,
                 "context_snapshot_version": snapshot.version,
+                "budget_usage": budget_usage,
             }
             run.selected_skills = []
             run.execution_receipts = []
+            run.progress = {
+                **(run.progress or {}),
+                "budget_usage": budget_usage,
+                "budget_accounted_at": datetime.now(timezone.utc).isoformat(),
+            }
             run.completed_at = datetime.now(timezone.utc)
             run.lease_owner = None
             run.lease_expires_at = None
@@ -514,28 +569,71 @@ async def execute_claimed_event_bootstrap(
                 brief_id=brief.id,
             )
             session.add_all([run, event])
+            usage = make_usage_record(
+                organization_id=run.organization_id,
+                user_id=run.user_id,
+                run_id=run.id,
+                conversation_id=run.conversation_id,
+                metrics=run.metrics,
+            )
+            if usage is not None:
+                session.add(usage)
             await session.commit()
             return True
-        except Exception:
+        except Exception as exc:
             logger.exception("Event bootstrap Run %s failed", run_id)
             await session.rollback()
             run = await session.get(Run, run_id)
             if run is None or run.lease_owner != worker_id:
                 return False
-            terminal = run.attempt_count >= run.max_attempts
+            budget_exhaustion = exc if isinstance(exc, BudgetExceeded) else None
+            terminal = budget_exhaustion is not None or (
+                run.attempt_count >= run.max_attempts
+            )
             run.status = "failed" if terminal else "pending"
             run.success = False
             run.completed_at = datetime.now(timezone.utc) if terminal else None
             run.lease_owner = None
             run.lease_expires_at = None
             run.final_answer = (
-                "Event understanding could not be generated safely."
-                if terminal
-                else "Event understanding will retry safely."
+                "Event understanding stopped at its configured execution limit."
+                if budget_exhaustion is not None
+                else (
+                    "Event understanding could not be generated safely."
+                    if terminal
+                    else "Event understanding will retry safely."
+                )
             )
             run.reasoning = (
-                "The structured bootstrap attempt failed validation or execution."
+                str(budget_exhaustion)
+                if budget_exhaustion is not None
+                else "The structured bootstrap attempt failed validation or execution."
             )
+            if budget_ledger is not None:
+                budget_usage = budget_ledger.snapshot()
+                run.steps_taken = int(budget_usage["steps_used"])
+                run.metrics = {
+                    **(run.metrics or {}),
+                    "budget_usage": budget_usage,
+                }
+                run.progress = {
+                    **(run.progress or {}),
+                    "budget_usage": budget_usage,
+                    "budget_accounted_at": datetime.now(timezone.utc).isoformat(),
+                }
+                if budget_exhaustion is not None:
+                    budget_receipt = {
+                        "kind": "run_budget",
+                        "status": "exhausted",
+                        "reason": budget_exhaustion.code,
+                        "error": str(budget_exhaustion),
+                        "usage": budget_usage,
+                    }
+                    run.metrics["budget_gate"] = budget_receipt
+                    run.execution_receipts = [
+                        *(run.execution_receipts or []),
+                        budget_receipt,
+                    ]
             event = await session.get(Event, run.event_id)
             if event is not None:
                 snapshot = await session.get(
@@ -549,6 +647,19 @@ async def execute_claimed_event_bootstrap(
                 )
                 session.add(event)
             session.add(run)
+            if budget_exhaustion is not None:
+                session.add(
+                    EventTrailEntry(
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        event_id=run.event_id,
+                        actor_id=EVENT_BOOTSTRAP_AGENT_ID,
+                        kind="run_budget_exhausted",
+                        summary=("Stopped Event understanding at its execution limit"),
+                        run_id=run.id,
+                        payload={"reason": budget_exhaustion.code},
+                    )
+                )
             session.add(
                 EventTrailEntry(
                     organization_id=run.organization_id,
@@ -573,6 +684,16 @@ async def execute_claimed_event_bootstrap(
                     },
                 )
             )
+            if terminal:
+                usage = make_usage_record(
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    run_id=run.id,
+                    conversation_id=run.conversation_id,
+                    metrics=run.metrics,
+                )
+                if usage is not None:
+                    session.add(usage)
             await session.commit()
             return True
 

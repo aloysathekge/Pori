@@ -15,6 +15,7 @@ from pori.llm import (
     UserMessage,
 )
 from pori.memory import AgentMemory
+from pori.runtime import BudgetLedger, ExecutionBudget
 from pori.tools.registry import ToolRegistry
 from pori.tools.standard import register_all_tools
 
@@ -213,6 +214,79 @@ def test_native_mode_end_to_end_answer():
     assert memory.get_state("final_answer")["final_answer"] == "42"
     # The assistant text became the activity line.
     assert agent.state.current_activity == "Answering the user"
+
+
+def test_native_tool_budget_stops_before_extra_action():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Trying two terminal actions",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "42", "reasoning": "because"},
+                    ),
+                    ToolCall(name="done", arguments={"success": True}),
+                ],
+            )
+        ]
+    )
+    ledger = BudgetLedger(ExecutionBudget(max_steps=3, max_tool_calls=1))
+    memory = AgentMemory()
+    agent = Agent(
+        task="what is the answer?",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=3),
+        memory=memory,
+        budget_ledger=ledger,
+    )
+
+    result = asyncio.run(agent.run())
+
+    assert result["completed"] is False
+    assert result["stop_reason"] == "max_tool_calls"
+    assert result["budget_usage"]["tool_calls_used"] == 1
+    assert [call.tool_name for call in memory.tool_call_history] == ["answer"]
+    assert llm.i == 1
+
+
+def test_cost_budget_fails_closed_for_unpriced_model():
+    llm = _NativeMockLLM(
+        [
+            ToolTurn(
+                text="Answering",
+                tool_calls=[
+                    ToolCall(
+                        name="answer",
+                        arguments={"final_answer": "42", "reasoning": "because"},
+                    )
+                ],
+            )
+        ]
+    )
+    llm.last_usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+    }
+    memory = AgentMemory()
+    agent = Agent(
+        task="what is the answer?",
+        llm=llm,
+        tools_registry=_registry(),
+        settings=AgentSettings(max_steps=3),
+        memory=memory,
+        budget_ledger=BudgetLedger(ExecutionBudget(max_steps=3, max_cost_usd=0.25)),
+    )
+
+    result = asyncio.run(agent.run())
+
+    assert result["completed"] is False
+    assert result["stop_reason"] == "unpriced_model"
+    assert result["budget_usage"]["tokens_used"] == 15
+    assert result["budget_usage"]["unpriced_llm_calls"] == 1
+    assert memory.tool_call_history == []
 
 
 # --- B.3: OpenAI / Fireworks / Google native --------------------------------

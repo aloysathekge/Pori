@@ -150,7 +150,15 @@ async def test_policy_limits_runs_and_viewer_cannot_create_them(client):
     await client.patch(
         f"/v1/organizations/{organization_id}/policy",
         headers=owner_headers,
-        json={"policy": {"max_steps_per_run": 4, "max_attempts": 2}},
+        json={
+            "policy": {
+                "max_steps_per_run": 4,
+                "max_tool_calls_per_run": 6,
+                "max_tokens_per_run": 2_000,
+                "max_cost_usd_per_run": 0.5,
+                "max_attempts": 2,
+            }
+        },
     )
     queued = await client.post(
         "/v1/runs",
@@ -159,6 +167,9 @@ async def test_policy_limits_runs_and_viewer_cannot_create_them(client):
     )
     assert queued.status_code == 202
     assert queued.json()["max_steps"] == 4
+    assert queued.json()["max_tool_calls"] == 6
+    assert queued.json()["max_tokens"] == 2_000
+    assert queued.json()["max_cost_usd"] == 0.5
     assert queued.json()["max_attempts"] == 2
 
     await client.post(
@@ -201,3 +212,4 @@ async def test_conversation_messages_use_durable_worker_by_default(client):
     runs = await client.get("/v1/runs", headers=headers)
     assert [run["id"] for run in runs.json()] == [queued.json()["run_id"]]
     assert runs.json()[0]["status"] == "pending"
+    assert runs.json()[0]["max_tool_calls"] == 100

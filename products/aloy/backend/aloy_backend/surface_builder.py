@@ -21,6 +21,8 @@ from pydantic import BaseModel, ValidationError
 from sqlmodel import select
 
 from pori import (
+    BudgetExceeded,
+    BudgetLedger,
     SystemMessage,
     TokenUsage,
     UserMessage,
@@ -30,16 +32,19 @@ from pori import (
     normalize_usage,
     stable_fingerprint,
 )
+from pori.llm import ensure_budgeted_chat_model
 
 from .database import async_session
 from .model_roles import ModelAssignment, ModelRole
 from .models import (
     Conversation,
+    EventTrailEntry,
     Message,
     Organization,
     OrganizationMembership,
     Run,
 )
+from .run_budgets import budget_ledger_for_run, remaining_run_seconds
 from .run_outcome import make_usage_record
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .runtime import authenticated_run_context
@@ -325,6 +330,7 @@ async def _progress_heartbeat(
                 ):
                     return
                 heartbeat_run.progress = {
+                    **(heartbeat_run.progress or {}),
                     "stage": stage,
                     "submission": submission,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -377,7 +383,8 @@ async def execute_claimed_surface_builder(
             if receipt.get("kind") != "model_assignment"
         ]
         submissions = 0
-        deadline = perf_counter() + run.timeout_seconds
+        deadline = perf_counter()
+        budget_ledger: BudgetLedger | None = None
         try:
             organization = await session.get(Organization, run.organization_id)
             membership = (
@@ -398,10 +405,20 @@ async def execute_claimed_surface_builder(
                 raise PermissionError("Run owner no longer has organization access")
             policy = OrganizationPolicy.model_validate(organization.policy or {})
             assignment = _validate_assignment(run, policy)
+            budget_ledger = budget_ledger_for_run(run)
+            budget_ledger.start_clock()
+            remaining_timeout = remaining_run_seconds(run)
+            if remaining_timeout <= 0:
+                raise BudgetExceeded(
+                    "Duration budget exceeded",
+                    code="max_duration_seconds",
+                )
+            deadline = perf_counter() + remaining_timeout
             if await mark_surface_run_started(session, run=run):
                 await session.commit()
             await record_surface_builder_started(session, run=run)
             run.progress = {
+                **(run.progress or {}),
                 "stage": "generating_candidate",
                 "submission": 1,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -417,7 +434,11 @@ async def execute_claimed_surface_builder(
                 event_id=run.event_id,
                 workspace_id=run.event_id,
                 agent_id=run.agent_id,
-                max_steps=MAX_CANDIDATE_SUBMISSIONS,
+                max_steps=run.max_steps,
+                max_tool_calls=run.max_tool_calls,
+                max_tokens=run.max_tokens,
+                max_cost_usd=run.max_cost_usd,
+                max_duration_seconds=float(run.timeout_seconds),
                 isolation_profile="worker-process",
             )
             runtime = await runtime_resolver(
@@ -436,7 +457,10 @@ async def execute_claimed_surface_builder(
                     "model_assignment": assignment.config_fingerprint,
                 }
             )
-            llm = llm_factory(assignment.llm_config())
+            llm = ensure_budgeted_chat_model(
+                llm_factory(assignment.llm_config()),
+                budget_ledger,
+            )
             pipeline_progress: dict[str, Any] = {
                 "submission": 1,
                 "candidate_fingerprint": None,
@@ -444,6 +468,7 @@ async def execute_claimed_surface_builder(
 
             async def observe_stage(stage: str) -> None:
                 claimed_run.progress = {
+                    **(claimed_run.progress or {}),
                     "stage": stage,
                     "submission": pipeline_progress["submission"],
                     "candidate_fingerprint": pipeline_progress["candidate_fingerprint"],
@@ -464,9 +489,13 @@ async def execute_claimed_surface_builder(
 
             for submission in range(1, MAX_CANDIDATE_SUBMISSIONS + 1):
                 submissions = submission
+                budget_ledger.consume_step()
                 remaining = deadline - perf_counter()
                 if remaining <= 0:
-                    raise TimeoutError("Surface Builder Run exhausted its time budget")
+                    raise BudgetExceeded(
+                        "Duration budget exceeded",
+                        code="max_duration_seconds",
+                    )
                 started = perf_counter()
                 heartbeat = asyncio.create_task(
                     _progress_heartbeat(
@@ -481,6 +510,7 @@ async def execute_claimed_surface_builder(
                         remaining,
                         float(assignment.generation_timeout_seconds),
                     )
+                    llm_calls_before = budget_ledger.snapshot()["llm_calls_used"]
                     try:
                         response = await asyncio.wait_for(
                             structured_invoker(
@@ -505,6 +535,11 @@ async def execute_claimed_surface_builder(
                             timeout=generation_timeout,
                         )
                     except TimeoutError as exc:
+                        if remaining <= float(assignment.generation_timeout_seconds):
+                            raise BudgetExceeded(
+                                "Duration budget exceeded",
+                                code="max_duration_seconds",
+                            ) from exc
                         receipts.append(
                             {
                                 "kind": "surface_generation_timeout",
@@ -517,6 +552,12 @@ async def execute_claimed_surface_builder(
                             "Surface candidate generation exceeded "
                             f"{generation_timeout:g} seconds"
                         ) from exc
+                    # Production's structured invoker calls the budgeted model
+                    # and charges itself. Test/custom invokers may return a
+                    # provider result directly; charge that completed call once
+                    # at this host boundary instead of leaving an escape hatch.
+                    if budget_ledger.snapshot()["llm_calls_used"] == llm_calls_before:
+                        llm.charge_completed_call()
                 finally:
                     await _stop_progress_heartbeat(heartbeat)
                 generation_ms += (perf_counter() - started) * 1000
@@ -565,6 +606,7 @@ async def execute_claimed_surface_builder(
                     )
                     previous_candidate = envelope
                     run.progress = {
+                        **(run.progress or {}),
                         "stage": "repairing_candidate",
                         "submission": submission + 1,
                         "diagnostics": diagnostics,
@@ -575,6 +617,7 @@ async def execute_claimed_surface_builder(
                     continue
 
                 run.progress = {
+                    **(run.progress or {}),
                     "stage": "validating_candidate",
                     "submission": submission,
                     "candidate_fingerprint": candidate.fingerprint,
@@ -588,11 +631,20 @@ async def execute_claimed_surface_builder(
                 )
                 remaining = deadline - perf_counter()
                 if remaining <= 0:
-                    raise TimeoutError("Surface Builder Run exhausted its time budget")
-                outcome = await asyncio.wait_for(
-                    pipeline.execute(candidate, submission=submission),
-                    timeout=remaining,
-                )
+                    raise BudgetExceeded(
+                        "Duration budget exceeded",
+                        code="max_duration_seconds",
+                    )
+                try:
+                    outcome = await asyncio.wait_for(
+                        pipeline.execute(candidate, submission=submission),
+                        timeout=remaining,
+                    )
+                except asyncio.TimeoutError as exc:
+                    raise BudgetExceeded(
+                        "Duration budget exceeded",
+                        code="max_duration_seconds",
+                    ) from exc
                 pipeline_timings.append(outcome.timings_ms)
                 receipts.append(
                     {
@@ -613,6 +665,7 @@ async def execute_claimed_surface_builder(
                 previous_candidate = candidate
                 diagnostics = outcome.diagnostics
                 run.progress = {
+                    **(run.progress or {}),
                     "stage": "repairing_candidate",
                     "submission": submission + 1,
                     "diagnostics": diagnostics,
@@ -636,7 +689,8 @@ async def execute_claimed_surface_builder(
             await session.refresh(run, attribute_names=["cancel_requested"])
             run.status = "cancelled" if run.cancel_requested else "completed"
             run.success = not run.cancel_requested
-            run.steps_taken = submissions
+            budget_usage = budget_ledger.snapshot()
+            run.steps_taken = int(budget_usage["steps_used"])
             run.final_answer = (
                 "Your Event Surface is ready. Open it beside this conversation "
                 "to use the new visual workspace."
@@ -649,6 +703,7 @@ async def execute_claimed_surface_builder(
                 pipeline_timings=pipeline_timings,
                 started_at=run.started_at,
             )
+            run.metrics["budget_usage"] = budget_usage
             run.prompt_fingerprint = prompt_fingerprint
             run.tool_surface_fingerprint = stable_fingerprint(
                 {"model_tools": [], "host_pipeline": "surface-host-v1"}
@@ -662,9 +717,12 @@ async def execute_claimed_surface_builder(
             run.artifacts = []
             run.plan = []
             run.progress = {
+                **(run.progress or {}),
                 "stage": "published",
                 "submission": submissions,
                 "surface_receipt": surface_receipt,
+                "budget_usage": budget_usage,
+                "budget_accounted_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             run.completed_at = datetime.now(timezone.utc)
@@ -716,15 +774,20 @@ async def execute_claimed_surface_builder(
             run = await session.get(Run, run_id)
             if run is None or run.lease_owner != worker_id:
                 return False
-            terminal = isinstance(
-                exc,
-                (
-                    SurfaceCandidateExhaustedError,
-                    SurfaceCandidateOutputError,
-                    SurfaceGenerationTimeoutError,
-                    SurfacePipelineInfrastructureError,
-                ),
-            ) or (run.attempt_count >= run.max_attempts)
+            budget_exhaustion = exc if isinstance(exc, BudgetExceeded) else None
+            terminal = (
+                budget_exhaustion is not None
+                or isinstance(
+                    exc,
+                    (
+                        SurfaceCandidateExhaustedError,
+                        SurfaceCandidateOutputError,
+                        SurfaceGenerationTimeoutError,
+                        SurfacePipelineInfrastructureError,
+                    ),
+                )
+                or (run.attempt_count >= run.max_attempts)
+            )
             run.status = "failed" if terminal else "pending"
             run.success = False
             run.steps_taken = submissions
@@ -740,7 +803,32 @@ async def execute_claimed_surface_builder(
                     {"kind": "model_assignment", **assignment.descriptor()},
                     *receipts,
                 ]
-            if isinstance(exc, SurfacePipelineInfrastructureError):
+            if budget_ledger is not None:
+                budget_usage = budget_ledger.snapshot()
+                run.steps_taken = int(budget_usage["steps_used"])
+                run.metrics = {
+                    **(run.metrics or {}),
+                    "budget_usage": budget_usage,
+                }
+                if budget_exhaustion is not None:
+                    budget_receipt = {
+                        "kind": "run_budget",
+                        "status": "exhausted",
+                        "reason": budget_exhaustion.code,
+                        "error": str(budget_exhaustion),
+                        "usage": budget_usage,
+                    }
+                    run.metrics["budget_gate"] = budget_receipt
+                    run.execution_receipts = [
+                        *(run.execution_receipts or []),
+                        budget_receipt,
+                    ]
+            if budget_exhaustion is not None:
+                run.final_answer = (
+                    "The Event Surface build stopped at its configured execution "
+                    "limit. Your last working Surface is unchanged."
+                )
+            elif isinstance(exc, SurfacePipelineInfrastructureError):
                 run.final_answer = (
                     "Aloy generated the Surface source, but the trusted host "
                     "could not retain or publish its build. Your last working "
@@ -767,15 +855,20 @@ async def execute_claimed_surface_builder(
                 else None
             )
             run.reasoning = (
-                str(host_diagnostics[0].get("message"))
-                if host_diagnostics
+                str(budget_exhaustion)
+                if budget_exhaustion is not None
                 else (
-                    str(rejected.get("error"))
-                    if isinstance(rejected, dict) and rejected.get("error")
-                    else "The structured candidate or trusted pipeline failed."
+                    str(host_diagnostics[0].get("message"))
+                    if host_diagnostics
+                    else (
+                        str(rejected.get("error"))
+                        if isinstance(rejected, dict) and rejected.get("error")
+                        else "The structured candidate or trusted pipeline failed."
+                    )
                 )
             )
             run.progress = {
+                **(run.progress or {}),
                 "stage": "failed" if terminal else "retry_scheduled",
                 "submissions": submissions,
                 "diagnostic": (
@@ -791,12 +884,33 @@ async def execute_claimed_surface_builder(
                         else None
                     )
                 ),
+                **(
+                    {
+                        "budget_usage": budget_ledger.snapshot(),
+                        "budget_accounted_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    if budget_ledger is not None
+                    else {}
+                ),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             run.completed_at = datetime.now(timezone.utc) if terminal else None
             run.lease_owner = None
             run.lease_expires_at = None
             session.add(run)
+            if budget_exhaustion is not None:
+                session.add(
+                    EventTrailEntry(
+                        organization_id=run.organization_id,
+                        user_id=run.user_id,
+                        event_id=run.event_id,
+                        actor_id="aloy:surface-builder",
+                        kind="run_budget_exhausted",
+                        summary="Stopped a Surface build at its execution limit",
+                        run_id=run.id,
+                        payload={"reason": budget_exhaustion.code},
+                    )
+                )
             await record_surface_builder_failure(session, run=run, terminal=terminal)
             if terminal and run.conversation_id:
                 conversation = await session.get(Conversation, run.conversation_id)
@@ -816,6 +930,15 @@ async def execute_claimed_surface_builder(
                     conversation.updated_at = datetime.now(timezone.utc)
                     session.add(conversation)
             if terminal:
+                usage_record = make_usage_record(
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    run_id=run.id,
+                    conversation_id=run.conversation_id,
+                    metrics=run.metrics,
+                )
+                if usage_record is not None:
+                    session.add(usage_record)
                 await reconcile_surface_run(
                     session,
                     run=run,

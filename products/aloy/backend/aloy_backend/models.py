@@ -1135,6 +1135,9 @@ class Run(SQLModel, table=True):
     status: str = "pending"  # pending, running, completed, failed
     task: str
     max_steps: int = 15
+    max_tool_calls: int = 100
+    max_tokens: int | None = None
+    max_cost_usd: float | None = None
     success: bool = False
     steps_taken: int = 0
     final_answer: str | None = None
