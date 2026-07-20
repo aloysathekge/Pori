@@ -240,9 +240,9 @@ async def test_surface_reads_evidence_backed_event_records_without_copying_truth
     build_id, _ = await _seed_runtime(
         db_session_maker,
         event["id"],
-        SurfaceManifest(
-            capabilities=["records:career.opportunities"]
-        ).model_dump(mode="json"),
+        SurfaceManifest(capabilities=["records:career.opportunities"]).model_dump(
+            mode="json"
+        ),
     )
 
     response = await client.get(

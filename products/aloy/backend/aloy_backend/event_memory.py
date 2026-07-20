@@ -23,9 +23,7 @@ from .memory_records import create_record, record_to_row, row_to_record
 from .models import Event, EventBrief, EventTrailEntry, KnowledgeEntry
 from .scope_resolver import ORG, resolve_layered
 
-_CANONICAL_RECORD_TYPES = frozenset(
-    {"web_evidence", "event_record", "research_report"}
-)
+_CANONICAL_RECORD_TYPES = frozenset({"web_evidence", "event_record", "research_report"})
 
 
 def _is_user_managed_memory(row: KnowledgeEntry) -> bool:
