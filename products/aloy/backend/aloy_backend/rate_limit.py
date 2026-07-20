@@ -8,7 +8,15 @@ from collections import defaultdict
 from fastapi import Depends, HTTPException, status
 
 from .config import settings
-from .tenancy import OrganizationContext, get_organization_context
+from .tenancy import OrganizationContext, Permission, get_organization_context
+
+_RATE_LIMITED_PERMISSIONS = frozenset(
+    {
+        Permission.AGENT_WRITE,
+        Permission.MEMORY_WRITE,
+        Permission.RUN_CREATE,
+    }
+)
 
 
 class RateLimiter:
@@ -49,10 +57,19 @@ async def check_rate_limit(
     return context
 
 
-def rate_limited_permission(permission):
-    """Compose authorization AND rate limiting for endpoints that start agent
-    runs (they spend money). Rate limiting is not a substitute for a
-    permission check — run-starting endpoints require both."""
+def rate_limited_permission(permission: Permission):
+    """Authorize and throttle work-creating or user-state mutations.
+
+    Read-only routes and cancellation must use ``require_permission`` instead.
+    Live projections legitimately issue many reads, while stop controls must
+    remain available under load. Keeping that boundary executable prevents UI
+    refresh traffic from consuming the scarce mutation/Run budget.
+    """
+    if permission not in _RATE_LIMITED_PERMISSIONS:
+        raise ValueError(
+            f"Permission {permission.value} must use require_permission; "
+            "read and cancellation traffic is not part of the mutation rate limit"
+        )
 
     async def dependency(
         context: OrganizationContext = Depends(get_organization_context),
