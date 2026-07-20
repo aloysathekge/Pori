@@ -12,7 +12,7 @@
 
 SHELL := bash
 .ONESHELL:
-.PHONY: help install dev api worker web stop check
+.PHONY: help install migrate dev api worker web stop check
 
 API_HOST ?= 127.0.0.1
 API_PORT ?= 8000
@@ -34,7 +34,10 @@ install: ## Install backend + frontend deps (run once, or after dependency chang
 	cd $(APP) && npm install
 	@echo "==> done. Next: make dev"
 
-dev: ## Run API + worker + web together; Ctrl-C stops all (see 'make stop' if a port sticks)
+migrate: ## Bring the local backend database schema to the current code revision
+	cd $(BACKEND) && uv run python -m alembic -c alembic.example.ini upgrade head
+
+dev: migrate ## Run API + worker + web together; Ctrl-C stops all (see 'make stop' if a port sticks)
 	@echo "Starting Aloy: API http://$(API_HOST):$(API_PORT)  |  web http://localhost:$(WEB_PORT)"
 	@echo "Ctrl-C stops everything. If a port stays held afterwards, run: make stop"
 	trap 'kill 0' EXIT INT TERM
@@ -43,10 +46,10 @@ dev: ## Run API + worker + web together; Ctrl-C stops all (see 'make stop' if a 
 	( cd $(APP) && npm run dev -- --port $(WEB_PORT) ) &
 	wait
 
-api: ## Run only the API server (foreground; own terminal)
+api: migrate ## Run only the API server (foreground; own terminal)
 	cd $(BACKEND) && HOST=$(API_HOST) PORT=$(API_PORT) uv run aloy-backend
 
-worker: ## Run only the durable worker (foreground; own terminal)
+worker: migrate ## Run only the durable worker (foreground; own terminal)
 	cd $(BACKEND) && uv run aloy-backend-worker
 
 web: ## Run only the web app (foreground; own terminal)

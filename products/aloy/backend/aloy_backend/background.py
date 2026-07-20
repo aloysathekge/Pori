@@ -12,6 +12,7 @@ from sqlmodel import select
 from pori import Agent, AgentMemory, AgentSettings, tool_registry
 
 from .approvals import proposal_write_gate
+from .config import settings
 from .conversation_runtime import (
     flush_context_artifact,
     flush_event_memory,
@@ -76,9 +77,11 @@ from .task_state import claim_task
 from .team_execution import build_team_from_config
 from .tenancy import ROLE_PERMISSIONS, OrganizationPolicy
 from .tools import (
+    EVENT_HISTORY_SEARCH_CONTEXT_KEY,
     EVENT_RECORD_HANDLER_CONTEXT_KEY,
     SURFACE_STATE_CONTEXT_KEY,
     EventEvidenceRecorder,
+    EventHistorySearchHandler,
     EventRecordHandler,
     EventWebPageReader,
     SurfaceStateReader,
@@ -498,6 +501,10 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                     "web_evidence_recorder": evidence_recorder,
                     "web_page_reader": EventWebPageReader(),
                     EVENT_RECORD_HANDLER_CONTEXT_KEY: event_record_handler,
+                    EVENT_HISTORY_SEARCH_CONTEXT_KEY: EventHistorySearchHandler(
+                        run_context=run_context,
+                        session_factory=async_session,
+                    ),
                     **(
                         {
                             SURFACE_REQUEST_CONTEXT_KEY: SurfaceRequestHandler(
@@ -550,7 +557,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         result = await asyncio.wait_for(
                             orchestrator.execute_task(
                                 task=run.task,
-                                agent_settings=AgentSettings(max_steps=run.max_steps),
+                                agent_settings=AgentSettings(
+                                    max_steps=run.max_steps,
+                                    history_window_tokens=(
+                                        settings.conversation_history_window_tokens
+                                    ),
+                                ),
                                 run_context=run_context,
                                 memory=execution_memory,
                                 resume_task_id=kernel_task_id,

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Literal
 
 from dotenv import load_dotenv
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 # Bridge the dev ``.env`` into the process environment BEFORE anything reads it.
@@ -38,6 +39,13 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_rpm: int = 60
     max_concurrent_runs: int = 5
+
+    # Conversation longevity. The model may have a much larger provider
+    # context, but Event transcript latency must not grow without bound.
+    conversation_history_window_tokens: int = Field(default=24_000, ge=512)
+    conversation_hydration_max_chars: int = Field(default=192_000, ge=8_000)
+    conversation_hydration_max_messages: int = Field(default=2_000, ge=50, le=10_000)
+    event_history_search_max_candidates: int = Field(default=500, ge=50, le=2_000)
 
     # Durable worker
     worker_poll_seconds: float = 1.0

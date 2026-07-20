@@ -79,7 +79,11 @@ class DefaultContextEngine(ContextEngine):
                 token_budget=budget,
                 summary_included=summary_included,
                 recent_tail_preserved=len(included_regular),
-                reason="compacted" if dropped else "within_budget",
+                reason=(
+                    "compacted"
+                    if dropped
+                    else "durable_summary" if summary_included else "within_budget"
+                ),
             ),
         )
 

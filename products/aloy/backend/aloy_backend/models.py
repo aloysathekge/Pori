@@ -766,6 +766,17 @@ class StoredFile(SQLModel, table=True):
 
 class ContextArtifact(SQLModel, table=True):
     __tablename__ = "context_artifacts"
+    __table_args__ = (
+        Index(
+            "uq_context_summary_version",
+            "conversation_id",
+            "artifact_type",
+            "summary_version",
+            unique=True,
+            sqlite_where=text("summary_version > 0"),
+            postgresql_where=text("summary_version > 0"),
+        ),
+    )
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     organization_id: str = Field(index=True)
@@ -775,6 +786,20 @@ class ContextArtifact(SQLModel, table=True):
     run_id: str | None = Field(default=None, index=True)
     artifact_type: str = Field(default="summary", index=True)
     content: str
+    # Summary artifacts are immutable, ordered checkpoints over one contiguous
+    # Conversation prefix. Legacy artifacts remain version 0 with no boundary
+    # and are exportable, but are never trusted for prompt hydration.
+    summary_version: int = Field(default=0, index=True)
+    source_start_message_id: str | None = Field(default=None, index=True)
+    source_end_message_id: str | None = Field(default=None, index=True)
+    source_started_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    source_ended_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    source_message_count: int = 0
+    content_fingerprint: str = ""
     source_message_ids: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )

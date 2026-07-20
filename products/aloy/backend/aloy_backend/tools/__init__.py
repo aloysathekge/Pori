@@ -16,6 +16,10 @@ from .calendar import (
     calendar_create_event_tool,
     calendar_list_events_tool,
 )
+from .event_history import (
+    EVENT_HISTORY_SEARCH_CONTEXT_KEY,
+    EventHistorySearchHandler,
+)
 from .gmail import (
     GMAIL_TOOL_NAMES,
     GMAIL_WRITE_TOOLS,
@@ -172,6 +176,7 @@ __all__ = [
     "LIBRARY_TOOL_NAMES",
     "EVENT_RECORD_HANDLER_CONTEXT_KEY",
     "EVENT_RECORD_TOOL_NAMES",
+    "EVENT_HISTORY_SEARCH_CONTEXT_KEY",
     "SURFACE_AUTHORING_CONTEXT_KEY",
     "SURFACE_AUTHORING_TOOL_NAMES",
     "SURFACE_BUILD_CONTEXT_KEY",
@@ -190,6 +195,7 @@ __all__ = [
     "TaskMutationHandler",
     "EventEvidenceRecorder",
     "EventRecordHandler",
+    "EventHistorySearchHandler",
     "EventWebPageReader",
     "SurfaceStateReader",
     "SurfaceInteractionReadParams",

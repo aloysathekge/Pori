@@ -332,6 +332,21 @@ async def export_conversation(
                 "id": artifact.id,
                 "type": artifact.artifact_type,
                 "content": artifact.content,
+                "summary_version": artifact.summary_version,
+                "source_start_message_id": artifact.source_start_message_id,
+                "source_end_message_id": artifact.source_end_message_id,
+                "source_started_at": (
+                    artifact.source_started_at.isoformat()
+                    if artifact.source_started_at
+                    else None
+                ),
+                "source_ended_at": (
+                    artifact.source_ended_at.isoformat()
+                    if artifact.source_ended_at
+                    else None
+                ),
+                "source_message_count": artifact.source_message_count,
+                "content_fingerprint": artifact.content_fingerprint,
                 "source_message_ids": artifact.source_message_ids,
                 "diagnostics": artifact.diagnostics,
                 "created_at": artifact.created_at.isoformat(),

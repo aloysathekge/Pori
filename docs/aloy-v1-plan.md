@@ -679,6 +679,21 @@ reservations, and provider output limits derived from the remaining budget.
 Those provider controls are a release-hardening follow-up, not a reason to
 undercount actual usage.
 
+**Third reliability slice implemented:** Conversation history now has a stable
+host-owned token allowance independent of a model's advertised context size.
+When that allowance is crossed, Pori rolls the already accepted summary and
+the next contiguous transcript prefix into one replacement summary. Aloy stores
+it as an immutable, versioned `ContextArtifact` with first/last message,
+timestamps, covered count, and content fingerprint; only a gap-free prefix can
+advance the boundary. Reopening hydrates the latest verified summary plus a
+bounded current-Conversation tail. It no longer loads up to 5,000 Event messages
+into every Run. `search_event_history` now page-faults a bounded candidate set
+through an async tenant/user/Event-scoped database handler, so older or sibling
+evidence remains available without automatic prompt injection. A fresh Life
+Conversation consequently starts transcript-clean while accepted personal
+memory still loads. Prompt caching remains an optimization over this stable
+prefix, never the source of durable truth.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;

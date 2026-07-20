@@ -31,6 +31,7 @@ from pori import (
 )
 
 from .config import settings
+from .conversation_runtime import flush_context_artifact
 from .memory_records import record_to_row, request_scope
 from .models import (
     Conversation,
@@ -540,6 +541,16 @@ async def persist_run_outcome(
 
     if outcome.memory is not None:
         await flush_memory_to_db(session, context, outcome.memory)
+        await flush_context_artifact(
+            session,
+            organization_id=org_id,
+            user_id=context.user_id,
+            event_id=conv.event_id,
+            conversation_id=conv.id,
+            run_id=outcome.run_id,
+            memory=outcome.memory,
+            diagnostics=(trace or {}).get("context_diagnostics"),
+        )
 
     conv.updated_at = datetime.now(timezone.utc)
     session.add(conv)

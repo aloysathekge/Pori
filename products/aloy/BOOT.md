@@ -63,6 +63,10 @@ Never enable `local_dev` on a hosted or multi-user deployment.
 
 Then install, migrate, run:
 
+`make dev`, `make api`, and `make worker` run the migration target before
+starting, so an existing local SQLite database stays aligned with the checked
+out branch. The equivalent manual backend sequence is:
+
 ```bash
 uv sync                                            # deps + the Pori kernel (editable, from ../../..)
 uv run python -m alembic -c alembic.example.ini upgrade head  # create/update tables

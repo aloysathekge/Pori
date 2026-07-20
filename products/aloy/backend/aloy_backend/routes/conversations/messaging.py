@@ -64,9 +64,11 @@ from ...surface_requests import SurfaceRequestHandler
 from ...team_execution import build_team_from_config
 from ...tenancy import OrganizationContext, Permission
 from ...tools import (
+    EVENT_HISTORY_SEARCH_CONTEXT_KEY,
     EVENT_RECORD_HANDLER_CONTEXT_KEY,
     SURFACE_STATE_CONTEXT_KEY,
     EventEvidenceRecorder,
+    EventHistorySearchHandler,
     EventRecordHandler,
     EventWebPageReader,
     SurfaceStateReader,
@@ -514,7 +516,8 @@ async def _setup_single_agent(
         max_steps=min(
             agent_config.max_steps if agent_config else req.max_steps,
             context.policy.max_steps_per_run,
-        )
+        ),
+        history_window_tokens=settings.conversation_history_window_tokens,
     )
     return _AgentRunSetup(
         memory, task_content, resume_task_id, orchestrator, agent_settings, surface
@@ -741,6 +744,10 @@ async def _run_blocking(
             ),
             "web_page_reader": EventWebPageReader(),
             EVENT_RECORD_HANDLER_CONTEXT_KEY: EventRecordHandler(
+                run_context=run_context,
+                session_factory=async_session,
+            ),
+            EVENT_HISTORY_SEARCH_CONTEXT_KEY: EventHistorySearchHandler(
                 run_context=run_context,
                 session_factory=async_session,
             ),

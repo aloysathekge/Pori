@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -103,6 +104,63 @@ class CloudSessionRepository:
                 )
             )
         return sorted(hits, key=lambda hit: (hit.score, hit.created_at), reverse=True)
+
+    async def search_event(
+        self,
+        event_id: str,
+        query: str,
+        *,
+        limit: int = 10,
+        roles: list[str] | None = None,
+        candidate_limit: int = 500,
+    ) -> list[SessionSearchHit]:
+        """Page-fault relevant messages from exactly one owned Event.
+
+        Tenant and Event predicates are applied before candidate ranking. The
+        bounded SQL candidate set prevents an old Event from being loaded into
+        every Run merely to make occasional historical recall possible.
+        """
+        phrase = query.strip().lower()
+        terms = list(dict.fromkeys(re.findall(r"[\w'-]{2,}", phrase)))[:12]
+        if not terms:
+            return []
+        predicates = [func.lower(Message.content).contains(term) for term in terms]
+        statement = (
+            select(Message, Conversation)
+            .join(Conversation, col(Conversation.id) == col(Message.conversation_id))
+            .where(
+                Conversation.organization_id == self.organization_id,
+                Conversation.user_id == self.user_id,
+                Conversation.event_id == event_id,
+                or_(*predicates),
+            )
+            .order_by(col(Message.created_at).desc(), col(Message.id).desc())
+            .limit(max(limit, min(int(candidate_limit), 2_000)))
+        )
+        if roles:
+            statement = statement.where(col(Message.role).in_(roles))
+        rows = (await self.session.execute(statement)).all()
+        hits: list[SessionSearchHit] = []
+        for message, conversation in rows:
+            content = message.content.lower()
+            matched = sum(1 for term in terms if term in content)
+            coverage = matched / len(terms)
+            phrase_bonus = 0.25 if phrase in content else 0.0
+            hits.append(
+                SessionSearchHit(
+                    session_id=conversation.id,
+                    message_id=message.id,
+                    role=message.role,
+                    content=message.content,
+                    score=min(1.0, coverage + phrase_bonus),
+                    created_at=message.created_at,
+                )
+            )
+        return sorted(
+            hits,
+            key=lambda hit: (hit.score, hit.created_at, hit.message_id),
+            reverse=True,
+        )[:limit]
 
     async def export(self, session_id: str) -> SessionExport:
         record = await self.get(session_id)

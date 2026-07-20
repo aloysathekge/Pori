@@ -14,7 +14,7 @@ class _FakeStructured:
         self._calls = calls
 
     async def ainvoke(self, messages):
-        self._calls.append(1)
+        self._calls.append(messages)
         return self._summary
 
 
@@ -85,3 +85,43 @@ async def test_compress_context_noop_when_nothing_dropped():
         await compress_context(mem, llm, max_tokens=3000, reserve_tokens=100) is False
     )
     assert llm.calls == []
+
+
+async def test_compression_rolls_durable_prefix_into_replacement_summary():
+    llm = _FakeLLM(
+        CompressionSummary(
+            active_task="finish the degree",
+            progress="carried forward and added the new exam decision",
+        )
+    )
+    mem = AgentMemory(store=create_memory_store(backend="memory"))
+    mem.hydrate_context_summary(
+        "Durable summary v1: the semester plan was accepted.",
+        version=1,
+        source_start_message_id="old-001",
+        source_end_message_id="old-100",
+        source_message_count=100,
+    )
+    for i in range(8):
+        mem.hydrate_messages(
+            [
+                {
+                    "id": f"tail-{i:03d}",
+                    "role": "user" if i % 2 == 0 else "assistant",
+                    "content": f"tail message {i} " + "x" * 220,
+                }
+            ]
+        )
+
+    assert await compress_context(mem, llm, max_tokens=350, reserve_tokens=100)
+    prompt = llm.calls[0][-1].content
+    assert "Durable summary v1" in prompt
+    latest = mem.summaries[-1]
+    assert latest["source_start_message_id"] == "old-001"
+    assert latest["source_message_count"] > 100
+    assert latest["source_end_message_id"].startswith("tail-")
+
+    window = mem.get_token_limited_messages(max_tokens=350, reserve_tokens=100)
+    summaries = [item for item in window if item["role"] == "system"]
+    assert len(summaries) == 1
+    assert "finish the degree" in summaries[0]["content"]

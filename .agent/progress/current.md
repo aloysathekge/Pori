@@ -5,17 +5,18 @@
 R7's generic Event operating loop is merged through PR #197. R8 is active on
 `aloy-v1-r8-release-gate`. The first reliability slice is committed at
 `2f20691`; it adds bounded Run and Task watchdog recovery. The second slice is
-implemented and uncommitted: every Run now freezes organization-owned step,
-tool-call, token, cost, and active-duration limits; worker admission re-clamps
-them; one durable ledger meters every Agent/Team/model/tool path across retry;
-and ordinary, Event bootstrap, and Surface Builder exhaustion produces a
-terminal receipt and Trail record without another retry. Full kernel tests pass
-(`624 passed, 1 skipped`). The complete backend suite is covered in stable
-groups: `314` unaffected non-Surface tests passed before one outdated fake-Agent
-fixture failed, its corrected recovery group passes `15`, and all `77` Surface
-tests pass. Kernel mypy passes across `110` files, backend mypy across `122`, and
-app lint/build pass. Live University, Madrid, and Career model acceptance
-remains deferred while provider credits are unavailable.
+committed at `ede63b6`; it adds durable host-owned execution budgets. The third
+slice is implemented and uncommitted: Aloy now compacts Conversation history at
+a stable token threshold, persists immutable versioned summary boundaries,
+hydrates only the verified summary plus a bounded current-thread tail, and
+page-faults older same-Event evidence through an async scoped database handler.
+Verification currently passes: the complete kernel suite (`626 passed, 1
+skipped`), `54` affected backend context/migration/run/worker/Task/tenancy/
+pagination/Surface-request tests, and kernel plus backend mypy (`110` and `123`
+source files). The monolithic backend command crossed its `300s` orchestration
+ceiling during the existing slow browser matrix without emitting a failure, so
+it is not claimed as a complete pass. Live University, Madrid, and Career model
+acceptance remains deferred while provider credits are unavailable.
 
 ## Decisions Made
 
@@ -32,6 +33,14 @@ remains deferred while provider credits are unavailable.
   infrastructure are operator-owned and absent from customer navigation.
 - Event creation must remain available even when context ingestion is pending or fails.
 - Prompt caching is a latency/cost optimization, never durable memory or truth.
+- Durable Conversation summaries are immutable Event-local artifacts over one
+  gap-free prefix. Their version, first/last message, count, timestamps, and
+  fingerprint are host-owned; unversioned legacy summaries are never trusted
+  for prompt hydration.
+- Current Conversation history has a stable product-owned token allowance even
+  when the selected model exposes a much larger context window. Older and
+  sibling Event transcripts are retrieved through explicit page faults, never
+  injected automatically.
 - Raw web evidence, evidence-backed Event records, and report indexes are durable
   but excluded from mutable automatic prompt hydration; models read their compact
   projection on demand.
@@ -506,11 +515,9 @@ remains deferred while provider credits are unavailable.
 
 ## Next Session Should Start With
 
-Review and commit R8's complete budget slice, then begin the context-longevity
-gate: define compaction thresholds over paginated Conversation history, persist
-summary provenance/version boundaries, prove older Event evidence remains
-retrievable on demand, and verify that a fresh Life Conversation stays
-transcript-clean while accepted personal memory still loads. Keep
+Review and commit R8's context-longevity slice, then run the provider-success /
+database-crash reconciliation drill and complete responsive/accessibility QA at
+the required Event workspace and generated-Surface viewports. Keep
 `source_change` and `automation` fail-closed. When provider access returns, run
 the University, Madrid, and Career acceptance matrix without patching any
 individual generated application.

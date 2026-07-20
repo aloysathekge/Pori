@@ -43,10 +43,12 @@ from .approvals import (
 from .event_log import EventLogCollector
 from .surface_requests import SurfaceRequestHandler
 from .tools import (
+    EVENT_HISTORY_SEARCH_CONTEXT_KEY,
     EVENT_RECORD_HANDLER_CONTEXT_KEY,
     GOOGLE_WRITE_TOOLS,
     SURFACE_STATE_CONTEXT_KEY,
     EventEvidenceRecorder,
+    EventHistorySearchHandler,
     EventRecordHandler,
     EventWebPageReader,
     SurfaceStateReader,
@@ -148,6 +150,12 @@ async def stream_agent_execution(
         merged_tool_context[EVENT_RECORD_HANDLER_CONTEXT_KEY] = EventRecordHandler(
             run_context=run_context,
             owner_loop=serving_loop,
+        )
+        merged_tool_context[EVENT_HISTORY_SEARCH_CONTEXT_KEY] = (
+            EventHistorySearchHandler(
+                run_context=run_context,
+                owner_loop=serving_loop,
+            )
         )
 
     def emit_approval(event: dict) -> None:

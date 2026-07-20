@@ -386,6 +386,26 @@ class Agent:
         # Set up system message
         self._setup_system_message()
 
+    def _history_context_limits(self) -> tuple[int, int]:
+        """Return total/reserve limits for the transcript-only window.
+
+        ``context_window_tokens`` is provider capacity. Products may choose a
+        smaller stable history allowance so opening an old conversation does
+        not grow prompt latency forever. Adding the reserve back converts that
+        allowance to the existing ``max_tokens - reserve_tokens`` contract.
+        """
+        reserve = int(self.settings.context_window_reserve_tokens)
+        history_budget = self.settings.history_window_tokens
+        if history_budget is None:
+            return int(self.settings.context_window_tokens), reserve
+        return (
+            min(
+                int(self.settings.context_window_tokens),
+                int(history_budget) + reserve,
+            ),
+            reserve,
+        )
+
     async def step(self) -> None:
         """Execute one step of the task."""
         step_number = self.state.n_steps + 1
@@ -446,11 +466,12 @@ class Agent:
             # AC-3: summarize context that would overflow the window before it is
             # dropped, so long tasks don't silently lose information (fail-open).
             if self.settings.compress_context:
+                history_tokens, history_reserve = self._history_context_limits()
                 await compress_context(
                     self.memory,
                     self.llm,
-                    max_tokens=self.settings.context_window_tokens,
-                    reserve_tokens=self.settings.context_window_reserve_tokens,
+                    max_tokens=history_tokens,
+                    reserve_tokens=history_reserve,
                 )
             llm_start_time = datetime.now()
             model_output = await self.get_next_action()
@@ -720,11 +741,12 @@ class Agent:
                 # Request too big to send unchanged: compress dropped history
                 # (AC-3) and retry once before giving up.
                 try:
+                    history_tokens, history_reserve = self._history_context_limits()
                     await compress_context(
                         self.memory,
                         self.llm,
-                        max_tokens=self.settings.context_window_tokens,
-                        reserve_tokens=self.settings.context_window_reserve_tokens,
+                        max_tokens=history_tokens,
+                        reserve_tokens=history_reserve,
                     )
                     return await self._invoke_for_action()
                 except BudgetExceeded:

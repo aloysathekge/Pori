@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pori import (
+    AgentSettings,
     LLMConfig,
     MemberConfig,
     RunContext,
@@ -20,6 +21,7 @@ from pori import (
     tool_registry,
 )
 
+from .config import settings
 from .models import TeamConfig
 
 if TYPE_CHECKING:
@@ -67,4 +69,7 @@ def build_team_from_config(
         name=team_config.name,
         run_context=run_context,
         budget_ledger=budget_ledger,
+        agent_defaults=AgentSettings(
+            history_window_tokens=settings.conversation_history_window_tokens
+        ),
     )
