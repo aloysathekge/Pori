@@ -30,8 +30,8 @@ from .surface_builds import (
     SurfaceBuildParams,
     SurfacePreviewParams,
 )
-from .surface_publication import SurfacePublicationParams
 from .surface_manifest import parse_surface_manifest
+from .surface_publication import SurfacePublicationParams
 
 MAX_CANDIDATE_SUBMISSIONS = 2
 
