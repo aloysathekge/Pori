@@ -36,7 +36,7 @@ export function StreamingIndicator({
 
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-3xl space-y-3 rounded-2xl bg-zinc-800 px-4 py-3 text-sm">
+      <div className="w-full max-w-3xl space-y-3 py-1 text-sm">
         {/* Live activity headline */}
         <div className="flex items-center gap-2.5 text-zinc-300">
           <span className="relative flex h-2.5 w-2.5 shrink-0">

@@ -121,6 +121,7 @@ export interface EventFile {
   id: string;
   name: string;
   kind: string;
+  in_library?: boolean;
   content_type: string;
   size_bytes: number;
   origin_session_id: string | null;

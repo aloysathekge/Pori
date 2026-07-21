@@ -109,11 +109,18 @@ export function FileContentRenderer({ presentation, sourceUrl, text }: FileConte
   switch (presentation.renderer) {
     case 'markdown':
       return text === null ? <Unavailable presentation={presentation} /> : (
-        <article className="mx-auto max-w-3xl p-6 text-sm text-zinc-200"><Markdown>{text}</Markdown></article>
+        <>
+          <article className="mx-auto max-w-3xl p-6 text-sm text-zinc-200"><Markdown>{text}</Markdown></article>
+          {presentation.preview?.truncated && <PreviewTruncated />}
+        </>
       );
+    case 'code':
     case 'text':
       return text === null ? <Unavailable presentation={presentation} /> : (
-        <pre className="m-4 min-h-[calc(100%-2rem)] overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-4 font-mono text-xs leading-6 text-zinc-200"><code>{text}</code></pre>
+        <div className="min-h-full p-4">
+          <pre className="min-h-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-4 font-mono text-xs leading-6 text-zinc-200"><code>{text}</code></pre>
+          {presentation.preview?.truncated && <PreviewTruncated />}
+        </div>
       );
     case 'image':
       return sourceUrl ? (

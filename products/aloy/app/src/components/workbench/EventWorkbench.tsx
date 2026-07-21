@@ -29,6 +29,7 @@ interface EventWorkbenchProps {
   onCloseTab: (tabId: string) => void;
   onDismiss: () => void;
   onAskAloy: (reference: StoredFileReference) => void;
+  onFileDeleted: (fileId: string) => void;
   showSurfaceAlongside: boolean;
   onToggleSurfaceAlongside: () => void;
   resourceRatio: number;
@@ -56,6 +57,7 @@ export function EventWorkbench({
   onCloseTab,
   onDismiss,
   onAskAloy,
+  onFileDeleted,
   showSurfaceAlongside,
   onToggleSurfaceAlongside,
   resourceRatio,
@@ -93,7 +95,7 @@ export function EventWorkbench({
       return <ArtifactViewer conversationId={conversationId} path={activeTab.path} onAskAloy={onAskAloy} />;
     }
     if (activeTab.kind === 'file') {
-      return <StoredFileViewer file={activeTab.file} onAskAloy={onAskAloy} />;
+      return <StoredFileViewer file={activeTab.file} onAskAloy={onAskAloy} onDeleted={onFileDeleted} />;
     }
     return <RunReplay runId={activeTab.runId} embedded />;
   }

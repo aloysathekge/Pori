@@ -11,6 +11,7 @@ describe('resolveFileVisual', () => {
     expect(resolveFileVisual({ name: 'recording.mp4' })).toBe('video');
     expect(resolveFileVisual({ name: 'interview.m4a' })).toBe('audio');
     expect(resolveFileVisual({ name: 'source.tsx' })).toBe('code');
+    expect(resolveFileVisual({ name: 'component.ts', content_type: 'video/mp2t' })).toBe('code');
     expect(resolveFileVisual({ name: 'bundle.zip' })).toBe('archive');
   });
 

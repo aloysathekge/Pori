@@ -78,8 +78,9 @@ export function MessageBubble({
       type="button"
       onClick={copyMessage}
       title="Copy message"
-      className={`text-zinc-500 transition-opacity hover:text-accent-600 ${
-        copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      aria-label="Copy message"
+      className={`flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-accent-600 ${
+        copied ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
       }`}
     >
       {copied ? <Check size={14} className="text-accent-600" /> : <Copy size={14} />}
@@ -87,29 +88,15 @@ export function MessageBubble({
   );
 
   return (
-    <div className={`group flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {isUser && (
-        <div className="flex flex-col items-end justify-end gap-2 pb-1">
-          {onResend && (
-            <button
-              type="button"
-              onClick={() => onResend(message.content)}
-              title="Send again"
-              className="text-zinc-500 opacity-0 transition-opacity hover:text-accent-600 group-hover:opacity-100"
-            >
-              <RotateCcw size={14} />
-            </button>
-          )}
-          {copyButton}
-        </div>
-      )}
+    <article className={`group flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`min-w-0 ${isUser ? 'max-w-[min(82%,42rem)] text-right' : 'w-full'}`}>
       <div
-        className={`max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        className={`${
           isSurfaceAction
-            ? 'border border-zinc-700 bg-zinc-900/80 text-zinc-200 shadow-sm'
+            ? 'max-w-3xl rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-3 text-zinc-200 shadow-sm'
             : isUser
-            ? 'bg-accent-600 text-white selection:bg-white/35 selection:text-white'
-            : 'bg-zinc-800 text-zinc-200'
+              ? 'rounded-2xl border border-accent-500/15 bg-accent-500/[0.06] px-4 py-3 text-[15px] leading-6 text-zinc-200 shadow-sm selection:bg-accent-500/20 sm:text-base'
+              : 'text-[15px] leading-7 text-zinc-200 sm:text-base'
         }`}
       >
         {isSurfaceAction && (
@@ -132,7 +119,7 @@ export function MessageBubble({
           </div>
         )}
         {(message.metadata?.images?.length ?? 0) > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className={`mb-3 flex flex-wrap gap-2 ${isUser ? 'justify-end' : ''}`}>
             {message.metadata!.images!.map((img, i) => (
               <img
                 key={i}
@@ -144,14 +131,14 @@ export function MessageBubble({
           </div>
         )}
         {(message.metadata?.files?.length ?? 0) > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className={`mb-3 flex flex-wrap gap-2 ${isUser ? 'justify-end' : ''}`}>
             {message.metadata!.files!.map((f, i) => (
               <span
                 key={i}
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
                   isUser
-                    ? 'border-white/25 bg-white/10 text-white'
-                    : 'border-zinc-600/60 bg-zinc-900/60 text-zinc-200'
+                    ? 'border-accent-500/15 bg-zinc-950/45 text-zinc-200'
+                    : 'border-zinc-700 bg-zinc-900/60 text-zinc-200'
                 }`}
               >
                 <FileTypeIcon file={f} size={13} />
@@ -196,7 +183,7 @@ export function MessageBubble({
         {isUser ? (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
-          <div className="text-sm">
+          <div>
             <Markdown>{message.content}</Markdown>
           </div>
         )}
@@ -218,7 +205,7 @@ export function MessageBubble({
         )}
 
         {!isUser && artifacts.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-zinc-700 pt-2">
+          <div className="mt-4 space-y-1 border-t border-zinc-800 pt-3">
             <p className="text-xs font-medium text-zinc-400">Files</p>
             {artifacts.map((a, i) => {
               const path = a.path as string | undefined;
@@ -249,7 +236,7 @@ export function MessageBubble({
         )}
 
         {message.metadata?.steps_taken != null && !isUser && (
-          <div className="mt-2 flex items-center gap-3 border-t border-zinc-700 pt-2 text-xs text-zinc-400">
+          <div className="mt-4 flex items-center gap-3 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
             <span>{message.metadata.steps_taken} steps</span>
             {message.metadata.reasoning && (
               <details className="ml-1">
@@ -273,11 +260,26 @@ export function MessageBubble({
           </div>
         )}
       </div>
-      {!isUser && <div className="self-end pb-1">{copyButton}</div>}
+
+        <div className={`mt-2 flex min-h-7 items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
+          {isUser && onResend && (
+            <button
+              type="button"
+              onClick={() => onResend(message.content)}
+              title="Send again"
+              aria-label="Send again"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 opacity-0 transition hover:bg-zinc-800 hover:text-accent-600 group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              <RotateCcw size={14} />
+            </button>
+          )}
+          {copyButton}
+        </div>
+      </div>
 
       {replaying && runId && (
         <RunReplay runId={runId} onClose={() => setReplaying(false)} />
       )}
-    </div>
+    </article>
   );
 }

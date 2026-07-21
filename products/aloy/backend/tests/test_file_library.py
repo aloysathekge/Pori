@@ -53,6 +53,37 @@ class TestLibraryLifecycle:
 
         listed = await client.get("/v1/files")
         assert [f["file_id"] for f in listed.json()] == [file_id]
+        assert listed.json()[0]["event_title"]
+        assert listed.json()[0]["event_is_life"] is True
+
+    async def test_listed_file_identifies_its_origin_event(self, client):
+        event = await client.post(
+            "/v1/events",
+            json={"title": "University 2026", "setup_mode": "simple"},
+        )
+        conversation_id = event.json()["conversation_id"]
+        uploaded = await client.post(
+            f"/v1/conversations/{conversation_id}/files",
+            files={"file": ("timetable.ts", b"export const term = 2", "video/mp2t")},
+        )
+        file_id = uploaded.json()["file_id"]
+        await client.post(f"/v1/files/{file_id}/library")
+
+        listed = await client.get("/v1/files")
+        source = next(file for file in listed.json() if file["file_id"] == file_id)
+        assert source["event_title"] == "University 2026"
+        assert source["event_is_life"] is False
+
+        surface = (await client.get(f"/v1/events/{event.json()['id']}")).json()
+        files_section = next(
+            section
+            for section in surface["surface"]["sections"]
+            if section["kind"] == "files"
+        )
+        event_file = next(
+            file for file in files_section["files"] if file["id"] == file_id
+        )
+        assert event_file["in_library"] is True
 
     async def test_remove_deletes_the_pointer_too(self, client, db_session_maker):
         _, file_id = await _upload(client)
@@ -81,6 +112,46 @@ class TestLibraryLifecycle:
             f"/v1/files/{file_id}/library", headers={"X-Test-User": "someone-else"}
         )
         assert resp.status_code == 404
+
+    async def test_delete_upload_removes_file_library_pointer_and_event_row(
+        self, client, db_session_maker
+    ):
+        conversation_id, file_id = await _upload(client)
+        await client.post(f"/v1/files/{file_id}/library")
+
+        deleted = await client.delete(f"/v1/files/{file_id}")
+        assert deleted.status_code == 204
+        assert (await client.get(f"/v1/files/{file_id}")).status_code == 404
+        assert (await client.get("/v1/files")).json() == []
+
+        conversation = (await client.get(f"/v1/conversations/{conversation_id}")).json()
+        surface = (await client.get(f"/v1/events/{conversation['event_id']}")).json()
+        files_section = next(
+            section
+            for section in surface["surface"]["sections"]
+            if section["kind"] == "files"
+        )
+        assert all(file["id"] != file_id for file in files_section["files"])
+
+        from aloy_backend.models import KnowledgeEntry
+
+        async with db_session_maker() as session:
+            assert await session.get(KnowledgeEntry, library_entry_id(file_id)) is None
+
+    async def test_delete_rejects_generated_artifacts(self, client, db_session_maker):
+        _, file_id = await _upload(client)
+        from aloy_backend.models import StoredFile
+
+        async with db_session_maker() as session:
+            record = await session.get(StoredFile, file_id)
+            assert record is not None
+            record.kind = "artifact"
+            session.add(record)
+            await session.commit()
+
+        deleted = await client.delete(f"/v1/files/{file_id}")
+        assert deleted.status_code == 409
+        assert (await client.get(f"/v1/files/{file_id}")).status_code == 200
 
 
 class TestFetchMyFileTool:

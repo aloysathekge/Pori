@@ -18,6 +18,7 @@ import { TodayPage } from '@/pages/TodayPage';
 import { EventPage } from '@/pages/EventPage';
 import { EventSetupPage } from '@/pages/EventSetupPage';
 import { Spinner } from '@/components/ui/Spinner';
+import { ToastProvider } from '@/components/ui/ToastProvider';
 import type { ReactNode } from 'react';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -103,7 +104,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <ToastProvider>
+          <AppRoutes />
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   );

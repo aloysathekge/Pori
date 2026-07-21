@@ -141,6 +141,7 @@ def file_payload(file: StoredFile) -> dict[str, Any]:
         "id": file.id,
         "name": file.name,
         "kind": file.kind,
+        "in_library": file.in_library,
         "content_type": file.content_type,
         "size_bytes": file.size_bytes,
         "origin_session_id": file.origin_session_id,

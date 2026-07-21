@@ -17,6 +17,12 @@ function humanSize(bytes: number) {
   return `${bytes} B`;
 }
 
+function fileOrigin(file: StoredFileView) {
+  if (file.event_is_life) return 'Uploaded to My Files';
+  if (file.event_title) return `From ${file.event_title}`;
+  return 'Original Event unavailable';
+}
+
 async function download(file: StoredFileView) {
   try {
     const response = await apiStreamFetch(
@@ -142,7 +148,10 @@ export function FilesPage() {
                 <FileThumbnail file={file} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-zinc-200">{file.name}</p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="mt-0.5 truncate text-xs font-medium text-accent-700">
+                    {fileOrigin(file)}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-500">
                     {humanSize(file.size_bytes)} · saved {new Date(file.created_at).toLocaleDateString()}
                   </p>
                 </div>
