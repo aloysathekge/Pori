@@ -16,7 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from pori.observability import (
+from pori import (
     ACTIVITY_CHANGED,
     LLM_RETRY,
     PLAN_CHANGED,

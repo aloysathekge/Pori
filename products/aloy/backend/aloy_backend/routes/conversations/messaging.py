@@ -36,7 +36,6 @@ from ...conversation_runtime import load_event_memory
 from ...database import async_session, get_session
 from ...doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ...event_log import EventLogCollector
-from ...run_timeline import RunTimelineRecorder
 from ...models import (
     AgentConfig,
     Conversation,
@@ -56,6 +55,7 @@ from ...rate_limit import rate_limited_permission
 from ...run_budgets import RunBudgetLimits, resolve_run_budget
 from ...run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ...run_surface import resolve_run_surface
+from ...run_timeline import RunTimelineRecorder
 from ...runtime import authenticated_run_context
 from ...schemas import XLSX_MIME, MessageResponse, SendMessageRequest
 from ...skills import load_skill_catalog
