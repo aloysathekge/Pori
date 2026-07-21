@@ -260,6 +260,16 @@ export function createEvent(data: {
   });
 }
 
+export function updateEvent(
+  eventId: string,
+  data: Partial<Pick<EventSummary, 'title' | 'summary' | 'phase'>>,
+) {
+  return apiFetch<EventSummary>(`/events/${eventId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 export function uploadEventCover(eventId: string, file: File, onProgress?: (pct: number) => void) {
   return apiUploadFile<EventSummary>(`/events/${eventId}/cover`, file, onProgress);
 }

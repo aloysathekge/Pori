@@ -62,6 +62,11 @@ from ..proposal_executor import (
 )
 from ..rate_limit import rate_limited_permission
 from ..storage import event_cover_key, get_object_store, safe_name
+from ..surface_evolution import SurfaceEvolutionSignal
+from ..surface_evolution_proposals import (
+    SurfaceEvolutionProposalError,
+    record_surface_evolution_signal,
+)
 from ..task_execution import (
     TaskExecutionError,
     queue_task_run,
@@ -96,6 +101,14 @@ class EventCreateBody(BaseModel):
     origin_conversation_id: str | None = None
     cover_mode: Literal["automatic", "none"] = "automatic"
     setup_mode: Literal["simple", "assisted"] = "simple"
+
+
+class EventUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    summary: str | None = Field(default=None, max_length=2000)
+    phase: str | None = Field(default=None, max_length=200)
 
 
 class TaskCreateBody(BaseModel):
@@ -351,6 +364,66 @@ async def create_event(
         event_id=event.id,
     )
     await session.commit()
+    await session.refresh(event)
+    return event_payload(event)
+
+
+@router.patch("/{event_id}")
+async def update_event(
+    event_id: str,
+    body: EventUpdateBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Update user-owned Event identity and propose phase-aware Surface evolution."""
+
+    event = await _load_event(session, context, event_id)
+    previous_phase = event.phase
+    changed: list[str] = []
+    if body.title is not None and body.title != event.title:
+        event.title = body.title
+        changed.append("title")
+    if body.summary is not None and body.summary != event.summary:
+        event.summary = body.summary
+        changed.append("summary")
+    if body.phase is not None and body.phase != event.phase:
+        event.phase = body.phase
+        changed.append("phase")
+    if not changed:
+        return event_payload(event)
+
+    session.add(event)
+    session.add(
+        EventTrailEntry(
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event.id,
+            actor_id=context.user_id,
+            kind="event_updated",
+            summary=f"Updated Event {', '.join(changed)}",
+            payload={"changed": changed, "phase": event.phase},
+        )
+    )
+    if "phase" in changed and event.phase:
+        try:
+            await record_surface_evolution_signal(
+                session,
+                context=context,
+                event=event,
+                signal=SurfaceEvolutionSignal(
+                    trigger="event_phase_changed",
+                    goal=f"Adapt the Event Surface to the {event.phase} phase",
+                    evidence_refs=[f"event-phase:{previous_phase}->{event.phase}"],
+                ),
+            )
+        except SurfaceEvolutionProposalError as exc:
+            if exc.status_code != 409:
+                raise
+            await session.commit()
+    else:
+        await session.commit()
     await session.refresh(event)
     return event_payload(event)
 

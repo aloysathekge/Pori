@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { History, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
+import { Check, History, MessageSquareWarning, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
 import {
   getPublishedSurfaceRuntime,
   getSurfaceRuntimeDocument,
   listSurfacePublications,
   listSurfaceBuilds,
   rollbackSurface,
+  submitSurfaceFeedback,
   surfaceSeenKey,
   type SurfaceBuild,
   type SurfacePublication,
@@ -43,6 +44,8 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   const [history, setHistory] = useState<SurfacePublication[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [restoringBuildId, setRestoringBuildId] = useState<string | null>(null);
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -234,6 +237,19 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     }
   }
 
+  async function markNotUseful() {
+    if (feedbackState !== 'idle') return;
+    setFeedbackState('sending');
+    setFeedbackError(null);
+    try {
+      await submitSurfaceFeedback(eventId);
+      setFeedbackState('sent');
+    } catch (cause) {
+      setFeedbackState('idle');
+      setFeedbackError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   const buildLabel = useMemo(() => {
     if (state.kind !== 'ready') return null;
     return state.build.bundle_sha256?.slice(0, 8) ?? state.build.id.slice(0, 8);
@@ -286,6 +302,21 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           <span className="hidden items-center gap-1 text-[10px] text-zinc-600 sm:flex" title="Generated code runs without host access or network access">
             <ShieldCheck size={12} /> Isolated
           </span>
+          {state.kind === 'ready' && (
+            <button
+              type="button"
+              onClick={() => void markNotUseful()}
+              disabled={feedbackState !== 'idle'}
+              className="flex h-10 items-center gap-1.5 rounded-lg px-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-70 sm:h-8"
+              aria-label="This Surface is not useful"
+              title={feedbackState === 'sent' ? 'Feedback received' : 'This Surface is not useful'}
+            >
+              {feedbackState === 'sent' ? <Check size={14} /> : <MessageSquareWarning size={14} />}
+              <span className="hidden text-[10px] lg:inline">
+                {feedbackState === 'sending' ? 'Sending…' : feedbackState === 'sent' ? 'Feedback sent' : 'Not useful'}
+              </span>
+            </button>
+          )}
           {state.kind === 'ready' && (
             <button
               type="button"
@@ -352,6 +383,12 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
           )}
         </div>
       </div>
+
+      {feedbackError && (
+        <div role="alert" className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          {feedbackError}
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         {state.kind === 'loading' && (

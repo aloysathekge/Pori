@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -26,10 +26,12 @@ from ..surface_authoring import (
     surface_project_snapshot,
 )
 from ..surface_builds import surface_build_payload
+from ..surface_evolution import SurfaceEvolutionSignal
 from ..surface_evolution_proposals import (
     SurfaceEvolutionProposalError,
     decide_surface_evolution_proposal,
     list_surface_evolution_proposals,
+    record_surface_evolution_signal,
     surface_evolution_proposal_payload,
 )
 from ..surface_interactions import (
@@ -58,6 +60,16 @@ class SurfaceEvolutionDecisionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decision: Literal["accept", "dismiss"]
+
+
+class SurfaceFeedbackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    message: str = Field(
+        default="This Surface is not useful yet",
+        min_length=3,
+        max_length=1000,
+    )
 
 
 _SURFACE_STAGE_MESSAGES = {
@@ -109,6 +121,32 @@ async def get_surface_evolution_proposals(
         context=context,
         event_id=event_id,
     )
+
+
+@router.post("/feedback")
+async def submit_surface_feedback(
+    event_id: str,
+    body: SurfaceFeedbackBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    try:
+        proposal = await record_surface_evolution_signal(
+            session,
+            context=context,
+            event=event,
+            signal=SurfaceEvolutionSignal(
+                trigger="negative_feedback",
+                goal=body.message,
+                evidence_refs=[f"user-feedback:{context.user_id}"],
+            ),
+        )
+    except SurfaceEvolutionProposalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return surface_evolution_proposal_payload(proposal)
 
 
 @router.post("/evolution-proposals/{proposal_id}/decision")

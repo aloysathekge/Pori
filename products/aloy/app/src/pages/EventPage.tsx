@@ -48,6 +48,11 @@ import { EventCover } from '@/components/events/EventCover';
 import { EventSettingsPanel } from '@/components/events/EventSettingsPanel';
 import { SettingsIcon } from '@/components/icons';
 import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
+import { SurfaceEvolutionProposalCard } from '@/components/surfaces/SurfaceEvolutionProposalCard';
+import {
+  listSurfaceEvolutionProposals,
+  type SurfaceEvolutionProposal,
+} from '@/api/surfaces';
 import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/workbench/EventWorkbench';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -90,6 +95,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [trailEntries, setTrailEntries] = useState<EventTrailEntry[]>([]);
+  const [surfaceEvolutionProposals, setSurfaceEvolutionProposals] = useState<SurfaceEvolutionProposal[]>([]);
   const [trailCursor, setTrailCursor] = useState<string | null | undefined>(undefined);
   const [loadingOlderTrail, setLoadingOlderTrail] = useState(false);
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'reconnecting' | 'stale' | 'offline'>('connecting');
@@ -225,10 +231,20 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     }
   }, [eventId]);
 
+  const loadSurfaceEvolutionProposals = useCallback(async () => {
+    if (!eventId) return;
+    try {
+      setSurfaceEvolutionProposals(await listSurfaceEvolutionProposals(eventId));
+    } catch {
+      // The Event remains usable if this optional suggestion feed is unavailable.
+    }
+  }, [eventId]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- route-driven data load
     void loadSurface();
-  }, [loadSurface]);
+    void loadSurfaceEvolutionProposals();
+  }, [loadSurface, loadSurfaceEvolutionProposals]);
 
   const {
     pendingImages,
@@ -315,6 +331,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         void loadSurface();
+        void loadSurfaceEvolutionProposals();
         if (targetConversationId && targetConversationId === conversationId) {
           void getConversation(targetConversationId).then((conversation) => {
             setMessages(conversation.messages);
@@ -376,7 +393,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
       window.clearInterval(staleCheck);
       window.clearTimeout(refreshTimer);
     };
-  }, [conversationId, eventId, loadSurface]);
+  }, [conversationId, eventId, loadSurface, loadSurfaceEvolutionProposals]);
 
   async function loadOlderMessages() {
     if (!conversationId || !messageCursor || loadingOlderMessages) return;
@@ -678,6 +695,18 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     onOpen={openSurface}
                   />
                 )}
+              />
+            )}
+            {surfaceEvolutionProposals[0] && (
+              <SurfaceEvolutionProposalCard
+                eventId={eventId}
+                proposal={surfaceEvolutionProposals[0]}
+                onDecided={(proposal) => {
+                  setSurfaceEvolutionProposals((current) =>
+                    current.filter((item) => item.id !== proposal.id),
+                  );
+                  if (proposal.status === 'queued') void loadSurface();
+                }}
               />
             )}
           </div>
