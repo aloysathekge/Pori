@@ -40,17 +40,29 @@ export function fileExtension(name: string) {
 export function resolveFileVisual(file: FileVisualDescriptor): FileVisualKind {
   const ext = fileExtension(file.name);
   const mediaType = ((file.content_type ?? '').split(';', 1)[0] ?? '').toLowerCase();
-  if (mediaType === 'application/pdf' || ext === 'pdf') return 'pdf';
-  if (mediaType.startsWith('image/') || IMAGE_EXTENSIONS.has(ext)) return 'image';
-  if (mediaType.startsWith('video/') || VIDEO_EXTENSIONS.has(ext)) return 'video';
-  if (mediaType.startsWith('audio/') || AUDIO_EXTENSIONS.has(ext)) return 'audio';
-  if (ext === 'doc' || ext === 'docx' || mediaType.includes('wordprocessingml')) return 'document';
-  if (['xls', 'xlsx', 'xlsm'].includes(ext) || mediaType.includes('spreadsheetml')) return 'spreadsheet';
-  if (['ppt', 'pptx'].includes(ext) || mediaType.includes('presentationml')) return 'slides';
+  // Prefer a recognized filename extension over ambiguous OS MIME metadata.
+  // Windows commonly reports TypeScript `.ts` files as MPEG `video/mp2t`.
+  if (ext === 'pdf') return 'pdf';
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image';
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video';
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
+  if (ext === 'doc' || ext === 'docx') return 'document';
+  if (['xls', 'xlsx', 'xlsm'].includes(ext)) return 'spreadsheet';
+  if (['ppt', 'pptx'].includes(ext)) return 'slides';
   if (ARCHIVE_EXTENSIONS.has(ext)) return 'archive';
-  if (ext === 'md' || ext === 'mdx' || mediaType === 'text/markdown') return 'markdown';
+  if (ext === 'md' || ext === 'mdx') return 'markdown';
   if (CODE_EXTENSIONS.has(ext)) return 'code';
-  if (mediaType.startsWith('text/') || TEXT_EXTENSIONS.has(ext)) return 'text';
+  if (TEXT_EXTENSIONS.has(ext)) return 'text';
+
+  if (mediaType === 'application/pdf') return 'pdf';
+  if (mediaType.startsWith('image/')) return 'image';
+  if (mediaType.startsWith('video/')) return 'video';
+  if (mediaType.startsWith('audio/')) return 'audio';
+  if (mediaType.includes('wordprocessingml')) return 'document';
+  if (mediaType.includes('spreadsheetml')) return 'spreadsheet';
+  if (mediaType.includes('presentationml')) return 'slides';
+  if (mediaType === 'text/markdown') return 'markdown';
+  if (mediaType.startsWith('text/')) return 'text';
   if (file.kind === 'artifact') return 'artifact';
   return 'unknown';
 }

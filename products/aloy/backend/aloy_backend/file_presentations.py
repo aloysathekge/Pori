@@ -27,6 +27,71 @@ _DOCX_SUFFIXES = {".docx"}
 _SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 _SLIDE_SUFFIXES = {".pptx"}
 _MARKDOWN_SUFFIXES = {".md", ".mdx"}
+_CODE_SUFFIXES = {
+    ".astro",
+    ".bash",
+    ".c",
+    ".cjs",
+    ".conf",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".dart",
+    ".diff",
+    ".env",
+    ".fish",
+    ".go",
+    ".gql",
+    ".graphql",
+    ".h",
+    ".hpp",
+    ".htm",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".less",
+    ".lua",
+    ".mjs",
+    ".patch",
+    ".php",
+    ".prisma",
+    ".ps1",
+    ".py",
+    ".r",
+    ".rb",
+    ".rs",
+    ".sass",
+    ".scala",
+    ".scss",
+    ".sh",
+    ".sql",
+    ".svelte",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".vue",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".zsh",
+}
+_CODE_MEDIA_TYPES = {
+    "application/javascript",
+    "application/json",
+    "application/ld+json",
+    "application/typescript",
+    "application/xml",
+    "text/css",
+    "text/html",
+    "text/javascript",
+    "text/typescript",
+    "text/xml",
+}
 _IMAGE_SUFFIXES = {
     ".avif",
     ".bmp",
@@ -56,24 +121,6 @@ _TEXT_SUFFIXES = {
     ".tsv",
     ".json",
     ".jsonl",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".xml",
-    ".html",
-    ".css",
-    ".js",
-    ".jsx",
-    ".ts",
-    ".tsx",
-    ".py",
-    ".sql",
-    ".sh",
-    ".go",
-    ".rs",
-    ".java",
-    ".c",
-    ".cpp",
 }
 
 _MAX_OFFICE_BYTES = 25 * 1024 * 1024
@@ -82,6 +129,7 @@ _MAX_ARCHIVE_EXPANDED_BYTES = 100 * 1024 * 1024
 _MAX_PREVIEW_CHARS = 500_000
 _MAX_PREVIEW_CELLS = 20_000
 _MAX_PREVIEW_SLIDES = 200
+TEXT_PREVIEW_READ_LIMIT = 2 * 1024 * 1024 + 1
 
 
 def presentation_kind(name: str, content_type: str) -> str:
@@ -89,25 +137,64 @@ def presentation_kind(name: str, content_type: str) -> str:
     suffix = PurePosixPath(name).suffix.lower()
     media_type = content_type.split(";", 1)[0].strip().lower()
 
-    if media_type == "application/pdf" or suffix == ".pdf":
+    # A recognized filename suffix wins over ambiguous platform MIME metadata.
+    # Windows commonly uploads TypeScript `.ts` files as `video/mp2t`.
+    if suffix == ".pdf":
         return "pdf"
-    if media_type.startswith("image/") or suffix in _IMAGE_SUFFIXES:
+    if suffix in _IMAGE_SUFFIXES:
         return "image"
-    if media_type.startswith("video/") or suffix in _VIDEO_SUFFIXES:
+    if suffix in _VIDEO_SUFFIXES:
         return "video"
-    if media_type.startswith("audio/") or suffix in _AUDIO_SUFFIXES:
+    if suffix in _AUDIO_SUFFIXES:
         return "audio"
-    if media_type == DOCX_MIME or suffix in _DOCX_SUFFIXES:
+    if suffix in _DOCX_SUFFIXES:
         return "document"
-    if media_type == XLSX_MIME or suffix in _SHEET_SUFFIXES:
+    if suffix in _SHEET_SUFFIXES:
         return "spreadsheet"
-    if media_type == PPTX_MIME or suffix in _SLIDE_SUFFIXES:
+    if suffix in _SLIDE_SUFFIXES:
         return "slides"
-    if media_type == "text/markdown" or suffix in _MARKDOWN_SUFFIXES:
+    if suffix in _MARKDOWN_SUFFIXES:
         return "markdown"
-    if media_type.startswith("text/") or suffix in _TEXT_SUFFIXES:
+    if suffix in _CODE_SUFFIXES:
+        return "code"
+    if suffix in _TEXT_SUFFIXES:
+        return "text"
+
+    if media_type == "application/pdf":
+        return "pdf"
+    if media_type.startswith("image/"):
+        return "image"
+    if media_type.startswith("video/"):
+        return "video"
+    if media_type.startswith("audio/"):
+        return "audio"
+    if media_type == DOCX_MIME:
+        return "document"
+    if media_type == XLSX_MIME:
+        return "spreadsheet"
+    if media_type == PPTX_MIME:
+        return "slides"
+    if media_type == "text/markdown":
+        return "markdown"
+    if media_type in _CODE_MEDIA_TYPES:
+        return "code"
+    if media_type.startswith("text/"):
         return "text"
     return "unknown"
+
+
+def build_text_preview(raw: bytes) -> dict[str, Any]:
+    """Decode a bounded, inert source/text preview without executing content."""
+    byte_truncated = len(raw) >= TEXT_PREVIEW_READ_LIMIT
+    bounded = raw[: TEXT_PREVIEW_READ_LIMIT - 1]
+    try:
+        text = bounded.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = bounded.decode("utf-8", errors="replace")
+    char_truncated = len(text) > _MAX_PREVIEW_CHARS
+    if char_truncated:
+        text = text[:_MAX_PREVIEW_CHARS]
+    return {"text": text, "truncated": byte_truncated or char_truncated}
 
 
 def build_office_preview(kind: str, raw: bytes) -> dict[str, Any]:
@@ -220,5 +307,7 @@ __all__ = [
     "PPTX_MIME",
     "XLSX_MIME",
     "build_office_preview",
+    "build_text_preview",
     "presentation_kind",
+    "TEXT_PREVIEW_READ_LIMIT",
 ]

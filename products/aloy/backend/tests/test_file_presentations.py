@@ -12,8 +12,10 @@ import aloy_backend.storage as storage_mod
 from aloy_backend.file_presentations import (
     DOCX_MIME,
     PPTX_MIME,
+    TEXT_PREVIEW_READ_LIMIT,
     XLSX_MIME,
     build_office_preview,
+    build_text_preview,
     presentation_kind,
 )
 
@@ -73,6 +75,10 @@ def test_routes_supported_formats_to_fixed_host_renderers():
     assert presentation_kind("notes.docx", DOCX_MIME) == "document"
     assert presentation_kind("marks.xlsx", XLSX_MIME) == "spreadsheet"
     assert presentation_kind("deck.pptx", PPTX_MIME) == "slides"
+    assert presentation_kind("index.html", "text/html") == "code"
+    assert presentation_kind("worker.py", "text/x-python") == "code"
+    assert presentation_kind("component.ts", "video/mp2t") == "code"
+    assert presentation_kind("notes.txt", "text/plain") == "text"
     assert presentation_kind("archive.bin", "application/octet-stream") == "unknown"
 
 
@@ -84,6 +90,14 @@ def test_docx_and_pptx_become_inert_structured_previews():
         "Opening slide",
         "Next steps",
     ]
+
+
+def test_text_preview_is_inert_and_bounded():
+    html = b"<script>window.top.location='https://example.com'</script>"
+    preview = build_text_preview(html)
+    assert preview == {"text": html.decode(), "truncated": False}
+    bounded = build_text_preview(b"x" * TEXT_PREVIEW_READ_LIMIT)
+    assert bounded["truncated"] is True
 
 
 async def _upload(client, name: str, data: bytes, content_type: str) -> str:
@@ -104,6 +118,17 @@ async def test_presentation_endpoint_returns_docx_preview(client):
     assert body["renderer"] == "document"
     assert body["preview"]["blocks"] == ["University plan", "Week one"]
     assert body["source_url"] is None  # local storage uses authenticated streaming
+
+
+async def test_presentation_endpoint_returns_html_as_inert_source(client):
+    html = b"<!doctype html><title>Safe source view</title><h1>Hello</h1>"
+    file_id = await _upload(client, "index.html", html, "text/html")
+    response = await client.get(f"/v1/files/{file_id}/presentation")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["renderer"] == "code"
+    assert body["preview"] == {"text": html.decode(), "truncated": False}
+    assert body["source_url"] is None
 
 
 async def test_corrupt_office_file_keeps_original_available(client):

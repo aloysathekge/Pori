@@ -16,10 +16,15 @@ from ..config import settings
 from ..database import get_session
 from ..doc_extract import ExtractionError
 from ..events import ensure_life_event
-from ..file_presentations import build_office_preview, presentation_kind
+from ..file_presentations import (
+    TEXT_PREVIEW_READ_LIMIT,
+    build_office_preview,
+    build_text_preview,
+    presentation_kind,
+)
 from ..file_uploads import store_user_upload
 from ..library import add_to_library, remove_from_library
-from ..models import StoredFile
+from ..models import Event, EventTrailEntry, StoredFile
 from ..storage import get_object_store
 from ..tenancy import OrganizationContext, Permission, require_permission
 
@@ -28,10 +33,11 @@ router = APIRouter(prefix="/files", tags=["files"])
 _CHUNK = 256 * 1024
 _MAX_OFFICE_PREVIEW_READ = 25 * 1024 * 1024 + 1
 _OFFICE_PRESENTATION_KINDS = {"document", "spreadsheet", "slides"}
+_TEXT_PRESENTATION_KINDS = {"code", "markdown", "text"}
 
 
-def _file_view(r: StoredFile) -> dict:
-    return {
+def _file_view(r: StoredFile, *, event: Event | None = None) -> dict:
+    payload = {
         "file_id": r.id,
         "name": r.name,
         "size_bytes": r.size_bytes,
@@ -42,6 +48,10 @@ def _file_view(r: StoredFile) -> dict:
         "conversation_id": r.conversation_id,
         "created_at": r.created_at,
     }
+    if event is not None:
+        payload["event_title"] = event.title
+        payload["event_is_life"] = event.is_life
+    return payload
 
 
 @router.get("")
@@ -65,7 +75,24 @@ async def list_my_library(
         .scalars()
         .all()
     )
-    return [_file_view(r) for r in rows]
+    event_ids = {row.event_id for row in rows}
+    events = (
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.organization_id == context.organization_id,
+                    Event.user_id == context.user_id,
+                    col(Event.id).in_(event_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+        if event_ids
+        else []
+    )
+    events_by_id = {event.id: event for event in events}
+    return [_file_view(row, event=events_by_id.get(row.event_id)) for row in rows]
 
 
 @router.post("", status_code=201)
@@ -134,9 +161,53 @@ async def remove_from_my_library(
     return _file_view(record)
 
 
-def _read_file_bytes(storage_key: str) -> bytes:
+@router.delete("/{file_id}", status_code=204)
+async def delete_uploaded_file(
+    file_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_CREATE)),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Permanently remove one user upload from its Event.
+
+    Generated artifacts remain immutable because Run history and receipts may
+    depend on them. The durable database pointer is removed before best-effort
+    blob cleanup, so a storage failure can only leave an unreachable object.
+    """
+    record = await _own_file(session, context, file_id)
+    if record.kind != "upload":
+        raise HTTPException(
+            status_code=409,
+            detail="Generated artifacts are retained with their Run history",
+        )
+    storage_key = record.storage_key
+    file_name = record.name
+    event_id = record.event_id
+    await remove_from_library(session, record)
+    await session.delete(record)
+    session.add(
+        EventTrailEntry(
+            organization_id=context.organization_id,
+            user_id=context.user_id,
+            event_id=event_id,
+            actor_id=context.user_id,
+            kind="file_deleted",
+            summary=f'Deleted the uploaded file "{file_name}"',
+            payload={"name": file_name},
+        )
+    )
+    await session.commit()
+    try:
+        await run_in_threadpool(get_object_store().delete, storage_key)
+    except Exception:  # noqa: BLE001 -- committed deletion must remain successful
+        # An unreachable blob is safer than restoring a pointer after the user
+        # was told deletion succeeded. Object-store lifecycle cleanup can reap it.
+        pass
+    return Response(status_code=204)
+
+
+def _read_file_bytes(storage_key: str, limit: int) -> bytes:
     with get_object_store().open(storage_key) as handle:
-        return handle.read(_MAX_OFFICE_PREVIEW_READ)
+        return handle.read(limit)
 
 
 @router.get("/{file_id}/presentation")
@@ -156,7 +227,9 @@ async def get_file_presentation(
     preview_error = None
     if renderer in _OFFICE_PRESENTATION_KINDS:
         try:
-            raw = await run_in_threadpool(_read_file_bytes, record.storage_key)
+            raw = await run_in_threadpool(
+                _read_file_bytes, record.storage_key, _MAX_OFFICE_PREVIEW_READ
+            )
             preview = await run_in_threadpool(build_office_preview, renderer, raw)
         except FileNotFoundError:
             raise HTTPException(
@@ -166,6 +239,16 @@ async def get_file_presentation(
             # Opening/downloading the immutable original remains possible when a
             # bounded preview cannot be produced (corrupt, encrypted, or large).
             preview_error = str(exc)
+    elif renderer in _TEXT_PRESENTATION_KINDS:
+        try:
+            raw = await run_in_threadpool(
+                _read_file_bytes, record.storage_key, TEXT_PREVIEW_READ_LIMIT
+            )
+            preview = await run_in_threadpool(build_text_preview, raw)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404, detail="File content no longer available"
+            )
     return {
         **_file_view(record),
         "renderer": renderer,

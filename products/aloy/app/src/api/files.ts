@@ -10,12 +10,14 @@ export interface StoredFileView {
   in_library: boolean;
   event_id: string;
   event_title?: string;
+  event_is_life?: boolean;
   conversation_id: string | null;
   created_at: string;
 }
 
 export type FileRenderer =
   | 'markdown'
+  | 'code'
   | 'text'
   | 'image'
   | 'pdf'
@@ -32,11 +34,13 @@ export interface FilePresentation {
   size_bytes: number;
   content_type: string;
   kind: 'upload' | 'artifact';
+  in_library: boolean;
   event_id: string;
   conversation_id: string | null;
   renderer: FileRenderer;
   source_url: string | null;
   preview: {
+    text?: string;
     blocks?: string[];
     sheets?: Array<{ name: string; rows: string[][] }>;
     slides?: Array<{ number: number; text: string }>;
@@ -74,6 +78,10 @@ export function saveToLibrary(fileId: string) {
 
 export function removeFromLibrary(fileId: string) {
   return apiFetch<StoredFileView>(`/files/${fileId}/library`, { method: 'DELETE' });
+}
+
+export function deleteStoredFile(fileId: string) {
+  return apiFetch<void>(`/files/${fileId}`, { method: 'DELETE' });
 }
 
 export function getStoredFileBlob(fileId: string) {

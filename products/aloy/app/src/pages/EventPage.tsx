@@ -43,6 +43,7 @@ import {
 } from '@/api/events';
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
+import { FileActionsMenu } from '@/components/files/FileActionsMenu';
 import { FileThumbnail, FileTypeIcon } from '@/components/files/FileVisual';
 import { ProposalCard } from '@/components/events/ProposalCard';
 import { EventCover } from '@/components/events/EventCover';
@@ -535,6 +536,11 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     openWorkbenchTab({ id: `file:${file.id}`, kind: 'file', label: file.name, file });
   }
 
+  function handleFileDeleted(fileId: string) {
+    closeWorkbenchTab(`file:${fileId}`);
+    void loadSurface();
+  }
+
   function openReplay(runId: string, taskTitle: string) {
     openWorkbenchTab({ id: `replay:${runId}`, kind: 'replay', label: `${taskTitle} replay`, runId });
   }
@@ -704,8 +710,8 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
             className={`flex min-h-0 min-w-0 flex-col ${workspaceMode === 'split' ? 'flex-none' : 'flex-1'}`}
             style={workspaceMode === 'split' ? { flexBasis: `${splitRatio}%` } : undefined}
           >
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5 lg:px-6">
-          <div className="mx-auto max-w-4xl">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
+          <div className="mx-auto max-w-[56rem]">
             {loadingConversation ? (
               <div className="flex justify-center py-16"><Spinner className="h-7 w-7" /></div>
             ) : messages.length === 0 ? (
@@ -771,8 +777,8 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 px-2 py-2 backdrop-blur sm:px-4 sm:py-3 lg:px-6">
-          <div className="mx-auto max-w-4xl">
+        <div className="shrink-0 bg-zinc-950/95 px-3 pb-3 pt-2 backdrop-blur sm:px-6 sm:pb-5 lg:px-8">
+          <div className="mx-auto max-w-[56rem]">
             <Composer
               value={input}
               onChange={setInput}
@@ -789,7 +795,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               pendingFiles={pendingFiles}
               onRemoveFile={removeFile}
               disabled={sending && !clarify}
-              placeholder={clarify ? 'Answer the question above…' : approval ? 'Approve or reject the action above…' : `Work on ${data.event.title}…`}
+              placeholder={clarify ? 'Answer the question above…' : approval ? 'Approve or reject the action above…' : `Ask Aloy about ${data.event.title}…`}
               attachFull={attachmentsFull}
               fileAttachFull={fileAttachmentsFull}
               onStop={sending && !clarify ? stopRun : undefined}
@@ -824,6 +830,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               onCloseTab={closeWorkbenchTab}
               onDismiss={() => changeWorkspaceMode('conversation')}
               onAskAloy={askAloyAboutFile}
+              onFileDeleted={handleFileDeleted}
               showSurfaceAlongside={showSurfaceAlongside}
               onToggleSurfaceAlongside={() => setShowSurfaceAlongside((value) => !value)}
               resourceRatio={resourceRatio}
@@ -869,7 +876,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 onLoadOlder={() => undefined}
               />
             </div>
-            <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 p-2.5">
+            <div className="shrink-0 bg-zinc-950/95 p-2.5 pt-1.5">
               <Composer
                 value={input}
                 onChange={setInput}
@@ -1093,10 +1100,30 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 })}
                 {contextItems.length > 0 && files.length > 0 && <p className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Event files</p>}
                 {files.map((file) => (
-                  <button type="button" key={file.id} onClick={() => openFile(file)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900">
-                    <FileThumbnail file={file} />
-                    <div className="min-w-0"><p className="truncate text-sm text-zinc-300">{file.name}</p><p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p></div>
-                  </button>
+                  <div
+                    key={file.id}
+                    className="flex w-full items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/50 transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-within:border-zinc-700"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openFile(file)}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/60"
+                    >
+                      <FileThumbnail file={file} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-zinc-300">{file.name}</p>
+                        <p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p>
+                      </div>
+                    </button>
+                    <div className="pr-1.5">
+                      <FileActionsMenu
+                        file={file}
+                        onOpen={() => openFile(file)}
+                        onAskAloy={askAloyAboutFile}
+                        onDeleted={handleFileDeleted}
+                      />
+                    </div>
+                  </div>
                 ))}
                 {files.length === 0 && contextItems.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No Event files or context sources yet.</p>}
               </div>

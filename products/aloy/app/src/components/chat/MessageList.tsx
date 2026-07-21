@@ -6,6 +6,25 @@ import { ApprovalPrompt } from '@/components/chat/ApprovalPrompt';
 import type { ApprovalDecision } from '@/api/sse';
 import type { MessageResponse, PlanItem, SSEToolEvent } from '@/types';
 
+function conversationTimeLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+  const day = sameDay(date, today)
+    ? 'Today'
+    : sameDay(date, yesterday)
+      ? 'Yesterday'
+      : new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
+  const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+  return `${day} ${time}`;
+}
+
 interface Props {
   messages: MessageResponse[];
   streaming: boolean;
@@ -65,7 +84,7 @@ export function MessageList({
   }, [messages, streaming, scrollToBottom]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-[56rem] space-y-10 pb-2">
       {hasOlder && onLoadOlder && (
         <div className="flex justify-center">
           <button
@@ -78,15 +97,30 @@ export function MessageList({
           </button>
         </div>
       )}
-      {messages.map((msg) => (
-        <MessageBubble
-          key={msg.id}
-          message={msg}
-          onOpenArtifact={onOpenArtifact}
-          onResend={onResend}
-          onContinue={onContinue}
-        />
-      ))}
+      {messages.map((msg, index) => {
+        const previous = messages[index - 1];
+        const date = new Date(msg.created_at);
+        const previousDate = previous ? new Date(previous.created_at) : null;
+        const startsDay = !previousDate
+          || date.getFullYear() !== previousDate.getFullYear()
+          || date.getMonth() !== previousDate.getMonth()
+          || date.getDate() !== previousDate.getDate();
+        return (
+          <div key={msg.id} className={startsDay ? 'space-y-7' : undefined}>
+            {startsDay && (
+              <p className="text-center text-xs font-medium text-zinc-500">
+                {conversationTimeLabel(msg.created_at)}
+              </p>
+            )}
+            <MessageBubble
+              message={msg}
+              onOpenArtifact={onOpenArtifact}
+              onResend={onResend}
+              onContinue={onContinue}
+            />
+          </div>
+        );
+      })}
       {streaming && streamText && (
         <MessageBubble
           message={{
