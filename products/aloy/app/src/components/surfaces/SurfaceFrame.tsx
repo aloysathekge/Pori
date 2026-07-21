@@ -14,12 +14,13 @@ import {
 import { Spinner } from '@/components/ui/Spinner';
 import { useSurfaceActivity } from '@/hooks/useSurfaceActivity';
 import { SurfaceActivityStatus } from './SurfaceActivityStatus';
-import { SurfaceBridgeHost } from './surfaceBridge';
+import { SurfaceBridgeHost, type SurfaceAloyHandoff } from './surfaceBridge';
 
 interface SurfaceFrameProps {
   eventId: string;
   eventTitle: string;
   refreshKey?: string;
+  onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
 }
 
 type FrameState =
@@ -36,7 +37,7 @@ type RuntimeState = {
 
 const RECONNECT_DELAYS = [1_000, 2_000, 4_000] as const;
 
-export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFrameProps) {
+export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }: SurfaceFrameProps) {
   const [state, setState] = useState<FrameState>({ kind: 'loading' });
   const [runtime, setRuntime] = useState<RuntimeState>({ status: 'idle' });
   const [reload, setReload] = useState(0);
@@ -50,6 +51,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeRef = useRef<SurfaceBridgeHost | null>(null);
+  const onAloyHandoffRef = useRef(onAloyHandoff);
   const currentBuildId = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
@@ -57,6 +59,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     activity,
     refresh: refreshActivity,
   } = useSurfaceActivity(eventId, refreshKey);
+
+  useEffect(() => {
+    onAloyHandoffRef.current = onAloyHandoff;
+  }, [onAloyHandoff]);
 
   const clearReconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -170,6 +176,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey }: SurfaceFramePr
     clearReconnect();
     bridgeRef.current?.disconnect(false);
     const bridge = new SurfaceBridgeHost(eventId, build.id, {
+      onAloyHandoff: (handoff) => onAloyHandoffRef.current?.(handoff),
       onStatus(update) {
         if (bridgeRef.current !== bridge) return;
         if (update.status === 'healthy') {

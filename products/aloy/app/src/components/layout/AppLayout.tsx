@@ -18,6 +18,7 @@ import {
 import { listEvents, type EventSummary } from '@/api/events';
 import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
+import { WorkspaceFocusContext } from '@/contexts/WorkspaceFocusContext';
 import { Button } from '@/components/ui/Button';
 import { EventCover } from '@/components/events/EventCover';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -72,6 +73,7 @@ export function AppLayout() {
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPeek, setSidebarPeek] = useState(false);
+  const [workspaceFocused, setWorkspaceFocused] = useState(false);
   const [mobileSheet, setMobileSheet] = useState<'create' | 'events' | null>(null);
   const [actionError, setActionError] = useState('');
   const [expanded, setExpanded] = useState(
@@ -142,8 +144,9 @@ export function AppLayout() {
   }
 
   return (
+    <WorkspaceFocusContext.Provider value={{ focused: workspaceFocused, setFocused: setWorkspaceFocused }}>
     <div className="flex h-[100dvh] overflow-hidden bg-zinc-950 text-zinc-100">
-      {sidebarOpen && (
+      {!workspaceFocused && sidebarOpen && (
         <button
           type="button"
           aria-label="Close navigation"
@@ -152,7 +155,7 @@ export function AppLayout() {
         />
       )}
 
-      {!expanded && (
+      {!workspaceFocused && !expanded && (
         <div
           className="fixed inset-y-0 left-0 z-30 hidden w-3 lg:block"
           onMouseEnter={() => setSidebarPeek(true)}
@@ -162,7 +165,7 @@ export function AppLayout() {
 
       <aside
         onMouseLeave={() => { if (!expanded) setSidebarPeek(false); }}
-        className={`fixed inset-y-0 left-0 z-40 flex w-[min(20rem,calc(100vw-1.5rem))] flex-col border-r border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)] transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 ${workspaceFocused ? 'hidden' : 'flex'} w-[min(20rem,calc(100vw-1.5rem))] flex-col border-r border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)] transition-transform duration-200 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${expanded ? 'lg:static lg:translate-x-0' : sidebarPeek ? 'lg:fixed lg:translate-x-0 lg:shadow-2xl' : 'lg:fixed lg:-translate-x-full'}`}
       >
@@ -295,7 +298,7 @@ export function AppLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-12 shrink-0 items-center border-b border-zinc-800 px-2 pt-[env(safe-area-inset-top)] lg:hidden">
+        <header className={`${workspaceFocused ? 'hidden' : 'flex'} min-h-12 shrink-0 items-center border-b border-zinc-800 px-2 pt-[env(safe-area-inset-top)] lg:hidden`}>
           <button
             type="button"
             className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800"
@@ -313,7 +316,7 @@ export function AppLayout() {
 
         <nav
           aria-label="Primary mobile navigation"
-          className="grid shrink-0 grid-cols-5 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
+          className={`${workspaceFocused ? 'hidden' : 'grid'} shrink-0 grid-cols-5 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden`}
         >
           <NavLink to="/today" className={({ isActive }) => `flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium ${isActive ? 'text-accent-700' : 'text-zinc-500'}`}>
             <TodayIcon size={20} /><span>Today</span>
@@ -334,7 +337,7 @@ export function AppLayout() {
         </nav>
       </div>
 
-      {mobileSheet && (
+      {!workspaceFocused && mobileSheet && (
         <div className="fixed inset-0 z-50 flex items-end lg:hidden">
           <button type="button" className="absolute inset-0 bg-black/35 backdrop-blur-[1px]" onClick={() => setMobileSheet(null)} aria-label="Close menu" />
           <section className="relative z-10 max-h-[min(78dvh,42rem)] w-full overflow-y-auto rounded-t-3xl border-x border-t border-zinc-800 bg-zinc-900 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={mobileSheet === 'create' ? 'Create' : 'Events'}>
@@ -374,5 +377,6 @@ export function AppLayout() {
         </div>
       )}
     </div>
+    </WorkspaceFocusContext.Provider>
   );
 }

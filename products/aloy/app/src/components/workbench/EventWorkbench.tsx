@@ -1,9 +1,10 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import { Columns2, History, LayoutTemplate, X } from 'lucide-react';
+import { Columns2, History, LayoutTemplate, Maximize2, Minimize2, X } from 'lucide-react';
 import type { EventFile } from '@/api/events';
 import type { StoredFileReference } from '@/hooks/useAttachments';
 import { RunReplay } from '@/components/chat/RunReplay';
 import { SurfaceFrame } from '@/components/surfaces/SurfaceFrame';
+import type { SurfaceAloyHandoff } from '@/components/surfaces/surfaceBridge';
 import { FileTypeIcon } from '@/components/files/FileVisual';
 import { ArtifactViewer } from './ArtifactViewer';
 import { StoredFileViewer } from './StoredFileViewer';
@@ -32,6 +33,9 @@ interface EventWorkbenchProps {
   onToggleSurfaceAlongside: () => void;
   resourceRatio: number;
   onResourceRatioChange: (ratio: number) => void;
+  focused: boolean;
+  onToggleFocus: () => void;
+  onSurfaceAloyHandoff: (handoff: SurfaceAloyHandoff) => void;
 }
 
 function TabIcon({ tab }: { tab: WorkbenchTab }) {
@@ -56,6 +60,9 @@ export function EventWorkbench({
   onToggleSurfaceAlongside,
   resourceRatio,
   onResourceRatioChange,
+  focused,
+  onToggleFocus,
+  onSurfaceAloyHandoff,
 }: EventWorkbenchProps) {
   const splitRef = useRef<HTMLDivElement | null>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? SURFACE_TAB;
@@ -80,7 +87,7 @@ export function EventWorkbench({
 
   function activeContent() {
     if (activeTab.kind === 'surface') {
-      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} />;
+      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} />;
     }
     if (activeTab.kind === 'artifact') {
       return <ArtifactViewer conversationId={conversationId} path={activeTab.path} onAskAloy={onAskAloy} />;
@@ -128,6 +135,16 @@ export function EventWorkbench({
             <Columns2 size={15} />
           </button>
         )}
+        <button
+          type="button"
+          onClick={onToggleFocus}
+          className="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+          title={focused ? 'Exit Focus Mode' : 'Open Focus Mode'}
+          aria-label={focused ? 'Exit Workbench Focus Mode' : 'Open Workbench Focus Mode'}
+          aria-pressed={focused}
+        >
+          {focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
         <button type="button" onClick={onDismiss} className="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:mr-2" title="Close Workbench" aria-label="Close Workbench"><X size={16} /></button>
       </div>
 
@@ -135,7 +152,7 @@ export function EventWorkbench({
         {canShowSurfaceAlongside && showSurfaceAlongside && (
           <>
             <div className="hidden min-h-0 min-w-0 flex-none 2xl:block" style={{ flexBasis: `${resourceRatio}%` }}>
-              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} />
+              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} />
             </div>
             <button type="button" onPointerDown={startResize} className="group relative hidden w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-accent-600 2xl:block" aria-label="Resize Surface and active Workbench tab" title="Drag to resize"><span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-600 group-hover:bg-white/70" /></button>
           </>
