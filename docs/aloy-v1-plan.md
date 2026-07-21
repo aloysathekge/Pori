@@ -807,7 +807,14 @@ outline evidence without falsely claiming the optional AAA criterion. Text is
 measured against its effective solid backdrop in all five baseline and 18 state
 compositions; normal text must reach 4.5:1 and large text 3:1, while an
 unresolvable image/gradient backdrop fails closed. Small compact touch targets
-are recorded for later scoring. Remote evidence transport remains a follow-up.
+are recorded for later scoring. Inspection now crosses a provider-neutral
+transport boundary: the inspector receives an exact build/revision/source/bundle
+binding and fresh nonce, while the host revalidates that binding, re-hashes only
+bounded PNG viewport evidence, retains it through the normal tenant-contained
+ObjectStore, and writes append-only inspection/evidence records bound to that
+immutable bundle. The current local Chromium inspector is one adapter behind
+this contract; a remote browser worker can replace it without gaining storage,
+publication, credential, or Event-data authority.
 
 **Implemented primary-job simulation:** every ordinary Surface request now
 freezes a versioned, fingerprinted job contract before the Builder starts. Job
@@ -923,15 +930,18 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 ## 8. Immediate next action
 
 R8 is merged into `aloy-v1` as PR #198, the initial R9 quality-state slice is
-merged as PR #199, and the primary-job simulation gate is merged as PR #200.
-The next slice is active on `aloy-v1-r9-sdk-foundation`. Exact-build receipts, the five-viewport
+merged as PR #199, the primary-job simulation gate is merged as PR #200, and
+the reviewed SDK foundation is merged as PR #201. The next slice is active on
+`aloy-v1-r9-remote-inspection`. Exact-build receipts, the five-viewport
 baseline, the public lifecycle, long-content and approval state matrix,
 keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
 semantic browser workflow execution, and build-bound job evidence are complete.
-A visual Critic is deferred and optional, not a publication gate. Remote
-evidence transport follows the reviewed SDK primitives/widgets. University and
-Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
-`main` untouched until the R9 gate, manual product QA, live-provider proofs,
+A visual Critic is deferred and optional, not a publication gate. The transport
+and append-only evidence foundation now supports a remote browser inspector;
+the following provider slice must exercise that remote path and record its
+latency/recovery evidence. University and Madrid are proofs of the ordinary
+pipeline, not special runtime behavior. Keep `main` untouched until the R9
+gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.
 
 The SDK foundation starts with a host-reviewed widget registry. Generated

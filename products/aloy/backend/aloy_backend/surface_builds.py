@@ -21,6 +21,8 @@ from .models import (
     Event,
     EventTrailEntry,
     SurfaceBuild,
+    SurfaceEvidenceArtifact,
+    SurfaceInspection,
     SurfaceProject,
     SurfaceRevision,
 )
@@ -39,6 +41,14 @@ from .surface_build_runner import (
     configured_surface_build_runner,
     validate_surface_source,
 )
+from .surface_inspection_transport import (
+    LocalSurfaceInspectionTransport,
+    SurfaceInspectionArtifact,
+    SurfaceInspectionRequest,
+    SurfaceInspectionTransport,
+    new_surface_inspection_binding,
+    validate_surface_inspection_result,
+)
 from .surface_manifest import SurfaceManifest
 from .surface_publication import (
     SurfacePublicationParams,
@@ -48,8 +58,7 @@ from .surface_quality import (
     SURFACE_QUALITY_RECEIPT_KEY,
     create_surface_quality_receipt,
 )
-from .surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
-from .surface_runtime_inspection import inspect_surface_runtime
+from .surface_runtime import build_surface_runtime_document
 
 
 class SurfaceBuildParams(BaseModel):
@@ -180,6 +189,7 @@ class SurfaceBuildHandler:
         run_context: RunContext,
         runner: SurfaceBuildRunner | None = None,
         object_store: ObjectStore | None = None,
+        inspection_transport: SurfaceInspectionTransport | None = None,
         session_factory: Any = async_session,
         owner_loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
@@ -188,6 +198,9 @@ class SurfaceBuildHandler:
         # Resolve storage only if a successful build actually has a bundle to
         # retain. Merely assembling a Surface Builder run stays side-effect free.
         self._object_store = object_store
+        self._inspection_transport = (
+            inspection_transport or LocalSurfaceInspectionTransport()
+        )
         self._session_factory = session_factory
         self._owner_loop = owner_loop
 
@@ -496,6 +509,8 @@ class SurfaceBuildHandler:
             runtime_diagnostics: list[dict[str, Any]] = []
             runtime_proven = False
             inspection_evidence: dict[str, Any] = {}
+            capture_values: list[SurfaceInspectionArtifact] = []
+            inspection_transport: dict[str, Any] = {}
             if preview_ready and build.resource_metrics.get("backend") == "local_dev":
                 from .surface_interactions import surface_runtime_context
                 from .tenancy import OrganizationContext, OrganizationPolicy
@@ -532,18 +547,37 @@ class SurfaceBuildHandler:
                             build_id=build.id,
                             require_published=False,
                         )
-                        runtime_diagnostics = await asyncio.to_thread(
-                            inspect_surface_runtime,
-                            document,
-                            runtime_context,
-                            manifest=manifest,
-                            evidence_sink=inspection_evidence,
+                        binding = new_surface_inspection_binding(
+                            build_id=build.id,
+                            revision_id=build.revision_id,
+                            source_checksum=build.source_checksum,
+                            bundle_sha256=build.bundle_sha256 or "",
                         )
-                    except (FileNotFoundError, InvalidSurfaceBundle) as exc:
+                        inspection = await asyncio.to_thread(
+                            self._inspection_transport.inspect,
+                            SurfaceInspectionRequest(
+                                binding=binding,
+                                document=document,
+                                runtime_context=runtime_context,
+                                manifest=manifest,
+                            ),
+                        )
+                        runtime_diagnostics = [
+                            *inspection.diagnostics,
+                            *validate_surface_inspection_result(
+                                inspection,
+                                expected=binding,
+                            ),
+                        ]
+                        inspection_evidence = dict(inspection.evidence)
+                        inspection_transport = dict(inspection.transport)
+                        inspection_evidence["transport"] = inspection_transport
+                        capture_values = list(inspection.artifacts)
+                    except Exception as exc:
                         runtime_diagnostics = [
                             {
                                 "stage": "runtime",
-                                "code": "runtime_bundle_invalid",
+                                "code": "runtime_inspection_unavailable",
                                 "severity": "error",
                                 "message": str(exc),
                             }
@@ -583,27 +617,14 @@ class SurfaceBuildHandler:
                     }
                 ]
                 preview_ready = False
-            capture_values = list(inspection_evidence.pop("_capture_blobs", []) or [])
             retained_captures: list[dict[str, Any]] = []
-            if preview_ready and capture_values:
+            if preview_ready and not runtime_diagnostics and capture_values:
                 object_store = self._object_store or get_object_store()
                 for capture in capture_values:
-                    if not isinstance(capture, dict):
-                        continue
-                    data = capture.get("data")
-                    checksum = str(capture.get("sha256") or "")
-                    name = str(capture.get("name") or "viewport.png")
-                    content_type = str(capture.get("content_type") or "image/png")
-                    if not isinstance(data, bytes) or not checksum:
-                        runtime_diagnostics.append(
-                            {
-                                "stage": "runtime",
-                                "code": "viewport_capture_invalid",
-                                "severity": "error",
-                                "message": "Trusted viewport capture evidence was invalid",
-                            }
-                        )
-                        continue
+                    data = capture.data
+                    checksum = capture.sha256
+                    name = capture.name
+                    content_type = capture.content_type
                     key = surface_preview_artifact_key(
                         event.organization_id,
                         event.id,
@@ -633,7 +654,7 @@ class SurfaceBuildHandler:
                         continue
                     retained_captures.append(
                         {
-                            "kind": "viewport_capture",
+                            "kind": capture.kind,
                             "name": name,
                             "content_type": content_type,
                             "sha256": checksum,
@@ -694,6 +715,62 @@ class SurfaceBuildHandler:
                 **dict(build.resource_metrics or {}),
                 SURFACE_QUALITY_RECEIPT_KEY: quality_receipt,
             }
+            if inspection_transport and build.bundle_key and build.bundle_sha256:
+                inspection_record = SurfaceInspection(
+                    organization_id=event.organization_id,
+                    user_id=event.user_id,
+                    event_id=event.id,
+                    project_id=project.id,
+                    build_id=build.id,
+                    revision_id=build.revision_id,
+                    bundle_key=build.bundle_key,
+                    bundle_sha256=build.bundle_sha256,
+                    inspection_kind="runtime",
+                    inspector_version=(
+                        f"{inspection_transport.get('id', 'unknown')}@"
+                        f"{inspection_transport.get('version', 'unknown')}"
+                    ),
+                    status=(
+                        "passed" if quality_receipt.get("passed") is True else "failed"
+                    ),
+                    receipt_sha256=str(quality_receipt["fingerprint"]),
+                    policy_versions={
+                        "quality": str(quality_receipt.get("policy_version") or ""),
+                        "transport": str(inspection_transport.get("version") or ""),
+                    },
+                    summary={
+                        "diagnostic_count": len(runtime_diagnostics),
+                        "quality_passed": quality_receipt.get("passed") is True,
+                    },
+                    timings=dict(inspection_evidence.get("timings") or {}),
+                )
+                session.add(inspection_record)
+                for retained_capture in retained_captures:
+                    checksum = str(retained_capture["sha256"])
+                    session.add(
+                        SurfaceEvidenceArtifact(
+                            organization_id=event.organization_id,
+                            user_id=event.user_id,
+                            event_id=event.id,
+                            project_id=project.id,
+                            inspection_id=inspection_record.id,
+                            build_id=build.id,
+                            revision_id=build.revision_id,
+                            bundle_key=build.bundle_key,
+                            bundle_sha256=build.bundle_sha256,
+                            artifact_kind=str(retained_capture["kind"]),
+                            storage_key=surface_preview_artifact_key(
+                                event.organization_id,
+                                event.id,
+                                build.id,
+                                checksum,
+                                str(retained_capture["name"]),
+                            ),
+                            content_type=str(retained_capture["content_type"]),
+                            content_sha256=checksum,
+                            size_bytes=int(retained_capture["size_bytes"]),
+                        )
+                    )
             session.add(build)
             await session.commit()
             payload["preview_ready"] = preview_ready

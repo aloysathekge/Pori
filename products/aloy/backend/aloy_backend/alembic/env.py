@@ -31,6 +31,8 @@ from aloy_backend.models import (  # noqa: F401
     SkillDefinition,
     SkillGrant,
     SurfaceBuild,
+    SurfaceEvidenceArtifact,
+    SurfaceInspection,
     SurfaceProject,
     SurfacePublication,
     SurfaceRevision,
