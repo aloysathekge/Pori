@@ -786,6 +786,17 @@ class SurfaceBuildHandler:
                         "diagnostic_count": len(runtime_diagnostics),
                         "quality_passed": quality_receipt.get("passed") is True,
                         "data_revision": project.data_revision,
+                        "checks": [
+                            {
+                                "id": check_id,
+                                "status": str(
+                                    dict(check or {}).get("status") or "unknown"
+                                ),
+                            }
+                            for check_id, check in dict(
+                                quality_receipt.get("checks") or {}
+                            ).items()
+                        ],
                     },
                     timings=dict(inspection_evidence.get("timings") or {}),
                 )
