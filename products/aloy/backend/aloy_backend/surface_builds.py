@@ -562,6 +562,10 @@ class SurfaceBuildHandler:
                     not manifest.interaction_checks
                     or build.resource_metrics.get("interaction_inspection") == "passed"
                 )
+                and (
+                    not manifest.primary_jobs
+                    or build.resource_metrics.get("primary_job_inspection") == "passed"
+                )
             ):
                 runtime_proven = True
                 inspection_evidence = dict(
@@ -669,7 +673,7 @@ class SurfaceBuildHandler:
                             "severity": "error",
                             "message": (
                                 "The trusted build produced incomplete viewport, "
-                                "state, focus, contrast, or accessibility evidence"
+                                "state, focus, contrast, accessibility, or primary-job evidence"
                             ),
                         }
                     )

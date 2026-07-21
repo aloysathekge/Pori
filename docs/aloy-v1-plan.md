@@ -807,8 +807,24 @@ outline evidence without falsely claiming the optional AAA criterion. Text is
 measured against its effective solid backdrop in all five baseline and 18 state
 compositions; normal text must reach 4.5:1 and large text 3:1, while an
 unresolvable image/gradient backdrop fails closed. Small compact touch targets
-are recorded for later scoring. Remote evidence transport and primary-job
-simulation remain follow-ups; this foundation does not claim them.
+are recorded for later scoring. Remote evidence transport remains a follow-up.
+
+**Implemented primary-job simulation:** every ordinary Surface request now
+freezes a versioned, fingerprinted job contract before the Builder starts. Job
+ids and descriptions are copied into the Builder task and must match both the
+complete candidate envelope and `surface.json`; a candidate that drops,
+renames, reorders, or substitutes an easier job is rejected before source is
+persisted. The manifest maps each job to bounded accessible click, fill, and
+select steps plus host-observable assertions for named visible UI, exactly one
+typed SDK request, committed capability-scoped Surface data, or approval state.
+The trusted browser resets canonical Event context, executes every job against
+the real compiled bundle, validates intent payload schemas and outcomes, and
+binds per-job fingerprints and timings into exact-build quality policy `@5`.
+Read-only jobs can prove a useful named view without synthetic interaction.
+Interactive jobs must converge through the SDK; model-owned selectors, scripts,
+and self-reported success cannot satisfy the gate. These deterministic proofs
+run against handcrafted candidates without model credits; live Builder quality
+still requires later provider-backed acceptance.
 
 Gate:
 
@@ -906,12 +922,14 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 ## 8. Immediate next action
 
-R8 is merged into `aloy-v1` as PR #198. R9 is active on
-`aloy-v1-r9-surface-quality`. Exact-build receipts, the five-viewport baseline,
-the public lifecycle, long-content, and approval state matrix, keyboard-focus
-traversal, visible focus evidence, and deterministic text contrast are complete.
-Add primary-job simulation next. A visual Critic is deferred and optional, not
-a publication gate. Reviewed SDK primitives and widgets follow; University and
+R8 is merged into `aloy-v1` as PR #198 and the initial R9 quality-state slice is
+merged as PR #199. R9 primary-job simulation is active on
+`aloy-v1-r9-primary-job-simulation`. Exact-build receipts, the five-viewport
+baseline, the public lifecycle, long-content and approval state matrix,
+keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
+semantic browser workflow execution, and build-bound job evidence are complete.
+A visual Critic is deferred and optional, not a publication gate. Remote
+evidence transport and reviewed SDK primitives/widgets follow; University and
 Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
 `main` untouched until the R9 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.

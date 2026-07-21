@@ -1,10 +1,9 @@
 """Host-owned quality receipts for exact Surface build publication.
 
 The R9 policy binds deterministic validation, executable runtime inspection,
-responsive and resource-state evidence, accessibility, focus, contrast, and
-every manifest-declared interaction check to one immutable build. Later policy
-versions can extend the same receipt with primary-job evidence without moving
-publication authority into generated code or a model.
+responsive and resource-state evidence, accessibility, focus, contrast, every
+manifest-declared interaction check, and host-executed primary user jobs to one
+immutable build.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from .surface_resource_states import (
     SURFACE_STATE_POLICY_VERSION,
 )
 
-SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@4"
+SURFACE_QUALITY_POLICY_VERSION = "aloy-surface-quality@5"
 SURFACE_QUALITY_RECEIPT_KEY = "surface_quality"
 
 REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
@@ -31,9 +30,6 @@ REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
     {"id": "mobile_narrow", "width": 360, "height": 800, "compact": True},
 )
 REQUIRED_SURFACE_STATE_VIEWPORTS: tuple[str, ...] = ("wide", "mobile")
-
-_PLANNED_EVIDENCE = ("primary_job_simulation",)
-
 
 def _fingerprint(value: dict[str, Any]) -> str:
     encoded = json.dumps(
@@ -61,6 +57,7 @@ def create_surface_quality_receipt(
     """Create a content-bound receipt from trusted host inspection evidence."""
     checked_at = inspected_at or datetime.now(timezone.utc)
     interaction_required = bool(manifest.interaction_checks)
+    primary_jobs_required = bool(manifest.primary_jobs)
     viewport_matrix = dict(inspection_evidence.get("viewport_matrix") or {})
     viewports = list(viewport_matrix.get("viewports") or [])
     expected_viewports = [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS]
@@ -119,6 +116,7 @@ def create_surface_quality_receipt(
         "viewport_matrix_ms",
         "state_matrix_ms",
         "interaction_checks_ms",
+        "primary_jobs_ms",
         "total_ms",
     )
     timing_values_are_valid = all(
@@ -128,7 +126,7 @@ def create_surface_quality_receipt(
         for name in timing_names
     )
     timing_passed = (
-        timing_evidence.get("policy_version") == "aloy-surface-timings@1"
+        timing_evidence.get("policy_version") == "aloy-surface-timings@2"
         and timing_values_are_valid
         and float(timing_evidence["total_ms"]) + 1.0
         >= sum(
@@ -162,6 +160,34 @@ def create_surface_quality_receipt(
             for item in contrast_evidence
         )
     )
+    primary_job_evidence = dict(inspection_evidence.get("primary_jobs") or {})
+    expected_job_ids = [job.id for job in manifest.primary_jobs]
+    expected_jobs = {job.id: job.description for job in manifest.primary_jobs}
+    observed_jobs = list(primary_job_evidence.get("jobs") or [])
+    observed_job_ids = [
+        str(item.get("id") or "") for item in observed_jobs if isinstance(item, dict)
+    ]
+    primary_jobs_passed = (
+        primary_job_evidence.get("policy_version")
+        == "aloy-surface-primary-jobs@1"
+        and primary_job_evidence.get("passed") is True
+        and primary_job_evidence.get("required") == expected_job_ids
+        and observed_job_ids == expected_job_ids
+        and all(
+            isinstance(item, dict)
+            and item.get("passed") is True
+            and item.get("description") == expected_jobs.get(str(item.get("id") or ""))
+            and item.get("fingerprint")
+            == _fingerprint(
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"duration_ms", "fingerprint"}
+                }
+            )
+            for item in observed_jobs
+        )
+    )
     checks: dict[str, dict[str, Any]] = {
         "deterministic_validation": {
             "status": "passed" if validation_passed else "failed",
@@ -176,6 +202,14 @@ def create_surface_quality_receipt(
                 else "not_applicable" if not interaction_required else "failed"
             ),
             "declared": len(manifest.interaction_checks),
+        },
+        "primary_job_simulation": {
+            "status": (
+                "passed"
+                if primary_jobs_required and primary_jobs_passed
+                else "not_applicable" if not primary_jobs_required else "failed"
+            ),
+            "required": expected_job_ids,
         },
         "viewport_matrix": {
             "status": "passed" if viewport_passed else "failed",
@@ -200,13 +234,14 @@ def create_surface_quality_receipt(
         },
         "latency_telemetry": {
             "status": "passed" if timing_passed else "failed",
-            "policy_version": "aloy-surface-timings@1",
+            "policy_version": "aloy-surface-timings@2",
         },
     }
     passed = (
         validation_passed
         and runtime_proven
         and checks["declared_interactions"]["status"] in {"passed", "not_applicable"}
+        and checks["primary_job_simulation"]["status"] in {"passed", "not_applicable"}
         and viewport_passed
         and accessibility_passed
         and state_matrix_passed
@@ -227,9 +262,6 @@ def create_surface_quality_receipt(
         "evidence": inspection_evidence,
         "diagnostics": [dict(item) for item in runtime_diagnostics[:50]],
         "inspected_at": checked_at.isoformat(),
-        # These remain explicit instead of being silently implied by a pass.
-        # Later R9 policies promote each item into a verified check.
-        "planned_evidence": list(_PLANNED_EVIDENCE),
     }
     receipt["fingerprint"] = _fingerprint(receipt)
     return receipt
@@ -267,6 +299,11 @@ def surface_quality_receipt_error(build: Any) -> str | None:
         "not_applicable",
     }:
         return "declared interaction inspection did not pass"
+    if dict(checks.get("primary_job_simulation") or {}).get("status") not in {
+        "passed",
+        "not_applicable",
+    }:
+        return "primary Surface job simulation did not pass"
     if dict(checks.get("viewport_matrix") or {}).get("status") != "passed":
         return "required viewport inspection did not pass"
     if dict(checks.get("accessibility_audit") or {}).get("status") != "passed":

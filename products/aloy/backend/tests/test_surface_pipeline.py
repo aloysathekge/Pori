@@ -148,6 +148,55 @@ async def test_host_pipeline_replaces_source_and_owns_every_lifecycle_stage():
     assert set(result.timings_ms) == {"persist", "build", "preview", "publish"}
 
 
+async def test_host_pipeline_rejects_candidate_that_redefines_frozen_jobs():
+    authoring = FakeAuthoring()
+    builds = FakeBuilds()
+    result = await SurfaceHostPipeline(
+        run_id="run-primary-job-mismatch",
+        authoring_handler=authoring,
+        build_handler=builds,
+        required_primary_jobs=[
+            {"id": "job_0123456789abcdef", "description": "See the week"}
+        ],
+    ).execute(_candidate(), submission=1)
+
+    assert result.status == "repair_required"
+    assert authoring.write_params is None
+    assert builds.calls == []
+    assert {item["code"] for item in result.diagnostics} == {
+        "primary_job_contract_mismatch",
+        "primary_job_manifest_mismatch",
+    }
+
+
+async def test_host_pipeline_accepts_exact_host_frozen_primary_job_contract():
+    value = _candidate().model_dump(mode="python")
+    value["primary_jobs"] = ["See the week"]
+    value["files"][0]["content"] = (
+        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+        '"sdk_version":"1","capabilities":[],"intents":{},'
+        '"interaction_checks":[],"primary_jobs":[{'
+        '"id":"job_0123456789abcdef","description":"See the week",'
+        '"steps":[],"assertions":[{"kind":"visible","role":"heading",'
+        '"name":"University"}]}],"widgets":[]}'
+    )
+    candidate = SurfaceCandidate.model_validate(value)
+    authoring = FakeAuthoring()
+    builds = FakeBuilds()
+    result = await SurfaceHostPipeline(
+        run_id="run-primary-job-exact",
+        authoring_handler=authoring,
+        build_handler=builds,
+        required_primary_jobs=[
+            {"id": "job_0123456789abcdef", "description": "See the week"}
+        ],
+    ).execute(candidate, submission=1)
+
+    assert result.status == "published"
+    assert authoring.write_params is not None
+    assert builds.calls == ["build", "preview", "publish"]
+
+
 async def test_host_pipeline_returns_repair_diagnostics_without_publication():
     builds = FakeBuilds(status="failed")
     result = await SurfaceHostPipeline(

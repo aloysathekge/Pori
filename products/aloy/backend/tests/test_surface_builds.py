@@ -139,11 +139,12 @@ def _inspection_evidence() -> dict:
             ],
         },
         "timings": {
-            "policy_version": "aloy-surface-timings@1",
+            "policy_version": "aloy-surface-timings@2",
             "runtime_bootstrap_ms": 100.0,
             "viewport_matrix_ms": 200.0,
             "state_matrix_ms": 300.0,
             "interaction_checks_ms": 0.0,
+            "primary_jobs_ms": 0.0,
             "total_ms": 600.0,
         },
     }
@@ -211,7 +212,7 @@ async def test_local_development_bundle_is_browser_safe():
     ]
     assert len(evidence["_capture_blobs"]) == len(REQUIRED_SURFACE_VIEWPORTS)
     assert evidence["state_matrix"]["passed"] is True
-    assert evidence["timings"]["policy_version"] == "aloy-surface-timings@1"
+    assert evidence["timings"]["policy_version"] == "aloy-surface-timings@2"
     assert evidence["timings"]["total_ms"] >= evidence["timings"]["state_matrix_ms"]
     assert all(item["capture"]["sha256"] for item in matrix["viewports"])
 
@@ -520,6 +521,35 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
                     },
                 }
             ],
+            "primary_jobs": [
+                {
+                    "id": "job_0123456789abcdef",
+                    "description": "Add a job application and preserve it",
+                    "steps": [
+                        {
+                            "action": "fill",
+                            "role": "textbox",
+                            "name": "Company",
+                            "value": "Aloy Verification",
+                        },
+                        {"action": "click", "role": "button", "name": "Save"},
+                    ],
+                    "assertions": [
+                        {
+                            "kind": "request",
+                            "method": "command",
+                            "name": "career.application_created",
+                        },
+                        {
+                            "kind": "state",
+                            "namespace": "career",
+                            "key": "smoke",
+                            "field": "company",
+                            "equals": "Aloy Verification",
+                        },
+                    ],
+                }
+            ],
         }
     )
     files = {
@@ -560,14 +590,29 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         "widgets": [],
         "data": {"interactions": [], "surface": {"career": []}},
     }
-    assert (
-        inspect_surface_runtime(
-            build_surface_runtime_document(result.bundle),
-            context,
-            manifest=manifest,
-        )
-        == []
+    evidence: dict = {}
+    assert inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        context,
+        manifest=manifest,
+        evidence_sink=evidence,
+    ) == []
+    assert evidence["primary_jobs"]["passed"] is True
+    assert evidence["primary_jobs"]["required"] == ["job_0123456789abcdef"]
+    assert evidence["primary_jobs"]["jobs"][0]["fingerprint"]
+
+    failed_job_value = manifest.model_dump(mode="json", by_alias=True)
+    failed_job_value["interaction_checks"] = []
+    failed_job_value["primary_jobs"][0]["assertions"][1]["equals"] = "Wrong company"
+    failed_job_manifest = SurfaceManifest.model_validate(failed_job_value)
+    failed_job_diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        context,
+        manifest=failed_job_manifest,
     )
+    assert {item["code"] for item in failed_job_diagnostics} == {
+        "primary_job_assertion_failed"
+    }
 
     no_feedback_result = await LocalDevelopmentSurfaceBuildRunner().build(
         build_id="missing-command-feedback-local-toolchain",
@@ -596,9 +641,9 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         "runtime_command_feedback_missing"
     }
 
-    broken = SurfaceManifest.model_validate(
-        manifest.model_dump(mode="json", by_alias=True)
-    )
+    broken_value = manifest.model_dump(mode="json", by_alias=True)
+    broken_value["primary_jobs"] = []
+    broken = SurfaceManifest.model_validate(broken_value)
     broken_result = await LocalDevelopmentSurfaceBuildRunner().build(
         build_id="broken-interactive-local-toolchain",
         files={

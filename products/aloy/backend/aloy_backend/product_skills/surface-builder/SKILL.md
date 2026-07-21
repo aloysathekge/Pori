@@ -18,6 +18,9 @@ all use the same runtime and safety contract.
    phone widths around 360 and 390 pixels, tablet, a narrow desktop Workbench
    pane, and wide desktop as distinct required compositions rather than scaled
    copies of one layout.
+   The request includes a host-issued `primary_job_contract`. Copy every job id
+   and description exactly into `surface.json`; never drop, rename, reorder, or
+   replace them with easier jobs.
 3. Return one schema-valid, complete replacement candidate containing every
    required source file. Use only the provided Surface SDK and approved
    dependencies. Do not access host APIs, ambient credentials, arbitrary
@@ -72,6 +75,13 @@ all use the same runtime and safety contract.
    a real browser against the exact Event context and refuses publication when
    a visible control is missing, disabled, throws, sends the wrong SDK method,
    or produces a payload that violates the declared schema.
+   Also declare a complete semantic path for every host-issued `primary_jobs`
+   entry. Each job has accessible steps followed by one or more observable
+   assertions: a visible named region/control, exactly one typed SDK request,
+   a committed Surface-data value, or an approval state. The host resets Event
+   context, executes each job in a real browser, and rejects the build unless
+   the complete job succeeds. Do not use CSS selectors, arbitrary scripts, or
+   inspection-only UI.
 10. Never describe a candidate as built, previewed, published, or live. Only
     Aloy's host may make those claims after a verified publication receipt.
 11. Preserve the last-good design and Event truth when revising an existing
@@ -116,9 +126,28 @@ manifest is:
       "expect": {"method": "command", "name": "academic.course_selected"}
     }
   ],
+  "primary_jobs": [
+    {
+      "id": "job_0123456789abcdef",
+      "description": "Select a course and preserve that choice",
+      "steps": [
+        {"action": "click", "role": "button", "name": "Select Algorithms"}
+      ],
+      "assertions": [
+        {"kind": "request", "method": "command", "name": "academic.course_selected"},
+        {"kind": "state", "namespace": "academic", "key": "CS301", "field": "courseId", "equals": "CS301"}
+      ]
+    }
+  ],
   "widgets": []
 }
 ```
+
+The sample job id is illustrative. Always use the exact ids supplied by the
+host request. A read-only job may have no steps, but still needs at least one
+`visible` assertion using an exact accessible role and name. Interactive jobs
+should prove both the typed request and the resulting host-owned state or
+approval outcome when applicable.
 
 Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`,
 `useEventRecords(namespace)`, `useInteractions`, and

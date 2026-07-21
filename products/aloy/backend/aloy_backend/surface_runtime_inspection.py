@@ -24,6 +24,7 @@ from typing import Any
 from .surface_manifest import (
     SurfaceInteractionCheck,
     SurfaceManifest,
+    SurfacePrimaryJob,
     validate_intent_payload,
 )
 from .surface_quality import (
@@ -423,7 +424,7 @@ def inspect_surface_runtime(
     path and produce the expected typed SDK request before publication.
     """
     inspection_started = time.monotonic()
-    timings: dict[str, Any] = {"policy_version": "aloy-surface-timings@1"}
+    timings: dict[str, Any] = {"policy_version": "aloy-surface-timings@2"}
     browser = _browser_executable()
     if browser is None:
         return [
@@ -565,7 +566,8 @@ def inspect_surface_runtime(
                     "(() => {"
                     "const channel = new MessageChannel();"
                     "let currentContext=" + smoke_context + ";"
-                    "window.__aloySetSmokeContext=next=>{currentContext=next;"
+                    "window.__aloySmokeContext=currentContext;"
+                    "window.__aloySetSmokeContext=next=>{currentContext=next;window.__aloySmokeContext=currentContext;"
                     "channel.port1.postMessage({protocol:'1',type:'context',"
                     "sessionId:'runtime-smoke',context:currentContext});};"
                     "const commands=" + smoke_commands + ";"
@@ -615,7 +617,7 @@ def inspect_surface_runtime(
                     "currentContext={...projected,data_revision:nextRevision,"
                     "data:{...(projected.data||{}),"
                     "interactions:[...((projected.data||{}).interactions||[]),interaction],"
-                    "command_attempts:[...((projected.data||{}).command_attempts||[]),attempt]}};"
+                    "command_attempts:[...((projected.data||{}).command_attempts||[]),attempt]}};window.__aloySmokeContext=currentContext;"
                     "channel.port1.postMessage({protocol:'1',type:'context',"
                     "sessionId:'runtime-smoke',context:currentContext});"
                     "channel.port1.postMessage({protocol:'1',type:'response',"
@@ -738,6 +740,7 @@ def inspect_surface_runtime(
                 if diagnostics:
                     timings["state_matrix_ms"] = 0.0
                     timings["interaction_checks_ms"] = 0.0
+                    timings["primary_jobs_ms"] = 0.0
                     timings["total_ms"] = round(
                         (time.monotonic() - inspection_started) * 1000,
                         3,
@@ -761,6 +764,7 @@ def inspect_surface_runtime(
                 diagnostics.extend(state_diagnostics)
                 if diagnostics or manifest is None:
                     timings["interaction_checks_ms"] = 0.0
+                    timings["primary_jobs_ms"] = 0.0
                     timings["total_ms"] = round(
                         (time.monotonic() - inspection_started) * 1000,
                         3,
@@ -780,6 +784,33 @@ def inspect_surface_runtime(
                         "mobile": False,
                     },
                 )
+                primary_job_started = time.monotonic()
+                primary_job_evidence: list[dict[str, Any]] = []
+                for job in manifest.primary_jobs:
+                    job_diagnostics, job_evidence = _execute_primary_job(
+                        socket,
+                        send=send,
+                        job=job,
+                        manifest=manifest,
+                        context=context,
+                        deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
+                    )
+                    diagnostics.extend(job_diagnostics)
+                    primary_job_evidence.append(job_evidence)
+                timings["primary_jobs_ms"] = round(
+                    (time.monotonic() - primary_job_started) * 1000,
+                    3,
+                )
+                if evidence_sink is not None:
+                    evidence_sink["primary_jobs"] = {
+                        "policy_version": "aloy-surface-primary-jobs@1",
+                        "required": [job.id for job in manifest.primary_jobs],
+                        "passed": not any(
+                            item.get("passed") is not True
+                            for item in primary_job_evidence
+                        ),
+                        "jobs": primary_job_evidence,
+                    }
                 interaction_started = time.monotonic()
                 for check in manifest.interaction_checks:
                     diagnostics.extend(
@@ -1615,6 +1646,212 @@ def _interaction_expression(step: dict[str, Any]) -> str:
         "if(step.action==='select'){const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')?.set;if(!setter)return {ok:false,error:'Select value setter is unavailable'};setter.call(element,step.value);element.dispatchEvent(new Event('input',{bubbles:true}));element.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true};}"
         "return {ok:false,error:'Unsupported interaction action'};})()"
     )
+
+
+def _visible_assertion_expression(assertion: dict[str, Any]) -> str:
+    payload = json.dumps(assertion, ensure_ascii=True)
+    return (
+        "(() => {const assertion="
+        + payload
+        + ";const normalize=value=>String(value||'').replace(/\\s+/g,' ').trim().toLowerCase();"
+        "const name=element=>{const direct=element.getAttribute('aria-label');if(direct)return direct;"
+        "const labelledBy=element.getAttribute('aria-labelledby');if(labelledBy){const value=labelledBy.split(/\\s+/).map(id=>document.getElementById(id)?.textContent||'').join(' ').trim();if(value)return value;}"
+        "return element.textContent||'';};"
+        "const selectors={button:'button,[role=button]',textbox:'input:not([type=hidden]),textarea,[role=textbox]',combobox:'select,[role=combobox]',heading:'h1,h2,h3,h4,h5,h6,[role=heading]',region:'main,section,[role=region]',status:'[role=status]'};"
+        "const candidates=[...document.querySelectorAll(selectors[assertion.role]||'')].filter(element=>{const style=getComputedStyle(element);const rect=element.getBoundingClientRect();return style.visibility!=='hidden'&&style.display!=='none'&&rect.width>0&&rect.height>0;});"
+        "const match=candidates.find(element=>normalize(name(element))===normalize(assertion.name));"
+        "return match?{ok:true}:{ok:false,error:`No visible ${assertion.role} named ${assertion.name}`,available:candidates.map(name).slice(0,30)};})()"
+    )
+
+
+def _request_name(request: dict[str, Any]) -> str | None:
+    params = request.get("params")
+    if not isinstance(params, dict):
+        return None
+    if request.get("method") in {"command", "dispatch"}:
+        return str(params.get("name") or "")
+    if request.get("method") == "askAloy":
+        return "aloy.ask"
+    action = params.get("action")
+    return str(action.get("name") or "") if isinstance(action, dict) else None
+
+
+def _execute_primary_job(
+    socket,
+    *,
+    send,
+    job: SurfacePrimaryJob,
+    manifest: SurfaceManifest,
+    context: dict[str, Any],
+    deadline: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    started_at = time.monotonic()
+    diagnostics: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    reset_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "new Promise(resolve=>{window.__aloySetSmokeContext("
+                + json.dumps(context, ensure_ascii=True, default=str)
+                + ");requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)));})"
+            ),
+            "awaitPromise": True,
+            "returnByValue": True,
+        },
+    )
+    _, exceptions = _receive_evaluation(socket, result_id=reset_id, deadline=deadline)
+    if exceptions:
+        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+    before_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": "(window.__aloySmokeMessages||[]).length",
+            "returnByValue": True,
+        },
+    )
+    before, exceptions = _receive_evaluation(socket, result_id=before_id, deadline=deadline)
+    if exceptions:
+        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+    start = int(before or 0)
+    if not diagnostics:
+        for step in job.steps:
+            result_id = send(
+                "Runtime.evaluate",
+                {
+                    "expression": _interaction_expression(step.model_dump(mode="json")),
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            result, exceptions = _receive_evaluation(
+                socket,
+                result_id=result_id,
+                deadline=min(deadline, time.monotonic() + 2.0),
+            )
+            if exceptions:
+                diagnostics.extend(
+                    _diagnostic("runtime_exception", item) for item in exceptions[:20]
+                )
+                break
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                diagnostics.append(
+                    _diagnostic(
+                        "primary_job_step_failed",
+                        f"Primary job {job.description!r} failed: "
+                        + (str(result.get("error")) if isinstance(result, dict) else "step failed"),
+                    )
+                )
+                break
+            time.sleep(0.1)
+
+    snapshot_id = send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "({requests:(window.__aloySmokeMessages||[]).slice("
+                + str(start)
+                + ").filter(message=>message?.type==='request'),context:window.__aloySmokeContext||null})"
+            ),
+            "returnByValue": True,
+        },
+    )
+    snapshot, exceptions = _receive_evaluation(
+        socket, result_id=snapshot_id, deadline=min(deadline, time.monotonic() + 2.0)
+    )
+    if exceptions:
+        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    request_values = snapshot.get("requests")
+    requests: list[Any] = request_values if isinstance(request_values, list) else []
+    context_value = snapshot.get("context")
+    current_context: dict[str, Any] = (
+        context_value if isinstance(context_value, dict) else {}
+    )
+
+    if not diagnostics:
+        for assertion in job.assertions:
+            outcome: dict[str, Any] = {"kind": assertion.kind, "passed": False}
+            if assertion.kind == "visible":
+                result_id = send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": _visible_assertion_expression(assertion.model_dump(mode="json")),
+                        "returnByValue": True,
+                    },
+                )
+                result, exceptions = _receive_evaluation(
+                    socket,
+                    result_id=result_id,
+                    deadline=min(deadline, time.monotonic() + 2.0),
+                )
+                outcome["passed"] = not exceptions and isinstance(result, dict) and result.get("ok") is True
+                if not outcome["passed"]:
+                    outcome["error"] = str(result.get("error") if isinstance(result, dict) else "visible outcome missing")
+            elif assertion.kind == "request":
+                matches = [
+                    item
+                    for item in requests
+                    if isinstance(item, dict)
+                    and item.get("method") == assertion.method
+                    and _request_name(item) == assertion.name
+                ]
+                outcome.update({"count": len(matches), "passed": len(matches) == 1})
+                if len(matches) == 1 and assertion.method in {"command", "dispatch", "requestAction"}:
+                    params = dict(matches[0].get("params") or {})
+                    payload = params.get("payload") if assertion.method in {"command", "dispatch"} else dict(params.get("action") or {}).get("payload")
+                    try:
+                        validate_intent_payload(manifest.intents[str(assertion.name)].schema_, payload)
+                    except ValueError as exc:
+                        outcome.update({"passed": False, "error": str(exc)})
+            elif assertion.kind == "state":
+                surface = dict(dict(current_context.get("data") or {}).get("surface") or {})
+                records = surface.get(assertion.namespace or "")
+                records = records if isinstance(records, list) else []
+                record = next(
+                    (item for item in records if isinstance(item, dict) and item.get("key") == assertion.key),
+                    None,
+                )
+                actual = None
+                found = record is not None
+                if record is not None:
+                    actual = dict(record.get("data") or {}).get(assertion.field) if assertion.field else record.get("data")
+                outcome.update({"found": found, "actual": actual, "passed": found and actual == assertion.equals})
+            else:
+                expression = (
+                    "(() => {const expected="
+                    + json.dumps(assertion.status)
+                    + ";const visible=element=>{const style=getComputedStyle(element);const rect=element.getBoundingClientRect();return style.visibility!=='hidden'&&style.display!=='none'&&rect.width>0&&rect.height>0;};return [...document.querySelectorAll('[data-aloy-approval-state]')].filter(visible).some(element=>element.getAttribute('data-aloy-approval-state')===expected);})()"
+                )
+                result_id = send("Runtime.evaluate", {"expression": expression, "returnByValue": True})
+                result, exceptions = _receive_evaluation(
+                    socket,
+                    result_id=result_id,
+                    deadline=min(deadline, time.monotonic() + 2.0),
+                )
+                outcome["passed"] = not exceptions and result is True
+            observations.append(outcome)
+            if not outcome["passed"]:
+                diagnostics.append(
+                    _diagnostic(
+                        "primary_job_assertion_failed",
+                        f"Primary job {job.description!r} did not satisfy its {assertion.kind} assertion: {outcome}",
+                    )
+                )
+
+    evidence: dict[str, Any] = {
+        "id": job.id,
+        "description": job.description,
+        "passed": not diagnostics,
+        "steps": len(job.steps),
+        "assertions": observations,
+        "duration_ms": round((time.monotonic() - started_at) * 1000, 3),
+    }
+    fingerprint_value = {key: value for key, value in evidence.items() if key != "duration_ms"}
+    evidence["fingerprint"] = hashlib.sha256(
+        json.dumps(fingerprint_value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    return diagnostics, evidence
 
 
 def _execute_interaction_check(

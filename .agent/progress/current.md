@@ -1,12 +1,12 @@
-# Current State - 2026-07-20
+# Current State - 2026-07-21
 
 ## Active Task
 
-R9 is active on `aloy-v1-r9-surface-quality`, branched from PR #198 on
-`aloy-v1`. Exact-build receipts, responsive/resource-state evidence, focus,
-contrast, lean retained artifacts, stage timings, dense-content fixtures, and
-approval-required fixtures are complete. The latest scenario work is in the
-current R9 branch; primary-job simulation is next.
+R9 primary-job simulation is active on
+`aloy-v1-r9-primary-job-simulation`, branched from `aloy-v1` after PR #199.
+Exact-build receipts, responsive/resource-state evidence, focus, contrast,
+lean retained artifacts, stage timings, dense-content/approval fixtures, and
+the credit-free primary-job browser gate are complete on the working branch.
 
 ## Decisions Made
 
@@ -15,10 +15,17 @@ current R9 branch; primary-job simulation is next.
 - Quality evidence belongs to the trusted host and exact retained build. The
   Builder, generated application, and any optional Critic never receive
   publication power.
-- Quality policy `@4` covers validation, runtime, declared interactions, five
+- Quality policy `@5` covers validation, runtime, declared interactions, five
   responsive viewports, seven resource lifecycles plus dense-content and
   approval scenarios at desktop/mobile sizes, keyboard focus, text contrast,
-  capture integrity, and basic DOM accessibility. Primary-job evidence remains.
+  capture integrity, basic DOM accessibility, and primary-job evidence.
+- A Surface request freezes its requested jobs before Builder execution as a
+  fingerprinted receipt. Candidate metadata and `surface.json` must preserve
+  those exact ids, descriptions, and order; mismatch fails before persistence.
+- Primary jobs use bounded accessible click/fill/select steps. Assertions can
+  prove exact named UI, exactly one schema-valid SDK request, committed
+  capability-scoped Surface state, or host-owned approval state. The host
+  browser resets Event context and binds each result and timing to the build.
 - A visual Critic is deferred and optional. It is not a V1 publication gate;
   deterministic inspection plus Builder rules carry the required quality path.
 - All 23 required compositions are deterministically inspected. Only five
@@ -39,8 +46,9 @@ current R9 branch; primary-job simulation is next.
 
 ## Important Discoveries
 
-- All Surface-focused backend verification passes: `82 passed`, including
-  build, pipeline, publication, SDK, Event Surface, and live compatibility.
+- The current primary-job slice passes `44` focused backend tests across
+  requests, pipeline, exact-build quality, and real browser build inspection;
+  Ruff passes on all changed Python files.
 - The scenario slice passes 47 focused backend tests, the SDK TypeScript build,
   Ruff, and mypy across 126 backend files. Browser proofs accept the SDK-bound
   approval summary and reject both missing approval binding and dense overflow.
@@ -49,12 +57,11 @@ current R9 branch; primary-job simulation is next.
 
 ## Blockers
 
-- Remote evidence transport, reviewed widget registry, and primary-job
-  simulation remain R9 work.
+- Remote evidence transport and the reviewed widget registry remain R9 work.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
 
 ## Next Session Should Start With
 
-Implement primary-job simulation over host-owned Event facts and typed Surface
-interactions.
+Run the wider backend/type checks, then commit the primary-job slice. Continue
+R9 with remote evidence transport or the reviewed SDK/widget foundation.

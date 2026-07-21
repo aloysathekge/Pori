@@ -14,12 +14,15 @@ MAX_INTENTS = 100
 MAX_SCHEMA_DEPTH = 8
 MAX_INTERACTION_CHECKS = 100
 MAX_INTERACTION_CHECK_STEPS = 20
+MAX_PRIMARY_JOBS = 20
+MAX_PRIMARY_JOB_ASSERTIONS = 20
 
 _CAPABILITY = re.compile(
     r"^(?:event|tasks|files|proposals|receipts|trail|ask_aloy|(?:data|records):[a-z][a-z0-9_.-]{0,63})$"
 )
 _INTENT_NAME = re.compile(r"^[a-z][a-z0-9_.-]{2,127}$")
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
+_PRIMARY_JOB_ID = re.compile(r"^job_[a-f0-9]{16}$")
 
 
 class SurfaceDataWrite(BaseModel):
@@ -122,6 +125,103 @@ class SurfaceInteractionCheck(BaseModel):
     expect: SurfaceInteractionCheckExpectation
 
 
+class SurfacePrimaryJobAssertion(BaseModel):
+    """One host-observable outcome for a complete user job."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["visible", "request", "state", "approval"]
+    role: Literal["button", "textbox", "combobox", "heading", "region", "status"] | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    method: Literal["command", "dispatch", "askAloy", "requestAction"] | None = None
+    namespace: str | None = None
+    key: str | None = Field(default=None, min_length=1, max_length=200)
+    field: str | None = Field(default=None, min_length=1, max_length=100)
+    equals: Any = None
+    status: Literal["clear", "required"] | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "SurfacePrimaryJobAssertion":
+        if self.kind == "visible":
+            if self.role is None or self.name is None:
+                raise ValueError("Visible primary-job assertions require role and name")
+            if any(
+                value is not None
+                for value in (
+                    self.method,
+                    self.namespace,
+                    self.key,
+                    self.field,
+                    self.status,
+                )
+            ) or self.equals is not None:
+                raise ValueError("Visible primary-job assertions contain invalid fields")
+        elif self.kind == "request":
+            if self.method is None or self.name is None:
+                raise ValueError("Request primary-job assertions require method and name")
+            if any(
+                value is not None
+                for value in (
+                    self.role,
+                    self.namespace,
+                    self.key,
+                    self.field,
+                    self.status,
+                )
+            ) or self.equals is not None:
+                raise ValueError("Request primary-job assertions contain invalid fields")
+        elif self.kind == "state":
+            if not self.namespace or not self.key:
+                raise ValueError("State primary-job assertions require namespace and key")
+            if not _NAMESPACE.fullmatch(self.namespace):
+                raise ValueError("Invalid primary-job state namespace")
+            if "equals" not in self.model_fields_set:
+                raise ValueError("State primary-job assertions require equals")
+            if any(
+                value is not None
+                for value in (self.role, self.name, self.method, self.status)
+            ):
+                raise ValueError("State primary-job assertions contain invalid fields")
+        elif self.kind == "approval":
+            if self.status is None:
+                raise ValueError("Approval primary-job assertions require status")
+            if any(
+                value is not None
+                for value in (
+                    self.role,
+                    self.name,
+                    self.method,
+                    self.namespace,
+                    self.key,
+                    self.field,
+                )
+            ) or self.equals is not None:
+                raise ValueError("Approval primary-job assertions contain invalid fields")
+        return self
+
+
+class SurfacePrimaryJob(BaseModel):
+    """A bounded semantic workflow that the host must prove in a real browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    description: str = Field(min_length=3, max_length=500)
+    steps: list[SurfaceInteractionCheckStep] = Field(
+        default_factory=list, max_length=MAX_INTERACTION_CHECK_STEPS
+    )
+    assertions: list[SurfacePrimaryJobAssertion] = Field(
+        min_length=1, max_length=MAX_PRIMARY_JOB_ASSERTIONS
+    )
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        if not _PRIMARY_JOB_ID.fullmatch(value):
+            raise ValueError("Invalid host-issued primary-job id")
+        return value
+
+
 class SurfaceManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -132,6 +232,9 @@ class SurfaceManifest(BaseModel):
     intents: dict[str, SurfaceIntentDeclaration] = Field(default_factory=dict)
     interaction_checks: list[SurfaceInteractionCheck] = Field(
         default_factory=list, max_length=MAX_INTERACTION_CHECKS
+    )
+    primary_jobs: list[SurfacePrimaryJob] = Field(
+        default_factory=list, max_length=MAX_PRIMARY_JOBS
     )
     widgets: list[str] = Field(default_factory=list, max_length=20)
 
@@ -191,6 +294,37 @@ class SurfaceManifest(BaseModel):
                 if expectation.method != expected_method:
                     raise ValueError(
                         f"Interaction check uses the wrong SDK method for {expectation.name}"
+                    )
+        job_ids = [job.id for job in self.primary_jobs]
+        if len(job_ids) != len(set(job_ids)):
+            raise ValueError("Surface primary-job ids must be unique")
+        for job in self.primary_jobs:
+            for assertion in job.assertions:
+                if assertion.kind != "request":
+                    continue
+                if assertion.method == "askAloy":
+                    if assertion.name != "aloy.ask" or "ask_aloy" not in granted:
+                        raise ValueError(
+                            "askAloy primary-job assertions require aloy.ask and ask_aloy"
+                        )
+                    continue
+                job_declaration = self.intents.get(str(assertion.name or ""))
+                if job_declaration is None:
+                    raise ValueError(
+                        "Primary-job request assertion references undeclared intent "
+                        f"{assertion.name}"
+                    )
+                expected_method = {
+                    "durable_selection": "dispatch",
+                    "state": "command",
+                    "reasoning": "command",
+                    "external_action": "requestAction",
+                    "automation": "command",
+                    "source_change": "command",
+                }.get(job_declaration.interaction_class)
+                if assertion.method != expected_method:
+                    raise ValueError(
+                        f"Primary-job assertion uses the wrong SDK method for {assertion.name}"
                     )
         return self
 
@@ -321,6 +455,8 @@ __all__ = [
     "SURFACE_PROTOCOL_VERSION",
     "SURFACE_SDK_VERSION",
     "SurfaceInteractionCheck",
+    "SurfacePrimaryJob",
+    "SurfacePrimaryJobAssertion",
     "SurfaceIntentDeclaration",
     "SurfaceManifest",
     "parse_surface_manifest",
