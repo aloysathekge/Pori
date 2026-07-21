@@ -875,6 +875,21 @@ background reinspection of the currently published build. A failed requested
 candidate is not fed back as a new proposal because that would create a
 self-retrying rebuild loop.
 
+**Implemented trusted live-Surface reinspection:** Aloy can now queue a
+model-free `surface_reinspection` Run bound to the exact currently published
+revision, bundle, and Event data revision. The worker forces new browser
+evidence even when the publication receipt is reusable, records a separate
+append-only `reinspection` receipt, and never overwrites the original last-good
+publication quality proof. A trusted regression on the still-live build emits a
+`quality_failure` proposal; an unavailable inspector retries or fails as
+infrastructure without blaming the Surface. Concurrent requests deduplicate on
+the live project. A bounded worker planner can schedule stale live builds, but
+is operator-disabled by default to avoid surprise sandbox cost. Operators enable
+it with `SURFACE_REINSPECTION_ENABLED=true` and may tune
+`SURFACE_REINSPECTION_TICK_SECONDS` and
+`SURFACE_REINSPECTION_INTERVAL_SECONDS`. Manual host checks use
+`POST /v1/events/{event_id}/surface/reinspections` and the same durable Run.
+
 Gate:
 
 - a build that was not inspected, whose receipt was altered, or whose source or

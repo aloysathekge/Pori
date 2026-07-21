@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -79,6 +79,16 @@ class SurfacePreviewParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     build_id: str | None = Field(default=None, max_length=200)
+    force_reinspection: bool = False
+    inspection_kind: Literal["runtime", "reinspection"] = "runtime"
+
+    @model_validator(mode="after")
+    def validate_reinspection_shape(self) -> "SurfacePreviewParams":
+        if self.force_reinspection != (self.inspection_kind == "reinspection"):
+            raise ValueError(
+                "Forced inspection and reinspection kind must be requested together"
+            )
+        return self
 
 
 def _build_fingerprint(revision: SurfaceRevision, toolchain_version: str) -> str:
@@ -515,7 +525,8 @@ class SurfaceBuildHandler:
                 (build.resource_metrics or {}).get(SURFACE_QUALITY_RECEIPT_KEY) or {}
             )
             quality_receipt_reused = bool(
-                preview_ready
+                not params.force_reinspection
+                and preview_ready
                 and reusable_quality_receipt
                 and surface_quality_receipt_error(build) is None
             )
@@ -524,10 +535,14 @@ class SurfaceBuildHandler:
                 inspection_evidence = dict(
                     reusable_quality_receipt.get("evidence") or {}
                 )
-            elif preview_ready and build.resource_metrics.get("backend") in {
-                "local_dev",
-                "isolated",
-            }:
+            elif preview_ready and (
+                params.force_reinspection
+                or build.resource_metrics.get("backend")
+                in {
+                    "local_dev",
+                    "isolated",
+                }
+            ):
                 from .surface_interactions import surface_runtime_context
                 from .tenancy import OrganizationContext, OrganizationPolicy
 
@@ -687,7 +702,7 @@ class SurfaceBuildHandler:
             if runtime_diagnostics:
                 preview_ready = False
                 runtime_proven = False
-            if retained_captures:
+            if retained_captures and not params.force_reinspection:
                 existing_artifacts = [
                     item
                     for item in list(build.preview_artifacts or [])
@@ -738,10 +753,12 @@ class SurfaceBuildHandler:
                         runtime_diagnostics=runtime_diagnostics,
                         inspection_evidence=inspection_evidence,
                     )
-            build.resource_metrics = {
-                **dict(build.resource_metrics or {}),
-                SURFACE_QUALITY_RECEIPT_KEY: quality_receipt,
-            }
+            if not params.force_reinspection:
+                build.resource_metrics = {
+                    **dict(build.resource_metrics or {}),
+                    SURFACE_QUALITY_RECEIPT_KEY: quality_receipt,
+                }
+            inspection_id: str | None = None
             if inspection_transport and build.bundle_key and build.bundle_sha256:
                 inspection_record = SurfaceInspection(
                     organization_id=event.organization_id,
@@ -752,7 +769,7 @@ class SurfaceBuildHandler:
                     revision_id=build.revision_id,
                     bundle_key=build.bundle_key,
                     bundle_sha256=build.bundle_sha256,
-                    inspection_kind="runtime",
+                    inspection_kind=params.inspection_kind,
                     inspector_version=(
                         f"{inspection_transport.get('id', 'unknown')}@"
                         f"{inspection_transport.get('version', 'unknown')}"
@@ -768,9 +785,11 @@ class SurfaceBuildHandler:
                     summary={
                         "diagnostic_count": len(runtime_diagnostics),
                         "quality_passed": quality_receipt.get("passed") is True,
+                        "data_revision": project.data_revision,
                     },
                     timings=dict(inspection_evidence.get("timings") or {}),
                 )
+                inspection_id = inspection_record.id
                 session.add(inspection_record)
                 for retained_capture in retained_captures:
                     checksum = str(retained_capture["sha256"])
@@ -804,6 +823,8 @@ class SurfaceBuildHandler:
             payload["execution_available"] = runtime_proven
             payload["quality_gate"] = quality_receipt
             payload["quality_gate_reused"] = quality_receipt_reused
+            payload["inspection_id"] = inspection_id
+            payload["inspection_kind"] = params.inspection_kind
             payload["resource_metrics"] = build.resource_metrics
             payload["preview_artifacts"] = build.preview_artifacts
             payload["runtime_diagnostics"] = runtime_diagnostics

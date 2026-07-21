@@ -47,6 +47,11 @@ from ..surface_publication import (
     list_surface_publications,
     published_surface_snapshot,
 )
+from ..surface_reinspection import (
+    SurfaceReinspectionError,
+    queue_surface_reinspection,
+    surface_reinspection_run_payload,
+)
 from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
 from ..tenancy import OrganizationContext, Permission, require_permission
 
@@ -70,6 +75,12 @@ class SurfaceFeedbackBody(BaseModel):
         min_length=3,
         max_length=1000,
     )
+
+
+class SurfaceReinspectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    reason: str = Field(default="manual_check", min_length=3, max_length=200)
 
 
 _SURFACE_STAGE_MESSAGES = {
@@ -147,6 +158,28 @@ async def submit_surface_feedback(
     except SurfaceEvolutionProposalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return surface_evolution_proposal_payload(proposal)
+
+
+@router.post("/reinspections", status_code=202)
+async def create_surface_reinspection(
+    event_id: str,
+    body: SurfaceReinspectionBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    try:
+        run, replayed = await queue_surface_reinspection(
+            session,
+            context=context,
+            event=event,
+            reason=body.reason,
+        )
+    except SurfaceReinspectionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return surface_reinspection_run_payload(run, replayed=replayed)
 
 
 @router.post("/evolution-proposals/{proposal_id}/decision")

@@ -2,12 +2,11 @@
 
 ## Active Task
 
-R9 Surface evolution signals and Event UI are active on
-`aloy-v1-r9-evolution-signals-ui`, branched from `aloy-v1` after PR #206.
-User feedback, repeated non-retryable Surface command failures, and Event phase
-changes now feed durable proposals. The Event conversation presents one quiet
-accept/dismiss card, and accepted work uses the ordinary Builder progress and
-last-good publication path.
+R9 trusted live-Surface reinspection is active on
+`aloy-v1-r9-live-reinspection`, branched from `aloy-v1` after PR #207.
+Model-free durable Runs force new trusted browser evidence for the exact live
+build, retain a separate append-only receipt, and create a quality proposal only
+when trusted evidence fails while that build remains published.
 
 Exact-build receipt reuse is now the first inspection-planning optimization:
 reopening a build and ordinary SDK data/state changes do not rerun the remote
@@ -65,12 +64,16 @@ semantics locally.
 - Failed requested candidates do not generate another proposal. Trusted quality
   signals are reserved for background reinspection of the live build to avoid a
   self-retrying Builder loop.
+- Reinspection never replaces the publication receipt. Inspector outages retry
+  as infrastructure failures and never become Surface-quality evidence.
+- Automatic reinspection is cost-gated and disabled by default. A bounded
+  worker planner can be enabled by an operator; manual checks use the same Run.
 
 ## Important Discoveries
 
-- The signal/UI slice passes 37 focused backend tests across proposal lifecycle,
-  rejected SDK commands, phase updates, and Event routes. The app production
-  build and lint pass; Ruff and focused mypy pass on changed backend code.
+- The live-reinspection slice passes 24 focused backend tests across queueing,
+  worker dispatch, throttling, fresh exact-build evidence, quality proposals,
+  and infrastructure-failure isolation. Ruff and focused mypy pass.
 - The scenario slice passes 47 focused backend tests, the SDK TypeScript build,
   Ruff, and mypy across 126 backend files. Browser proofs accept the SDK-bound
   approval summary and reject both missing approval binding and dense overflow.
@@ -86,7 +89,7 @@ semantics locally.
 
 ## Next Session Should Start With
 
-Add trusted background reinspection for the currently published build so a new
-runtime, responsive, accessibility, or primary-job regression can emit a
-quality proposal without involving generated code. Then exercise the complete
-feedback -> proposal -> acceptance -> Builder progress path in the running app.
+Exercise the complete live flow locally: manually queue reinspection, observe
+the model-free Run and append-only receipt, inject a trusted failed inspection,
+accept the resulting proposal, and watch the ordinary Builder publication path.
+Provider-backed cold/warm timing remains a later acceptance gate.
