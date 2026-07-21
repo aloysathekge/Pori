@@ -2,11 +2,12 @@
 
 ## Active Task
 
-R9 primary-job simulation is active on
-`aloy-v1-r9-primary-job-simulation`, branched from `aloy-v1` after PR #199.
-Exact-build receipts, responsive/resource-state evidence, focus, contrast,
-lean retained artifacts, stage timings, dense-content/approval fixtures, and
-the credit-free primary-job browser gate are complete on the working branch.
+R9 remote inspector provider is active on
+`aloy-v1-r9-remote-inspector-provider`, branched from `aloy-v1` after PR #202.
+The next delivery slice will execute the existing browser-quality contract in a
+managed remote sandbox through the provider-neutral inspection transport,
+recording remote acquisition/inspection/recovery timings without granting the
+sandbox storage, credentials, Event truth, or publication authority.
 
 ## Decisions Made
 
@@ -57,11 +58,15 @@ the credit-free primary-job browser gate are complete on the working branch.
 
 ## Blockers
 
-- Remote evidence transport and the reviewed widget registry remain R9 work.
+- The transport, immutable inspection receipt, and evidence artifact foundation
+  are merged as PR #202. The next task is the actual remote inspector adapter
+  and its provider acceptance proof; the reviewed Map/widget adapter follows.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
 
 ## Next Session Should Start With
 
-Run the wider backend/type checks, then commit the primary-job slice. Continue
-R9 with remote evidence transport or the reviewed SDK/widget foundation.
+Implement the remote inspector adapter against the existing fixed sandbox
+toolchain. It must return only the typed inspection result and bounded evidence
+to the host, then prove cold/warm timing, timeout, and recovery behavior before
+moving to the reviewed Map/widget adapter.
