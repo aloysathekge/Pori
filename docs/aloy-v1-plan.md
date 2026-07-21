@@ -839,6 +839,16 @@ and self-reported success cannot satisfy the gate. These deterministic proofs
 run against handcrafted candidates without model credits; live Builder quality
 still requires later provider-backed acceptance.
 
+**Implemented Surface evolution decision foundation:** conversation-originated
+requests and declared `source_change` controls now pass through one versioned,
+fingerprinted host policy bound to the current published revision, build, and
+data revision. Explicit user and Surface requests may queue the dedicated
+Builder; inferred phase, capability, feedback, job-failure, and quality signals
+produce proposals rather than silently redesigning a familiar workspace. The
+accepted decision is retained on the Builder Run and Trail. Replayed interaction
+idempotency cannot queue a second Builder. Durable aggregation, cooldown, and
+user-facing acceptance of inferred proposals remain the next evolution slice.
+
 Gate:
 
 - a build that was not inspected, whose receipt was altered, or whose source or

@@ -37,6 +37,11 @@ from .models import (
 from .run_budgets import resolve_run_budget
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .skills import SURFACE_BUILDER_SKILL_ID
+from .surface_evolution import (
+    SurfaceEvolutionDecision,
+    SurfaceEvolutionSignal,
+    evaluate_surface_evolution,
+)
 from .tenancy import OrganizationPolicy
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
@@ -215,6 +220,94 @@ def _builder_task(
     )
 
 
+async def queue_surface_builder_run(
+    session: AsyncSession,
+    *,
+    event: Event,
+    policy: OrganizationPolicy,
+    params: SurfaceRequestParams,
+    evolution: SurfaceEvolutionDecision,
+    actor_id: str,
+    parent_run_id: str | None,
+    root_run_id: str | None,
+    idempotency_key: str,
+    model_assignment_resolver: Any | None = None,
+    origin_evidence: list[dict[str, str]] | None = None,
+) -> Run:
+    """Stage one Builder Run from an already accepted evolution decision."""
+
+    if evolution.outcome != "queue":
+        raise ValueError("Only queued Surface evolution decisions may start a Builder")
+    resolver = model_assignment_resolver or resolve_model_assignment
+    assignment: ModelAssignment = resolver(
+        ModelRole.SURFACE_BUILDER,
+        required_capabilities=SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities,
+        expected_skill_id=SURFACE_BUILDER_SKILL_ID,
+        allowed_provider_profiles=(policy.allowed_provider_profiles or None),
+        allowed_models=policy.allowed_models or None,
+    )
+    budget = resolve_run_budget(policy, {"max_steps": 40, "timeout_seconds": 900})
+    primary_job_contract = _primary_job_contract(params)
+    conversation_id = event.primary_conversation_id
+    run = Run(
+        organization_id=event.organization_id,
+        user_id=event.user_id,
+        event_id=event.id,
+        agent_id=SURFACE_BUILDER_AGENT_ID,
+        session_id=conversation_id or event.id,
+        conversation_id=conversation_id,
+        parent_run_id=parent_run_id,
+        root_run_id=root_run_id,
+        idempotency_key=idempotency_key,
+        run_kind=SURFACE_BUILDER_RUN_KIND,
+        run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
+        model_assignment=assignment.descriptor(),
+        task=_builder_task(params, primary_job_contract),
+        max_steps=budget.max_steps,
+        max_tool_calls=budget.max_tool_calls,
+        max_tokens=budget.max_tokens,
+        max_cost_usd=budget.max_cost_usd,
+        timeout_seconds=budget.timeout_seconds,
+        max_attempts=min(3, policy.max_attempts),
+        isolation_profile="worker-process",
+        execution_receipts=[primary_job_contract, evolution.receipt()],
+    )
+    event.updated_at = datetime.now(timezone.utc)
+    session.add(event)
+    session.add(run)
+    session.add(
+        EventTrailEntry(
+            organization_id=event.organization_id,
+            user_id=event.user_id,
+            event_id=event.id,
+            actor_id=actor_id,
+            kind="surface_build_queued",
+            summary="Queued a new Event Surface experience",
+            run_id=run.id,
+            evidence_refs=list(origin_evidence or []),
+            payload={
+                "goal": params.goal,
+                "experience": params.experience,
+                "evolution": evolution.model_dump(mode="json"),
+                "primary_job_contract": {
+                    "policy_version": primary_job_contract["policy_version"],
+                    "jobs": primary_job_contract["jobs"],
+                    "fingerprint": primary_job_contract["fingerprint"],
+                },
+                "profile": SURFACE_BUILDER_RUN_PROFILE.descriptor(),
+                "model_assignment": {
+                    "role": assignment.role.value,
+                    "provider": assignment.provider,
+                    "model": assignment.model,
+                    "skill_id": assignment.skill_id,
+                    "config_fingerprint": assignment.config_fingerprint,
+                },
+            },
+        )
+    )
+    return run
+
+
 class SurfaceRequestHandler:
     """Queue a dedicated builder Run from one authenticated Event Run."""
 
@@ -279,79 +372,50 @@ class SurfaceRequestHandler:
                     ),
                 }
 
-            assignment: ModelAssignment = self._model_assignment_resolver(
-                ModelRole.SURFACE_BUILDER,
-                required_capabilities=(
-                    SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities
-                ),
-                expected_skill_id=SURFACE_BUILDER_SKILL_ID,
-                allowed_provider_profiles=(policy.allowed_provider_profiles or None),
-                allowed_models=policy.allowed_models or None,
+            project = (
+                (
+                    await session.execute(
+                        select(SurfaceProject).where(
+                            SurfaceProject.organization_id == event.organization_id,
+                            SurfaceProject.user_id == event.user_id,
+                            SurfaceProject.event_id == event.id,
+                        )
+                    )
+                )
+                .scalars()
+                .first()
             )
-            budget = resolve_run_budget(
-                policy,
-                {"max_steps": 40, "timeout_seconds": 900},
+            evolution = evaluate_surface_evolution(
+                SurfaceEvolutionSignal(
+                    trigger="explicit_user_request",
+                    goal=params.goal,
+                    evidence_refs=params.source_refs,
+                    base_revision_id=(
+                        project.published_revision_id if project else None
+                    ),
+                    base_build_id=(project.published_build_id if project else None),
+                    base_data_revision=(project.data_revision if project else 0),
+                    event_archived=event.lifecycle == "archived",
+                )
             )
-            primary_job_contract = _primary_job_contract(params)
+            if evolution.outcome != "queue":
+                raise ValueError("The Surface change request did not meet queue policy")
 
-            conversation_id = event.primary_conversation_id
-            run = Run(
-                organization_id=event.organization_id,
-                user_id=event.user_id,
-                event_id=event.id,
-                agent_id=SURFACE_BUILDER_AGENT_ID,
-                session_id=conversation_id or event.id,
-                conversation_id=conversation_id,
+            run = await queue_surface_builder_run(
+                session,
+                event=event,
+                policy=policy,
+                params=params,
+                evolution=evolution,
+                actor_id=self._run_context.agent_id,
                 parent_run_id=self._run_context.run_id,
                 root_run_id=self._run_context.run_id,
                 idempotency_key=idempotency_key,
-                run_kind=SURFACE_BUILDER_RUN_KIND,
-                run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
-                model_assignment=assignment.descriptor(),
-                task=_builder_task(params, primary_job_contract),
-                max_steps=budget.max_steps,
-                max_tool_calls=budget.max_tool_calls,
-                max_tokens=budget.max_tokens,
-                max_cost_usd=budget.max_cost_usd,
-                timeout_seconds=budget.timeout_seconds,
-                max_attempts=min(3, policy.max_attempts),
-                isolation_profile="worker-process",
-                execution_receipts=[primary_job_contract],
-            )
-            event.updated_at = datetime.now(timezone.utc)
-            session.add(event)
-            session.add(run)
-            session.add(
-                EventTrailEntry(
-                    organization_id=event.organization_id,
-                    user_id=event.user_id,
-                    event_id=event.id,
-                    actor_id=self._run_context.agent_id,
-                    kind="surface_build_queued",
-                    summary="Queued a new Event Surface experience",
-                    run_id=run.id,
-                    evidence_refs=[
-                        {"conversation_run_id": self._run_context.run_id},
-                        *([{"source_ref": ref} for ref in params.source_refs[:10]]),
-                    ],
-                    payload={
-                        "goal": params.goal,
-                        "experience": params.experience,
-                        "primary_job_contract": {
-                            "policy_version": primary_job_contract["policy_version"],
-                            "jobs": primary_job_contract["jobs"],
-                            "fingerprint": primary_job_contract["fingerprint"],
-                        },
-                        "profile": SURFACE_BUILDER_RUN_PROFILE.descriptor(),
-                        "model_assignment": {
-                            "role": assignment.role.value,
-                            "provider": assignment.provider,
-                            "model": assignment.model,
-                            "skill_id": assignment.skill_id,
-                            "config_fingerprint": assignment.config_fingerprint,
-                        },
-                    },
-                )
+                model_assignment_resolver=self._model_assignment_resolver,
+                origin_evidence=[
+                    {"conversation_run_id": self._run_context.run_id},
+                    *([{"source_ref": ref} for ref in params.source_refs[:10]]),
+                ],
             )
             await session.commit()
             return {
@@ -359,6 +423,7 @@ class SurfaceRequestHandler:
                 "run_id": run.id,
                 "ready": False,
                 "replayed": False,
+                "evolution": evolution.model_dump(mode="json"),
                 "message": (
                     "A dedicated Surface Builder has been queued. Tell the user "
                     "it is being built; do not say it exists or is live until the "

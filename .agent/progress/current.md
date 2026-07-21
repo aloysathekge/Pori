@@ -15,6 +15,13 @@ reopening a build and ordinary SDK data/state changes do not rerun the remote
 gate. New executable content still fails closed through the complete gate until
 trusted compiler impact provenance can justify narrower evidence reuse.
 
+The Surface evolution policy foundation is active on
+`aloy-v1-r9-surface-evolution`. Explicit conversation requests and published
+Surface `source_change` commands now share a fingerprinted queue decision bound
+to the live code/build/data state, and the receipt follows the Builder Run.
+Inferred signals are proposal-only; their durable aggregation, cooldown, and
+user-facing acceptance are not yet wired.
+
 ## Decisions Made
 
 - `aloy-v1` remains the integration branch; R9 is not a path directly to
