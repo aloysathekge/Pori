@@ -542,6 +542,9 @@ async def publish_template_release(
 async def operator_release_payload(
     session: AsyncSession, release: EventTemplateRelease
 ) -> dict[str, Any]:
+    template = await session.get(EventTemplate, release.template_id)
+    if template is None:
+        raise EventTemplateError("Event template not found", status_code=404)
     assets, compatibility, seeds, guided_jobs = await load_template_release_rows(
         session, release.id
     )
@@ -555,6 +558,7 @@ async def operator_release_payload(
     return {
         "id": release.id,
         "template_id": release.template_id,
+        "catalog_current_release_id": template.current_release_id,
         "version": release.version,
         "schema_version": release.schema_version,
         "status": release.status,

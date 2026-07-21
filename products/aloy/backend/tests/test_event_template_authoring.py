@@ -212,6 +212,7 @@ async def test_import_stages_validated_draft_with_idempotent_audit_receipt(
     operator_view = await client.get("/v1/event-templates/operator/releases")
     assert operator_view.status_code == 200
     assert operator_view.json()["releases"][0]["validation"] == "passed"
+    assert operator_view.json()["releases"][0]["catalog_current_release_id"] is None
     async with db_session_maker() as session:
         receipts = list(
             (await session.execute(select(EventTemplateOperatorReceipt)))
@@ -475,6 +476,11 @@ async def test_new_release_does_not_change_an_installed_event(
         ),
     )
     second_release = second_import.json()["release"]
+    reviewed_second = await client.get(
+        f"/v1/event-templates/operator/releases/{second_release['id']}"
+    )
+    assert reviewed_second.status_code == 200
+    assert reviewed_second.json()["catalog_current_release_id"] == first_release["id"]
     stale_publish = await client.post(
         f"/v1/event-templates/operator/releases/{second_release['id']}/publish",
         json=_publish_body(checksum=second_release["checksum"], suffix="pin-v2-stale"),
