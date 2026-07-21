@@ -327,6 +327,64 @@ class SurfaceProject(SQLModel, table=True):
     )
 
 
+class SurfaceEvolutionProposal(SQLModel, table=True):
+    """Durable inferred suggestion to evolve one published Event Surface."""
+
+    __tablename__ = "surface_evolution_proposals"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "signal_fingerprint",
+            name="uq_surface_evolution_signal",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"sevolve_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    trigger: str = Field(index=True)
+    goal: str
+    signal_fingerprint: str = Field(index=True)
+    decision_fingerprint: str = Field(index=True)
+    status: str = Field(default="observing", index=True)
+    occurrence_count: int = 1
+    base_revision_id: str | None = Field(
+        default=None, foreign_key="surface_revisions.id", index=True
+    )
+    base_build_id: str | None = Field(
+        default=None, foreign_key="surface_builds.id", index=True
+    )
+    base_data_revision: int = 0
+    reason_codes: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    evidence_refs: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    builder_run_id: str | None = Field(default=None, foreign_key="runs.id", index=True)
+    decided_by: str | None = Field(default=None, index=True)
+    decided_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    cooldown_until: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class SurfaceRevision(SQLModel, table=True):
     """Immutable source and manifest snapshot for a Surface project."""
 

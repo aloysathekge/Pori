@@ -846,8 +846,21 @@ data revision. Explicit user and Surface requests may queue the dedicated
 Builder; inferred phase, capability, feedback, job-failure, and quality signals
 produce proposals rather than silently redesigning a familiar workspace. The
 accepted decision is retained on the Builder Run and Trail. Replayed interaction
-idempotency cannot queue a second Builder. Durable aggregation, cooldown, and
-user-facing acceptance of inferred proposals remain the next evolution slice.
+idempotency cannot queue a second Builder.
+
+**Implemented durable inferred evolution proposals:** host-observed signals are
+now stored against the exact published Surface and aggregated by a stable signal
+fingerprint. A first primary-job failure remains quiet observation; a repeated
+failure becomes one pending proposal instead of many rebuilds. Stronger
+capability, feedback, phase, and trusted quality signals may propose immediately,
+but never publish or queue code by themselves. The proposal API exposes only
+pending suggestions. Dismissal creates a 14-day cooldown for the same signal;
+acceptance verifies that the bound revision and build are still live, rejects an
+already-active Builder, records the decision in Trail, and queues exactly one
+ordinary Builder Run with the existing quality and publication gates. If the
+Surface changed first, the proposal is superseded rather than applied to newer
+code. Wiring real feedback, primary-job, phase, and quality producers into this
+service plus the in-product proposal card remains the next evolution slice.
 
 Gate:
 
@@ -948,7 +961,7 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 R8 is merged into `aloy-v1` as PR #198, the initial R9 quality-state slice is
 merged as PR #199, the primary-job simulation gate is merged as PR #200, and
 the reviewed SDK foundation is merged as PR #201. The next slice is active on
-`aloy-v1-r9-remote-inspection`. Exact-build receipts, the five-viewport
+`aloy-v1-r9-evolution-proposals`. Exact-build receipts, the five-viewport
 baseline, the public lifecycle, long-content and approval state matrix,
 keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
 semantic browser workflow execution, and build-bound job evidence are complete.
@@ -957,7 +970,10 @@ and append-only evidence foundation now supports a remote browser inspector;
 the isolated adapter writes one sealed request to the fixed Surface toolchain,
 runs its fixed `inspect-surface` command, and accepts one typed bounded result.
 The following provider acceptance slice must exercise that remote path and
-record its latency/recovery evidence. University and Madrid are proofs of the
+record its latency/recovery evidence. The host-owned evolution path now has
+durable aggregation, dismissal cooldown, stale-version protection, and an
+acceptance-to-Builder transition; actual signal producers and its Event UI are
+the next product-facing slice. University and Madrid are proofs of the
 ordinary pipeline, not special runtime behavior. Keep `main` untouched until the R9
 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.
