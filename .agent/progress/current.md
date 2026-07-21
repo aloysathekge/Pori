@@ -2,30 +2,35 @@
 
 ## Active Task
 
-R9 operator authority is active on `aloy-v1-r9-operator-authority`, branched
-from `aloy-v1` after PR #210 merged the internal Surface health contract. Health
-reads now require `operator:read`; manual reinspection requires `operator:act`.
-Reinspection requests can carry a stable intent id so network retries return the
-same durable Run, including after it has completed. Aloy's user interface still
-contains no health badge or manual check control.
+R11 durable Work Stories are merged into `aloy-v1` through PR #214. Run plans,
+activity, bounded tool previews, outputs, attention, completion, and resume
+state now persist as one ordered story and render in Conversation and the Event
+Workbench. The next active product slice is R12: a database/object-storage
+backed Event template catalog and idempotent installer, beginning with a
+credit-free seeded Career OS release.
 
-The merged viewer resolves uploads and binary Run artifacts through one
-host-owned presentation contract. PDF, image, audio, video, Markdown,
-text/code, DOCX, XLSX, and PPTX have fixed trusted renderers; unknown, corrupt,
-encrypted, or oversized previews retain honest download and Ask Aloy fallbacks.
-
-Exact-build receipt reuse is now the first inspection-planning optimization:
-reopening a build and ordinary SDK data/state changes do not rerun the remote
-gate. New executable content still fails closed through the complete gate until
-trusted compiler impact provenance can justify narrower evidence reuse.
-
-The isolated remote inspector adapter and exact-build receipt reuse are already
-merged. A real provider acceptance proof remains deferred until provider access
-is available; it does not block implementing and testing host-owned evolution
-semantics locally.
+The trusted universal file viewer, Surface quality/inspection contracts,
+operator-only control APIs, and the separate private `aloy-internal` control
+plane are established. R10 document ingestion/OCR is fully specified but not
+implemented. Real provider acceptance remains deferred until credentials are
+available and does not block model-free template and ingestion contracts.
 
 ## Decisions Made
 
+- Event templates are opt-in, versioned catalog data rather than domain logic in
+  Aloy. Installing one creates an independent ordinary Event pinned to that
+  release; updates never silently overwrite user data.
+- Student, Individual, Professional, Team, and Business are discovery taxonomy.
+  Subscription packages separately control limits/capabilities and do not gate
+  template availability by matching label.
+- Career OS is the first permanent starting template, University follows, and
+  Madrid waits for the trusted Map/widget phase. Sparse context creates visible
+  setup gaps rather than invented facts.
+- File ingestion is separate from presentation. Upload returns after durable
+  original storage; OCR, normalization, indexing, and enrichment are resumable
+  host-owned background work.
+- Extracted content is Event-scoped evidence, not accepted memory. Citations
+  remain bound to original hash, extraction version, page, block, and region.
 - File presentation is trusted-host functionality. Generated Surfaces never
   receive original object URLs, arbitrary file rendering authority, or an
   executable document DOM.
@@ -125,11 +130,14 @@ semantics locally.
 
 ## Next Session Should Start With
 
-After PR #210, bootstrap the private `aloy-internal` repository and its typed
-operator client. First prove operator-only health read and manual reinspection
-against a locally published fixed Surface, then exercise a trusted failed test
-inspection and accepted improvement while the old Surface stays live.
+Create `aloy-v1-r12-event-template-catalog` from current `aloy-v1`. Implement
+the catalog/release/install schema and an idempotent fake Career OS installation
+before discovery UI or model generation. Prove that installation produces only
+ordinary Event, context, Surface, and provenance records; a second request does
+not duplicate them; catalog edits do not mutate installed Events; and no
+domain-specific runtime condition is introduced.
 
-Also exercise one real file from each viewer renderer class in the target
-Chromium/Electron runtime, including mobile overflow, download, Ask Aloy,
-corrupt Office fallback, and hosted video seeking.
+In parallel planning, keep R10 document ingestion behind the provider-neutral
+`DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file
+from each existing viewer renderer class in Chromium/Electron when manual QA is
+available.

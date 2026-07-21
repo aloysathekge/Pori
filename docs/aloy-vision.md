@@ -1,6 +1,6 @@
 # Aloy — product vision
 
-_Canonical product definition, version 3.4, revised 2026-07-19. This document
+_Canonical product definition, version 3.5, revised 2026-07-21. This document
 defines what Aloy is, how its core product concepts fit together, and what V1
 must prove. Detailed contracts live in the linked child specifications; live
 implementation status lives in [`.agent/progress/current.md`](../.agent/progress/current.md)._
@@ -764,6 +764,56 @@ message metadata, and places only accepted references in the turn's task.
 Invalid or foreign IDs are silently discarded so the endpoint cannot be used
 as a file-ID oracle.
 
+#### Document ingestion and OCR contract
+
+Opening a file and understanding it are separate capabilities. Upload completes
+when the immutable original and its tenant-, user-, and Event-scoped pointer are
+durable. Host-owned workers then extract, normalize, index, and enrich it in the
+background while the original remains openable and downloadable. The product
+shows honest states: **Queued**, **Reading**, **Indexing**, **Ready**, **Needs
+review**, **Retrying**, or **Could not process**.
+
+One provider-neutral `DocumentProcessor` serves Event setup and ordinary Event
+files. It routes by inspected content and quality, not extension alone:
+
+- bounded direct decoding for trustworthy text formats;
+- deterministic native extraction for valid digital Office documents and PDFs;
+- OCR for scans, images, handwriting, broken text layers, and layout-sensitive
+  sources;
+- explicit review or configured fallback for low-confidence output, never
+  silent promotion into reliable knowledge.
+
+Mistral OCR 4 is the initial hosted adapter, pinned by operator configuration;
+Google Document AI and a future self-hosted provider remain replaceable behind
+the same contract. OCR models, credentials, limits, regional policy, fallback,
+and budget are operator-owned infrastructure. Conversation models, generated
+Surfaces, and transient Runs cannot call OCR providers or receive their secrets.
+Provider HTML is inert data and embedded images remain disabled by default.
+
+Every attempt is separate from `StoredFile` and binds the original SHA-256,
+provider, pinned model, pipeline version, lifecycle stage, lease/retry state,
+quality, usage/cost, and immutable raw and normalized results. Source hash plus
+provider/model/pipeline version forms the deduplication identity. Worker leases
+and stage receipts make restart safe without pretending provider billing is
+exactly-once when the provider offers no idempotency guarantee.
+
+Provider output normalizes into an Aloy-owned `DocumentGraph` of pages, typed
+blocks, tables, images, equations, reading order, confidence, dimensions, and
+bounding boxes. Retrieval chunks retain Event, file, extraction, page, block,
+source-hash, and region provenance. Scope is applied before ranking, so a
+citation can reopen the immutable original at the exact page and highlighted
+region. **@file**, **Ask Aloy about this page**, Event search, Tasks, and trusted
+Surface file projections all consume this same citation contract.
+
+Extracted content is retrievable Event evidence, not automatically accepted
+memory. Stable facts enter memory only through the evidence-backed memory
+policy. Reprocessing creates a new extraction version and never mutates the
+original or old citations. The quality gate checks bounds, reading order,
+coordinates, confidence, page plausibility, safe tables, checksums, and Event
+isolation. Provider qualification measures accuracy, citation alignment,
+handwriting/tables, p50/p95 latency, cost per usable page, failure rate, and
+human correction on an Aloy-owned corpus before a provider becomes default.
+
 Memory is a curated index over durable truth, not a copy of every message and
 not a substitute for canonical state. Aloy has four distinct context layers:
 
@@ -1275,6 +1325,31 @@ trusted file reference and may later include an explicit page, sheet, slide,
 timestamp, or selected region; it never copies raw browser or viewer state into
 the prompt.
 
+#### Deferred: Workbench Context Envelope
+
+The Workbench Context Envelope is a post-V1 capability for grounding a turn in
+what the user is viewing without scraping iframe HTML, sending a whole screen,
+or silently granting authority. The composer may show removable trusted chips
+such as **Career Surface / Phone Screen**, **semester-plan.pdf / page 4**, or
+**lecture.mp4 / 12:38**.
+
+Its bounded layers are automatic resource identity (Event, resource, immutable
+revision), current host-defined location (Surface route/region, document page,
+sheet/range, or media timestamp), and explicit canonical selections made by the
+user. Only compact identifiers, labels, locators, revisions, capture time, and
+read scope travel with the turn initially. Aloy resolves canonical content or
+bounded extracted ranges lazily, keeping stable prompt instructions cacheable.
+
+Context remains visible and removable, grants no write authority, and is a
+turn snapshot rather than Event memory. Actions still require Event scope,
+capability, policy, idempotency, approval, and current-revision checks; stale
+targets conflict instead of being guessed. Generated Surfaces can report only
+versioned semantic region and selection identifiers through the SDK, never
+hidden model-visible prose. Cross-Event resolution fails closed, unavailable
+extraction is shown honestly, and oversized context collapses into an
+inspectable summary. This lets Aloy know **where** the user is and **what** they
+selected while canonical Event truth remains authoritative.
+
 ### 5.4 Conversation-to-Surface handoff
 
 When Aloy produces a new successful Surface revision while the Surface is not
@@ -1437,6 +1512,26 @@ modify, and remove these templates exactly as it would any model-authored
 Surface. Demo facts are visibly identified as sample data, and creating from a
 template produces an independent Event the user can replace or evolve with
 Aloy.
+
+Templates are published, versioned catalog data backed by the database and
+object storage, not permanent conditionals in Aloy's code. Installing a
+template is always opt-in and materializes ordinary Event context, starter
+records, files/references, memory proposals, Surface source/build, guided jobs,
+and provenance under the installing user. The installed Event is then pinned to
+that release and evolves independently; a catalog update never silently
+overwrites user data. Missing or sparse context produces an honest starter
+Surface with setup gaps rather than invented personal facts.
+
+The catalog may group templates as **Student**, **Individual**,
+**Professional**, **Team**, and **Business** so people can discover relevant
+starting points. Those labels are taxonomy, not entitlement. Subscription
+packages are a separate product concern that controls limits and capabilities;
+template availability is not inferred from a subscription label. Career OS is
+the first permanent starting template, University follows as the continuity
+proof, and Madrid follows after the trusted Map/widget phase. Aloy Internal
+eventually owns catalog authoring, release review, evaluation, and rollback,
+while the product runtime only installs validated releases through generic
+contracts.
 
 ## 7. V1 scope
 

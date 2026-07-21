@@ -1,6 +1,6 @@
 # Aloy V1 — reset delivery plan
 
-_Active plan, revised 2026-07-19 after the Event bootstrap and scoped-memory review. This
+_Active plan, revised 2026-07-21 after durable Work Stories and the template-catalog decision. This
 plan begins from the Event, Proposal, workspace, and initial Surface foundation
 already built on `aloy-v1`. It supersedes the
 remaining phase order in `aloy-wedge-spec.md`. Product decisions come from
@@ -973,6 +973,58 @@ Gate:
 - University and Madrid pass through the same domain-neutral contracts and
   remain useful at mobile, split-pane, and wide-desktop widths.
 
+### R10 - active files and document intelligence
+
+The trusted universal viewer is merged. The next file-intelligence slice adds
+one provider-neutral ingestion path for Event setup and retained files:
+
+1. persist extraction identity, immutable source hash, provider/model/pipeline
+   provenance, worker lease/retry state, quality, usage, and result pointers;
+2. route trustworthy digital inputs to native extraction and scans,
+   handwriting, broken text layers, or layout-sensitive sources to OCR;
+3. normalize every provider into the Aloy `DocumentGraph` and citation model;
+4. index bounded chunks only after tenant/user/Event filtering is enforceable;
+5. expose non-blocking processing and review states without treating extracted
+   text as accepted Event memory;
+6. qualify Mistral OCR 4 behind a fake-provider restart/retry test suite before
+   live credentials or default-provider activation.
+
+Gate: uploads never wait for OCR; worker recovery is idempotent; citations
+reopen the immutable original at the exact page/region; low-quality or corrupt
+sources fail honestly; generated code and Conversation models receive neither
+OCR credentials nor unrestricted document access.
+
+### R11 - durable Work Stories
+
+Merged through PR #214. Run progress is now a persistent semantic story rather
+than a transient spinner: planning, activity, safe tool previews, outputs,
+attention, completion, and resume state survive refresh and worker execution.
+The backend records one ordered timeline and the app renders it consistently in
+Conversation and Event Workbench views.
+
+### R12 - data-driven Event template catalog
+
+Implement the first permanent opt-in starting templates without hardcoding
+domain behavior into Aloy:
+
+1. define versioned catalog, release, asset, seed, guided-job, compatibility,
+   and installation records backed by the database/object storage;
+2. make installation idempotently materialize ordinary tenant-owned Event
+   context, starter data, Surface project/revision/build, and provenance;
+3. pin installed Events to a release so catalog updates never overwrite user
+   work, while supporting explicit upgrade/preview later;
+4. add discovery groups (Student, Individual, Professional, Team, Business) as
+   taxonomy independent of subscription packages and entitlements;
+5. ship Career OS first, University second, and Madrid only after the trusted
+   Map/widget phase; sparse input yields setup gaps, never invented facts;
+6. keep Aloy Internal as the future catalog authoring and release-review plane,
+   while the runtime consumes only validated generic releases.
+
+Gate: all templates remain opt-in and available independently of subscription
+grouping; installing twice cannot duplicate an Event; removing catalog content
+cannot damage installed Events; and no runtime branch checks for university,
+travel, career, or another template domain.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1055,30 +1107,19 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 ## 8. Immediate next action
 
-R8 is merged into `aloy-v1` as PR #198, the initial R9 quality-state slice is
-merged as PR #199, the primary-job simulation gate is merged as PR #200, and
-the reviewed SDK foundation is merged as PR #201. The next slice is active on
-`aloy-v1-r9-evolution-proposals`. Exact-build receipts, the five-viewport
-baseline, the public lifecycle, long-content and approval state matrix,
-keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
-semantic browser workflow execution, and build-bound job evidence are complete.
-A visual Critic is deferred and optional, not a publication gate. The transport
-and append-only evidence foundation now supports a remote browser inspector;
-the isolated adapter writes one sealed request to the fixed Surface toolchain,
-runs its fixed `inspect-surface` command, and accepts one typed bounded result.
-The following provider acceptance slice must exercise that remote path and
-record its latency/recovery evidence. The host-owned evolution path now has
-durable aggregation, dismissal cooldown, stale-version protection, and an
-acceptance-to-Builder transition; actual signal producers and its Event UI are
-the next product-facing slice. University and Madrid are proofs of the
-ordinary pipeline, not special runtime behavior. Keep `main` untouched until the R9
-gate, manual product QA, live-provider proofs,
-remote sandbox acceptance, and dogfooding exit criteria all pass.
+The R9 Surface quality and operator-control slices, trusted universal file
+viewer, and R11 durable Work Stories are merged into `aloy-v1` through PR #214.
+The private `aloy-internal` repository is bootstrapped separately and must stay
+an optional operator consumer of protected APIs, never a product dependency.
 
-The SDK foundation starts with a host-reviewed widget registry. Generated
-manifests may declare only approved domain-neutral widgets and must grant the
-capabilities required by privileged widgets; unknown ids and capability drift
-fail closed before source persistence. Generic responsive primitives are being
-added to the isolated SDK next. Provider-backed widgets such as Map remain
-separate host adapters with their own privacy, attribution, credential, and
-mobile contracts.
+Start `aloy-v1-r12-event-template-catalog` from current `aloy-v1`. Build the
+data contracts, installation transaction, and fake seeded Career OS release
+before adding discovery UI or model-authored template generation. This proof
+requires no model credits. University follows through the same contracts;
+Madrid waits for the trusted Map/widget phase. Subscription packaging remains a
+separate entitlement/limits design and must not leak into template taxonomy.
+
+R10 document ingestion remains a parallel planned architecture slice, not a
+reason to block the template proof. Keep `main` untouched until manual product
+QA, live-provider proofs, remote sandbox acceptance, and dogfooding exit
+criteria pass.
