@@ -50,6 +50,7 @@ from .run_outcome import (
 )
 from .run_profiles import resolve_persisted_run_profile
 from .run_surface import resolve_run_surface
+from .run_timeline import AsyncRunTimelineSink, RunTimelineRecorder
 from .runtime import authenticated_run_context
 from .schedule_runtime import (
     record_schedule_terminal_trail,
@@ -127,7 +128,6 @@ def _make_progress_checkpointer(
                 if run is None or run.lease_owner != worker_id:
                     return
                 previous_progress = dict(run.progress or {})
-                previous_steps = int(previous_progress.get("n_steps") or 0)
                 accounted_at = datetime.now(timezone.utc)
                 run.progress = {
                     "kernel_task_id": kernel_task_id,
@@ -152,33 +152,20 @@ def _make_progress_checkpointer(
                     )
                 )
                 beat_session.add(run)
-                if run.task_id and agent.state.n_steps > previous_steps:
+                if run.task_id:
                     task = await beat_session.get(Task, run.task_id)
                     if (
                         task is not None
                         and task.status == "in_progress"
                         and task.current_run_id == run.id
                     ):
-                        beat_session.add(
-                            EventTrailEntry(
-                                organization_id=run.organization_id,
-                                user_id=run.user_id,
-                                event_id=run.event_id,
-                                actor_id="worker:task-execution",
-                                kind="task_progress",
-                                summary=(
-                                    agent.state.current_activity
-                                    or f"Advanced {task.title}"
-                                )[:1000],
-                                run_id=run.id,
-                                task_id=task.id,
-                                payload={
-                                    "step": agent.state.n_steps,
-                                    "activity": agent.state.current_activity,
-                                    "plan": agent._plan_snapshot(),
-                                },
-                            )
-                        )
+                        plan = agent._plan_snapshot()
+                        task.current_activity = agent.state.current_activity
+                        if plan != task.plan:
+                            task.plan = plan
+                            task.plan_version += 1
+                        task.updated_at = accounted_at
+                        beat_session.add(task)
                 await beat_session.commit()
         except Exception:  # pragma: no cover - heartbeat must never kill a run
             logger.warning(
@@ -306,6 +293,7 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
         required_surface_interaction_id: str | None = None
         surface_gate_error: str | None = None
         conversation: Conversation | None = None
+        timeline_recorder: RunTimelineRecorder | None = None
 
         try:
             surface_interaction = await surface_interaction_for_run(session, run.id)
@@ -546,6 +534,14 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 checkpoint = _make_progress_checkpointer(
                     run.id, worker_id, kernel_task_id
                 )
+                timeline_recorder = RunTimelineRecorder(
+                    organization_id=run.organization_id,
+                    user_id=run.user_id,
+                    event_id=run.event_id,
+                    conversation_id=run.conversation_id,
+                    run_id=run.id,
+                    session_factory=async_session,
+                )
                 if clarification_recorder is not None:
                     tool_context["clarify_handler"] = clarification_recorder
                 remaining_timeout = remaining_run_seconds(run)
@@ -562,43 +558,58 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                         },
                         "trace": None,
                     }
+                    await timeline_recorder.append_safely(
+                        "run_failed", {"reason": "execution_limit"}
+                    )
                 else:
+                    timeline_sink = AsyncRunTimelineSink(timeline_recorder)
+                    timeline_sink.start()
+                    timed_out = False
                     try:
-                        result = await asyncio.wait_for(
-                            orchestrator.execute_task(
-                                task=run.task,
-                                agent_settings=AgentSettings(
-                                    max_steps=run.max_steps,
-                                    history_window_tokens=(
-                                        settings.conversation_history_window_tokens
+                        try:
+                            result = await asyncio.wait_for(
+                                orchestrator.execute_task(
+                                    task=run.task,
+                                    agent_settings=AgentSettings(
+                                        max_steps=run.max_steps,
+                                        history_window_tokens=(
+                                            settings.conversation_history_window_tokens
+                                        ),
                                     ),
+                                    run_context=run_context,
+                                    memory=execution_memory,
+                                    resume_task_id=kernel_task_id,
+                                    on_event=timeline_sink.emit,
+                                    on_step_end=checkpoint,
+                                    sandbox_base_dir=sandbox_base_dir(),
+                                    tool_context_extra=tool_context,
+                                    mcp_servers=mcp_servers,
+                                    hitl_handler=proposal_handler,
+                                    hitl_config=proposal_config,
+                                    budget_ledger=budget_ledger,
                                 ),
-                                run_context=run_context,
-                                memory=execution_memory,
-                                resume_task_id=kernel_task_id,
-                                on_step_end=checkpoint,
-                                sandbox_base_dir=sandbox_base_dir(),
-                                tool_context_extra=tool_context,
-                                mcp_servers=mcp_servers,
-                                hitl_handler=proposal_handler,
-                                hitl_config=proposal_config,
-                                budget_ledger=budget_ledger,
-                            ),
-                            timeout=remaining_timeout,
+                                timeout=remaining_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            timed_out = True
+                            usage = budget_ledger.snapshot()
+                            result = {
+                                "success": False,
+                                "steps_taken": run.steps_taken,
+                                "result": {
+                                    "metrics": {"budget_usage": usage},
+                                    "stop_reason": "max_duration_seconds",
+                                    "budget_error": "Duration budget exceeded",
+                                    "budget_usage": usage,
+                                },
+                                "trace": None,
+                            }
+                    finally:
+                        await timeline_sink.close()
+                    if timed_out:
+                        await timeline_recorder.append_safely(
+                            "run_failed", {"reason": "execution_limit"}
                         )
-                    except asyncio.TimeoutError:
-                        usage = budget_ledger.snapshot()
-                        result = {
-                            "success": False,
-                            "steps_taken": run.steps_taken,
-                            "result": {
-                                "metrics": {"budget_usage": usage},
-                                "stop_reason": "max_duration_seconds",
-                                "budget_error": "Duration budget exceeded",
-                                "budget_usage": usage,
-                            },
-                            "trace": None,
-                        }
                 agent = result.get("agent")
                 final = agent.memory.get_final_answer() if agent else None
                 metrics = result.get("result", {}).get("metrics")
@@ -943,6 +954,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             run.status = "pending" if run.attempt_count < run.max_attempts else "failed"
             run.success = False
             run.metrics = json_safe(metrics)
+            if timeline_recorder is not None:
+                await timeline_recorder.append_safely(
+                    "run_failed",
+                    {"status": "retrying" if run.status == "pending" else "failed"},
+                )
             if run.status == "failed" and run.task_id:
                 task = await synchronize_task_after_run(session, run=run)
                 if task is not None and run.conversation_id:

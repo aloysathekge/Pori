@@ -45,6 +45,13 @@ export interface EventTask {
   current_run_id: string | null;
   result_summary: string;
   blocker: string;
+  plan: Array<{
+    id?: string;
+    content?: string;
+    status?: 'pending' | 'in_progress' | 'completed' | string;
+  }>;
+  plan_version: number;
+  current_activity: string;
   budget_policy: {
     max_steps?: number;
     timeout_seconds?: number;

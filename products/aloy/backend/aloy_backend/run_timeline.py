@@ -8,6 +8,7 @@ private reasoning remain outside the Work Story contract.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,8 @@ from pori.observability import (
 
 from .database import async_session
 from .models import RunTimelineEvent
+
+logger = logging.getLogger("aloy_backend.run_timeline")
 
 PUBLIC_EVENT_KINDS = frozenset(
     {
@@ -152,9 +155,57 @@ class RunTimelineRecorder:
                 await session.refresh(row)
                 return row
 
+    async def append_safely(
+        self, kind: str, public_payload: dict[str, Any]
+    ) -> RunTimelineEvent | None:
+        """Persist observability without making it an execution dependency."""
+        try:
+            return await self.append(kind, public_payload)
+        except Exception:
+            logger.warning("Run timeline event could not be persisted", exc_info=True)
+            return None
+
+
+class AsyncRunTimelineSink:
+    """Order-preserving bridge from Pori's synchronous event callback.
+
+    Background agents emit events synchronously from the worker loop. The sink
+    drains them through one async writer so sequence order is stable and the
+    worker can await durability before releasing its lease.
+    """
+
+    def __init__(self, recorder: RunTimelineRecorder) -> None:
+        self.recorder = recorder
+        self._queue: asyncio.Queue[PoriEvent | None] = asyncio.Queue()
+        self._worker: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._worker is None:
+            self._worker = asyncio.create_task(self._drain())
+
+    def emit(self, event: PoriEvent) -> None:
+        self._queue.put_nowait(event)
+
+    async def close(self) -> None:
+        if self._worker is None:
+            return
+        await self._queue.put(None)
+        await self._worker
+        self._worker = None
+
+    async def _drain(self) -> None:
+        while True:
+            event = await self._queue.get()
+            if event is None:
+                return
+            projected = project_pori_event(event)
+            if projected is not None:
+                await self.recorder.append_safely(*projected)
+
 
 __all__ = [
     "PUBLIC_EVENT_KINDS",
+    "AsyncRunTimelineSink",
     "RunTimelineRecorder",
     "project_pori_event",
 ]

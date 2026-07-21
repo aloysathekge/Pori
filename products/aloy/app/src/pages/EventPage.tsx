@@ -947,6 +947,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     const active = task.status === 'queued' || task.status === 'in_progress';
                     const recoverable = task.status === 'failed' || task.status === 'cancelled';
                     const canResume = task.status === 'blocked' || task.status === 'waiting_approval';
+                    const plan = task.plan || [];
                     return (
                       <div key={task.id} className="group py-3">
                         <div className="flex items-start gap-2.5">
@@ -959,7 +960,11 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                               <p className="mt-1 text-[11px] font-medium text-sky-700">Sourced research · evidence and cited report required</p>
                             )}
                             {task.status === 'queued' && <p className="mt-1 text-xs text-zinc-500">Waiting for this Event&apos;s work slot. You can leave Aloy open or closed.</p>}
-                            {task.status === 'in_progress' && <p className="mt-1 text-xs text-accent-700">Aloy is working durably in the background.</p>}
+                            {task.status === 'in_progress' && (
+                              <p className="mt-1 text-xs text-accent-700">
+                                {task.current_activity || 'Aloy is working durably in the background.'}
+                              </p>
+                            )}
                             {task.status === 'blocked' && <p className="mt-1 text-xs text-amber-700">Needs your input: {task.blocker || 'more information is required'}</p>}
                             {task.status === 'waiting_approval' && <p className="mt-1 text-xs text-amber-700">Waiting for a decision or committed receipt.</p>}
                             {task.status === 'failed' && <p className="mt-1 text-xs text-red-600">The Run failed safely. Retry starts a fresh Run.</p>}
@@ -973,6 +978,24 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                             <button type="button" onClick={() => void removeTask(task.id)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-600 hover:bg-zinc-800 hover:text-red-500 md:h-8 md:w-8 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100" aria-label="Delete task"><Trash2 size={14} /></button>
                           )}
                         </div>
+                        {plan.length > 0 && task.status !== 'done' && (
+                          <ol className="ml-7 mt-2 space-y-1 border-l border-zinc-800 pl-3">
+                            {plan.slice(0, 5).map((item, index) => (
+                              <li
+                                key={item.id || `${task.id}-plan-${index}`}
+                                className={`text-xs leading-5 ${
+                                  item.status === 'completed'
+                                    ? 'text-zinc-600 line-through'
+                                    : item.status === 'in_progress'
+                                      ? 'text-accent-700'
+                                      : 'text-zinc-500'
+                                }`}
+                              >
+                                {item.content || `Plan step ${index + 1}`}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
                         <div className="ml-7 mt-2 flex flex-wrap gap-2">
                           {task.status === 'open' && (
                             <Button size="sm" onClick={() => void runTaskControl(task, 'work')} disabled={taskActionId === task.id}><Play size={13} />Work on this</Button>

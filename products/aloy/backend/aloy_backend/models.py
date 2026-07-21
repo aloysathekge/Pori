@@ -749,6 +749,11 @@ class Task(SQLModel, table=True):
     current_run_id: str | None = Field(default=None, index=True)
     result_summary: str = ""
     blocker: str = ""
+    plan: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    plan_version: int = 0
+    current_activity: str = ""
     budget_policy: dict = Field(
         default_factory=dict, sa_column=Column(JSON, nullable=False)
     )
