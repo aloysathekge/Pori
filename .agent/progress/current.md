@@ -4,10 +4,11 @@
 
 R9 remote inspector provider is active on
 `aloy-v1-r9-remote-inspector-provider`, branched from `aloy-v1` after PR #202.
-The next delivery slice will execute the existing browser-quality contract in a
-managed remote sandbox through the provider-neutral inspection transport,
-recording remote acquisition/inspection/recovery timings without granting the
-sandbox storage, credentials, Event truth, or publication authority.
+The isolated adapter is implemented: it sends one sealed request to the fixed
+Surface toolchain and receives one typed bounded result. The next acceptance
+work is an actual remote provider proof with acquisition/inspection/recovery
+timings, without granting the sandbox storage, credentials, Event truth, or
+publication authority.
 
 ## Decisions Made
 

@@ -8,10 +8,15 @@ which verifies and retains them.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from pori import LocalSandboxProvider, SandboxProvider, get_sandbox_provider
 
 from .surface_manifest import SurfaceManifest
 from .surface_runtime import SurfaceRuntimeDocument
@@ -23,6 +28,10 @@ MAX_SURFACE_INSPECTION_ARTIFACTS = 8
 ALLOWED_SURFACE_INSPECTION_ARTIFACTS = {
     ("viewport_capture", "image/png"),
 }
+REMOTE_SURFACE_INSPECTION_COMMAND = (
+    "timeout 60s /opt/aloy-surface-toolchain/bin/inspect-surface "
+    "--request /inspection/request.json --output /inspection/result.json"
+)
 
 
 @dataclass(frozen=True)
@@ -129,6 +138,194 @@ class LocalSurfaceInspectionTransport:
         )
 
 
+class SandboxSurfaceInspectionTransport:
+    """Execute the fixed browser inspector in a secretless remote sandbox.
+
+    The sandbox only receives a host-constructed document, capability-scoped
+    runtime context, and manifest. It cannot address Aloy's database or object
+    store; the host parses, binds, validates, hashes, and stores its output.
+    """
+
+    transport_id = "isolated-surface-browser"
+
+    def __init__(self, provider: SandboxProvider):
+        if isinstance(provider, LocalSandboxProvider):
+            raise ValueError("Local host subprocesses cannot inspect Surfaces")
+        self._provider = provider
+
+    def inspect(self, request: SurfaceInspectionRequest) -> SurfaceInspectionResult:
+        sandbox_id = self._provider.acquire(
+            f"surface-inspection:{request.binding.build_id}:{request.binding.nonce}"
+        )
+        sandbox = self._provider.get(sandbox_id)
+        if sandbox is None:
+            return _unavailable_result(
+                request,
+                "The isolated browser inspection sandbox could not be acquired",
+            )
+        try:
+            sandbox.write_file(
+                "/inspection/request.json",
+                json.dumps(
+                    {
+                        "transport_version": SURFACE_INSPECTION_TRANSPORT_VERSION,
+                        "binding": _binding_payload(request.binding),
+                        "document": {
+                            "html": request.document.html,
+                            "content_security_policy": request.document.content_security_policy,
+                        },
+                        "runtime_context": request.runtime_context,
+                        "manifest": request.manifest.model_dump(mode="json"),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+            output = sandbox.execute_command(REMOTE_SURFACE_INSPECTION_COMMAND)
+            if output.startswith("Error:") or " exit_code=" in output:
+                return _unavailable_result(
+                    request,
+                    "The isolated browser inspector reported an execution failure",
+                )
+            return _parse_sandbox_result(
+                request,
+                sandbox.read_file("/inspection/result.json"),
+            )
+        except Exception as exc:
+            return _unavailable_result(
+                request,
+                f"The isolated browser inspector did not satisfy its contract: {exc}",
+            )
+        finally:
+            self._provider.release(sandbox_id)
+
+
+class UnavailableSurfaceInspectionTransport:
+    """Fail closed when no non-local inspection provider is configured."""
+
+    transport_id = "unavailable"
+
+    def inspect(self, request: SurfaceInspectionRequest) -> SurfaceInspectionResult:
+        return _unavailable_result(
+            request,
+            "No isolated browser inspection provider is configured",
+        )
+
+
+def configured_surface_inspection_transport() -> SurfaceInspectionTransport:
+    """Select local developer inspection or the production isolated transport."""
+
+    from .config import settings
+
+    if settings.surface_build_backend == "local_dev":
+        return LocalSurfaceInspectionTransport()
+    provider = get_sandbox_provider()
+    if provider is None or isinstance(provider, LocalSandboxProvider):
+        return UnavailableSurfaceInspectionTransport()
+    return SandboxSurfaceInspectionTransport(provider)
+
+
+def _binding_payload(binding: SurfaceInspectionBinding) -> dict[str, str]:
+    return {
+        "build_id": binding.build_id,
+        "revision_id": binding.revision_id,
+        "source_checksum": binding.source_checksum,
+        "bundle_sha256": binding.bundle_sha256,
+        "nonce": binding.nonce,
+    }
+
+
+def _binding_from_payload(value: Any) -> SurfaceInspectionBinding:
+    if not isinstance(value, dict):
+        raise ValueError("inspection result binding is invalid")
+    required = ("build_id", "revision_id", "source_checksum", "bundle_sha256", "nonce")
+    if any(not isinstance(value.get(key), str) for key in required):
+        raise ValueError("inspection result binding is incomplete")
+    return SurfaceInspectionBinding(**{key: value[key] for key in required})
+
+
+def _parse_sandbox_result(
+    request: SurfaceInspectionRequest,
+    raw: str,
+) -> SurfaceInspectionResult:
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("inspection result must be an object")
+        diagnostics = value.get("diagnostics")
+        evidence = value.get("evidence")
+        artifacts_value = value.get("artifacts", [])
+        transport = value.get("transport", {})
+        if not isinstance(diagnostics, list) or not all(
+            isinstance(item, dict) for item in diagnostics
+        ):
+            raise ValueError("inspection diagnostics are invalid")
+        if not isinstance(evidence, dict) or not isinstance(artifacts_value, list):
+            raise ValueError("inspection evidence is invalid")
+        if not isinstance(transport, dict):
+            raise ValueError("inspection transport metadata is invalid")
+        artifacts: list[SurfaceInspectionArtifact] = []
+        for item in artifacts_value:
+            if not isinstance(item, dict):
+                raise ValueError("inspection artifact is invalid")
+            encoded = item.get("data_base64")
+            if not isinstance(encoded, str):
+                raise ValueError("inspection artifact data is invalid")
+            artifacts.append(
+                SurfaceInspectionArtifact(
+                    kind=str(item.get("kind") or ""),
+                    name=str(item.get("name") or ""),
+                    content_type=str(item.get("content_type") or ""),
+                    data=base64.b64decode(encoded, validate=True),
+                    sha256=str(item.get("sha256") or ""),
+                )
+            )
+        return SurfaceInspectionResult(
+            binding=_binding_from_payload(value.get("binding")),
+            diagnostics=[dict(item) for item in diagnostics],
+            evidence=dict(evidence),
+            artifacts=artifacts,
+            transport={
+                "id": str(
+                    transport.get("id")
+                    or SandboxSurfaceInspectionTransport.transport_id
+                ),
+                "version": str(
+                    transport.get("version") or SURFACE_INSPECTION_TRANSPORT_VERSION
+                ),
+            },
+        )
+    except (TypeError, ValueError, binascii.Error) as exc:
+        return _unavailable_result(
+            request,
+            f"The isolated browser returned an invalid inspection result: {exc}",
+        )
+
+
+def _unavailable_result(
+    request: SurfaceInspectionRequest,
+    message: str,
+) -> SurfaceInspectionResult:
+    return SurfaceInspectionResult(
+        binding=request.binding,
+        diagnostics=[
+            {
+                "stage": "inspection_transport",
+                "code": "isolated_inspector_unavailable",
+                "severity": "error",
+                "message": message[:4000],
+                "path": None,
+                "line": None,
+            }
+        ],
+        evidence={},
+        transport={
+            "id": UnavailableSurfaceInspectionTransport.transport_id,
+            "version": SURFACE_INSPECTION_TRANSPORT_VERSION,
+        },
+    )
+
+
 def validate_surface_inspection_result(
     result: SurfaceInspectionResult,
     *,
@@ -224,16 +421,20 @@ def _diagnostic(code: str, message: str) -> dict[str, Any]:
 
 
 __all__ = [
-    "LocalSurfaceInspectionTransport",
     "ALLOWED_SURFACE_INSPECTION_ARTIFACTS",
     "MAX_SURFACE_INSPECTION_ARTIFACT_BYTES",
     "MAX_SURFACE_INSPECTION_ARTIFACTS",
+    "REMOTE_SURFACE_INSPECTION_COMMAND",
     "SURFACE_INSPECTION_TRANSPORT_VERSION",
+    "LocalSurfaceInspectionTransport",
+    "SandboxSurfaceInspectionTransport",
     "SurfaceInspectionArtifact",
     "SurfaceInspectionBinding",
     "SurfaceInspectionRequest",
     "SurfaceInspectionResult",
     "SurfaceInspectionTransport",
+    "UnavailableSurfaceInspectionTransport",
+    "configured_surface_inspection_transport",
     "new_surface_inspection_binding",
     "validate_surface_inspection_result",
 ]
