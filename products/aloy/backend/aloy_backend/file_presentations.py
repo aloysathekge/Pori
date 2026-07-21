@@ -156,7 +156,9 @@ def _validate_office_archive(raw: bytes) -> None:
             if expanded > _MAX_ARCHIVE_EXPANDED_BYTES:
                 raise ExtractionError("Office archive expands beyond the preview limit")
             if any(info.flag_bits & 0x1 for info in infos):
-                raise ExtractionError("Password-protected Office files cannot be previewed")
+                raise ExtractionError(
+                    "Password-protected Office files cannot be previewed"
+                )
     except zipfile.BadZipFile as exc:
         raise ExtractionError(f"Invalid Office archive: {exc}") from exc
 

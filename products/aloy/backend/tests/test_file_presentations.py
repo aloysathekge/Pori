@@ -118,9 +118,7 @@ async def test_corrupt_office_file_keeps_original_available(client):
 
 async def test_local_stream_supports_single_byte_range(client):
     file_id = await _upload(client, "lecture.mp4", b"0123456789", "video/mp4")
-    response = await client.get(
-        f"/v1/files/{file_id}", headers={"Range": "bytes=2-5"}
-    )
+    response = await client.get(f"/v1/files/{file_id}", headers={"Range": "bytes=2-5"})
     assert response.status_code == 206
     assert response.content == b"2345"
     assert response.headers["content-range"] == "bytes 2-5/10"

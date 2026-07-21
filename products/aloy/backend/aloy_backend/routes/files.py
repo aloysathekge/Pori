@@ -159,7 +159,9 @@ async def get_file_presentation(
             raw = await run_in_threadpool(_read_file_bytes, record.storage_key)
             preview = await run_in_threadpool(build_office_preview, renderer, raw)
         except FileNotFoundError:
-            raise HTTPException(status_code=404, detail="File content no longer available")
+            raise HTTPException(
+                status_code=404, detail="File content no longer available"
+            )
         except ExtractionError as exc:
             # Opening/downloading the immutable original remains possible when a
             # bounded preview cannot be produced (corrupt, encrypted, or large).
