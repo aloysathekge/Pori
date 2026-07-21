@@ -10,6 +10,11 @@ work is an actual remote provider proof with acquisition/inspection/recovery
 timings, without granting the sandbox storage, credentials, Event truth, or
 publication authority.
 
+Exact-build receipt reuse is now the first inspection-planning optimization:
+reopening a build and ordinary SDK data/state changes do not rerun the remote
+gate. New executable content still fails closed through the complete gate until
+trusted compiler impact provenance can justify narrower evidence reuse.
+
 ## Decisions Made
 
 - `aloy-v1` remains the integration branch; R9 is not a path directly to

@@ -58,6 +58,7 @@ from .surface_publication import (
 from .surface_quality import (
     SURFACE_QUALITY_RECEIPT_KEY,
     create_surface_quality_receipt,
+    surface_quality_receipt_error,
 )
 from .surface_runtime import build_surface_runtime_document
 
@@ -510,7 +511,20 @@ class SurfaceBuildHandler:
             inspection_evidence: dict[str, Any] = {}
             capture_values: list[SurfaceInspectionArtifact] = []
             inspection_transport: dict[str, Any] = {}
-            if preview_ready and build.resource_metrics.get("backend") in {
+            reusable_quality_receipt = dict(
+                (build.resource_metrics or {}).get(SURFACE_QUALITY_RECEIPT_KEY) or {}
+            )
+            quality_receipt_reused = bool(
+                preview_ready
+                and reusable_quality_receipt
+                and surface_quality_receipt_error(build) is None
+            )
+            if quality_receipt_reused:
+                runtime_proven = True
+                inspection_evidence = dict(
+                    reusable_quality_receipt.get("evidence") or {}
+                )
+            elif preview_ready and build.resource_metrics.get("backend") in {
                 "local_dev",
                 "isolated",
             }:
@@ -682,16 +696,20 @@ class SurfaceBuildHandler:
                 build.preview_artifacts = _public_preview_artifacts(
                     [*existing_artifacts, *retained_captures]
                 )
-            quality_receipt = create_surface_quality_receipt(
-                build_id=build.id,
-                revision_id=build.revision_id,
-                source_checksum=build.source_checksum,
-                bundle_sha256=build.bundle_sha256,
-                validation_passed=build.validation_result.get("passed") is True,
-                manifest=manifest,
-                runtime_proven=runtime_proven,
-                runtime_diagnostics=runtime_diagnostics,
-                inspection_evidence=inspection_evidence,
+            quality_receipt = (
+                reusable_quality_receipt
+                if quality_receipt_reused
+                else create_surface_quality_receipt(
+                    build_id=build.id,
+                    revision_id=build.revision_id,
+                    source_checksum=build.source_checksum,
+                    bundle_sha256=build.bundle_sha256,
+                    validation_passed=build.validation_result.get("passed") is True,
+                    manifest=manifest,
+                    runtime_proven=runtime_proven,
+                    runtime_diagnostics=runtime_diagnostics,
+                    inspection_evidence=inspection_evidence,
+                )
             )
             if quality_receipt.get("passed") is not True:
                 preview_ready = False
@@ -785,6 +803,7 @@ class SurfaceBuildHandler:
             payload["preview_ready"] = preview_ready
             payload["execution_available"] = runtime_proven
             payload["quality_gate"] = quality_receipt
+            payload["quality_gate_reused"] = quality_receipt_reused
             payload["resource_metrics"] = build.resource_metrics
             payload["preview_artifacts"] = build.preview_artifacts
             payload["runtime_diagnostics"] = runtime_diagnostics
