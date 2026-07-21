@@ -2,11 +2,31 @@
 
 ## Active Task
 
-R9 trusted live-Surface reinspection is active on
-`aloy-v1-r9-live-reinspection`, branched from `aloy-v1` after PR #207.
-Model-free durable Runs force new trusted browser evidence for the exact live
-build, retain a separate append-only receipt, and create a quality proposal only
-when trusted evidence fails while that build remains published.
+The trusted universal file viewer is active on
+ `aloy-v1-r10-universal-file-viewer`, rebased onto `aloy-v1` after PR #208.
+ Uploads and binary Run artifacts now resolve through one host-owned
+presentation contract instead of scattered format checks or UTF-8 replacement
+decoding. PDF, image, audio, video, Markdown, text/code, DOCX, XLSX, and PPTX
+have fixed trusted renderers; unknown, corrupt, encrypted, or oversized previews
+retain honest download and Ask Aloy fallbacks.
+
+One shared file-visual resolver now gives every format a consistent icon across
+Workbench tabs, chat attachments, artifact lists, file pickers, Event setup,
+Event files, and My Files. Image and video lists use lazy host-owned thumbnails;
+local Blob fallback is capped at 12 MB and larger files keep their type icon.
+
+The backend returns immutable file metadata, short-lived object-store URLs when
+available, bounded inert Office preview JSON, and byte-range delivery for local
+storage. The app uses native PDF/media controls, document blocks, workbook
+sheets, slide cards, and the existing text/Markdown renderers. Office previews
+intentionally expose content safely rather than pretending to preserve full
+Microsoft Office layout fidelity.
+
+
+ The target branch also includes R9 trusted live-Surface reinspection from PR
+ #208. Model-free durable Runs force new trusted browser evidence for the exact
+ live build, retain a separate append-only receipt, and create a quality proposal
+ only when trusted evidence fails while that build remains published.
 
 Exact-build receipt reuse is now the first inspection-planning optimization:
 reopening a build and ordinary SDK data/state changes do not rerun the remote
@@ -20,6 +40,16 @@ semantics locally.
 
 ## Decisions Made
 
+- File presentation is trusted-host functionality. Generated Surfaces never
+  receive original object URLs, arbitrary file rendering authority, or an
+  executable document DOM.
+- Original bytes remain immutable. Office previews are bounded inert JSON and
+  binary artifacts reuse their durable `StoredFile` instead of passing through
+  the text-artifact endpoint.
+- Hosted media uses short-lived presigned object URLs for native seeking. Local
+  development keeps authenticated byte-range delivery but currently falls back
+  to a Blob in the web app because media elements cannot attach the Bearer
+  header directly.
 - `aloy-v1` remains the integration branch; R9 is not a path directly to
   `main`.
 - Quality evidence belongs to the trusted host and exact retained build. The
@@ -74,6 +104,12 @@ semantics locally.
 - The live-reinspection slice passes 24 focused backend tests across queueing,
   worker dispatch, throttling, fresh exact-build evidence, quality proposals,
   and infrastructure-failure isolation. Ruff and focused mypy pass.
+- The viewer slice passes 21 focused backend tests, all 10 app tests, the app
+  production build and ESLint, Ruff, and focused mypy.
+- PDF failure came from a fragile sandboxed iframe. The viewer now uses the
+  browser's trusted PDF object path; audio and video use native controls.
+- The existing DOCX/XLSX extraction seam was sufficient for safe structured
+  previews and now also exposes DOCX blocks, XLSX sheets, and PPTX slide text.
 - The scenario slice passes 47 focused backend tests, the SDK TypeScript build,
   Ruff, and mypy across 126 backend files. Browser proofs accept the SDK-bound
   approval summary and reject both missing approval binding and dense overflow.
@@ -82,6 +118,11 @@ semantics locally.
 
 ## Blockers
 
+- Manual Workbench QA with real large PDF, Office, image, audio, and video files
+  remains before merge.
+- Layout-faithful Office rendering, PDF thumbnails/search, media captions and
+  waveforms, and Desktop `Open in default application` remain enrichments on
+  the same presentation contract, not hidden claims of this slice.
 - A real remote inspector provider acceptance proof still needs provider-backed
   acquisition, inspection, timeout, and recovery evidence.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
@@ -89,7 +130,15 @@ semantics locally.
 
 ## Next Session Should Start With
 
-Exercise the complete live flow locally: manually queue reinspection, observe
-the model-free Run and append-only receipt, inject a trusted failed inspection,
-accept the resulting proposal, and watch the ordinary Builder publication path.
-Provider-backed cold/warm timing remains a later acceptance gate.
+Run the app locally and exercise one real file from each renderer class in an
+Event and from a binary assistant artifact. Confirm PDF/media behavior in the
+target Chromium/Electron runtime, mobile overflow, download, Ask Aloy, corrupt
+Office fallback, and a video seek against hosted object storage before commit
+and PR.
+
+
+ Also exercise the complete live reinspection flow: manually queue
+ reinspection, observe the model-free Run and append-only receipt, inject a
+ trusted failed inspection, accept the resulting proposal, and watch the
+ ordinary Builder publication path. Provider-backed cold/warm timing remains a
+ later acceptance gate.

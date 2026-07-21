@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  FileText,
   Link2,
   LoaderCircle,
   Paperclip,
@@ -26,6 +25,7 @@ import {
   type EventSetupMode,
 } from '@/api/eventSetup';
 import { AloyMark } from '@/components/icons';
+import { FileTypeIcon } from '@/components/files/FileVisual';
 import { Button } from '@/components/ui/Button';
 
 const INPUT = 'w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:border-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-600/15';
@@ -36,9 +36,9 @@ function sizeLabel(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function contextIcon(kind: EventSetupContextItem['kind']) {
-  if (kind === 'file') return <FileText size={16} />;
-  if (kind === 'link') return <Link2 size={16} />;
+function contextIcon(item: EventSetupContextItem) {
+  if (item.kind === 'file') return <FileTypeIcon file={{ name: item.label, content_type: item.content_type ?? undefined }} size={16} />;
+  if (item.kind === 'link') return <Link2 size={16} />;
   return <Plug size={16} />;
 }
 
@@ -270,7 +270,7 @@ export function EventSetupPage() {
               <div className="grid gap-2 sm:grid-cols-2">
                 {draft.context_items.map((item) => (
                   <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5">
-                    <span className="text-zinc-500">{contextIcon(item.kind)}</span>
+                    <span className="text-zinc-500">{contextIcon(item)}</span>
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-zinc-300">{item.label}</span><span className="block text-xs text-zinc-600">{item.kind === 'file' ? sizeLabel(item.size_bytes) : item.status === 'pending' ? 'Ready to process' : 'Available to this Event'}</span></span>
                     <button type="button" aria-label={`Remove ${item.label}`} onClick={() => void removeItem(item.id)} className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-800 hover:text-red-500"><Trash2 size={14} /></button>
                   </div>

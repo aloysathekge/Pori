@@ -8,7 +8,6 @@ import {
   CircleSlash,
   Copy,
   Download,
-  FileText,
   History,
   RotateCcw,
   ShieldCheck,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import { apiStreamFetch } from '@/api/client';
 import { saveToLibrary } from '@/api/files';
+import { FileTypeIcon } from '@/components/files/FileVisual';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
@@ -154,7 +154,7 @@ export function MessageBubble({
                     : 'border-zinc-600/60 bg-zinc-900/60 text-zinc-200'
                 }`}
               >
-                <FileText size={13} className="shrink-0" />
+                <FileTypeIcon file={f} size={13} />
                 <span className="max-w-44 truncate font-medium">{f.name}</span>
                 <span className="opacity-60">
                   {f.size > 1024 * 1024
@@ -233,7 +233,7 @@ export function MessageBubble({
                     openable ? 'hover:bg-zinc-700/60 hover:text-accent-500' : ''
                   }`}
                 >
-                  <FileText size={12} className="shrink-0 text-zinc-500" />
+                  <FileTypeIcon file={{ name: path ?? String(a.tool_name ?? 'artifact'), kind: 'artifact' }} size={12} />
                   <span className="truncate font-mono">
                     {path ?? a.tool_name ?? 'artifact'}
                   </span>

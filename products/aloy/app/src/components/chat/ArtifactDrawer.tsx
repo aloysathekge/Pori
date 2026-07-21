@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Copy, FileCode, FileText, X } from 'lucide-react';
+import { Check, Copy, X } from 'lucide-react';
+import { FileTypeIcon } from '@/components/files/FileVisual';
 import { Spinner } from '@/components/ui/Spinner';
 import {
   getArtifactContent,
@@ -8,6 +9,7 @@ import {
   type ArtifactInfo,
 } from '@/api/artifacts';
 import { Markdown } from './Markdown';
+import { StoredFileViewer } from '@/components/workbench/StoredFileViewer';
 
 /** Slide-over panel showing files the agent wrote — code rendered as mono, .md
  *  rendered as markdown — with a switcher for every artifact in the conversation. */
@@ -62,7 +64,7 @@ export function ArtifactDrawer({
   }, [active, load]);
 
   function copy() {
-    if (!content) return;
+    if (!content?.content) return;
     navigator.clipboard.writeText(content.content).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -78,7 +80,7 @@ export function ArtifactDrawer({
       <div className="relative flex h-full w-full max-w-2xl flex-col border-l border-zinc-800 bg-zinc-900 shadow-xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <div className="flex items-center gap-2 truncate">
-            <FileCode size={16} className="shrink-0 text-accent-600" />
+            <FileTypeIcon file={{ name: active, kind: 'artifact' }} size={17} />
             <span className="truncate font-mono text-sm text-zinc-100">
               {name(active)}
             </span>
@@ -91,7 +93,7 @@ export function ArtifactDrawer({
           <div className="flex items-center gap-1">
             <button
               onClick={copy}
-              disabled={!content}
+              disabled={!content?.content}
               className="rounded p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
               title="Copy"
             >
@@ -119,20 +121,33 @@ export function ArtifactDrawer({
                     : 'text-zinc-400 hover:bg-zinc-800'
                 }`}
               >
-                <FileText size={11} />
+                <FileTypeIcon file={{ name: f.path, kind: 'artifact' }} size={12} />
                 {name(f.path)}
               </button>
             ))}
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-4">
+        <div className={`min-h-0 flex-1 ${content?.content === null ? 'overflow-hidden' : 'overflow-auto p-4'}`}>
           {loading ? (
             <div className="flex justify-center py-12">
               <Spinner className="h-6 w-6" />
             </div>
           ) : error ? (
             <p className="text-sm text-red-600">{error}</p>
+          ) : content?.content === null ? (
+            <StoredFileViewer
+              file={{
+                id: content.file_id,
+                name: content.name,
+                kind: content.kind,
+                content_type: content.content_type,
+                size_bytes: content.size_bytes,
+                origin_session_id: content.conversation_id,
+                origin_run_id: null,
+                created_at: content.created_at,
+              }}
+            />
           ) : isMd ? (
             <div className="text-sm text-zinc-200">
               <Markdown>{content?.content ?? ''}</Markdown>

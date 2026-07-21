@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, FileSearch, FileText, Plus, Square, Upload, X } from 'lucide-react';
+import { ArrowUp, FileSearch, Plus, Square, Upload, X } from 'lucide-react';
+import { FileTypeIcon } from '@/components/files/FileVisual';
 import type { MessageFile, MessageImage } from '@/types';
 import type { StoredFileReference } from '@/hooks/useAttachments';
 import { FileReferencePicker } from './FileReferencePicker';
@@ -206,7 +207,7 @@ export function Composer({
               key={file.file_id ?? `file-${index}`}
               className="group relative flex items-center gap-2 rounded-lg border border-zinc-600/60 bg-zinc-900/60 py-2 pl-2.5 pr-3"
             >
-              <FileText size={15} className="shrink-0 text-accent-600" />
+              <FileTypeIcon file={file} size={15} />
               <div className="min-w-0">
                 <p className="max-w-40 truncate text-xs font-medium text-zinc-200">{file.name}</p>
                 <p className={`text-[10px] ${file.error ? 'text-red-400' : 'text-zinc-500'}`}>

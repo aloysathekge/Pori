@@ -43,6 +43,7 @@ import {
 } from '@/api/events';
 import { Composer } from '@/components/chat/Composer';
 import { MessageList } from '@/components/chat/MessageList';
+import { FileThumbnail, FileTypeIcon } from '@/components/files/FileVisual';
 import { ProposalCard } from '@/components/events/ProposalCard';
 import { EventCover } from '@/components/events/EventCover';
 import { EventSettingsPanel } from '@/components/events/EventSettingsPanel';
@@ -954,7 +955,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                   return (
                     <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
                       <div className="flex items-start gap-3">
-                        {item.kind === 'link' ? <Link2 size={17} className="mt-0.5 shrink-0 text-zinc-500" /> : <FileText size={17} className="mt-0.5 shrink-0 text-zinc-500" />}
+                        {item.kind === 'link' ? <Link2 size={17} className="mt-0.5 shrink-0 text-zinc-500" /> : <FileTypeIcon file={{ name: item.label }} size={17} className="mt-0.5" />}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm text-zinc-300">{item.label}</p>
                           <p className={`mt-0.5 text-xs capitalize ${statusStyle}`}>{item.status === 'pending' ? 'Waiting to process' : item.status}</p>
@@ -973,7 +974,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 {contextItems.length > 0 && files.length > 0 && <p className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Event files</p>}
                 {files.map((file) => (
                   <button type="button" key={file.id} onClick={() => openFile(file)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-900">
-                    <FileText size={17} className="shrink-0 text-zinc-500" />
+                    <FileThumbnail file={file} />
                     <div className="min-w-0"><p className="truncate text-sm text-zinc-300">{file.name}</p><p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p></div>
                   </button>
                 ))}

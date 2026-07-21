@@ -1,4 +1,5 @@
-import { Check, FileOutput, FileText, LoaderCircle, Search, X } from 'lucide-react';
+import { Check, LoaderCircle, Search, X } from 'lucide-react';
+import { FileThumbnail } from '@/components/files/FileVisual';
 import type { StoredFileReference } from '@/hooks/useAttachments';
 
 function humanSize(bytes: number) {
@@ -83,7 +84,6 @@ export function FileReferencePicker({
         ) : (
           files.map((file, index) => {
             const selected = selectedIds.has(file.file_id);
-            const Icon = file.kind === 'artifact' ? FileOutput : FileText;
             return (
               <button
                 key={file.file_id}
@@ -94,9 +94,7 @@ export function FileReferencePicker({
                 onClick={() => onSelect(file)}
                 className={`flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${index === activeIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/70'}`}
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-800 text-accent-600">
-                  <Icon size={16} />
-                </span>
+                <FileThumbnail file={file} className="h-9 w-12" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-zinc-200">{file.name}</span>
                   <span className="mt-0.5 block truncate text-[10px] text-zinc-500">

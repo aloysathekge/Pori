@@ -138,6 +138,8 @@ Minimum fields:
 
 - `connection_id`, `owner_user_id`, provider, and encrypted provider Context
   reference;
+- execution locality (`remote_cloud`, `local_managed`, or
+  `local_existing_chrome`), device binding when local, and the profile kind;
 - canonical site, allowed origin family, and display account identity;
 - normal geography, proxy policy, fingerprint profile, and locale;
 - `disconnected`, `connecting`, `active`, `reauth_required`, `revoked`, or
@@ -192,7 +194,92 @@ records provider Session ID, Context ID fingerprint, region, start and expiry,
 keep-alive policy, last heartbeat, reconnect attempts, and release outcome.
 Provider Session IDs are never exposed to generated code.
 
-### 4.4 BrowserActionAttempt
+### 4.4 Desktop and cloud browser modes
+
+An Aloy Event uses one browser capability model across desktop and cloud. The
+Event, Task, Trigger, Run, grant, evidence, Proposal, Receipt, Trail, and memory
+semantics do not change with execution locality. Only the provider lease and
+availability constraints differ.
+
+#### Aloy-managed local browser
+
+The recommended Desktop default is a dedicated Chromium instance launched by
+an Aloy-owned local browser service with an isolated profile. The user signs in
+directly inside that browser. Cookies, credentials, autofill, and local profile
+contents remain on the device and are not copied into Conversation, Event
+memory, Surface code, or a remote worker.
+
+This mode provides low interaction latency and avoids interfering with the
+user's personal tabs. It is available only while the trusted Desktop runtime
+and device are online. Closing or locking the Desktop stops unattended local
+execution, but the isolated profile may remain encrypted on the device for the
+next authorized Run.
+
+The local browser service must still enforce exclusive profile leases, domain
+and capability grants, takeover pauses, action budgets, postcondition
+verification, evidence limits, and the protected-action protocol. Being local
+does not broaden Aloy's authority.
+
+#### Existing Chrome attachment
+
+Aloy Desktop may optionally attach to a running user Chrome instance through a
+user-enabled, trusted local bridge such as an explicitly authorized CDP or
+extension connection. This is an advanced convenience mode, not the default:
+control of an existing profile can expose active sessions and personal tabs far
+beyond the requested Event.
+
+The user must explicitly connect and disconnect the browser, see a persistent
+control indicator, and approve the Event's allowed origin family. Aloy must
+deny access to unrelated tabs and origins, pause immediately on takeover, and
+expire or lock the connection when the trusted Desktop runtime closes. It must
+not silently launch the user's normal profile under remote debugging, export
+cookies, synchronize the profile to cloud, or reuse the connection from another
+device. Cookie or profile synchronization is a separate, explicit connection
+ceremony with its own retention and revocation policy.
+
+If Chrome or the local bridge cannot enforce origin isolation strongly enough,
+the connection is restricted to user-supervised work or rejected. Product
+convenience is not sufficient evidence of isolation.
+
+#### Browserbase cloud browser
+
+Browserbase remains the first remote provider and the required path for work
+that must continue while the Desktop is offline, scheduled or mobile-initiated
+work, geographic proxy use, and isolated parallel Runs. The user authenticates
+inside the backend-mediated Live View, and the encrypted provider Context
+persists independently of disposable Sessions.
+
+Cloud and local connections may coexist for the same site. Aloy does not copy
+authentication state between them automatically. Each connection has its own
+identity verification, grants, expiry, privacy policy, and revocation state.
+
+#### Routing and availability
+
+Connection selection is explicit and explainable. A Run may use:
+
+- `local_managed` for fast, private, interactive work while the selected device
+  is online;
+- `local_existing_chrome` when the user deliberately selects their current
+  signed-in Chrome and accepts the narrower supervised boundary;
+- `remote_cloud` for durable background work, schedules, mobile, proxy needs,
+  or concurrency.
+
+A Trigger cannot silently fall back from local to cloud because doing so moves
+data and authenticated activity to a different execution environment. It may
+wait for the device, ask the user to select or create a cloud connection, or
+fail with an honest attention state. Likewise, cloud work does not attach to a
+local browser merely because the user opens Desktop.
+
+The provider-neutral shape is:
+
+```text
+BrowserConnection
+|-- remote_cloud          -> Browserbase Context + disposable Session
+|-- local_managed         -> isolated Aloy Chromium profile + local lease
+`-- local_existing_chrome -> explicitly attached user Chrome + local lease
+```
+
+### 4.5 BrowserActionAttempt
 
 Every meaningful browser operation becomes a structured attempt with:
 
@@ -208,7 +295,7 @@ Every meaningful browser operation becomes a structured attempt with:
 The model cannot declare the operation successful. The host validates the
 postcondition and commits the durable result.
 
-### 4.5 Browser receipt payload
+### 4.6 Browser receipt payload
 
 A browser operation commits through Pori's existing `ToolExecutionReceipt`
 rail; it does not introduce a parallel Receipt primitive. Its browser-specific
@@ -397,6 +484,28 @@ flight or social account.
 Browser work appears as a first-class Workbench item beside Conversation and a
 Surface, not a popup window.
 
+When the user connects a site, Aloy presents the available execution locations
+in product language:
+
+```text
+Connect this account
+
+This device
+Fast and private. Works while Aloy Desktop is running.
+
+Aloy Cloud
+Supports schedules and background work while this device is offline.
+
+Current Chrome
+Use the signed-in Chrome session currently open on this device.
+```
+
+The UI explains when a requested Schedule cannot use a device-only connection
+and never presents local and cloud authentication as interchangeable. Mobile
+may observe local Run state and request attention, but it cannot start work in
+a disconnected Desktop browser; it uses a cloud connection or waits for the
+bound device.
+
 The trusted browser pane shows:
 
 - the site and account Aloy is using;
@@ -489,6 +598,14 @@ The Browserbase extension maps Sessions, Contexts, Live View, Search, Fetch,
 files, proxies, recordings, and Stagehand operations to those contracts. It
 does not define Event, Proposal, memory, or Trail semantics.
 
+A later trusted Desktop adapter maps an isolated local Chromium profile or an
+explicitly attached Chrome instance to the same contracts. The adapter owns
+local process supervision, device presence, profile locking, CDP or extension
+transport, and the backend-mediated live stream. It does not own Event policy,
+success declaration, memory, or protected-action approval. Remote workers
+cannot receive its raw CDP endpoint or use it as a general tunnel into the
+device.
+
 The first implementation must include an in-memory fake provider and recorded
 site fixtures. Unit and recovery tests must not require Browserbase credits or
 live third-party accounts.
@@ -579,10 +696,27 @@ This is a post-V1 delivery track unless product scope is explicitly changed.
 - establish reliability, latency, cost, and support dashboards;
 - graduate protected capabilities individually through explicit eval gates.
 
-## 15. Browserbase and Stagehand sources
+### B6 — trusted Desktop browser providers
+
+- implement the Aloy-managed local Chromium provider with an isolated,
+  encrypted device profile and exclusive local leases;
+- embed the same browser progress, watch, takeover, continue, and stop
+  experience used by remote Sessions;
+- add device-presence routing and honest Schedule attention when the Desktop is
+  unavailable;
+- add existing-Chrome attachment only after origin isolation, visible control,
+  disconnect, profile-locking, and unrelated-tab denial pass adversarial
+  tests;
+- prove that local credentials, cookies, CDP endpoints, and profile contents
+  never enter model input, Surface code, Event memory, remote workers, or
+  general logs;
+- benchmark local managed, local existing-Chrome, and Browserbase cold/warm
+  latency without changing Event or Receipt semantics.
+
+## 15. Browser infrastructure sources
 
 This design harvested capabilities and constraints from the official
-documentation available on 19 July 2026. Provider behavior and limits must be
+documentation available through 21 July 2026. Provider behavior and limits must be
 revalidated during implementation.
 
 - [Create a browser Session](https://docs.browserbase.com/platform/browser/getting-started/create-browser-session)
@@ -614,3 +748,12 @@ revalidated during implementation.
 - [Stagehand agent modes](https://docs.stagehand.dev/v3/basics/agent)
 - [Stagehand Python SDK](https://docs.stagehand.dev/v3/sdk/python)
 - [Stagehand browser configuration](https://docs.stagehand.dev/v3/configuration/browser)
+- [Browser Use Box](https://github.com/browser-use/bux) — reference for the
+  always-available operator experience, persistent authenticated browser state,
+  live login handoff, and scheduled work; not Aloy's persistence or authority
+  model.
+- [Browser Harness](https://github.com/browser-use/browser-harness) — reference
+  for local and remote CDP control, accessibility-tree interaction, explicit
+  login handoff, profile use, and browser recovery techniques.
+- [Browser Use](https://github.com/browser-use/browser-use) — candidate future
+  provider adapter and benchmark, not a replacement for Event or Run semantics.
