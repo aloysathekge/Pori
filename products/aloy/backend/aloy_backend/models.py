@@ -1483,6 +1483,36 @@ class RunEventLog(SQLModel, table=True):
     )
 
 
+class RunTimelineEvent(SQLModel, table=True):
+    """One durable, user-safe milestone in a Run's Work Story.
+
+    Token deltas and private reasoning stay in their existing ephemeral and
+    technical channels. This append-only stream contains only bounded semantic
+    state needed to reconnect, explain progress, and render completed work.
+    """
+
+    __tablename__ = "run_timeline_events"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_run_timeline_sequence"),
+    )
+
+    id: str = Field(default_factory=lambda: f"rtl_{uuid.uuid4().hex}", primary_key=True)
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    conversation_id: str | None = Field(default=None, index=True)
+    run_id: str = Field(index=True)
+    sequence: int = Field(index=True)
+    kind: str = Field(index=True)
+    public_payload: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class GatewayLink(SQLModel, table=True):
     """A paired external chat (e.g. one Telegram chat) bound to an Aloy user.
 

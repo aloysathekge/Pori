@@ -829,6 +829,20 @@ class RunEventLogResponse(BaseModel):
     created_at: datetime
 
 
+class RunTimelineEventResponse(BaseModel):
+    id: str
+    run_id: str
+    sequence: int
+    kind: str
+    public_payload: dict
+    created_at: datetime
+
+
+class RunTimelinePage(BaseModel):
+    entries: list[RunTimelineEventResponse]
+    next_cursor: int
+
+
 # --- Account connections (native OAuth) ---
 
 

@@ -36,6 +36,7 @@ from ...conversation_runtime import load_event_memory
 from ...database import async_session, get_session
 from ...doc_extract import ExtractionError, extract_docx_text, extract_xlsx_text
 from ...event_log import EventLogCollector
+from ...run_timeline import RunTimelineRecorder
 from ...models import (
     AgentConfig,
     Conversation,
@@ -628,6 +629,13 @@ def _stream_response(
     )
 
     event_collector = EventLogCollector()
+    timeline_recorder = RunTimelineRecorder(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=conv.event_id,
+        conversation_id=conv.id,
+        run_id=stream_context.run_id,
+    )
     persister = StreamPersister(
         conv=conv,
         context=context,
@@ -651,6 +659,7 @@ def _stream_response(
                 settings=agent_settings,
                 run_context=stream_context,
                 collector=event_collector,
+                timeline_recorder=timeline_recorder,
                 tool_context_extra=surface.tool_context_extra,
                 mcp_servers=surface.mcp_servers,
                 task_attachments=task_attachments,
