@@ -1163,15 +1163,16 @@ The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
 The R12 backend contract, installation transaction, fake seeded Career OS
-proof, and protected two-step release API are now implemented without model
-credits. Next, give Aloy Internal a typed client and review UI over those APIs,
-then load the first real Career OS release as database data. Add a protected
-asset-upload boundary before releases ship binary assets; Aloy Internal must not
-receive direct object-store access. Route template-source-ready installations
-through the ordinary host build/inspection/publication pipeline. Discovery UI
-follows that end-to-end proof. University then uses the same contracts; Madrid
-waits for the trusted Map/widget phase. Subscription packaging remains a
-separate entitlement/limits design and must not leak into template taxonomy.
+proof, protected two-step release API, and Aloy Internal typed review workflow
+are now implemented without model credits. Next, prepare and review the first
+real Career OS bundle, then load it as database data through those APIs. Add a
+protected asset-upload boundary before releases ship binary assets; Aloy
+Internal must not receive direct object-store access. Route
+template-source-ready installations through the ordinary host
+build/inspection/publication pipeline. Discovery UI follows that end-to-end
+proof. University then uses the same contracts; Madrid waits for the trusted
+Map/widget phase. Subscription packaging remains a separate entitlement/limits
+design and must not leak into template taxonomy.
 
 R10 document ingestion remains a parallel planned architecture slice, not a
 reason to block the template proof. Keep `main` untouched until manual product
