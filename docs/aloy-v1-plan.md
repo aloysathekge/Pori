@@ -1002,6 +1002,15 @@ attention, completion, and resume state survive refresh and worker execution.
 The backend records one ordered timeline and the app renders it consistently in
 Conversation and Event Workbench views.
 
+The hardening follow-up makes append order database-atomic across overlapping
+writers, deduplicates replayed public kernel events, versions and validates
+every bounded payload, reconstructs missing terminal milestones from canonical
+Run truth, distinguishes cancellation from failure, and caps pathological
+growth. Live delivery uses a replaceable notification contract for immediate
+same-process wakeups while sequence-cursor replay remains the lossless
+cross-process fallback; hosted scale may replace that adapter with Postgres
+LISTEN/NOTIFY or a broker without changing the Work Story API.
+
 ### R12 - data-driven Event template catalog
 
 Implement the first permanent opt-in starting templates without hardcoding

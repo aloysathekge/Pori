@@ -834,6 +834,7 @@ class RunTimelineEventResponse(BaseModel):
     run_id: str
     sequence: int
     kind: str
+    schema_version: int
     public_payload: dict
     created_at: datetime
 

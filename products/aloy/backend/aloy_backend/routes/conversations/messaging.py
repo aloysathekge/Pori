@@ -55,7 +55,7 @@ from ...rate_limit import rate_limited_permission
 from ...run_budgets import RunBudgetLimits, resolve_run_budget
 from ...run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ...run_surface import resolve_run_surface
-from ...run_timeline import RunTimelineRecorder
+from ...run_timeline import RunTimelineRecorder, reconcile_terminal_run_timeline
 from ...runtime import authenticated_run_context
 from ...schemas import XLSX_MIME, MessageResponse, SendMessageRequest
 from ...skills import load_skill_catalog
@@ -579,6 +579,14 @@ class StreamPersister:
                     fresh_conv or self.conv,
                     self.orchestrator.llm,
                     self.req.content,
+                )
+            try:
+                await reconcile_terminal_run_timeline(self.stream_context.run_id)
+            except Exception:
+                logger.warning(
+                    "Could not reconcile terminal Work Story for run %s",
+                    self.stream_context.run_id,
+                    exc_info=True,
                 )
             logger.info(
                 "Persisted streamed run %s (conv %s)",

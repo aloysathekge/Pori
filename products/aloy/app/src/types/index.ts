@@ -139,13 +139,15 @@ export type RunTimelineKind =
   | 'attention_required'
   | 'retrying'
   | 'run_finished'
-  | 'run_failed';
+  | 'run_failed'
+  | 'run_cancelled';
 
 export interface RunTimelineEvent {
   id: string;
   run_id?: string;
   sequence: number;
   kind: RunTimelineKind;
+  schema_version: number;
   public_payload: Record<string, unknown>;
   created_at: string;
 }
