@@ -888,7 +888,75 @@ is operator-disabled by default to avoid surprise sandbox cost. Operators enable
 it with `SURFACE_REINSPECTION_ENABLED=true` and may tune
 `SURFACE_REINSPECTION_TICK_SECONDS` and
 `SURFACE_REINSPECTION_INTERVAL_SECONDS`. Manual host checks use
-`POST /v1/events/{event_id}/surface/reinspections` and the same durable Run.
+`POST /v1/events/{event_id}/surface/operator/reinspections` and the same durable
+Run. The operator health snapshot is available at
+`GET /v1/events/{event_id}/surface/operator/health`; both require policy-management
+authority and are intentionally absent from the Aloy user interface.
+
+**Implemented internal Surface health contract:** the trusted host reduces the
+exact live build's publication receipt, latest reinspection receipt, and active
+model-free Run to `ready`, `checking`, `needs_improvement`, `unavailable`, or
+`no_surface`. This is operator evidence, not a user feature. End users see only
+their live Surface, honest Builder progress, and an understandable governed
+improvement proposal when action is required. Inspector outages stay silent in
+the product and never become Surface defects. Automated acceptance uses a fixed
+test Builder assignment, so the decision and queue boundary can be exercised
+without model credits.
+
+### Private `aloy-internal` repository plan
+
+`aloy-internal` is a private operator control plane and evaluation workspace. It
+must consume versioned protected Aloy APIs; Pori and the Aloy product must never
+import it, call it, or require it to serve users.
+
+Repository boundary:
+
+- **Pori/Aloy owns runtime truth:** inspection execution, immutable receipts,
+  publication gates, regression proposals, rollback, and audit events remain in
+  this repository.
+- **`aloy-internal` owns operator experience:** fleet health, evidence viewing,
+  manual reinspection controls, fixed Builder simulations, evaluation suites,
+  provider latency/cost views, and release decisions live there.
+- **No direct database access:** the internal application reads and acts through
+  protected APIs so tenancy, redaction, idempotency, and auditing remain
+  enforceable in one place.
+- **No product dependency:** an unavailable internal dashboard cannot affect
+  Conversation, Events, Tasks, Surfaces, or publication safety.
+
+Initial layout:
+
+```text
+aloy-internal/
+  apps/control-plane/          operator web application
+  packages/operator-client/   typed protected Aloy API client
+  evals/surfaces/              University, Madrid, Career and regression suites
+  fixtures/builders/           fixed credit-free candidate and repair fixtures
+  scripts/release/             bounded release-gate orchestration
+  docs/runbooks/               incident, rollback and provider runbooks
+```
+
+Delivery phases:
+
+1. **Bootstrap and authority:** private repository, CI, typed operator client,
+   audited read/action scopes, local operator login, and no stored production
+   credentials. Current `POLICY_MANAGE` authorization is only the transitional
+   organization-operator boundary; hosted use requires distinct
+   `operator:read` and `operator:act` service scopes.
+2. **Surface operations:** Event/build search, exact-build health, last check,
+   inspection timeline, safe `Run inspection`, and links to proposals and the
+   still-live publication.
+3. **Evidence and credit-free replay:** redacted diagnostics, retained captures,
+   primary-job traces, fixed candidate/repair fixtures, and deterministic
+   regression reproduction without a model provider.
+4. **Evaluation and release:** University, Madrid, and Career suites; mobile and
+   desktop matrices; comparison against the last accepted baseline; explicit
+   release approval with immutable receipts.
+5. **Provider operations:** cold/warm latency, sandbox acquisition, Builder token
+   and cost telemetry, provider incidents, retry rates, and budget alerts.
+
+The internal control plane may explain technical evidence to engineers, but it
+does not decide publication. The trusted host gate in Pori remains the only
+publication authority.
 
 Gate:
 

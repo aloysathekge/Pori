@@ -2,31 +2,18 @@
 
 ## Active Task
 
-The trusted universal file viewer is active on
- `aloy-v1-r10-universal-file-viewer`, rebased onto `aloy-v1` after PR #208.
- Uploads and binary Run artifacts now resolve through one host-owned
-presentation contract instead of scattered format checks or UTF-8 replacement
-decoding. PDF, image, audio, video, Markdown, text/code, DOCX, XLSX, and PPTX
-have fixed trusted renderers; unknown, corrupt, encrypted, or oversized previews
-retain honest download and Ask Aloy fallbacks.
+R9 internal Surface health is active on `aloy-v1-r9-surface-health`, branched
+from `aloy-v1` after PR #208 merged trusted live-Surface reinspection and PR
+#209 merged the trusted universal file viewer. The exact published build now has
+one operator-only health contract for ready, checking, regression, and
+inspector-outage states. Aloy's user interface contains no health badge or
+manual check control. Accepted regressions still enter the ordinary Builder and
+last-good publication path.
 
-One shared file-visual resolver now gives every format a consistent icon across
-Workbench tabs, chat attachments, artifact lists, file pickers, Event setup,
-Event files, and My Files. Image and video lists use lazy host-owned thumbnails;
-local Blob fallback is capped at 12 MB and larger files keep their type icon.
-
-The backend returns immutable file metadata, short-lived object-store URLs when
-available, bounded inert Office preview JSON, and byte-range delivery for local
-storage. The app uses native PDF/media controls, document blocks, workbook
-sheets, slide cards, and the existing text/Markdown renderers. Office previews
-intentionally expose content safely rather than pretending to preserve full
-Microsoft Office layout fidelity.
-
-
- The target branch also includes R9 trusted live-Surface reinspection from PR
- #208. Model-free durable Runs force new trusted browser evidence for the exact
- live build, retain a separate append-only receipt, and create a quality proposal
- only when trusted evidence fails while that build remains published.
+The merged viewer resolves uploads and binary Run artifacts through one
+host-owned presentation contract. PDF, image, audio, video, Markdown,
+text/code, DOCX, XLSX, and PPTX have fixed trusted renderers; unknown, corrupt,
+encrypted, or oversized previews retain honest download and Ask Aloy fallbacks.
 
 Exact-build receipt reuse is now the first inspection-planning optimization:
 reopening a build and ordinary SDK data/state changes do not rerun the remote
@@ -98,9 +85,18 @@ semantics locally.
   as infrastructure failures and never become Surface-quality evidence.
 - Automatic reinspection is cost-gated and disabled by default. A bounded
   worker planner can be enabled by an operator; manual checks use the same Run.
+- Surface health is operator-only infrastructure. Neither generated code nor
+  Aloy's user interface can claim health, request inspection, or access raw
+  inspection artifacts.
+- Inspector failure is `unavailable`, never `needs_improvement`; only trusted
+  evidence bound to the still-live build can create the improvement state.
 
 ## Important Discoveries
 
+- The Surface health slice passes focused backend tests, including the
+  credit-free regression -> proposal -> accepted Builder queue flow while the
+  old build remains published and ordinary members are denied operator health
+  controls. App typecheck/build and ESLint pass with no health UI.
 - The live-reinspection slice passes 24 focused backend tests across queueing,
   worker dispatch, throttling, fresh exact-build evidence, quality proposals,
   and infrastructure-failure isolation. Ruff and focused mypy pass.
@@ -130,15 +126,11 @@ semantics locally.
 
 ## Next Session Should Start With
 
-Run the app locally and exercise one real file from each renderer class in an
-Event and from a binary assistant artifact. Confirm PDF/media behavior in the
-target Chromium/Electron runtime, mobile overflow, download, Ask Aloy, corrupt
-Office fallback, and a video seek against hosted object storage before commit
-and PR.
+After PR #210, bootstrap the private `aloy-internal` repository and its typed
+operator client. First prove operator-only health read and manual reinspection
+against a locally published fixed Surface, then exercise a trusted failed test
+inspection and accepted improvement while the old Surface stays live.
 
-
- Also exercise the complete live reinspection flow: manually queue
- reinspection, observe the model-free Run and append-only receipt, inject a
- trusted failed inspection, accept the resulting proposal, and watch the
- ordinary Builder publication path. Provider-backed cold/warm timing remains a
- later acceptance gate.
+Also exercise one real file from each viewer renderer class in the target
+Chromium/Electron runtime, including mobile overflow, download, Ask Aloy,
+corrupt Office fallback, and hosted video seeking.
