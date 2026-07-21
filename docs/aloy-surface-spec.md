@@ -1,6 +1,6 @@
 # Aloy Event Surface — model-authored application specification
 
-_Version 2.0, 2026-07-16. This specification defines the Event Surface named
+_Version 2.1, 2026-07-21. This specification defines the Event Surface named
 in [`aloy-vision.md`](./aloy-vision.md). It supersedes the 2026-07-15 typed-block
 composition proposal before that runtime was committed._
 
@@ -274,6 +274,23 @@ security boundary. It teaches:
 - University, Madrid, and future showcase templates as portable seeded Surface
   projects rather than domain logic embedded in the runtime.
 
+### 8.1 Product-owned authoring profiles
+
+Surface intelligence is configured by Aloy's developer/operator, not by the
+end user. A user requests an outcome; Aloy selects immutable, versioned
+**Builder**, optional **Critic**, and **repair** profiles. Each profile binds its
+provider/model, required capabilities, prompt and skill versions, tool policy,
+fallbacks, and time/token/cost/attempt budgets. The exact profile versions are
+recorded with every candidate and evidence receipt so upgrades are measurable
+and failures reproducible. End users never configure model names, reasoning
+levels, system skills, privileged tools, or publication policy.
+
+The Builder can author and repair but cannot approve its own work. An optional
+independent Critic can read bounded evidence but cannot mutate source or
+publish. Host-enforced schemas, compiler rules, CSP, SDK capabilities, tests,
+and publication receipts remain authoritative even when a profile or skill is
+wrong.
+
 Critical rules must also be enforced by tools, schemas, the compiler, CSP, and
 the host bridge because an optional skill cannot be trusted as a sandbox. The
 quality and publication gate is defined in §13 below; a successful build is
@@ -466,6 +483,22 @@ the failed draft and diagnostics inspectable. Users may request targeted
 changes, pin accepted regions, preview or reject a redesign, mark a view not
 useful, and restore any last-good revision. Explicit feedback updates the brief;
 one ambiguous click does not authorize a permanent redesign.
+
+Pinning and usefulness feedback are host-owned, revision-bound controls.
+Generated applications label visible regions with stable semantic ids such as
+`next-class` or `budget-summary`; ids describe purpose, not DOM position. A pin
+stores the Event, route, region, accepted revision/build, purpose, important
+content/actions, note, and provenance outside generated code. Future briefs
+treat it as a semantic preservation constraint: styling and responsive layout
+may improve, but removing its purpose or important action blocks publication
+until the user accepts the redesign or removes the pin.
+
+**This view is not useful** records the exact build, route, region, viewport,
+state, reason, and optional note. It becomes a measurable requirement for the
+next candidate but does not immediately rewrite or unpublish the live Surface.
+The user may request repair now, leave it for a later improvement, resolve it,
+or dismiss it. Generated code cannot forge, hide, intercept, or submit either
+control.
 
 The publish service—not the Builder or Critic—atomically publishes only when:
 
