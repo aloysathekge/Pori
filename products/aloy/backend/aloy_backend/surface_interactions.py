@@ -50,6 +50,7 @@ from .surface_commands import (
     apply_state_command,
     resolve_surface_command,
 )
+from .surface_evolution import SurfaceEvolutionSignal, evaluate_surface_evolution
 from .surface_lifecycle import stage_surface_action_message
 from .surface_manifest import (
     SURFACE_PROTOCOL_VERSION,
@@ -57,6 +58,7 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_requests import SurfaceRequestParams, queue_surface_builder_run
 from .surface_resource_states import (
     SURFACE_RESOURCE_STATE_VERSION,
     surface_resource_states,
@@ -892,6 +894,64 @@ async def handle_surface_interaction(
                 },
             )
         )
+
+    elif command.effect == "source_change":
+        goal_value = request.payload.get("goal")
+        goal = (
+            str(goal_value).strip()
+            if isinstance(goal_value, str) and goal_value.strip()
+            else (request.reason or f"Update the Event Surface for {request.name}")
+        )
+        experience_value = request.payload.get("experience")
+        experience = (
+            str(experience_value).strip()
+            if isinstance(experience_value, str) and experience_value.strip()
+            else goal
+        )
+        jobs_value = request.payload.get("jobs")
+        jobs = (
+            [str(item) for item in jobs_value if isinstance(item, str)]
+            if isinstance(jobs_value, list)
+            else [goal]
+        )
+        params = SurfaceRequestParams(
+            goal=goal,
+            experience=experience,
+            jobs=jobs,
+            interaction_notes=[
+                f"Requested from Surface component {request.component_id}",
+            ],
+        )
+        evolution = evaluate_surface_evolution(
+            SurfaceEvolutionSignal(
+                trigger="surface_source_change",
+                goal=params.goal,
+                evidence_refs=[interaction.id],
+                base_revision_id=project.published_revision_id,
+                base_build_id=project.published_build_id,
+                base_data_revision=project.data_revision,
+                event_archived=event.lifecycle == "archived",
+            )
+        )
+        run = await queue_surface_builder_run(
+            session,
+            event=event,
+            policy=context.policy,
+            params=params,
+            evolution=evolution,
+            actor_id=context.user_id,
+            parent_run_id=None,
+            root_run_id=None,
+            idempotency_key=f"surface-source-change:{interaction.id}",
+            origin_evidence=[{"surface_interaction_id": interaction.id}],
+        )
+        interaction.status = "queued"
+        interaction.handling_run_id = run.id
+        interaction.result = {
+            "command": command.payload(),
+            "evolution": evolution.model_dump(mode="json"),
+            "run_id": run.id,
+        }
 
     elif command.effect == "external_action":
         assert declaration is not None and declaration.tool is not None

@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, inspect
 from sqlmodel import col, func, select
 
 import aloy_backend.proposal_executor as executor_module
+import aloy_backend.surface_requests as surface_requests_module
 from aloy_backend import background as background_module
 from aloy_backend.background import execute_claimed_run
 from aloy_backend.event_context import refresh_event_context_snapshot
@@ -153,6 +154,31 @@ def _action_manifest() -> dict:
                             "body": {"type": "string"},
                         },
                         "required": ["to", "subject", "body"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        }
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _source_change_manifest() -> dict:
+    return SurfaceManifest.model_validate(
+        {
+            "intents": {
+                "academic.add_grade_calculator": {
+                    "class": "source_change",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "goal": {"type": "string"},
+                            "experience": {"type": "string"},
+                            "jobs": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["goal", "experience"],
                         "additionalProperties": False,
                     },
                 }
@@ -486,6 +512,73 @@ async def test_host_owned_state_commands_enforce_exact_entity_semantics(
     )
     assert context.json()["command_contract_version"] == "1"
     assert context.json()["data"]["surface"]["career"] == []
+
+
+async def test_source_change_command_queues_bound_surface_builder(
+    client,
+    db_session_maker,
+    monkeypatch,
+):
+    event = await _create_event(client, "University")
+    build_id, revision_id = await _seed_runtime(
+        db_session_maker,
+        event["id"],
+        _source_change_manifest(),
+    )
+    assignment = SimpleNamespace(
+        role=SimpleNamespace(value="surface_builder"),
+        provider="test-provider",
+        model="test-builder",
+        skill_id="surface-builder@1",
+        config_fingerprint="builder-config",
+        descriptor=lambda: {
+            "role": "surface_builder",
+            "provider": "test-provider",
+            "model": "test-builder",
+        },
+    )
+    monkeypatch.setattr(
+        surface_requests_module,
+        "resolve_model_assignment",
+        lambda *_args, **_kwargs: assignment,
+    )
+
+    response = await client.post(
+        f"/v1/events/{event['id']}/surface/interactions",
+        json={
+            "build_id": build_id,
+            "code_revision_id": revision_id,
+            "data_revision": 0,
+            "method": "command",
+            "name": "academic.add_grade_calculator",
+            "component_id": "add-grade-calculator",
+            "payload": {
+                "goal": "Add a grade calculator",
+                "experience": "Calculate the final mark needed for every course",
+                "jobs": ["Calculate the mark needed in a final exam"],
+            },
+            "reason": "Requested by the user from the University Surface",
+            "idempotency_key": "source-change-grade-calculator-0001",
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    interaction = response.json()
+    assert interaction["status"] == "queued"
+    assert interaction["interaction_class"] == "source_change"
+    assert interaction["result"]["evolution"]["outcome"] == "queue"
+    assert interaction["result"]["evolution"]["base_revision_id"] == revision_id
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, interaction["handling_run_id"])
+        assert run is not None
+        assert run.run_kind == "surface_builder"
+        assert "Add a grade calculator" in run.task
+        assert any(
+            receipt.get("kind") == "surface_evolution_decision"
+            and receipt.get("trigger") == "surface_source_change"
+            for receipt in run.execution_receipts or []
+        )
 
 
 async def test_reasoning_command_uses_host_rendered_snapshot_envelope(

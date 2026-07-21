@@ -128,6 +128,14 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert run.model_assignment == assignment.descriptor()
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
+        evolution_receipts = [
+            item
+            for item in run.execution_receipts or []
+            if item.get("kind") == "surface_evolution_decision"
+        ]
+        assert len(evolution_receipts) == 1
+        assert evolution_receipts[0]["outcome"] == "queue"
+        assert evolution_receipts[0]["trigger"] == "explicit_user_request"
         assert "Never convert schedule rows" in run.task
         frozen_jobs = surface_request_primary_jobs(run)
         assert [item["description"] for item in frozen_jobs] == params.jobs
@@ -147,6 +155,10 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         )
         assert len(trails) == 1
         assert trails[0].payload["primary_job_contract"]["jobs"] == frozen_jobs
+        assert (
+            trails[0].payload["evolution"]["fingerprint"]
+            == evolution_receipts[0]["fingerprint"]
+        )
 
 
 async def test_surface_ready_receipt_requires_this_runs_live_publication(
