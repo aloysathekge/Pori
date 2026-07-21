@@ -1,9 +1,10 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import { Columns2, FileCode2, FileText, History, LayoutTemplate, X } from 'lucide-react';
+import { Columns2, History, LayoutTemplate, X } from 'lucide-react';
 import type { EventFile } from '@/api/events';
 import type { StoredFileReference } from '@/hooks/useAttachments';
 import { RunReplay } from '@/components/chat/RunReplay';
 import { SurfaceFrame } from '@/components/surfaces/SurfaceFrame';
+import { FileTypeIcon } from '@/components/files/FileVisual';
 import { ArtifactViewer } from './ArtifactViewer';
 import { StoredFileViewer } from './StoredFileViewer';
 
@@ -33,11 +34,11 @@ interface EventWorkbenchProps {
   onResourceRatioChange: (ratio: number) => void;
 }
 
-function tabIcon(tab: WorkbenchTab) {
-  if (tab.kind === 'surface') return LayoutTemplate;
-  if (tab.kind === 'artifact') return FileCode2;
-  if (tab.kind === 'replay') return History;
-  return FileText;
+function TabIcon({ tab }: { tab: WorkbenchTab }) {
+  if (tab.kind === 'surface') return <LayoutTemplate size={13} className="shrink-0" />;
+  if (tab.kind === 'replay') return <History size={13} className="shrink-0" />;
+  if (tab.kind === 'artifact') return <FileTypeIcon file={{ name: tab.path, kind: 'artifact' }} size={13} />;
+  return <FileTypeIcon file={tab.file} size={13} />;
 }
 
 export function EventWorkbench({
@@ -95,7 +96,6 @@ export function EventWorkbench({
       <div className="flex h-11 shrink-0 items-center border-b border-zinc-800 bg-zinc-900/70">
         <div className="flex min-w-0 flex-1 self-stretch overflow-x-auto px-1.5 pt-1.5">
           {tabs.map((tab) => {
-            const Icon = tabIcon(tab);
             const active = tab.id === activeTab.id;
             return (
               <button
@@ -105,7 +105,7 @@ export function EventWorkbench({
                 className={`group flex min-w-0 max-w-48 shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors ${active ? 'border-zinc-800 bg-zinc-950 text-zinc-200' : 'border-transparent text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-300'}`}
                 title={tab.label}
               >
-                <Icon size={13} className="shrink-0" />
+                <TabIcon tab={tab} />
                 <span className="truncate">{tab.label}</span>
                 {tab.kind !== 'surface' && (
                   <span

@@ -6,14 +6,17 @@ fetch_my_file tool can pull it into any conversation's sandbox."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
+from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..database import get_session
+from ..doc_extract import ExtractionError
 from ..events import ensure_life_event
+from ..file_presentations import build_office_preview, presentation_kind
 from ..file_uploads import store_user_upload
 from ..library import add_to_library, remove_from_library
 from ..models import StoredFile
@@ -23,6 +26,8 @@ from ..tenancy import OrganizationContext, Permission, require_permission
 router = APIRouter(prefix="/files", tags=["files"])
 
 _CHUNK = 256 * 1024
+_MAX_OFFICE_PREVIEW_READ = 25 * 1024 * 1024 + 1
+_OFFICE_PRESENTATION_KINDS = {"document", "spreadsheet", "slides"}
 
 
 def _file_view(r: StoredFile) -> dict:
@@ -129,17 +134,89 @@ async def remove_from_my_library(
     return _file_view(record)
 
 
+def _read_file_bytes(storage_key: str) -> bytes:
+    with get_object_store().open(storage_key) as handle:
+        return handle.read(_MAX_OFFICE_PREVIEW_READ)
+
+
+@router.get("/{file_id}/presentation")
+async def get_file_presentation(
+    file_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Return one typed, inert presentation plan for the trusted host viewer."""
+    record = await _own_file(session, context, file_id)
+    renderer = presentation_kind(record.name, record.content_type)
+    store = get_object_store()
+    source_url = store.url(
+        record.storage_key, expires_s=settings.storage_presign_expiry_seconds
+    )
+    preview = None
+    preview_error = None
+    if renderer in _OFFICE_PRESENTATION_KINDS:
+        try:
+            raw = await run_in_threadpool(_read_file_bytes, record.storage_key)
+            preview = await run_in_threadpool(build_office_preview, renderer, raw)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File content no longer available")
+        except ExtractionError as exc:
+            # Opening/downloading the immutable original remains possible when a
+            # bounded preview cannot be produced (corrupt, encrypted, or large).
+            preview_error = str(exc)
+    return {
+        **_file_view(record),
+        "renderer": renderer,
+        "source_url": source_url,
+        "preview": preview,
+        "preview_error": preview_error,
+        "sha256": record.sha256,
+    }
+
+
+def _parse_byte_range(value: str | None, size: int) -> tuple[int, int] | None:
+    if not value:
+        return None
+    if not value.startswith("bytes=") or "," in value:
+        raise HTTPException(
+            status_code=416,
+            detail="Only one byte range is supported",
+            headers={"Content-Range": f"bytes */{size}"},
+        )
+    start_raw, separator, end_raw = value[6:].partition("-")
+    if not separator:
+        raise HTTPException(status_code=416, detail="Invalid byte range")
+    try:
+        if not start_raw:
+            length = int(end_raw)
+            if length <= 0:
+                raise ValueError
+            start = max(size - length, 0)
+            end = size - 1
+        else:
+            start = int(start_raw)
+            end = int(end_raw) if end_raw else size - 1
+    except ValueError:
+        raise HTTPException(status_code=416, detail="Invalid byte range")
+    if start < 0 or start >= size or end < start:
+        raise HTTPException(
+            status_code=416,
+            detail="Byte range is outside the file",
+            headers={"Content-Range": f"bytes */{size}"},
+        )
+    return start, min(end, size - 1)
+
+
 @router.get("/{file_id}")
 async def download_file(
     file_id: str,
+    range_header: str | None = Header(default=None, alias="Range"),
     context: OrganizationContext = Depends(require_permission(Permission.AGENT_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Stream one stored file (org-checked). Presigned redirect when the
     store supports it; otherwise streamed through the backend."""
-    record = await session.get(StoredFile, file_id)
-    if record is None or record.organization_id != context.organization_id:
-        raise HTTPException(status_code=404, detail="File not found")
+    record = await _own_file(session, context, file_id)
     store = get_object_store()
     presigned = store.url(
         record.storage_key, expires_s=settings.storage_presign_expiry_seconds
@@ -151,19 +228,32 @@ async def download_file(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File content no longer available")
 
+    byte_range = _parse_byte_range(range_header, record.size_bytes)
+    start, end = byte_range or (0, max(record.size_bytes - 1, 0))
+    length = max(end - start + 1, 0)
+
     def _iter():
         with handle:
-            while True:
-                chunk = handle.read(_CHUNK)
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(_CHUNK, remaining))
                 if not chunk:
                     break
+                remaining -= len(chunk)
                 yield chunk
 
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{record.name}"',
+        "Content-Length": str(length),
+        "X-Content-Type-Options": "nosniff",
+    }
+    if byte_range:
+        headers["Content-Range"] = f"bytes {start}-{end}/{record.size_bytes}"
     return StreamingResponse(
         _iter(),
+        status_code=206 if byte_range else 200,
         media_type=record.content_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{record.name}"',
-            "Content-Length": str(record.size_bytes),
-        },
+        headers=headers,
     )

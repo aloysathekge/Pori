@@ -1195,6 +1195,53 @@ tabs inside the viewer. **Ask Aloy about this file** reveals Conversation beside
 the document and attaches a trusted file reference to the next turn. Generated
 Surface code never receives unrestricted file access.
 
+The Workbench uses one trusted file-presentation pipeline for user uploads and
+Run artifacts. Original bytes remain immutable in object storage. The host
+classifies the file, verifies access and presentation limits, and selects a
+fixed renderer; it never executes file-authored HTML or asks generated Surface
+code to render a document. A presentation may contain an expiring original-byte
+URL, inert structured preview data, bounded extracted text, and honest preview
+diagnostics. Every representation remains linked to the original file ID and
+hash.
+
+Initial renderer classes are:
+
+- PDF through the trusted browser PDF viewer;
+- images through a contained zoom-to-fit image view;
+- audio and video through native controls, with range-capable delivery when
+  object storage or the authenticated transport supports it;
+- Markdown, code, logs, and other text through escaped host renderers;
+- DOCX as bounded paragraph blocks, XLSX as bounded sheet tables, and PPTX as
+  bounded slide text cards;
+- unknown, encrypted, corrupt, or oversized preview formats through file
+  metadata, download, **Ask Aloy**, and a clear unsupported-preview state.
+
+File identity is consistent anywhere the file appears. Workbench tabs, chat
+attachments, artifact lists, file pickers, Event files, setup context, and My
+Files use the same extension-and-MIME resolver with distinct document,
+spreadsheet, slide, PDF, image, video, audio, archive, code, Markdown, text,
+artifact, and unknown-file icons. Image and video rows may replace the large
+icon with a host-owned thumbnail. Hosted thumbnails use short-lived object
+URLs and range-capable media loading; local Blob thumbnails are size-bounded so
+a file list never silently buffers a large video. Thumbnail failure falls back
+to the correct format icon and never prevents opening the original.
+
+Office previews prioritize safe access to content over false visual fidelity.
+Layout-faithful Office conversion, thumbnails, waveform generation, captions,
+and Desktop **Open in default application** may enrich the same presentation
+contract later; they do not replace the immutable original or weaken the
+renderer boundary. Large media uses short-lived storage URLs in hosted
+deployments so seeking does not require buffering the entire file. Local
+development may fall back to an authenticated Blob while retaining byte-range
+support on the file endpoint.
+
+Binary artifacts never pass through the text-artifact endpoint as replacement
+characters. They resolve to their durable `StoredFile` and open through the
+same presentation pipeline as uploads. **Ask Aloy about this file** passes the
+trusted file reference and may later include an explicit page, sheet, slide,
+timestamp, or selected region; it never copies raw browser or viewer state into
+the prompt.
+
 ### 5.4 Conversation-to-Surface handoff
 
 When Aloy produces a new successful Surface revision while the Surface is not

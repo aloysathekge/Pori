@@ -10,7 +10,15 @@ export interface ArtifactInfo {
 export interface ArtifactContent {
   path: string;
   file_id: string;
-  content: string;
+  name: string;
+  size_bytes: number;
+  content_type: string;
+  kind: string;
+  event_id: string;
+  conversation_id: string | null;
+  created_at: string;
+  renderer: string;
+  content: string | null;
   language: string;
   truncated: boolean;
 }

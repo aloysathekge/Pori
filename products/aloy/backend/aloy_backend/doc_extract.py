@@ -13,7 +13,14 @@ import posixpath
 import zipfile
 from xml.etree import ElementTree as ET
 
-__all__ = ["ExtractionError", "extract_docx_text", "extract_xlsx_text"]
+__all__ = [
+    "ExtractionError",
+    "extract_docx_blocks",
+    "extract_docx_text",
+    "extract_pptx_slides",
+    "extract_xlsx_sheets",
+    "extract_xlsx_text",
+]
 
 _MAX_XLSX_ROWS_PER_SHEET = 5000
 _MAX_XLSX_COLS = 256
@@ -39,6 +46,11 @@ def _zip_xml(zf: zipfile.ZipFile, name: str) -> ET.Element:
 
 def extract_docx_text(data: bytes) -> str:
     """Word document bytes → plain text (paragraphs, tabs, line breaks)."""
+    return "\n".join(extract_docx_blocks(data)).rstrip("\n") + "\n"
+
+
+def extract_docx_blocks(data: bytes) -> list[str]:
+    """Word document bytes → bounded paragraph blocks for trusted previews."""
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             root = _zip_xml(zf, "word/document.xml")
@@ -46,7 +58,7 @@ def extract_docx_text(data: bytes) -> str:
         raise ExtractionError(f"Not a valid DOCX: {exc}") from exc
 
     w = f"{{{_NS_W}}}"
-    lines: list[str] = []
+    blocks: list[str] = []
     for para in root.iter(f"{w}p"):
         buf: list[str] = []
         for node in para.iter():
@@ -56,21 +68,38 @@ def extract_docx_text(data: bytes) -> str:
                 buf.append("\t")
             elif node.tag in {f"{w}br", f"{w}cr"}:
                 buf.append("\n")
-        lines.extend("".join(buf).split("\n"))
-    if not any(line.strip() for line in lines):
+        text = "".join(buf).strip("\n")
+        if text.strip():
+            blocks.append(text)
+    if not blocks:
         raise ExtractionError("DOCX contains no extractable text")
-    return "\n".join(lines).rstrip("\n") + "\n"
+    return blocks
 
 
 def extract_xlsx_text(data: bytes) -> str:
     """Workbook bytes → tab-separated text per visible sheet (bounded)."""
+    sheets = extract_xlsx_sheets(data)
+    out: list[str] = []
+    for sheet in sheets:
+        out.append(f"# -- Sheet: {sheet['name']} --")
+        rows = sheet["rows"]
+        assert isinstance(rows, list)
+        out.extend("\t".join(row) for row in rows)
+        if not rows:
+            out.append("(empty)")
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def extract_xlsx_sheets(data: bytes) -> list[dict[str, object]]:
+    """Workbook bytes → visible sheet names and bounded cell matrices."""
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             names = set(zf.namelist())
             shared = _shared_strings(zf, names)
             sheets = _workbook_sheets(zf)
             rels = _workbook_rels(zf, names)
-            out: list[str] = []
+            out: list[dict[str, object]] = []
             for name, state, rid in sheets:
                 if state in {"hidden", "veryHidden"}:
                     continue
@@ -81,17 +110,54 @@ def extract_xlsx_text(data: bytes) -> str:
                     rows = _sheet_rows(zf.read(part), shared)
                 except ET.ParseError:
                     continue
-                out.append(f"# ── Sheet: {name} ──")
-                out.extend("\t".join(row) for row in rows)
-                if not rows:
-                    out.append("(empty)")
-                out.append("")
+                out.append({"name": name, "rows": rows})
     except zipfile.BadZipFile as exc:
         raise ExtractionError(f"Not a valid XLSX: {exc}") from exc
 
     if not out:
         raise ExtractionError("XLSX has no visible sheets with content")
-    return "\n".join(out).rstrip("\n") + "\n"
+    return out
+
+
+def extract_pptx_slides(data: bytes) -> list[dict[str, object]]:
+    """PowerPoint bytes → ordered slide text for a safe host-owned preview."""
+    drawing_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            slide_names = sorted(
+                (
+                    name
+                    for name in zf.namelist()
+                    if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+                ),
+                key=_slide_number,
+            )
+            slides: list[dict[str, object]] = []
+            for index, name in enumerate(slide_names[:500], start=1):
+                try:
+                    root = ET.fromstring(zf.read(name))
+                except ET.ParseError:
+                    continue
+                text_nodes = [
+                    node.text or ""
+                    for node in root.iter(f"{{{drawing_ns}}}t")
+                    if (node.text or "").strip()
+                ]
+                slides.append({"number": index, "text": "\n".join(text_nodes)})
+    except zipfile.BadZipFile as exc:
+        raise ExtractionError(f"Not a valid PPTX: {exc}") from exc
+
+    if not slides:
+        raise ExtractionError("PPTX contains no readable slides")
+    return slides
+
+
+def _slide_number(path: str) -> int:
+    stem = path.rsplit("/", 1)[-1].removeprefix("slide").removesuffix(".xml")
+    try:
+        return int(stem)
+    except ValueError:
+        return 10**9
 
 
 def _shared_strings(zf: zipfile.ZipFile, names: set[str]) -> list[str]:

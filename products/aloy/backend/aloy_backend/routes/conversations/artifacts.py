@@ -16,6 +16,7 @@ from sqlmodel import col, select
 from starlette.concurrency import run_in_threadpool
 
 from ...database import get_session
+from ...file_presentations import presentation_kind
 from ...models import Message, StoredFile
 from ...storage import get_object_store
 from ...tenancy import OrganizationContext, Permission, require_permission
@@ -89,16 +90,30 @@ async def get_artifact_content(
         or record.conversation_id != conversation_id
     ):
         raise HTTPException(status_code=404, detail="Artifact file no longer available")
-    try:
-        raw = await run_in_threadpool(_read_artifact_head, record.storage_key)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Artifact file no longer available")
-    truncated = len(raw) > _ARTIFACT_MAX_BYTES
-    content = raw[:_ARTIFACT_MAX_BYTES].decode("utf-8", errors="replace")
     suffix = PurePosixPath(record.name).suffix.lower()
+    renderer = presentation_kind(record.name, record.content_type)
+    content = None
+    truncated = False
+    if renderer in {"markdown", "text"}:
+        try:
+            raw = await run_in_threadpool(_read_artifact_head, record.storage_key)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404, detail="Artifact file no longer available"
+            )
+        truncated = len(raw) > _ARTIFACT_MAX_BYTES
+        content = raw[:_ARTIFACT_MAX_BYTES].decode("utf-8", errors="replace")
     return {
         "path": path,
         "file_id": record.id,
+        "name": record.name,
+        "size_bytes": record.size_bytes,
+        "content_type": record.content_type,
+        "kind": record.kind,
+        "event_id": record.event_id,
+        "conversation_id": record.conversation_id,
+        "created_at": record.created_at,
+        "renderer": renderer,
         "content": content,
         "language": _LANG_BY_EXT.get(suffix, "text"),
         "truncated": truncated,

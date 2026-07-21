@@ -14,6 +14,38 @@ export interface StoredFileView {
   created_at: string;
 }
 
+export type FileRenderer =
+  | 'markdown'
+  | 'text'
+  | 'image'
+  | 'pdf'
+  | 'audio'
+  | 'video'
+  | 'document'
+  | 'spreadsheet'
+  | 'slides'
+  | 'unknown';
+
+export interface FilePresentation {
+  file_id: string;
+  name: string;
+  size_bytes: number;
+  content_type: string;
+  kind: 'upload' | 'artifact';
+  event_id: string;
+  conversation_id: string | null;
+  renderer: FileRenderer;
+  source_url: string | null;
+  preview: {
+    blocks?: string[];
+    sheets?: Array<{ name: string; rows: string[][] }>;
+    slides?: Array<{ number: number; text: string }>;
+    truncated?: boolean;
+  } | null;
+  preview_error: string | null;
+  sha256: string;
+}
+
 /** The caller's retained files. Runtime access remains Event-scoped. */
 export function listMyFiles() {
   return apiFetch<StoredFileView[]>('/files');
@@ -46,4 +78,8 @@ export function removeFromLibrary(fileId: string) {
 
 export function getStoredFileBlob(fileId: string) {
   return apiBlobFetch(`/files/${fileId}`);
+}
+
+export function getFilePresentation(fileId: string) {
+  return apiFetch<FilePresentation>(`/files/${fileId}/presentation`);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileText, FolderOpen, LoaderCircle, Trash2, Upload } from 'lucide-react';
+import { Download, FolderOpen, LoaderCircle, Trash2, Upload } from 'lucide-react';
 import {
   listMyFiles,
   removeFromLibrary,
@@ -8,6 +8,7 @@ import {
 } from '@/api/files';
 import { apiStreamFetch } from '@/api/client';
 import { Button } from '@/components/ui/Button';
+import { FileThumbnail } from '@/components/files/FileVisual';
 import { Spinner } from '@/components/ui/Spinner';
 
 function humanSize(bytes: number) {
@@ -138,7 +139,7 @@ export function FilesPage() {
           <ul className="divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-zinc-900/40">
             {files.map((file) => (
               <li key={file.file_id} className="flex items-center gap-3 px-3 py-3 sm:px-4">
-                <FileText size={16} className="shrink-0 text-accent-600" />
+                <FileThumbnail file={file} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-zinc-200">{file.name}</p>
                   <p className="text-xs text-zinc-500">

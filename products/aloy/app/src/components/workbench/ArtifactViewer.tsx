@@ -5,6 +5,7 @@ import type { StoredFileReference } from '@/hooks/useAttachments';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { Markdown } from '@/components/chat/Markdown';
+import { StoredFileViewer } from './StoredFileViewer';
 
 interface ArtifactViewerProps {
   conversationId: string;
@@ -41,7 +42,7 @@ export function ArtifactViewer({ conversationId, path, onAskAloy }: ArtifactView
   }, [load]);
 
   function copy() {
-    if (!content) return;
+    if (!content?.content) return;
     void navigator.clipboard.writeText(content.content).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
@@ -49,13 +50,31 @@ export function ArtifactViewer({ conversationId, path, onAskAloy }: ArtifactView
   }
 
   function download() {
-    if (!content) return;
+    if (!content?.content) return;
     const url = URL.createObjectURL(new Blob([content.content], { type: 'text/plain' }));
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = fileName(path);
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  if (!loading && !error && content?.content === null) {
+    return (
+      <StoredFileViewer
+        file={{
+          id: content.file_id,
+          name: content.name,
+          kind: content.kind,
+          content_type: content.content_type,
+          size_bytes: content.size_bytes,
+          origin_session_id: content.conversation_id,
+          origin_run_id: null,
+          created_at: content.created_at,
+        }}
+        onAskAloy={onAskAloy}
+      />
+    );
   }
 
   return (
@@ -72,15 +91,15 @@ export function ArtifactViewer({ conversationId, path, onAskAloy }: ArtifactView
             onClick={() => content && onAskAloy({
               file_id: content.file_id,
               name: fileName(path),
-              size: content.content.length,
+              size: content.size_bytes,
             })}
           >
             <MessageSquareText size={14} /> Ask Aloy
           </Button>
-          <button type="button" onClick={copy} disabled={!content} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40" title="Copy artifact">
+          <button type="button" onClick={copy} disabled={!content?.content} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40" title="Copy artifact">
             {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
-          <button type="button" onClick={download} disabled={!content} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40" title="Download artifact">
+          <button type="button" onClick={download} disabled={!content?.content} className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40" title="Download artifact">
             <Download size={15} />
           </button>
         </div>
@@ -94,9 +113,9 @@ export function ArtifactViewer({ conversationId, path, onAskAloy }: ArtifactView
             <div><p className="text-sm text-red-600">{error}</p><Button size="sm" variant="ghost" className="mt-3" onClick={() => void load()}>Try again</Button></div>
           </div>
         ) : content?.language === 'markdown' ? (
-          <article className="mx-auto max-w-3xl text-sm text-zinc-200"><Markdown>{content.content}</Markdown></article>
+          <article className="mx-auto max-w-3xl text-sm text-zinc-200"><Markdown>{content.content ?? ''}</Markdown></article>
         ) : (
-          <pre className="min-h-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-4 font-mono text-xs leading-6 text-zinc-200"><code>{content?.content}</code></pre>
+          <pre className="min-h-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-4 font-mono text-xs leading-6 text-zinc-200"><code>{content?.content ?? ''}</code></pre>
         )}
       </div>
     </section>
