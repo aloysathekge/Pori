@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -51,6 +52,10 @@ from .surface_commands import (
     resolve_surface_command,
 )
 from .surface_evolution import SurfaceEvolutionSignal, evaluate_surface_evolution
+from .surface_evolution_proposals import (
+    SurfaceEvolutionProposalError,
+    record_surface_evolution_signal,
+)
 from .surface_lifecycle import stage_surface_action_message
 from .surface_manifest import (
     SURFACE_PROTOCOL_VERSION,
@@ -68,6 +73,7 @@ from .tenancy import OrganizationContext
 from .tools.research import event_record_payload
 
 MAX_INTERACTION_PAYLOAD_BYTES = 128 * 1024
+logger = logging.getLogger("aloy_backend.surface_interactions")
 
 
 class SurfaceInteractionError(ValueError):
@@ -628,6 +634,28 @@ async def record_surface_interaction_rejection(
     await session.commit()
     await session.refresh(attempt)
     error.attempt_id = attempt.id
+    if not error.retryable and error.status_code in {403, 422, 501}:
+        try:
+            await record_surface_evolution_signal(
+                session,
+                context=context,
+                event=event,
+                signal=SurfaceEvolutionSignal(
+                    trigger="primary_job_failure",
+                    goal=(
+                        f"Repair the {request.name} Surface interaction "
+                        f"({error.code})"
+                    ),
+                    evidence_refs=[attempt.id],
+                ),
+            )
+        except SurfaceEvolutionProposalError as exc:
+            await session.rollback()
+            logger.warning(
+                "Skipped evolution signal for rejected Surface command %s: %s",
+                attempt.id,
+                exc.detail,
+            )
     return attempt
 
 

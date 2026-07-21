@@ -120,6 +120,32 @@ export interface SurfacePublication {
   replayed: boolean;
 }
 
+export interface SurfaceEvolutionProposal {
+  id: string;
+  event_id: string;
+  project_id: string;
+  trigger:
+    | 'event_phase_changed'
+    | 'capability_gap'
+    | 'negative_feedback'
+    | 'primary_job_failure'
+    | 'quality_failure'
+    | string;
+  goal: string;
+  status: 'pending' | 'dismissed' | 'queued' | 'superseded' | string;
+  occurrence_count: number;
+  reason_codes: string[];
+  evidence_refs: string[];
+  base_revision_id: string | null;
+  base_build_id: string | null;
+  base_data_revision: number;
+  builder_run_id: string | null;
+  decided_at: string | null;
+  cooldown_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function listSurfaceBuilds(eventId: string) {
   return apiFetch<SurfaceBuild[]>(`/events/${eventId}/surface/builds`);
 }
@@ -130,6 +156,33 @@ export function getSurfaceActivity(eventId: string) {
 
 export function getPublishedSurfaceRuntime(eventId: string) {
   return apiFetch<PublishedSurfaceRuntime>(`/events/${eventId}/surface/runtime`);
+}
+
+export function listSurfaceEvolutionProposals(eventId: string) {
+  return apiFetch<SurfaceEvolutionProposal[]>(
+    `/events/${eventId}/surface/evolution-proposals`,
+  );
+}
+
+export function decideSurfaceEvolutionProposal(
+  eventId: string,
+  proposalId: string,
+  decision: 'accept' | 'dismiss',
+) {
+  return apiFetch<SurfaceEvolutionProposal>(
+    `/events/${eventId}/surface/evolution-proposals/${proposalId}/decision`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    },
+  );
+}
+
+export function submitSurfaceFeedback(eventId: string, message?: string) {
+  return apiFetch<SurfaceEvolutionProposal>(`/events/${eventId}/surface/feedback`, {
+    method: 'POST',
+    body: JSON.stringify(message ? { message } : {}),
+  });
 }
 
 export function listSurfacePublications(eventId: string) {

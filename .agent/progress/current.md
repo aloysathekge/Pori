@@ -2,11 +2,12 @@
 
 ## Active Task
 
-R9 durable Surface evolution proposals are active on
-`aloy-v1-r9-evolution-proposals`, branched from `aloy-v1` after PR #205.
-Inferred signals are now persisted against the exact live Surface, repeated
-signals aggregate into one proposal, dismissals cool down for 14 days, and an
-accepted non-stale proposal queues exactly one ordinary Builder Run.
+R9 Surface evolution signals and Event UI are active on
+`aloy-v1-r9-evolution-signals-ui`, branched from `aloy-v1` after PR #206.
+User feedback, repeated non-retryable Surface command failures, and Event phase
+changes now feed durable proposals. The Event conversation presents one quiet
+accept/dismiss card, and accepted work uses the ordinary Builder progress and
+last-good publication path.
 
 Exact-build receipt reuse is now the first inspection-planning optimization:
 reopening a build and ordinary SDK data/state changes do not rerun the remote
@@ -58,12 +59,18 @@ semantics locally.
 - Proposals are bound to the published revision/build. Acceptance fails closed
   if that Surface changed, and dismissal suppresses the same proposal for 14
   days without erasing its evidence history.
+- Generated code cannot submit evolution evidence or decide proposals. Feedback
+  lives in host chrome, command failures come from host receipts, and Event phase
+  changes come from the canonical Event update boundary.
+- Failed requested candidates do not generate another proposal. Trusted quality
+  signals are reserved for background reinspection of the live build to avoid a
+  self-retrying Builder loop.
 
 ## Important Discoveries
 
-- The durable proposal slice passes 26 focused backend tests across evolution
-  policy, proposal lifecycle, requests, and SDK behavior; Ruff and focused mypy
-  pass on changed backend code.
+- The signal/UI slice passes 37 focused backend tests across proposal lifecycle,
+  rejected SDK commands, phase updates, and Event routes. The app production
+  build and lint pass; Ruff and focused mypy pass on changed backend code.
 - The scenario slice passes 47 focused backend tests, the SDK TypeScript build,
   Ruff, and mypy across 126 backend files. Browser proofs accept the SDK-bound
   approval summary and reject both missing approval binding and dense overflow.
@@ -79,8 +86,7 @@ semantics locally.
 
 ## Next Session Should Start With
 
-Wire trusted signal producers into the durable proposal service: Surface
-negative feedback, repeated primary-job failures, Event phase changes, and
-quality failures. Then add one quiet Event-workspace proposal card with accept
-and dismiss actions; acceptance must display ordinary Builder progress rather
-than invent a second build lifecycle.
+Add trusted background reinspection for the currently published build so a new
+runtime, responsive, accessibility, or primary-job regression can emit a
+quality proposal without involving generated code. Then exercise the complete
+feedback -> proposal -> acceptance -> Builder progress path in the running app.

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarClock, ImagePlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { uploadEventCover, type EventSummary } from '@/api/events';
+import { updateEvent, uploadEventCover, type EventSummary } from '@/api/events';
 import { listSchedules } from '@/api/schedules';
 import { MemoryIcon } from '@/components/icons';
 import { Button } from '@/components/ui/Button';
@@ -27,6 +27,8 @@ export function EventSettingsPanel({
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
+  const [phase, setPhase] = useState(event.phase);
+  const [savingPhase, setSavingPhase] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -41,6 +43,11 @@ export function EventSettingsPanel({
     return () => { active = false; };
   }, [event.id, refreshKey]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronize the saved Event phase returned by the host
+    setPhase(event.phase);
+  }, [event.phase]);
+
   async function changeCover(file: File | undefined) {
     if (!file) return;
     setUploadingCover(true);
@@ -54,6 +61,20 @@ export function EventSettingsPanel({
     } finally {
       setUploadingCover(false);
       if (coverInputRef.current) coverInputRef.current.value = '';
+    }
+  }
+
+  async function savePhase() {
+    if (phase.trim() === event.phase) return;
+    setSavingPhase(true);
+    setError('');
+    try {
+      await updateEvent(event.id, { phase: phase.trim() });
+      await onEventChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The Event phase could not be updated.');
+    } finally {
+      setSavingPhase(false);
     }
   }
 
@@ -101,6 +122,35 @@ export function EventSettingsPanel({
               </div>
             </div>
           </section>
+
+          {!event.is_life && (
+            <section className="rounded-xl border border-zinc-800 p-3.5">
+              <label htmlFor={`event-phase-${event.id}`} className="text-sm font-medium text-zinc-200">
+                Current phase
+              </label>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                A meaningful phase change can prompt Aloy to suggest adapting the Surface.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  id={`event-phase-${event.id}`}
+                  value={phase}
+                  onChange={(inputEvent) => setPhase(inputEvent.target.value)}
+                  placeholder="For example: Exam preparation"
+                  maxLength={200}
+                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-600 focus:outline-none"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={savingPhase || phase.trim() === event.phase}
+                  onClick={() => void savePhase()}
+                >
+                  {savingPhase ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </section>
+          )}
 
           {!event.is_life && (
             <section className="rounded-xl border border-zinc-800 p-3.5">

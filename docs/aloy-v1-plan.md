@@ -859,8 +859,21 @@ acceptance verifies that the bound revision and build are still live, rejects an
 already-active Builder, records the decision in Trail, and queues exactly one
 ordinary Builder Run with the existing quality and publication gates. If the
 Surface changed first, the proposal is superseded rather than applied to newer
-code. Wiring real feedback, primary-job, phase, and quality producers into this
-service plus the in-product proposal card remains the next evolution slice.
+code.
+
+**Implemented proposal signals and Event UI:** the host Surface chrome now owns
+the explicit “not useful” control; submitted feedback becomes a pending proposal
+without giving generated code access to the proposal system. Non-retryable SDK
+command rejections are durable host receipts and two failures of the same
+command/error contract aggregate into one suggestion. Event settings can update
+the Event phase, and a meaningful phase change proposes adapting the live
+Surface. The conversation shows at most one quiet improvement card with
+`Improve Surface` and `Not now`; acceptance disappears into the ordinary
+Builder activity and last-good publication flow rather than creating a second
+progress system. Trusted quality failure signals remain reserved for later
+background reinspection of the currently published build. A failed requested
+candidate is not fed back as a new proposal because that would create a
+self-retrying rebuild loop.
 
 Gate:
 
