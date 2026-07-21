@@ -24,6 +24,7 @@ from ..database import get_session
 from ..events import ensure_life_event
 from ..models import Run, RunEventLog, RunTimelineEvent
 from ..run_budgets import narrow_budget_to_parent, resolve_run_budget
+from ..run_timeline import timeline_notifier
 from ..schemas import (
     ChildRunCreate,
     RunEventLogResponse,
@@ -183,6 +184,7 @@ def _timeline_payload(entry: RunTimelineEvent) -> dict[str, Any]:
         "run_id": entry.run_id,
         "sequence": entry.sequence,
         "kind": entry.kind,
+        "schema_version": entry.schema_version,
         "public_payload": entry.public_payload,
         "created_at": entry.created_at,
     }
@@ -294,7 +296,7 @@ async def stream_run_timeline(
             if time.monotonic() - last_heartbeat >= 15:
                 yield _timeline_sse("heartbeat", {"cursor": current})
                 last_heartbeat = time.monotonic()
-            await asyncio.sleep(0.5)
+            await timeline_notifier.wait(run_id, timeout=0.5)
 
     return StreamingResponse(
         generate(),

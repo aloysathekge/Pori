@@ -2,12 +2,12 @@
 
 ## Active Task
 
-R11 durable Work Stories are merged into `aloy-v1` through PR #214. Run plans,
-activity, bounded tool previews, outputs, attention, completion, and resume
-state now persist as one ordered story and render in Conversation and the Event
-Workbench. The next active product slice is R12: a database/object-storage
-backed Event template catalog and idempotent installer, beginning with a
-credit-free seeded Career OS release.
+R11 durable Work Story hardening is active on
+`aloy-v1-r11-work-story-hardening`. The existing user-safe timeline now has a
+database-atomic sequence cursor, replay identities, versioned typed public
+payloads, terminal reconciliation, bounded event/payload growth, and a
+replaceable low-latency notification seam with durable cursor polling as the
+cross-process fallback. R12 remains the next product slice after this merge.
 
 The trusted universal file viewer, Surface quality/inspection contracts,
 operator-only control APIs, and the separate private `aloy-internal` control
@@ -17,6 +17,19 @@ available and does not block model-free template and ingestion contracts.
 
 ## Decisions Made
 
+- Work Story sequencing cannot depend on a `Run` row because inline
+  Conversations emit milestones before their terminal Run is committed. A
+  dedicated per-Run cursor atomically allocates sequence numbers in the same
+  transaction as the event.
+- Replay identity is derived only from the bounded public projection. Raw tool
+  arguments and private model output never enter idempotency keys.
+- Same-process live readers wake immediately through a replaceable notifier;
+  sequence-cursor database replay remains authoritative, so a missed or
+  cross-process notification cannot lose data. A hosted broker or Postgres
+  notification adapter can replace this seam without changing the API.
+- Work Stories retain at most 50,000 bounded semantic milestones per Run and
+  64 KiB per public payload. Normal execution budgets remain far below that
+  safety ceiling.
 - Event templates are opt-in, versioned catalog data rather than domain logic in
   Aloy. Installing one creates an independent ordinary Event pinned to that
   release; updates never silently overwrite user data.
@@ -97,6 +110,16 @@ available and does not block model-free template and ingestion contracts.
 
 ## Important Discoveries
 
+- Inline Conversation execution writes Work Story milestones before the Run
+  finalizer creates its terminal history row; a Run-column counter would have
+  broken this valid path.
+- A terminal Run may have `status="completed"` with `success=false` after a
+  bounded stop. Terminal reconciliation therefore uses both fields and never
+  renders a failed budget outcome as successful work.
+- Focused hardening tests cover replay idempotency, two concurrent writers,
+  terminal crash repair, cancellation, payload drift, event limits, cursor
+  pagination beyond 500 entries, notification wakeup, and organization
+  isolation.
 - The Surface health slice passes focused backend tests, including the
   credit-free regression -> proposal -> accepted Builder queue flow while the
   old build remains published and ordinary members are denied operator health

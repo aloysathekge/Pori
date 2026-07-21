@@ -56,6 +56,7 @@ function liveStoryEvent(
     id: `live-${sequence}-${Date.now()}`,
     sequence,
     kind,
+    schema_version: 1,
     public_payload: publicPayload,
     created_at: new Date().toISOString(),
   };

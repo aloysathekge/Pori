@@ -50,7 +50,11 @@ from .run_outcome import (
 )
 from .run_profiles import resolve_persisted_run_profile
 from .run_surface import resolve_run_surface
-from .run_timeline import AsyncRunTimelineSink, RunTimelineRecorder
+from .run_timeline import (
+    AsyncRunTimelineSink,
+    RunTimelineRecorder,
+    reconcile_terminal_run_timeline,
+)
 from .runtime import authenticated_run_context
 from .schedule_runtime import (
     record_schedule_terminal_trail,
@@ -1027,3 +1031,11 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             except Exception:
                 logger.exception("Could not mark poisoned run %s failed", run_id)
                 await session.rollback()
+        try:
+            await reconcile_terminal_run_timeline(run_id)
+        except Exception:
+            logger.warning(
+                "Could not reconcile terminal Work Story for run %s",
+                run_id,
+                exc_info=True,
+            )

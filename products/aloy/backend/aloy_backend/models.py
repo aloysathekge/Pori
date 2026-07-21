@@ -1488,6 +1488,19 @@ class RunEventLog(SQLModel, table=True):
     )
 
 
+class RunTimelineCursor(SQLModel, table=True):
+    """Atomic sequence allocator for a Work Story.
+
+    Inline Conversation execution emits milestones before its terminal ``Run``
+    row exists, so sequencing deliberately has its own lightweight record.
+    """
+
+    __tablename__ = "run_timeline_cursors"
+
+    run_id: str = Field(primary_key=True)
+    last_sequence: int = 0
+
+
 class RunTimelineEvent(SQLModel, table=True):
     """One durable, user-safe milestone in a Run's Work Story.
 
@@ -1499,6 +1512,9 @@ class RunTimelineEvent(SQLModel, table=True):
     __tablename__ = "run_timeline_events"
     __table_args__ = (
         UniqueConstraint("run_id", "sequence", name="uq_run_timeline_sequence"),
+        UniqueConstraint(
+            "run_id", "source_event_key", name="uq_run_timeline_source_event"
+        ),
     )
 
     id: str = Field(default_factory=lambda: f"rtl_{uuid.uuid4().hex}", primary_key=True)
@@ -1509,6 +1525,8 @@ class RunTimelineEvent(SQLModel, table=True):
     run_id: str = Field(index=True)
     sequence: int = Field(index=True)
     kind: str = Field(index=True)
+    schema_version: int = 1
+    source_event_key: str = Field(index=True)
     public_payload: dict = Field(
         default_factory=dict, sa_column=Column(JSON, nullable=False)
     )

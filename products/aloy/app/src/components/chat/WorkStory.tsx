@@ -95,6 +95,7 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
     const actions = new Map<string, StoryAction>();
     let activity = '';
     let failed = false;
+    let cancelled = false;
     let completed = false;
     let needsAttention = false;
 
@@ -126,6 +127,8 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
         completed = payload.completed !== false;
       } else if (entry.kind === 'run_failed') {
         failed = true;
+      } else if (entry.kind === 'run_cancelled') {
+        cancelled = true;
       }
     }
 
@@ -142,6 +145,7 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
       activity,
       completed,
       failed,
+      cancelled,
       needsAttention,
       elapsed,
       plan: planFrom(entries),
@@ -154,6 +158,8 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
   const runningAction = story.actions.findLast((action) => action.status === 'running');
   const summary = story.failed
     ? `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
+    : story.cancelled
+      ? `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
     : story.completed
       ? `Worked for ${formatDuration(story.elapsed)} · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
       : story.needsAttention
@@ -168,10 +174,12 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
         className="group/story flex w-full items-center gap-2 py-1 text-left transition-colors hover:text-zinc-200"
         aria-expanded={expanded}
       >
-        {live && !story.completed && !story.failed ? (
+        {live && !story.completed && !story.failed && !story.cancelled ? (
           <LoaderCircle size={14} className="shrink-0 animate-spin text-accent-500" />
         ) : story.failed ? (
           <AlertCircle size={14} className="shrink-0 text-red-400" />
+        ) : story.cancelled ? (
+          <X size={14} className="shrink-0 text-zinc-400" />
         ) : (
           <Check size={14} className="shrink-0 text-emerald-500" />
         )}
