@@ -32,8 +32,30 @@ export interface SurfaceBridgeStatusUpdate {
   message?: string;
 }
 
+export interface SurfaceAloyHandoff {
+  method: SurfaceInteractionMethod;
+  name: string;
+  componentId: string;
+  message?: string;
+  reason?: string;
+  response: SurfaceInteractionResponse;
+}
+
+export function shouldSummonAloy(
+  method: SurfaceInteractionMethod,
+  response: SurfaceInteractionResponse,
+): boolean {
+  return (
+    method === 'ask_aloy'
+    || method === 'request_action'
+    || Boolean(response.handling_run_id)
+    || Boolean(response.proposal_id)
+  );
+}
+
 export interface SurfaceBridgeOptions {
   onStatus?: (update: SurfaceBridgeStatusUpdate) => void;
+  onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
   contextTimeoutMs?: number;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
@@ -156,8 +178,9 @@ export class SurfaceBridgeHost {
   private readyReject: ((error: Error) => void) | null = null;
   private readonly eventId: string;
   private readonly buildId: string;
-  private readonly options: Required<Omit<SurfaceBridgeOptions, 'onStatus'>> &
-    Pick<SurfaceBridgeOptions, 'onStatus'>;
+  private readonly options: Required<
+    Omit<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff'>
+  > & Pick<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff'>;
   private readonly dependencies: SurfaceBridgeDependencies;
 
   constructor(
@@ -170,6 +193,7 @@ export class SurfaceBridgeHost {
     this.buildId = buildId;
     this.options = {
       onStatus: options.onStatus,
+      onAloyHandoff: options.onAloyHandoff,
       contextTimeoutMs: options.contextTimeoutMs ?? 12_000,
       handshakeTimeoutMs: options.handshakeTimeoutMs ?? 5_000,
       heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
@@ -456,6 +480,7 @@ export class SurfaceBridgeHost {
     );
     this.inFlight.set(request.requestId, { controller, timeout });
     let result: SurfaceInteractionResponse;
+    let handoff: Omit<SurfaceAloyHandoff, 'response'> | null = null;
     try {
       const params = object(request.params);
       const componentId =
@@ -491,6 +516,13 @@ export class SurfaceBridgeHost {
       } else {
         throw new Error('Unsupported Surface bridge method');
       }
+      handoff = {
+        method,
+        name,
+        componentId: componentId.slice(0, 200),
+        message,
+        reason,
+      };
       if (!this.context) throw new Error('Surface context is unavailable');
       result = await this.dependencies.createInteraction(
         this.eventId,
@@ -558,6 +590,15 @@ export class SurfaceBridgeHost {
         // reconciled outcome from stale context. Keep its request pending so
         // the normal reconnect can replay the same idempotency key safely.
         return;
+      }
+    }
+    if (handoff && shouldSummonAloy(handoff.method, result)) {
+      try {
+        this.options.onAloyHandoff?.({ ...handoff, response: result });
+      } catch {
+        // Host chrome is an enhancement around a completed durable action. A
+        // rendering failure must never hide the successful result from the
+        // Surface or invite an unsafe retry.
       }
     }
     // MessageChannel preserves sender order: canonical context is delivered

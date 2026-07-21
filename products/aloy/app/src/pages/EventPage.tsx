@@ -55,11 +55,14 @@ import {
   type SurfaceEvolutionProposal,
 } from '@/api/surfaces';
 import { EventWorkbench, SURFACE_TAB, type WorkbenchTab } from '@/components/workbench/EventWorkbench';
+import { FloatingAloyPanel } from '@/components/workbench/FloatingAloyPanel';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAttachments, type StoredFileReference } from '@/hooks/useAttachments';
 import { useFileReferences } from '@/hooks/useFileReferences';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
+import { useWorkspaceFocus } from '@/contexts/WorkspaceFocusContext';
+import type { SurfaceAloyHandoff } from '@/components/surfaces/surfaceBridge';
 import type { MessageResponse } from '@/types';
 
 type ContextTab = 'tasks' | 'approvals' | 'receipts' | 'files' | 'trail' | 'settings';
@@ -91,6 +94,7 @@ export function EventPage() {
 }
 
 function EventPageWorkspace({ eventId }: { eventId: string }) {
+  const { focused: workbenchFocused, setFocused: setWorkbenchFocused } = useWorkspaceFocus();
   const [data, setData] = useState<EventSurfaceResponse | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
@@ -128,6 +132,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     const stored = Number(window.localStorage.getItem(`aloy:event:${eventId}:resource-ratio`));
     return Number.isFinite(stored) && stored >= 30 && stored <= 70 ? stored : 50;
   });
+  const [aloyPanelOpen, setAloyPanelOpen] = useState(false);
   const [error, setError] = useState('');
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [contextActionId, setContextActionId] = useState<string | null>(null);
@@ -156,6 +161,32 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     window.localStorage.setItem(`aloy:event:${eventId}:resource-ratio`, String(resourceRatio));
   }, [activeWorkbenchTabId, contextOpen, eventId, resourceRatio, showSurfaceAlongside, workbenchTabs]);
 
+  useEffect(() => {
+    return () => setWorkbenchFocused(false);
+  }, [setWorkbenchFocused]);
+
+  useEffect(() => {
+    if (!workbenchFocused && !aloyPanelOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (aloyPanelOpen) {
+        setAloyPanelOpen(false);
+      } else {
+        setWorkbenchFocused(false);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [aloyPanelOpen, setWorkbenchFocused, workbenchFocused]);
+
+  function changeWorkspaceMode(mode: WorkspaceMode) {
+    setWorkspaceMode(mode);
+    if (mode !== 'workbench') {
+      setWorkbenchFocused(false);
+      setAloyPanelOpen(false);
+    }
+  }
+
   function startResize(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     const workspace = workspaceRef.current;
@@ -176,7 +207,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   function openWorkbenchTab(tab: WorkbenchTab) {
     setWorkbenchTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
     setActiveWorkbenchTabId(tab.id);
-    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'workbench');
+    changeWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'workbench');
   }
 
   function openSurface() {
@@ -286,6 +317,12 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     setMessages,
     onConversationsRefresh: async () => undefined,
   });
+
+  useEffect(() => {
+    if (workspaceMode !== 'workbench' || (!clarify && !approval)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- durable Run state summons the host-owned Aloy panel
+    setAloyPanelOpen(true);
+  }, [approval, clarify, workspaceMode]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -505,7 +542,19 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   function askAloyAboutFile(reference: StoredFileReference) {
     attachStoredFile(reference);
     setInput((current) => current || `Help me understand and work with ${reference.name}.`);
-    setWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'conversation');
+    if (workspaceMode === 'workbench') {
+      setAloyPanelOpen(true);
+      return;
+    }
+    changeWorkspaceMode(window.matchMedia('(min-width: 768px)').matches ? 'split' : 'conversation');
+  }
+
+  function handleSurfaceAloyHandoff(_handoff: SurfaceAloyHandoff) {
+    if (workspaceMode === 'workbench') setAloyPanelOpen(true);
+    if (!conversationId) return;
+    void getConversation(conversationId)
+      .then((conversation) => setMessages(conversation.messages))
+      .catch(() => undefined);
   }
 
   if (!data) {
@@ -544,6 +593,13 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     { id: 'settings', icon: SettingsIcon, label: 'Settings' },
   ];
   const lastMessage = messages.at(-1);
+  const floatingAloyStatus = approval
+    ? 'Approval required'
+    : clarify
+      ? 'Needs your answer'
+      : sending || streaming
+        ? 'Aloy is working'
+        : 'Ask Aloy';
 
   async function retryContext(item: EventSetupContextItem) {
     setContextActionId(item.id);
@@ -573,7 +629,8 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className="relative flex min-w-0 flex-1 flex-col">
+        {!workbenchFocused && (
         <header className="flex shrink-0 flex-col gap-2 border-b border-zinc-800 px-3 py-2 md:min-h-14 md:flex-row md:items-center md:gap-3 md:px-4 md:py-0 lg:px-5">
           <div className="flex w-full min-w-0 items-center gap-3 md:flex-1">
             {!data.event.is_life && <EventCover event={data.event} className="h-9 w-12 shrink-0 rounded-lg border border-zinc-800" />}
@@ -612,7 +669,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               <button
                 key={mode}
                 type="button"
-                onClick={() => setWorkspaceMode(mode)}
+                onClick={() => changeWorkspaceMode(mode)}
                 className={`min-h-9 rounded-md px-2.5 py-1.5 text-[11px] font-medium capitalize transition-colors ${workspaceMode === mode ? 'bg-zinc-700 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'} ${mode === 'split' ? 'hidden md:block' : ''}`}
                 aria-pressed={workspaceMode === mode}
               >
@@ -630,6 +687,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
             {contextOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
         </header>
+        )}
 
         {error && (
           <div className="mx-4 mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600">
@@ -764,19 +822,81 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               activeTabId={activeWorkbenchTabId}
               onSelectTab={setActiveWorkbenchTabId}
               onCloseTab={closeWorkbenchTab}
-              onDismiss={() => setWorkspaceMode('conversation')}
+              onDismiss={() => changeWorkspaceMode('conversation')}
               onAskAloy={askAloyAboutFile}
               showSurfaceAlongside={showSurfaceAlongside}
               onToggleSurfaceAlongside={() => setShowSurfaceAlongside((value) => !value)}
               resourceRatio={resourceRatio}
               onResourceRatioChange={setResourceRatio}
+              focused={workbenchFocused}
+              onToggleFocus={() => {
+                changeWorkspaceMode('workbench');
+                setWorkbenchFocused((value) => !value);
+              }}
+              onSurfaceAloyHandoff={handleSurfaceAloyHandoff}
             />
           </div>
         )}
         </div>
+
+        {workspaceMode === 'workbench' && conversationId && (
+          <FloatingAloyPanel
+            open={aloyPanelOpen}
+            status={floatingAloyStatus}
+            storageKey={`aloy:event:${eventId}:floating-aloy`}
+            onOpen={() => setAloyPanelOpen(true)}
+            onClose={() => setAloyPanelOpen(false)}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4">
+              <MessageList
+                messages={messages.slice(-12)}
+                streaming={streaming}
+                streamText={streamText}
+                streamStatus={streamStatus}
+                streamActivity={streamActivity}
+                streamPlan={streamPlan}
+                streamTools={streamTools}
+                streamStep={streamStep}
+                clarify={clarify}
+                onAnswerClarify={answerClarify}
+                approval={approval}
+                onDecideApproval={answerApproval}
+                onOpenArtifact={openArtifact}
+                onResend={sending ? undefined : resend}
+                onContinue={sending ? undefined : continueRun}
+                hasOlder={false}
+                loadingOlder={false}
+                onLoadOlder={() => undefined}
+              />
+            </div>
+            <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/95 p-2.5">
+              <Composer
+                value={input}
+                onChange={setInput}
+                onSend={handleSend}
+                onAddFiles={addAttachments}
+                onChooseFile={attachStoredFile}
+                onSearchFiles={fileReferences.search}
+                referenceFiles={fileReferences.files}
+                referenceFilesLoading={fileReferences.loading}
+                referenceFilesError={fileReferences.error}
+                referenceScopeLabel={`Files retained in ${data.event.title}`}
+                pendingImages={pendingImages}
+                onRemoveImage={removeImage}
+                pendingFiles={pendingFiles}
+                onRemoveFile={removeFile}
+                disabled={sending && !clarify}
+                placeholder={clarify ? 'Answer the question aboveâ€¦' : approval ? 'Review the approval aboveâ€¦' : `Ask Aloy about this ${activeWorkbenchTabId === 'surface' ? 'Surface' : 'view'}â€¦`}
+                attachFull={attachmentsFull}
+                fileAttachFull={fileAttachmentsFull}
+                onStop={sending && !clarify ? stopRun : undefined}
+              />
+            </div>
+          </FloatingAloyPanel>
+        )}
       </section>
 
-      {contextOpen && (
+      {contextOpen && !workbenchFocused && (
         <aside className="absolute inset-y-0 right-0 z-30 flex w-full shrink-0 flex-col border-l border-zinc-800 bg-zinc-900 shadow-2xl sm:w-[min(420px,100%)] xl:static xl:w-[390px] xl:shadow-none">
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4">
             <div>

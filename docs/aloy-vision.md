@@ -1189,6 +1189,39 @@ Pane sizes, open items, selected tabs, and layout mode persist per user and
 Event. Live updates never steal focus, reset local interaction, move scroll, or
 silently rearrange the workspace.
 
+Workbench focus includes an explicit host-owned **Focus Mode**. The global
+navigation, Event header, context dock, and mobile navigation yield so the
+active Surface, file, artifact, or replay can use the complete application
+canvas without opening a browser popup or separate desktop window. The
+Workbench tab strip remains available for orientation, exit, and switching
+between open resources. Focus Mode itself is temporary; leaving the Event or
+choosing Conversation restores the normal shell.
+
+When Conversation is hidden, Aloy remains available through one floating
+host-owned control in the lower-right safe area. It expands into a contextual
+Conversation panel and composer over the Workbench; on mobile it behaves as a
+bounded bottom sheet. Closing the panel returns to the same Surface or file
+without resetting its state. **Ask Aloy about this file** keeps Focus Mode,
+attaches the trusted file reference, and opens this panel rather than replacing
+the resource with Conversation.
+
+The compact control is draggable and remains clamped inside the visible
+Workbench, so the user can move it away from important Surface or document
+content. Its position persists per Event. On desktop, the expanded Conversation
+panel has a dedicated drag handle and remembers its own position; its first open
+uses the side where the compact control was placed. Mobile retains the bounded
+bottom sheet because freely floating a full composer would reduce usable touch
+space and create unsafe off-screen states.
+
+Generated Surface code cannot draw, move, suppress, or imitate the floating
+control. The secure Surface bridge summons it only for an explicit **Ask Aloy**
+request, a protected action, or an interaction that durably creates a handling
+Run or Proposal. Local navigation, filtering, selection, and canonical
+state-only commands remain quiet. A clarification or approval automatically
+opens the panel; background execution changes its compact status to **Aloy is
+working** without covering the whole resource. This preserves application-like
+speed while making reasoning, consent, and recovery immediately reachable.
+
 Opening a PDF, report, image, code file, spreadsheet, or Run artifact creates a
 host-owned Workbench tab—not a cramped overlay drawer. Multiple files become
 tabs inside the viewer. **Ask Aloy about this file** reveals Conversation beside

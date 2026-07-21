@@ -4,7 +4,10 @@ import type {
   SurfaceRuntimeContext,
 } from '../src/api/surfaces';
 import { ApiError } from '../src/api/client';
-import { SurfaceBridgeHost } from '../src/components/surfaces/surfaceBridge';
+import {
+  SurfaceBridgeHost,
+  shouldSummonAloy,
+} from '../src/components/surfaces/surfaceBridge';
 
 const context: SurfaceRuntimeContext = {
   protocol_version: '1',
@@ -68,6 +71,15 @@ function responsivePort(message: ConnectMessage, port: MessagePort) {
 }
 
 describe('SurfaceBridgeHost', () => {
+  test('summons host Aloy only for reasoning, protected action, Run, or Proposal handoffs', () => {
+    expect(shouldSummonAloy('command', interaction)).toBe(false);
+    expect(shouldSummonAloy('dispatch', interaction)).toBe(false);
+    expect(shouldSummonAloy('ask_aloy', interaction)).toBe(true);
+    expect(shouldSummonAloy('request_action', interaction)).toBe(true);
+    expect(shouldSummonAloy('command', { ...interaction, handling_run_id: 'run-1' })).toBe(true);
+    expect(shouldSummonAloy('command', { ...interaction, proposal_id: 'proposal-1' })).toBe(true);
+  });
+
   test('becomes healthy only after an acknowledgement for the bound session', async () => {
     const statuses: string[] = [];
     const bridge = new SurfaceBridgeHost(
@@ -204,6 +216,78 @@ describe('SurfaceBridgeHost', () => {
       receivedTypes.indexOf('response'),
     );
     expect(contextReads).toBe(2);
+    bridge.disconnect(false);
+  });
+
+  test('notifies host chrome without letting its failure hide a successful handoff', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    const handoffs: Array<{ method: string; name: string; message?: string }> = [];
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      {
+        onAloyHandoff: (handoff) => {
+          handoffs.push(handoff);
+          throw new Error('host panel failed to render');
+        },
+      },
+      {
+        getContext: async () => context,
+        createInteraction: async () => ({
+          ...interaction,
+          name: 'aloy.ask',
+          interaction_class: 'reasoning',
+          data_revision: null,
+          handling_run_id: 'run-ask-1',
+        }),
+      },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (event.data.type === 'ping') {
+          surfacePort?.postMessage({
+            protocol: '1',
+            type: 'pong',
+            sessionId,
+            nonce: event.data.nonce,
+          });
+        } else if (event.data.type === 'response') {
+          resolve(event.data);
+        }
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-ask-aloy',
+        method: 'askAloy',
+        params: {
+          message: 'Compare the selected flights',
+          context: { selectedFlightId: 'flight-2' },
+          componentId: 'flight-comparison',
+          idempotencyKey: 'interaction-ask-1',
+        },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for host response')), 500);
+    });
+
+    await expect(response).resolves.toMatchObject({ ok: true });
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs[0]).toMatchObject({
+      method: 'ask_aloy',
+      name: 'aloy.ask',
+      message: 'Compare the selected flights',
+    });
     bridge.disconnect(false);
   });
 
