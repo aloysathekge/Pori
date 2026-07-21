@@ -922,14 +922,22 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 
 ## 8. Immediate next action
 
-R8 is merged into `aloy-v1` as PR #198 and the initial R9 quality-state slice is
-merged as PR #199. R9 primary-job simulation is active on
-`aloy-v1-r9-primary-job-simulation`. Exact-build receipts, the five-viewport
+R8 is merged into `aloy-v1` as PR #198, the initial R9 quality-state slice is
+merged as PR #199, and the primary-job simulation gate is merged as PR #200.
+The next slice is active on `aloy-v1-r9-sdk-foundation`. Exact-build receipts, the five-viewport
 baseline, the public lifecycle, long-content and approval state matrix,
 keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
 semantic browser workflow execution, and build-bound job evidence are complete.
 A visual Critic is deferred and optional, not a publication gate. Remote
-evidence transport and reviewed SDK primitives/widgets follow; University and
+evidence transport follows the reviewed SDK primitives/widgets. University and
 Madrid are proofs of the ordinary pipeline, not special runtime behavior. Keep
 `main` untouched until the R9 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.
+
+The SDK foundation starts with a host-reviewed widget registry. Generated
+manifests may declare only approved domain-neutral widgets and must grant the
+capabilities required by privileged widgets; unknown ids and capability drift
+fail closed before source persistence. Generic responsive primitives are being
+added to the isolated SDK next. Provider-backed widgets such as Map remain
+separate host adapters with their own privacy, attribution, credential, and
+mobile contracts.

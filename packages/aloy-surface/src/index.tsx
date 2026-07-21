@@ -1,10 +1,401 @@
 import {
+  cloneElement,
+  isValidElement,
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
+import type {
+  ButtonHTMLAttributes,
+  CSSProperties,
+  HTMLAttributes,
+  ReactElement,
+  ReactNode,
+} from 'react';
+
+/** Stable visual values for generated Surfaces. */
+export const surfaceTokens = {
+  color: {
+    ink: '#172022',
+    muted: '#5f6b6d',
+    line: '#d7dfdd',
+    surface: '#ffffff',
+    canvas: '#f6f9f8',
+    accent: '#0f8571',
+    accentContrast: '#ffffff',
+    danger: '#b42318',
+    dangerSurface: '#fff1f0',
+    warning: '#9a6700',
+    warningSurface: '#fff8e6',
+    success: '#147a52',
+    successSurface: '#edf9f2',
+  },
+  space: {
+    xs: '0.25rem',
+    sm: '0.5rem',
+    md: '0.75rem',
+    lg: '1rem',
+    xl: '1.5rem',
+    '2xl': '2rem',
+  },
+  radius: {
+    sm: '0.5rem',
+    md: '0.75rem',
+    lg: '1rem',
+    pill: '999px',
+  },
+  type: {
+    body: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    display: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    mono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  },
+  breakpoint: {
+    mobile: '30rem',
+    tablet: '48rem',
+    desktop: '64rem',
+  },
+} as const;
+
+export type SurfaceTokens = typeof surfaceTokens;
+
+type SurfaceStyleProps = {
+  className?: string;
+  style?: CSSProperties;
+};
+
+function mergeClassNames(...values: Array<string | undefined>): string | undefined {
+  const value = values.filter(Boolean).join(' ').trim();
+  return value || undefined;
+}
+
+/** The semantic root for a generated Surface application. */
+export function SurfaceRoot({
+  children,
+  className,
+  style,
+  ...props
+}: HTMLAttributes<HTMLElement> & SurfaceStyleProps): ReactElement {
+  return (
+    <main
+      {...props}
+      data-aloy-surface-root="true"
+      className={mergeClassNames('aloy-surface-root', className)}
+      style={{
+        boxSizing: 'border-box',
+        width: '100%',
+        minHeight: '100%',
+        margin: 0,
+        padding: surfaceTokens.space.xl,
+        overflowX: 'hidden',
+        color: surfaceTokens.color.ink,
+        background: surfaceTokens.color.canvas,
+        fontFamily: surfaceTokens.type.body,
+        lineHeight: 1.5,
+        ...style,
+      }}
+    >
+      {children}
+    </main>
+  );
+}
+
+export interface SurfaceStackProps extends HTMLAttributes<HTMLDivElement>, SurfaceStyleProps {
+  children?: ReactNode;
+  direction?: 'row' | 'column';
+  gap?: keyof SurfaceTokens['space'];
+  align?: CSSProperties['alignItems'];
+  justify?: CSSProperties['justifyContent'];
+  wrap?: boolean;
+}
+
+/** A small flex primitive with safe wrapping for narrow Surface panes. */
+export function SurfaceStack({
+  children,
+  direction = 'column',
+  gap = 'lg',
+  align,
+  justify,
+  wrap = false,
+  className,
+  style,
+  ...props
+}: SurfaceStackProps): ReactElement {
+  return (
+    <div
+      {...props}
+      className={mergeClassNames('aloy-surface-stack', className)}
+      style={{
+        display: 'flex',
+        flexDirection: direction,
+        gap: surfaceTokens.space[gap],
+        alignItems: align,
+        justifyContent: justify,
+        flexWrap: wrap ? 'wrap' : undefined,
+        minWidth: 0,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface SurfaceGridProps extends HTMLAttributes<HTMLDivElement>, SurfaceStyleProps {
+  children?: ReactNode;
+  gap?: keyof SurfaceTokens['space'];
+  minColumnWidth?: string;
+}
+
+/** A responsive grid that collapses naturally instead of creating overflow. */
+export function SurfaceGrid({
+  children,
+  gap = 'lg',
+  minColumnWidth = '16rem',
+  className,
+  style,
+  ...props
+}: SurfaceGridProps): ReactElement {
+  return (
+    <div
+      {...props}
+      className={mergeClassNames('aloy-surface-grid', className)}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${minColumnWidth}), 1fr))`,
+        gap: surfaceTokens.space[gap],
+        minWidth: 0,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface SurfacePanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'>, SurfaceStyleProps {
+  children?: ReactNode;
+  title?: ReactNode;
+  description?: ReactNode;
+}
+
+/** A labelled section that gives generated information hierarchy a stable baseline. */
+export function SurfacePanel({
+  children,
+  title,
+  description,
+  className,
+  style,
+  ...props
+}: SurfacePanelProps): ReactElement {
+  const titleId = useId();
+  return (
+    <section
+      {...props}
+      aria-labelledby={title ? titleId : props['aria-labelledby']}
+      className={mergeClassNames('aloy-surface-panel', className)}
+      style={{
+        boxSizing: 'border-box',
+        minWidth: 0,
+        padding: surfaceTokens.space.xl,
+        border: `1px solid ${surfaceTokens.color.line}`,
+        borderRadius: surfaceTokens.radius.lg,
+        background: surfaceTokens.color.surface,
+        boxShadow: '0 1px 2px rgb(23 32 34 / 6%)',
+        ...style,
+      }}
+    >
+      {title && (
+        <div style={{ marginBottom: description ? surfaceTokens.space.sm : surfaceTokens.space.lg }}>
+          <h2 id={titleId} style={{ margin: 0, color: surfaceTokens.color.ink, fontSize: '1.05rem', lineHeight: 1.25 }}>
+            {title}
+          </h2>
+          {description && (
+            <p style={{ margin: `${surfaceTokens.space.xs} 0 0`, color: surfaceTokens.color.muted, fontSize: '0.9rem' }}>
+              {description}
+            </p>
+          )}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+export interface SurfaceFieldProps extends HTMLAttributes<HTMLDivElement>, SurfaceStyleProps {
+  label: ReactNode;
+  children: ReactElement;
+  hint?: ReactNode;
+  error?: ReactNode;
+  required?: boolean;
+}
+
+/** Label, hint, and error wiring for one form control. */
+export function SurfaceField({
+  label,
+  children,
+  hint,
+  error,
+  required = false,
+  className,
+  style,
+  ...props
+}: SurfaceFieldProps): ReactElement {
+  const fieldId = `aloy-field-${useId().replaceAll(':', '')}`;
+  const childProps = children.props as {
+    id?: string;
+    'aria-describedby'?: string;
+    'aria-invalid'?: boolean | 'false' | 'true';
+    'aria-required'?: boolean | 'false' | 'true';
+  };
+  const hintId = hint ? `${fieldId}-hint` : undefined;
+  const errorId = error ? `${fieldId}-error` : undefined;
+  const describedBy = [childProps['aria-describedby'], hintId, errorId]
+    .filter(Boolean)
+    .join(' ') || undefined;
+  const controlId = childProps.id ?? fieldId;
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+        id: controlId,
+        'aria-describedby': describedBy,
+        'aria-invalid': error ? true : childProps['aria-invalid'],
+        'aria-required': required ? true : childProps['aria-required'],
+      })
+    : children;
+  return (
+    <div
+      {...props}
+      data-aloy-field="true"
+      className={mergeClassNames('aloy-surface-field', className)}
+      style={{ display: 'grid', gap: surfaceTokens.space.xs, minWidth: 0, ...style }}
+    >
+      <label htmlFor={controlId} style={{ color: surfaceTokens.color.ink, fontSize: '0.9rem', fontWeight: 600 }}>
+        {label}{required && <span aria-hidden="true"> *</span>}
+      </label>
+      {control}
+      {hint && <div id={hintId} style={{ color: surfaceTokens.color.muted, fontSize: '0.8rem' }}>{hint}</div>}
+      {error && <div id={errorId} role="alert" style={{ color: surfaceTokens.color.danger, fontSize: '0.8rem' }}>{error}</div>}
+    </div>
+  );
+}
+
+export type SurfaceStatusKind = 'loading' | 'ready' | 'empty' | 'stale' | 'error' | 'permission_denied' | 'pending' | 'indeterminate';
+
+export interface SurfaceStatusProps extends HTMLAttributes<HTMLDivElement>, SurfaceStyleProps {
+  status: SurfaceStatusKind;
+  message?: ReactNode;
+  retry?: () => void;
+  retryLabel?: string;
+}
+
+/** A visible, live region for every host resource state. */
+export function SurfaceStatus({
+  status,
+  message,
+  retry,
+  retryLabel = 'Try again',
+  className,
+  style,
+  ...props
+}: SurfaceStatusProps): ReactElement | null {
+  if (status === 'ready' && !message) return null;
+  const defaults: Record<SurfaceStatusKind, string> = {
+    loading: 'Loading...',
+    ready: 'Ready',
+    empty: 'Nothing here yet.',
+    stale: 'This view may be out of date.',
+    error: 'This view could not be loaded.',
+    permission_denied: 'You do not have access to this view.',
+    pending: 'Aloy is working on this.',
+    indeterminate: 'Aloy is checking the result.',
+  };
+  const isError = status === 'error' || status === 'permission_denied';
+  const tone = isError
+    ? { background: surfaceTokens.color.dangerSurface, color: surfaceTokens.color.danger }
+    : status === 'pending' || status === 'stale' || status === 'indeterminate'
+      ? { background: surfaceTokens.color.warningSurface, color: surfaceTokens.color.warning }
+      : { background: surfaceTokens.color.successSurface, color: surfaceTokens.color.success };
+  return (
+    <div
+      {...props}
+      className={mergeClassNames('aloy-surface-status', className)}
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
+      aria-atomic="true"
+      data-aloy-resource-state={status}
+      style={{ display: 'flex', alignItems: 'center', gap: surfaceTokens.space.md, padding: `${surfaceTokens.space.sm} ${surfaceTokens.space.md}`, borderRadius: surfaceTokens.radius.md, ...tone, ...style }}
+    >
+      <span style={{ minWidth: 0, flex: 1 }}>{message ?? defaults[status]}</span>
+      {retry && (status === 'error' || status === 'stale' || status === 'indeterminate') && (
+        <ActionButton type="button" variant="outline" onClick={retry}>{retryLabel}</ActionButton>
+      )}
+    </div>
+  );
+}
+
+export type SurfaceActionButtonVariant = 'primary' | 'secondary' | 'danger' | 'outline' | 'quiet';
+
+export interface SurfaceActionButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>, SurfaceStyleProps {
+  children: ReactNode;
+  busy?: boolean;
+  busyLabel?: string;
+  variant?: SurfaceActionButtonVariant;
+}
+
+/** A 44px, keyboard-visible action control suitable for primary-job checks. */
+export function ActionButton({
+  children,
+  busy = false,
+  busyLabel = 'Working...',
+  variant = 'primary',
+  className,
+  style,
+  disabled,
+  onFocus,
+  onBlur,
+  ...props
+}: SurfaceActionButtonProps): ReactElement {
+  const [focused, setFocused] = useState(false);
+  const palette: Record<SurfaceActionButtonVariant, CSSProperties> = {
+    primary: { background: surfaceTokens.color.accent, color: surfaceTokens.color.accentContrast, borderColor: surfaceTokens.color.accent },
+    secondary: { background: surfaceTokens.color.surface, color: surfaceTokens.color.ink, borderColor: surfaceTokens.color.line },
+    danger: { background: surfaceTokens.color.danger, color: surfaceTokens.color.accentContrast, borderColor: surfaceTokens.color.danger },
+    outline: { background: 'transparent', color: surfaceTokens.color.accent, borderColor: surfaceTokens.color.accent },
+    quiet: { background: 'transparent', color: surfaceTokens.color.ink, borderColor: 'transparent' },
+  };
+  return (
+    <button
+      {...props}
+      type={props.type ?? 'button'}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
+      data-aloy-action="true"
+      className={mergeClassNames('aloy-surface-action', className)}
+      onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+      onBlur={(event) => { setFocused(false); onBlur?.(event); }}
+      style={{
+        boxSizing: 'border-box',
+        minHeight: '2.75rem',
+        minWidth: '2.75rem',
+        padding: `${surfaceTokens.space.sm} ${surfaceTokens.space.md}`,
+        border: '1px solid',
+        borderRadius: surfaceTokens.radius.md,
+        font: 'inherit',
+        fontWeight: 600,
+        lineHeight: 1.2,
+        cursor: disabled || busy ? 'wait' : 'pointer',
+        transition: 'filter 120ms ease, box-shadow 120ms ease',
+        ...palette[variant],
+        ...(focused ? { outline: `2px solid ${surfaceTokens.color.accent}`, outlineOffset: '2px' } : {}),
+        ...style,
+      }}
+    >
+      {busy ? busyLabel : children}
+    </button>
+  );
+}
 
 const PROTOCOL = '1' as const;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -540,7 +931,8 @@ function onPortMessage(event: MessageEvent<unknown>) {
   );
 }
 
-window.addEventListener('message', (event: MessageEvent<unknown>) => {
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const value = event.data as {
     protocol?: string;
     type?: string;
@@ -568,7 +960,8 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
   publishRuntime({ status: 'healthy' });
   port.postMessage({ protocol: PROTOCOL, type: 'ready', sessionId });
   replayPending();
-});
+  });
+}
 
 function request<T>(method: string, params: Record<string, unknown>): Promise<T> {
   if (!port || !sessionId) {

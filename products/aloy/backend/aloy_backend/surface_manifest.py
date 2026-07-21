@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .surface_widgets import validate_surface_widgets
+
 SURFACE_PROTOCOL_VERSION: Literal["1"] = "1"
 SURFACE_SDK_VERSION: Literal["1"] = "1"
 MAX_INTENTS = 100
@@ -284,6 +286,7 @@ class SurfaceManifest(BaseModel):
     @model_validator(mode="after")
     def validate_intent_capabilities(self) -> "SurfaceManifest":
         granted = set(self.capabilities)
+        validate_surface_widgets(self.widgets, granted)
         for name, declaration in self.intents.items():
             if declaration.write:
                 capability = f"data:{declaration.write.namespace}"
