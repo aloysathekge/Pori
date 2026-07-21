@@ -938,9 +938,11 @@ keyboard-focus traversal, deterministic text contrast, frozen requested jobs,
 semantic browser workflow execution, and build-bound job evidence are complete.
 A visual Critic is deferred and optional, not a publication gate. The transport
 and append-only evidence foundation now supports a remote browser inspector;
-the following provider slice must exercise that remote path and record its
-latency/recovery evidence. University and Madrid are proofs of the ordinary
-pipeline, not special runtime behavior. Keep `main` untouched until the R9
+the isolated adapter writes one sealed request to the fixed Surface toolchain,
+runs its fixed `inspect-surface` command, and accepts one typed bounded result.
+The following provider acceptance slice must exercise that remote path and
+record its latency/recovery evidence. University and Madrid are proofs of the
+ordinary pipeline, not special runtime behavior. Keep `main` untouched until the R9
 gate, manual product QA, live-provider proofs,
 remote sandbox acceptance, and dogfooding exit criteria all pass.
 

@@ -759,7 +759,10 @@ class SandboxSurfaceBuildRunner:
                 bundle=bundle,
                 build_log=log,
                 preview_artifacts=list(metadata.get("preview_artifacts") or []),
-                resource_metrics=dict(metadata.get("resource_metrics") or {}),
+                resource_metrics={
+                    **dict(metadata.get("resource_metrics") or {}),
+                    "backend": "isolated",
+                },
             )
         except Exception as exc:
             return SurfaceBuildRunnerResult(

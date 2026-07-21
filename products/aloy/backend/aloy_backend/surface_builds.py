@@ -46,6 +46,7 @@ from .surface_inspection_transport import (
     SurfaceInspectionArtifact,
     SurfaceInspectionRequest,
     SurfaceInspectionTransport,
+    configured_surface_inspection_transport,
     new_surface_inspection_binding,
     validate_surface_inspection_result,
 )
@@ -198,9 +199,7 @@ class SurfaceBuildHandler:
         # Resolve storage only if a successful build actually has a bundle to
         # retain. Merely assembling a Surface Builder run stays side-effect free.
         self._object_store = object_store
-        self._inspection_transport = (
-            inspection_transport or LocalSurfaceInspectionTransport()
-        )
+        self._inspection_transport = inspection_transport
         self._session_factory = session_factory
         self._owner_loop = owner_loop
 
@@ -511,7 +510,10 @@ class SurfaceBuildHandler:
             inspection_evidence: dict[str, Any] = {}
             capture_values: list[SurfaceInspectionArtifact] = []
             inspection_transport: dict[str, Any] = {}
-            if preview_ready and build.resource_metrics.get("backend") == "local_dev":
+            if preview_ready and build.resource_metrics.get("backend") in {
+                "local_dev",
+                "isolated",
+            }:
                 from .surface_interactions import surface_runtime_context
                 from .tenancy import OrganizationContext, OrganizationPolicy
 
@@ -553,8 +555,15 @@ class SurfaceBuildHandler:
                             source_checksum=build.source_checksum,
                             bundle_sha256=build.bundle_sha256 or "",
                         )
+                        transport = self._inspection_transport
+                        if transport is None:
+                            transport = (
+                                LocalSurfaceInspectionTransport()
+                                if build.resource_metrics.get("backend") == "local_dev"
+                                else configured_surface_inspection_transport()
+                            )
                         inspection = await asyncio.to_thread(
-                            self._inspection_transport.inspect,
+                            transport.inspect,
                             SurfaceInspectionRequest(
                                 binding=binding,
                                 document=document,
