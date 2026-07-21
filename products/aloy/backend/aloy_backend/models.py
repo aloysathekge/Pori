@@ -588,6 +588,83 @@ class SurfaceCommandAttempt(SQLModel, table=True):
     )
 
 
+class SurfaceInspection(SQLModel, table=True):
+    """Append-only trusted-host inspection receipt for one exact Surface bundle.
+
+    Inspection output must never be reinterpreted against newer source or a
+    later bundle.  The tenant, Event, project, build, revision, and immutable
+    bundle identity are deliberately copied onto every receipt so evidence can
+    be queried and audited without relying on mutable publication pointers.
+    """
+
+    __tablename__ = "surface_inspections"
+
+    id: str = Field(
+        default_factory=lambda: f"sinspect_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    build_id: str = Field(foreign_key="surface_builds.id", index=True)
+    revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    bundle_key: str = Field(index=True)
+    bundle_sha256: str = Field(index=True)
+    inspection_kind: str = Field(index=True)
+    inspector_version: str
+    status: str = Field(index=True)
+    receipt_sha256: str = Field(index=True)
+    policy_versions: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    summary: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    timings: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class SurfaceEvidenceArtifact(SQLModel, table=True):
+    """Append-only immutable artifact captured by a trusted Surface inspection."""
+
+    __tablename__ = "surface_evidence_artifacts"
+
+    id: str = Field(
+        default_factory=lambda: f"sevidence_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    project_id: str = Field(foreign_key="surface_projects.id", index=True)
+    inspection_id: str = Field(foreign_key="surface_inspections.id", index=True)
+    build_id: str = Field(foreign_key="surface_builds.id", index=True)
+    revision_id: str = Field(foreign_key="surface_revisions.id", index=True)
+    bundle_key: str = Field(index=True)
+    bundle_sha256: str = Field(index=True)
+    artifact_kind: str = Field(index=True)
+    storage_key: str = Field(index=True)
+    content_type: str
+    content_sha256: str = Field(index=True)
+    size_bytes: int
+    artifact_metadata: dict = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSON, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Task(SQLModel, table=True):
     """Durable executable work owned by an Event."""
 

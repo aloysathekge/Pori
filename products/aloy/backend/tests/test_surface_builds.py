@@ -13,7 +13,12 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
 from sqlmodel import select
 
-from aloy_backend.models import EventTrailEntry, SurfaceBuild
+from aloy_backend.models import (
+    EventTrailEntry,
+    SurfaceBuild,
+    SurfaceEvidenceArtifact,
+    SurfaceInspection,
+)
 from aloy_backend.runtime import authenticated_run_context
 from aloy_backend.surface_authoring import (
     SurfaceAuthoringHandler,
@@ -34,6 +39,10 @@ from aloy_backend.surface_builds import (
     SurfaceBuildHandler,
     SurfaceBuildParams,
     SurfacePreviewParams,
+)
+from aloy_backend.surface_inspection_transport import (
+    SurfaceInspectionArtifact,
+    SurfaceInspectionResult,
 )
 from aloy_backend.surface_manifest import SurfaceManifest
 from aloy_backend.surface_quality import (
@@ -83,6 +92,39 @@ class MemoryObjectStore:
     def url(self, key, *, expires_s=300):
         del key, expires_s
         return None
+
+
+class RecordingInspectionTransport:
+    transport_id = "test-remote-browser"
+
+    def __init__(self):
+        self.requests = []
+
+    def inspect(self, request):
+        self.requests.append(request)
+        artifacts = []
+        evidence = _inspection_evidence()
+        for viewport in evidence["viewport_matrix"]["viewports"]:
+            name = f"{viewport['id']}.png"
+            data = f"png:{name}".encode()
+            checksum = hashlib.sha256(data).hexdigest()
+            viewport["capture"]["sha256"] = checksum
+            artifacts.append(
+                SurfaceInspectionArtifact(
+                    kind="viewport_capture",
+                    name=name,
+                    content_type="image/png",
+                    data=data,
+                    sha256=checksum,
+                )
+            )
+        return SurfaceInspectionResult(
+            binding=request.binding,
+            diagnostics=[],
+            evidence=evidence,
+            artifacts=artifacts,
+            transport={"id": self.transport_id, "version": "1"},
+        )
 
 
 def _inspection_evidence() -> dict:
@@ -1174,6 +1216,80 @@ async def test_local_preview_retains_viewport_quality_evidence(
     ]
     assert len(store.values) == 1 + len(REQUIRED_SURFACE_VIEWPORTS)
     assert "_capture_blobs" not in preview["quality_gate"]["evidence"]
+
+
+async def test_preview_persists_exact_remote_inspection_evidence(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Remote inspection")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content="export default () => <main>Remote inspection</main>",
+    )
+    transport = RecordingInspectionTransport()
+    handler = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=FakeBuildRunner(
+            SurfaceBuildRunnerResult(
+                status="succeeded",
+                bundle=_runtime_bundle(),
+                resource_metrics={"backend": "local_dev"},
+            )
+        ),
+        object_store=MemoryObjectStore(),
+        inspection_transport=transport,
+        session_factory=db_session_maker,
+    )
+    built = await handler.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-remote-inspection-0001",
+        )
+    )
+
+    preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
+
+    assert preview["preview_ready"] is True
+    assert preview["quality_gate"]["passed"] is True
+    assert len(transport.requests) == 1
+    assert transport.requests[0].binding.build_id == built["id"]
+    assert preview["quality_gate"]["evidence"]["transport"] == {
+        "id": "test-remote-browser",
+        "version": "1",
+    }
+
+    async with db_session_maker() as session:
+        inspections = list(
+            (
+                await session.execute(
+                    select(SurfaceInspection).where(
+                        SurfaceInspection.build_id == built["id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        artifacts = list(
+            (
+                await session.execute(
+                    select(SurfaceEvidenceArtifact).where(
+                        SurfaceEvidenceArtifact.build_id == built["id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert len(inspections) == 1
+    assert inspections[0].status == "passed"
+    assert inspections[0].bundle_sha256 == built["bundle_sha256"]
+    assert len(artifacts) == len(REQUIRED_SURFACE_VIEWPORTS)
+    assert {artifact.inspection_id for artifact in artifacts} == {inspections[0].id}
+    assert all(artifact.storage_key.startswith("org/") for artifact in artifacts)
 
 
 def test_surface_runtime_rejects_non_contract_entries_and_missing_script():
