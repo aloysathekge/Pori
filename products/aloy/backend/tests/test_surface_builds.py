@@ -127,6 +127,26 @@ class RecordingInspectionTransport:
         )
 
 
+class FailingInspectionTransport:
+    transport_id = "test-regression-browser"
+
+    def inspect(self, request):
+        return SurfaceInspectionResult(
+            binding=request.binding,
+            diagnostics=[
+                {
+                    "stage": "runtime",
+                    "code": "live_runtime_regression",
+                    "severity": "error",
+                    "message": "The primary interaction no longer completes",
+                }
+            ],
+            evidence={},
+            artifacts=[],
+            transport={"id": self.transport_id, "version": "1"},
+        )
+
+
 def _inspection_evidence() -> dict:
     required = [str(item["id"]) for item in REQUIRED_SURFACE_VIEWPORTS]
     return {
@@ -1298,6 +1318,74 @@ async def test_preview_persists_exact_remote_inspection_evidence(
     assert len(artifacts) == len(REQUIRED_SURFACE_VIEWPORTS)
     assert {artifact.inspection_id for artifact in artifacts} == {inspections[0].id}
     assert all(artifact.storage_key.startswith("org/") for artifact in artifacts)
+
+
+async def test_reinspection_forces_fresh_evidence_without_replacing_publication_receipt(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Live regression")
+    revision_id = await _author_revision(
+        event["id"],
+        db_session_maker,
+        content="export default () => <main>Live regression</main>",
+    )
+    store = MemoryObjectStore()
+    runner = FakeBuildRunner(
+        SurfaceBuildRunnerResult(
+            status="succeeded",
+            bundle=_runtime_bundle(),
+            resource_metrics={"backend": "local_dev"},
+        )
+    )
+    initial = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=runner,
+        object_store=store,
+        inspection_transport=RecordingInspectionTransport(),
+        session_factory=db_session_maker,
+    )
+    built = await initial.build(
+        SurfaceBuildParams(
+            revision_id=revision_id,
+            idempotency_key="build-live-regression-0001",
+        )
+    )
+    published_quality = await initial.preview(
+        SurfacePreviewParams(build_id=built["id"])
+    )
+    publication_fingerprint = published_quality["quality_gate"]["fingerprint"]
+
+    reinspection = SurfaceBuildHandler(
+        run_context=_run_context(event["id"]),
+        runner=runner,
+        object_store=store,
+        inspection_transport=FailingInspectionTransport(),
+        session_factory=db_session_maker,
+    )
+    checked = await reinspection.preview(
+        SurfacePreviewParams(
+            build_id=built["id"],
+            force_reinspection=True,
+            inspection_kind="reinspection",
+        )
+    )
+
+    assert checked["quality_gate_reused"] is False
+    assert checked["quality_gate"]["passed"] is False
+    assert checked["inspection_kind"] == "reinspection"
+    assert checked["inspection_id"]
+    async with db_session_maker() as session:
+        persisted = await session.get(SurfaceBuild, built["id"])
+        assert persisted is not None
+        assert (
+            persisted.resource_metrics["surface_quality"]["fingerprint"]
+            == publication_fingerprint
+        )
+        inspection = await session.get(SurfaceInspection, checked["inspection_id"])
+        assert inspection is not None
+        assert inspection.inspection_kind == "reinspection"
+        assert inspection.status == "failed"
 
 
 def test_surface_runtime_rejects_non_contract_entries_and_missing_script():

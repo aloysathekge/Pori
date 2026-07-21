@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     worker_lease_seconds: int = 900
     # How often the worker loop checks for due cron jobs
     cron_tick_seconds: float = 20.0
+    # Model-free live Surface health checks. Disabled until an operator has a
+    # trusted browser inspection provider and accepts its sandbox cost.
+    surface_reinspection_enabled: bool = False
+    surface_reinspection_tick_seconds: float = Field(default=300.0, ge=30.0)
+    surface_reinspection_interval_seconds: int = Field(default=86_400, ge=3_600)
 
     # Execution backend for agent shell/code: 'local' (runs on the worker
     # host) or 'e2b' (isolated cloud microVM per session — needs E2B_API_KEY

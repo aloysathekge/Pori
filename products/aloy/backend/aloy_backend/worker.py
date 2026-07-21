@@ -27,6 +27,7 @@ from .proposal_executor import (
 from .proposal_reconciliation import reconcile_indeterminate_proposals
 from .run_budgets import resolve_run_budget
 from .run_watchdog import reconcile_orphaned_tasks, reconcile_stale_runs
+from .surface_reinspection import queue_due_surface_reinspections
 from .tenancy import OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend.worker")
@@ -260,6 +261,7 @@ async def serve(worker_id: str | None = None) -> None:
     # are advanced-then-enqueued (at-most-once even with several workers —
     # see cron.tick_cron_jobs). No separate scheduler process to deploy.
     last_cron_tick = 0.0
+    last_surface_reinspection_tick = 0.0
     while True:
         if time.monotonic() - last_cron_tick >= settings.cron_tick_seconds:
             last_cron_tick = time.monotonic()
@@ -267,6 +269,18 @@ async def serve(worker_id: str | None = None) -> None:
                 await tick_cron_jobs()
             except Exception:
                 logger.exception("Cron tick failed; will retry next tick")
+        if (
+            settings.surface_reinspection_enabled
+            and time.monotonic() - last_surface_reinspection_tick
+            >= settings.surface_reinspection_tick_seconds
+        ):
+            last_surface_reinspection_tick = time.monotonic()
+            try:
+                await queue_due_surface_reinspections(
+                    interval_seconds=settings.surface_reinspection_interval_seconds
+                )
+            except Exception:
+                logger.exception("Surface reinspection tick failed; will retry")
         # One bad run must never take down the loop (execute_claimed_run guards
         # its own persistence, but claim/DB errors can still surface here).
         try:

@@ -62,6 +62,10 @@ from .surface_lifecycle import (
     reconcile_surface_run,
     surface_interaction_for_run,
 )
+from .surface_reinspection import (
+    SURFACE_REINSPECTION_RUN_KIND,
+    execute_claimed_surface_reinspection,
+)
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
     SurfaceRequestHandler,
@@ -236,6 +240,12 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             # complete candidate to Aloy's trusted host pipeline.
             await session.rollback()
             await execute_claimed_surface_builder(run_id, worker_id)
+            return
+        if run.run_kind == SURFACE_REINSPECTION_RUN_KIND:
+            # Reinspection is a model-free host job over the exact retained
+            # live bundle. It owns no general agent tools or publication power.
+            await session.rollback()
+            await execute_claimed_surface_reinspection(run_id, worker_id)
             return
 
         metrics: dict | None = None
