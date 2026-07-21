@@ -131,7 +131,9 @@ class SurfacePrimaryJobAssertion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["visible", "request", "state", "approval"]
-    role: Literal["button", "textbox", "combobox", "heading", "region", "status"] | None = None
+    role: (
+        Literal["button", "textbox", "combobox", "heading", "region", "status"] | None
+    ) = None
     name: str | None = Field(default=None, min_length=1, max_length=200)
     method: Literal["command", "dispatch", "askAloy", "requestAction"] | None = None
     namespace: str | None = None
@@ -145,34 +147,48 @@ class SurfacePrimaryJobAssertion(BaseModel):
         if self.kind == "visible":
             if self.role is None or self.name is None:
                 raise ValueError("Visible primary-job assertions require role and name")
-            if any(
-                value is not None
-                for value in (
-                    self.method,
-                    self.namespace,
-                    self.key,
-                    self.field,
-                    self.status,
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        self.method,
+                        self.namespace,
+                        self.key,
+                        self.field,
+                        self.status,
+                    )
                 )
-            ) or self.equals is not None:
-                raise ValueError("Visible primary-job assertions contain invalid fields")
+                or self.equals is not None
+            ):
+                raise ValueError(
+                    "Visible primary-job assertions contain invalid fields"
+                )
         elif self.kind == "request":
             if self.method is None or self.name is None:
-                raise ValueError("Request primary-job assertions require method and name")
-            if any(
-                value is not None
-                for value in (
-                    self.role,
-                    self.namespace,
-                    self.key,
-                    self.field,
-                    self.status,
+                raise ValueError(
+                    "Request primary-job assertions require method and name"
                 )
-            ) or self.equals is not None:
-                raise ValueError("Request primary-job assertions contain invalid fields")
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        self.role,
+                        self.namespace,
+                        self.key,
+                        self.field,
+                        self.status,
+                    )
+                )
+                or self.equals is not None
+            ):
+                raise ValueError(
+                    "Request primary-job assertions contain invalid fields"
+                )
         elif self.kind == "state":
             if not self.namespace or not self.key:
-                raise ValueError("State primary-job assertions require namespace and key")
+                raise ValueError(
+                    "State primary-job assertions require namespace and key"
+                )
             if not _NAMESPACE.fullmatch(self.namespace):
                 raise ValueError("Invalid primary-job state namespace")
             if "equals" not in self.model_fields_set:
@@ -185,18 +201,23 @@ class SurfacePrimaryJobAssertion(BaseModel):
         elif self.kind == "approval":
             if self.status is None:
                 raise ValueError("Approval primary-job assertions require status")
-            if any(
-                value is not None
-                for value in (
-                    self.role,
-                    self.name,
-                    self.method,
-                    self.namespace,
-                    self.key,
-                    self.field,
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        self.role,
+                        self.name,
+                        self.method,
+                        self.namespace,
+                        self.key,
+                        self.field,
+                    )
                 )
-            ) or self.equals is not None:
-                raise ValueError("Approval primary-job assertions contain invalid fields")
+                or self.equals is not None
+            ):
+                raise ValueError(
+                    "Approval primary-job assertions contain invalid fields"
+                )
         return self
 
 

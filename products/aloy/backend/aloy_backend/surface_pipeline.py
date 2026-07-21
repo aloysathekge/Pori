@@ -265,7 +265,9 @@ class SurfaceHostPipeline:
         self._authoring = authoring_handler
         self._builds = build_handler
         self._stage_observer = stage_observer
-        self._required_primary_jobs = [dict(item) for item in required_primary_jobs or []]
+        self._required_primary_jobs = [
+            dict(item) for item in required_primary_jobs or []
+        ]
 
     async def _stage(self, stage: str) -> None:
         if self._stage_observer is not None:

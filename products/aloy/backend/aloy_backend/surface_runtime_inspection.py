@@ -1702,7 +1702,9 @@ def _execute_primary_job(
     )
     _, exceptions = _receive_evaluation(socket, result_id=reset_id, deadline=deadline)
     if exceptions:
-        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+        diagnostics.extend(
+            _diagnostic("runtime_exception", item) for item in exceptions[:20]
+        )
     before_id = send(
         "Runtime.evaluate",
         {
@@ -1710,9 +1712,13 @@ def _execute_primary_job(
             "returnByValue": True,
         },
     )
-    before, exceptions = _receive_evaluation(socket, result_id=before_id, deadline=deadline)
+    before, exceptions = _receive_evaluation(
+        socket, result_id=before_id, deadline=deadline
+    )
     if exceptions:
-        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+        diagnostics.extend(
+            _diagnostic("runtime_exception", item) for item in exceptions[:20]
+        )
     start = int(before or 0)
     if not diagnostics:
         for step in job.steps:
@@ -1739,7 +1745,11 @@ def _execute_primary_job(
                     _diagnostic(
                         "primary_job_step_failed",
                         f"Primary job {job.description!r} failed: "
-                        + (str(result.get("error")) if isinstance(result, dict) else "step failed"),
+                        + (
+                            str(result.get("error"))
+                            if isinstance(result, dict)
+                            else "step failed"
+                        ),
                     )
                 )
                 break
@@ -1760,7 +1770,9 @@ def _execute_primary_job(
         socket, result_id=snapshot_id, deadline=min(deadline, time.monotonic() + 2.0)
     )
     if exceptions:
-        diagnostics.extend(_diagnostic("runtime_exception", item) for item in exceptions[:20])
+        diagnostics.extend(
+            _diagnostic("runtime_exception", item) for item in exceptions[:20]
+        )
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     request_values = snapshot.get("requests")
     requests: list[Any] = request_values if isinstance(request_values, list) else []
@@ -1776,7 +1788,9 @@ def _execute_primary_job(
                 result_id = send(
                     "Runtime.evaluate",
                     {
-                        "expression": _visible_assertion_expression(assertion.model_dump(mode="json")),
+                        "expression": _visible_assertion_expression(
+                            assertion.model_dump(mode="json")
+                        ),
                         "returnByValue": True,
                     },
                 )
@@ -1785,9 +1799,17 @@ def _execute_primary_job(
                     result_id=result_id,
                     deadline=min(deadline, time.monotonic() + 2.0),
                 )
-                outcome["passed"] = not exceptions and isinstance(result, dict) and result.get("ok") is True
+                outcome["passed"] = (
+                    not exceptions
+                    and isinstance(result, dict)
+                    and result.get("ok") is True
+                )
                 if not outcome["passed"]:
-                    outcome["error"] = str(result.get("error") if isinstance(result, dict) else "visible outcome missing")
+                    outcome["error"] = str(
+                        result.get("error")
+                        if isinstance(result, dict)
+                        else "visible outcome missing"
+                    )
             elif assertion.kind == "request":
                 matches = [
                     item
@@ -1797,33 +1819,62 @@ def _execute_primary_job(
                     and _request_name(item) == assertion.name
                 ]
                 outcome.update({"count": len(matches), "passed": len(matches) == 1})
-                if len(matches) == 1 and assertion.method in {"command", "dispatch", "requestAction"}:
+                if len(matches) == 1 and assertion.method in {
+                    "command",
+                    "dispatch",
+                    "requestAction",
+                }:
                     params = dict(matches[0].get("params") or {})
-                    payload = params.get("payload") if assertion.method in {"command", "dispatch"} else dict(params.get("action") or {}).get("payload")
+                    payload = (
+                        params.get("payload")
+                        if assertion.method in {"command", "dispatch"}
+                        else dict(params.get("action") or {}).get("payload")
+                    )
                     try:
-                        validate_intent_payload(manifest.intents[str(assertion.name)].schema_, payload)
+                        validate_intent_payload(
+                            manifest.intents[str(assertion.name)].schema_, payload
+                        )
                     except ValueError as exc:
                         outcome.update({"passed": False, "error": str(exc)})
             elif assertion.kind == "state":
-                surface = dict(dict(current_context.get("data") or {}).get("surface") or {})
+                surface = dict(
+                    dict(current_context.get("data") or {}).get("surface") or {}
+                )
                 records = surface.get(assertion.namespace or "")
                 records = records if isinstance(records, list) else []
                 record = next(
-                    (item for item in records if isinstance(item, dict) and item.get("key") == assertion.key),
+                    (
+                        item
+                        for item in records
+                        if isinstance(item, dict) and item.get("key") == assertion.key
+                    ),
                     None,
                 )
                 actual = None
                 found = record is not None
                 if record is not None:
-                    actual = dict(record.get("data") or {}).get(assertion.field) if assertion.field else record.get("data")
-                outcome.update({"found": found, "actual": actual, "passed": found and actual == assertion.equals})
+                    actual = (
+                        dict(record.get("data") or {}).get(assertion.field)
+                        if assertion.field
+                        else record.get("data")
+                    )
+                outcome.update(
+                    {
+                        "found": found,
+                        "actual": actual,
+                        "passed": found and actual == assertion.equals,
+                    }
+                )
             else:
                 expression = (
                     "(() => {const expected="
                     + json.dumps(assertion.status)
                     + ";const visible=element=>{const style=getComputedStyle(element);const rect=element.getBoundingClientRect();return style.visibility!=='hidden'&&style.display!=='none'&&rect.width>0&&rect.height>0;};return [...document.querySelectorAll('[data-aloy-approval-state]')].filter(visible).some(element=>element.getAttribute('data-aloy-approval-state')===expected);})()"
                 )
-                result_id = send("Runtime.evaluate", {"expression": expression, "returnByValue": True})
+                result_id = send(
+                    "Runtime.evaluate",
+                    {"expression": expression, "returnByValue": True},
+                )
                 result, exceptions = _receive_evaluation(
                     socket,
                     result_id=result_id,
@@ -1847,9 +1898,13 @@ def _execute_primary_job(
         "assertions": observations,
         "duration_ms": round((time.monotonic() - started_at) * 1000, 3),
     }
-    fingerprint_value = {key: value for key, value in evidence.items() if key != "duration_ms"}
+    fingerprint_value = {
+        key: value for key, value in evidence.items() if key != "duration_ms"
+    }
     evidence["fingerprint"] = hashlib.sha256(
-        json.dumps(fingerprint_value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            fingerprint_value, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
     ).hexdigest()
     return diagnostics, evidence
 

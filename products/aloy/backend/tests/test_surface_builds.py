@@ -591,12 +591,15 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         "data": {"interactions": [], "surface": {"career": []}},
     }
     evidence: dict = {}
-    assert inspect_surface_runtime(
-        build_surface_runtime_document(result.bundle),
-        context,
-        manifest=manifest,
-        evidence_sink=evidence,
-    ) == []
+    assert (
+        inspect_surface_runtime(
+            build_surface_runtime_document(result.bundle),
+            context,
+            manifest=manifest,
+            evidence_sink=evidence,
+        )
+        == []
+    )
     assert evidence["primary_jobs"]["passed"] is True
     assert evidence["primary_jobs"]["required"] == ["job_0123456789abcdef"]
     assert evidence["primary_jobs"]["jobs"][0]["fingerprint"]

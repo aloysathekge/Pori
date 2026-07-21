@@ -31,6 +31,7 @@ REQUIRED_SURFACE_VIEWPORTS: tuple[dict[str, Any], ...] = (
 )
 REQUIRED_SURFACE_STATE_VIEWPORTS: tuple[str, ...] = ("wide", "mobile")
 
+
 def _fingerprint(value: dict[str, Any]) -> str:
     encoded = json.dumps(
         value,
@@ -168,8 +169,7 @@ def create_surface_quality_receipt(
         str(item.get("id") or "") for item in observed_jobs if isinstance(item, dict)
     ]
     primary_jobs_passed = (
-        primary_job_evidence.get("policy_version")
-        == "aloy-surface-primary-jobs@1"
+        primary_job_evidence.get("policy_version") == "aloy-surface-primary-jobs@1"
         and primary_job_evidence.get("passed") is True
         and primary_job_evidence.get("required") == expected_job_ids
         and observed_job_ids == expected_job_ids

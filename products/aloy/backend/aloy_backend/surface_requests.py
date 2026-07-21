@@ -162,16 +162,20 @@ def surface_request_primary_jobs(run: Run) -> list[dict[str, str]]:
     ):
         raise ValueError("Surface primary-job contract is invalid")
     jobs = body["jobs"]
-    if not isinstance(jobs, list) or not jobs or not all(
-        isinstance(item, dict)
-        and set(item) == {"id", "description"}
-        and isinstance(item.get("id"), str)
-        and len(item["id"]) == 20
-        and item["id"].startswith("job_")
-        and all(character in "0123456789abcdef" for character in item["id"][4:])
-        and isinstance(item.get("description"), str)
-        and 3 <= len(item["description"]) <= 500
-        for item in jobs
+    if (
+        not isinstance(jobs, list)
+        or not jobs
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"id", "description"}
+            and isinstance(item.get("id"), str)
+            and len(item["id"]) == 20
+            and item["id"].startswith("job_")
+            and all(character in "0123456789abcdef" for character in item["id"][4:])
+            and isinstance(item.get("description"), str)
+            and 3 <= len(item["description"]) <= 500
+            for item in jobs
+        )
     ):
         raise ValueError("Surface primary-job contract is malformed")
     normalized = [
