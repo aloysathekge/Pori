@@ -1019,7 +1019,8 @@ domain behavior into Aloy:
 1. define versioned catalog, release, asset, seed, guided-job, compatibility,
    and installation records backed by the database/object storage;
 2. make installation idempotently materialize ordinary tenant-owned Event
-   context, starter data, Surface project/revision/build, and provenance;
+   context, starter data, Surface project/revision source, and provenance, then
+   let the normal host pipeline create the first real build;
 3. pin installed Events to a release so catalog updates never overwrite user
    work, while supporting explicit upgrade/preview later;
 4. add discovery groups (Student, Individual, Professional, Team, Business) as
@@ -1033,6 +1034,26 @@ Gate: all templates remain opt-in and available independently of subscription
 grouping; installing twice cannot duplicate an Event; removing catalog content
 cannot damage installed Events; and no runtime branch checks for university,
 travel, career, or another template domain.
+
+First backend slice completed on `aloy-v1-r12-event-template-catalog`:
+
+- seven generic database records cover catalog identity, immutable releases,
+  content-addressed assets, host compatibility, bounded seeds, guided jobs, and
+  tenant-owned installation receipts;
+- published releases are checksum-bound and contract-validated before discovery
+  or installation; incompatible, malformed, or modified releases fail closed;
+- one idempotent transaction creates an ordinary Event and Conversation,
+  evidence-backed context snapshot, optional starter Task, Surface
+  project/revision source receipt, canonical starter data, Trail entry,
+  and an immutable release snapshot;
+- template sample data and setup gaps remain visibly distinct from confirmed
+  user state, and the seeded Surface cannot bypass the host build, inspection,
+  or publication gate;
+- a fake Career OS release proves the generic path without model credits or a
+  career-specific runtime branch. Real catalog content remains database data
+  published by Aloy Internal, not product constants. Seven focused template
+  proofs, 23 Event/context/Surface regressions, and all 506 backend tests pass;
+  an empty SQLite database migrates cleanly to the new head.
 
 ## 6. Required V1 evals
 
@@ -1117,16 +1138,19 @@ deterministic Playwright and bounded Stagehand operations behind Pori contracts.
 ## 8. Immediate next action
 
 The R9 Surface quality and operator-control slices, trusted universal file
-viewer, and R11 durable Work Stories are merged into `aloy-v1` through PR #214.
+viewer, and R11 durable Work Stories plus hardening are merged into `aloy-v1`
+through PRs #214 and #216.
 The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
-Start `aloy-v1-r12-event-template-catalog` from current `aloy-v1`. Build the
-data contracts, installation transaction, and fake seeded Career OS release
-before adding discovery UI or model-authored template generation. This proof
-requires no model credits. University follows through the same contracts;
-Madrid waits for the trusted Map/widget phase. Subscription packaging remains a
-separate entitlement/limits design and must not leak into template taxonomy.
+The R12 backend contract, installation transaction, and fake seeded Career OS
+proof are now implemented without model credits. Next, give Aloy Internal a
+validated release import/publish workflow, load the first real Career OS release
+as database data, and route template-source-ready installations through the
+ordinary host build/inspection/publication pipeline. Discovery UI follows that
+end-to-end proof. University then uses the same contracts; Madrid waits for the
+trusted Map/widget phase. Subscription packaging remains a separate
+entitlement/limits design and must not leak into template taxonomy.
 
 R10 document ingestion remains a parallel planned architecture slice, not a
 reason to block the template proof. Keep `main` untouched until manual product
