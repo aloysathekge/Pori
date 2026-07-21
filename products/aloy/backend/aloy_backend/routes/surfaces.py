@@ -82,6 +82,12 @@ class SurfaceReinspectionBody(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     reason: str = Field(default="manual_check", min_length=3, max_length=200)
+    intent_id: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
+    )
 
 
 _SURFACE_STAGE_MESSAGES = {
@@ -165,9 +171,7 @@ async def submit_surface_feedback(
 async def create_surface_reinspection(
     event_id: str,
     body: SurfaceReinspectionBody,
-    context: OrganizationContext = Depends(
-        require_permission(Permission.POLICY_MANAGE)
-    ),
+    context: OrganizationContext = Depends(require_permission(Permission.OPERATOR_ACT)),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     event = await _owned_event(session, context, event_id)
@@ -177,6 +181,7 @@ async def create_surface_reinspection(
             context=context,
             event=event,
             reason=body.reason,
+            intent_id=body.intent_id,
         )
     except SurfaceReinspectionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -187,7 +192,7 @@ async def create_surface_reinspection(
 async def get_surface_health(
     event_id: str,
     context: OrganizationContext = Depends(
-        require_permission(Permission.POLICY_MANAGE)
+        require_permission(Permission.OPERATOR_READ)
     ),
     session: AsyncSession = Depends(get_session),
 ) -> dict:

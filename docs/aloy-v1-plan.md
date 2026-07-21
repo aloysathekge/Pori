@@ -939,9 +939,10 @@ Delivery phases:
 
 1. **Bootstrap and authority:** private repository, CI, typed operator client,
    audited read/action scopes, local operator login, and no stored production
-   credentials. Current `POLICY_MANAGE` authorization is only the transitional
-   organization-operator boundary; hosted use requires distinct
-   `operator:read` and `operator:act` service scopes.
+   credentials. Surface health now requires `operator:read` and reinspection
+   requires `operator:act`; admin and owner roles receive both for local testing.
+   Hosted use still requires a dedicated service identity and authenticated
+   operator-session exchange.
 2. **Surface operations:** Event/build search, exact-build health, last check,
    inspection timeline, safe `Run inspection`, and links to proposals and the
    still-live publication.

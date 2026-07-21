@@ -2,13 +2,12 @@
 
 ## Active Task
 
-R9 internal Surface health is active on `aloy-v1-r9-surface-health`, branched
-from `aloy-v1` after PR #208 merged trusted live-Surface reinspection and PR
-#209 merged the trusted universal file viewer. The exact published build now has
-one operator-only health contract for ready, checking, regression, and
-inspector-outage states. Aloy's user interface contains no health badge or
-manual check control. Accepted regressions still enter the ordinary Builder and
-last-good publication path.
+R9 operator authority is active on `aloy-v1-r9-operator-authority`, branched
+from `aloy-v1` after PR #210 merged the internal Surface health contract. Health
+reads now require `operator:read`; manual reinspection requires `operator:act`.
+Reinspection requests can carry a stable intent id so network retries return the
+same durable Run, including after it has completed. Aloy's user interface still
+contains no health badge or manual check control.
 
 The merged viewer resolves uploads and binary Run artifacts through one
 host-owned presentation contract. PDF, image, audio, video, Markdown,

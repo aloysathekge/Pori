@@ -124,11 +124,17 @@ async def test_reinspection_endpoint_queues_and_deduplicates_active_run(
 
     first = await client.post(
         f"/v1/events/{created['id']}/surface/operator/reinspections",
-        json={"reason": "daily_health_check"},
+        json={
+            "reason": "daily_health_check",
+            "intent_id": "intent:surface-check:001",
+        },
     )
     second = await client.post(
         f"/v1/events/{created['id']}/surface/operator/reinspections",
-        json={"reason": "runtime_change"},
+        json={
+            "reason": "runtime_change",
+            "intent_id": "intent:surface-check:002",
+        },
     )
 
     assert first.status_code == 202
@@ -143,6 +149,26 @@ async def test_reinspection_endpoint_queues_and_deduplicates_active_run(
     assert health.json()["status"] == "checking"
     assert health.json()["build_id"] == build_id
     assert health.json()["run_id"] == first.json()["run_id"]
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, first.json()["run_id"])
+        assert run is not None
+        run.status = "completed"
+        run.success = True
+        run.completed_at = datetime.now(timezone.utc)
+        session.add(run)
+        await session.commit()
+
+    completed_retry = await client.post(
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
+        json={
+            "reason": "safe network retry",
+            "intent_id": "intent:surface-check:001",
+        },
+    )
+    assert completed_retry.status_code == 202
+    assert completed_retry.json()["run_id"] == first.json()["run_id"]
+    assert completed_retry.json()["replayed"] is True
 
 
 async def test_surface_health_controls_require_operator_authority(
@@ -187,7 +213,9 @@ async def test_surface_health_controls_require_operator_authority(
     )
 
     assert health.status_code == 403
+    assert health.json()["detail"] == "Missing permission: operator:read"
     assert reinspection.status_code == 403
+    assert reinspection.json()["detail"] == "Missing permission: operator:act"
 
 
 async def test_failed_trusted_reinspection_proposes_evolution(
