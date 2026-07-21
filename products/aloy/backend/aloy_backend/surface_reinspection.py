@@ -253,6 +253,7 @@ async def queue_surface_reinspection(
     context: OrganizationContext,
     event: Event,
     reason: str,
+    intent_id: str | None = None,
     actor_id: str | None = None,
 ) -> tuple[Run, bool]:
     """Queue one model-free inspection, deduplicated while work is active."""
@@ -273,25 +274,44 @@ async def queue_surface_reinspection(
         or not project.published_build_id
     ):
         raise SurfaceReinspectionError(409, "A published Surface is required")
-    active = (
-        (
-            await session.execute(
-                select(Run)
-                .where(
-                    Run.organization_id == context.organization_id,
-                    Run.user_id == context.user_id,
-                    Run.event_id == event.id,
-                    Run.run_kind == SURFACE_REINSPECTION_RUN_KIND,
-                    col(Run.status).in_(["pending", "running"]),
-                )
-                .order_by(col(Run.created_at).desc())
-            )
-        )
-        .scalars()
-        .first()
+    request_key = (
+        f"surface-reinspection:{project.published_build_id}:{intent_id}"
+        if intent_id
+        else None
     )
-    if active is not None:
-        return active, True
+    base_query = select(Run).where(
+        Run.organization_id == context.organization_id,
+        Run.user_id == context.user_id,
+        Run.event_id == event.id,
+        Run.run_kind == SURFACE_REINSPECTION_RUN_KIND,
+    )
+    existing = None
+    if request_key:
+        existing = (
+            (
+                await session.execute(
+                    base_query.where(Run.idempotency_key == request_key).order_by(
+                        col(Run.created_at).desc()
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+    if existing is None:
+        existing = (
+            (
+                await session.execute(
+                    base_query.where(
+                        col(Run.status).in_(["pending", "running"])
+                    ).order_by(col(Run.created_at).desc())
+                )
+            )
+            .scalars()
+            .first()
+        )
+    if existing is not None:
+        return existing, True
 
     run = Run(
         organization_id=context.organization_id,
@@ -300,9 +320,10 @@ async def queue_surface_reinspection(
         agent_id=SURFACE_REINSPECTION_AGENT_ID,
         session_id=event.primary_conversation_id or event.id,
         conversation_id=event.primary_conversation_id,
-        idempotency_key=(
+        idempotency_key=request_key
+        or (
             f"surface-reinspection:{project.published_build_id}:"
-            f"{datetime.now(timezone.utc).date().isoformat()}"
+            f"{datetime.now(timezone.utc).isoformat()}"
         ),
         run_kind=SURFACE_REINSPECTION_RUN_KIND,
         run_profile={
@@ -326,6 +347,7 @@ async def queue_surface_reinspection(
                 "revision_id": project.published_revision_id,
                 "data_revision": project.data_revision,
                 "reason": reason,
+                "intent_id": intent_id,
             }
         ],
     )
@@ -342,6 +364,7 @@ async def queue_surface_reinspection(
             evidence_refs=[{"surface_build_id": project.published_build_id}],
             payload={
                 "reason": reason,
+                "intent_id": intent_id,
                 "build_id": project.published_build_id,
                 "revision_id": project.published_revision_id,
                 "data_revision": project.data_revision,

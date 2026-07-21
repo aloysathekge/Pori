@@ -33,6 +33,8 @@ class Permission(str, Enum):
     TRACE_READ = "trace:read"
     USAGE_READ = "usage:read"
     POLICY_MANAGE = "policy:manage"
+    OPERATOR_READ = "operator:read"
+    OPERATOR_ACT = "operator:act"
     # Manage ORG-SHARED account connections / MCP servers (not one's own).
     CONNECTION_MANAGE = "connection:manage"
 
