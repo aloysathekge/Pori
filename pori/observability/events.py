@@ -22,6 +22,8 @@ THINKING_DELTA = "thinking_delta"  # reasoning prose, streamed (may be dimmed)
 TOOL_CALL_START = "tool_call_start"  # the instant the tool name is known
 TOOL_CALL_END = "tool_call_end"  # after execution: success + result
 LLM_RETRY = "llm_retry"  # API retrying/rate-limited (not "still thinking")
+ACTIVITY_CHANGED = "activity_changed"  # model-authored intent for current work
+PLAN_CHANGED = "plan_changed"  # host-observed normalized plan snapshot
 
 
 @dataclass

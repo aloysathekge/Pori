@@ -13,6 +13,8 @@ export const THINKING_DELTA = "thinking_delta"; // reasoning prose, streamed
 export const TOOL_CALL_START = "tool_call_start"; // tool name known
 export const TOOL_CALL_END = "tool_call_end"; // after execution: success + result
 export const LLM_RETRY = "llm_retry"; // API retrying / rate-limited
+export const ACTIVITY_CHANGED = "activity_changed"; // current model-authored intent
+export const PLAN_CHANGED = "plan_changed"; // host-observed plan snapshot
 export const CLARIFICATION_REQUEST = "clarification_request"; // ask_user w/ options
 
 export type PoriEventType =
@@ -25,6 +27,8 @@ export type PoriEventType =
   | typeof TOOL_CALL_START
   | typeof TOOL_CALL_END
   | typeof LLM_RETRY
+  | typeof ACTIVITY_CHANGED
+  | typeof PLAN_CHANGED
   | typeof CLARIFICATION_REQUEST;
 
 /** One normalized agent event: `{ type, payload, step }`. */
@@ -41,14 +45,34 @@ export interface TextDeltaPayload {
 
 export interface ToolCallStartPayload {
   name: string;
+  call_id?: string;
+  label?: string;
   [key: string]: unknown;
 }
 
 export interface ToolCallEndPayload {
   name?: string;
+  call_id?: string;
+  label?: string;
   success?: boolean;
+  duration_seconds?: number;
   result?: unknown;
   [key: string]: unknown;
+}
+
+export interface ActivityChangedPayload {
+  activity: string;
+}
+
+export interface PlanItemPayload {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+}
+
+export interface PlanChangedPayload {
+  plan: PlanItemPayload[];
+  summary: Record<string, number>;
 }
 
 /** A structured `ask_user` request the UI renders as buttons; answer it via

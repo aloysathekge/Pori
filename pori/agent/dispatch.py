@@ -14,7 +14,13 @@ from typing import Any, Dict, List, Optional
 from ..evaluation import ActionResult
 from ..hitl import ActionRequest, ApprovalRequest, ReviewConfig
 from ..metrics import StepMetrics, ToolCallMetrics
-from ..observability import TOOL_CALL_END, TOOL_CALL_START
+from ..observability import (
+    PLAN_CHANGED,
+    TOOL_CALL_END,
+    TOOL_CALL_START,
+    build_tool_preview,
+    build_tool_result_preview,
+)
 from ..runtime import BudgetExceeded, ReceiptStatus
 from ..utils.logging_config import ensure_logger_configured
 
@@ -127,6 +133,9 @@ async def execute_actions(
         params = action_dict[tool_name]
         # Write-ahead journal id for this action (set just before execution)
         dispatch_id: Optional[str] = None
+        event_call_id: Optional[str] = None
+        event_started = False
+        event_finished = False
 
         logger.info(
             f"Executing action {i}: {tool_name}", extra={"task_id": self.task_id}
@@ -495,15 +504,34 @@ async def execute_actions(
             # --- end Completion quality gate ---
 
             start_time = datetime.now()
-            # Announce the tool with its full args, so the renderer can show a
-            # specific label ("Writing age_calculator.py", not "Writing a file").
+            normalized_params = params if isinstance(params, dict) else {}
+            plan_before = self._plan_snapshot()
+
+            # Write-ahead journal before announcing execution. Its durable id
+            # also correlates the public start/end lifecycle without exposing
+            # raw tool output.
+            try:
+                dispatch_id = self.memory.record_tool_dispatch(
+                    tool_name, normalized_params
+                )
+            except Exception as dispatch_err:
+                logger.debug(
+                    f"Failed to journal dispatch for {tool_name}: {dispatch_err}",
+                    extra={"task_id": self.task_id},
+                )
+            event_call_id = dispatch_id or (
+                f"{self.task_id}:{self.state.n_steps + 1}:{i}"
+            )
             self._emit(
                 TOOL_CALL_START,
                 {
                     "name": tool_name,
-                    "args": params if isinstance(params, dict) else {},
+                    "call_id": event_call_id,
+                    "label": build_tool_preview(tool_name, normalized_params),
+                    "args": normalized_params,
                 },
             )
+            event_started = True
 
             # Execute the tool
             thread_data = None
@@ -533,19 +561,6 @@ async def execute_actions(
                 "task_id": self.task_id,
                 **self._tool_context_extra,
             }
-            # Write-ahead journal: persist the dispatch BEFORE side effects
-            # run, so a crash mid-tool is distinguishable on resume from a
-            # call that never happened (fail-open).
-            try:
-                dispatch_id = self.memory.record_tool_dispatch(
-                    tool_name, params if isinstance(params, dict) else {}
-                )
-            except Exception as dispatch_err:
-                logger.debug(
-                    f"Failed to journal dispatch for {tool_name}: {dispatch_err}",
-                    extra={"task_id": self.task_id},
-                )
-
             tool_result = await self.tool_executor.execute_tool_async(
                 tool_name=tool_name,
                 params=params,
@@ -556,7 +571,24 @@ async def execute_actions(
             success = tool_result.get("success", False)
             # Emit tool_call_end so a renderer can close the "» ..." line
             # with a "✓ / ✗" as soon as the tool finishes.
-            self._emit(TOOL_CALL_END, {"name": tool_name, "success": bool(success)})
+            self._emit(
+                TOOL_CALL_END,
+                {
+                    "name": tool_name,
+                    "call_id": event_call_id,
+                    "label": build_tool_result_preview(tool_name, normalized_params),
+                    "success": bool(success),
+                    "duration_seconds": execution_time,
+                },
+            )
+            event_finished = True
+
+            plan_after = self._plan_snapshot()
+            if plan_after != plan_before:
+                self._emit(
+                    PLAN_CHANGED,
+                    {"plan": plan_after, "summary": self.plan_store.summary()},
+                )
 
             # AC-5: cross-step loop guard. Surface a recovery hint on the tool
             # output; halt the run on a detected loop instead of spinning to
@@ -681,6 +713,19 @@ async def execute_actions(
                         f"Failed to close dispatch journal: {journal_err}",
                         extra={"task_id": self.task_id},
                     )
+            if event_started and not event_finished:
+                self._emit(
+                    TOOL_CALL_END,
+                    {
+                        "name": tool_name,
+                        "call_id": event_call_id,
+                        "label": build_tool_result_preview(
+                            tool_name,
+                            params if isinstance(params, dict) else {},
+                        ),
+                        "success": False,
+                    },
+                )
             results.append(
                 ActionResult(
                     success=False,

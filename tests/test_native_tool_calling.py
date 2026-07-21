@@ -735,12 +735,19 @@ def test_jsonl_event_sink_writes_lines(tmp_path):
 
 
 def test_agent_emits_lifecycle_events_without_streaming():
-    from pori.observability import RUN_END, RUN_START, TOOL_CALL_END
+    from pori.observability import (
+        ACTIVITY_CHANGED,
+        RUN_END,
+        RUN_START,
+        STEP_END,
+        TOOL_CALL_END,
+        TOOL_CALL_START,
+    )
 
     llm = _NativeMockLLM(
         [
             ToolTurn(
-                text="",
+                text="Answering the user",
                 tool_calls=[
                     ToolCall(
                         name="answer",
@@ -765,6 +772,17 @@ def test_agent_emits_lifecycle_events_without_streaming():
     assert types[0] == RUN_START
     assert RUN_END in types
     assert TOOL_CALL_END in types
+    assert STEP_END in types
+
+    activity = next(event for event in events if event.type == ACTIVITY_CHANGED)
+    assert activity.payload == {"activity": "Answering the user"}
+
+    started = next(event for event in events if event.type == TOOL_CALL_START)
+    finished = next(event for event in events if event.type == TOOL_CALL_END)
+    assert started.payload["call_id"] == finished.payload["call_id"]
+    assert started.payload["label"] == "Writing the answer"
+    assert finished.payload["label"] == "Wrote the answer"
+    assert finished.payload["duration_seconds"] >= 0
 
 
 # --- P4: reasoning-tag scrubber ---------------------------------------------
