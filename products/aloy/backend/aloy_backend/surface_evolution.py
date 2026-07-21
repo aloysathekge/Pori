@@ -117,9 +117,24 @@ def evaluate_surface_evolution(
     )
 
 
+def surface_evolution_signal_fingerprint(signal: SurfaceEvolutionSignal) -> str:
+    """Stable aggregation key; occurrence count and transient evidence are excluded."""
+
+    body = {
+        "policy_version": SURFACE_EVOLUTION_POLICY_VERSION,
+        "trigger": signal.trigger,
+        "goal": " ".join(signal.goal.split()),
+        "base_revision_id": signal.base_revision_id,
+        "base_build_id": signal.base_build_id,
+    }
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 __all__ = [
     "SURFACE_EVOLUTION_POLICY_VERSION",
     "SurfaceEvolutionDecision",
     "SurfaceEvolutionSignal",
     "evaluate_surface_evolution",
+    "surface_evolution_signal_fingerprint",
 ]

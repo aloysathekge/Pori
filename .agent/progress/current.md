@@ -2,25 +2,21 @@
 
 ## Active Task
 
-R9 remote inspector provider is active on
-`aloy-v1-r9-remote-inspector-provider`, branched from `aloy-v1` after PR #202.
-The isolated adapter is implemented: it sends one sealed request to the fixed
-Surface toolchain and receives one typed bounded result. The next acceptance
-work is an actual remote provider proof with acquisition/inspection/recovery
-timings, without granting the sandbox storage, credentials, Event truth, or
-publication authority.
+R9 durable Surface evolution proposals are active on
+`aloy-v1-r9-evolution-proposals`, branched from `aloy-v1` after PR #205.
+Inferred signals are now persisted against the exact live Surface, repeated
+signals aggregate into one proposal, dismissals cool down for 14 days, and an
+accepted non-stale proposal queues exactly one ordinary Builder Run.
 
 Exact-build receipt reuse is now the first inspection-planning optimization:
 reopening a build and ordinary SDK data/state changes do not rerun the remote
 gate. New executable content still fails closed through the complete gate until
 trusted compiler impact provenance can justify narrower evidence reuse.
 
-The Surface evolution policy foundation is active on
-`aloy-v1-r9-surface-evolution`. Explicit conversation requests and published
-Surface `source_change` commands now share a fingerprinted queue decision bound
-to the live code/build/data state, and the receipt follows the Builder Run.
-Inferred signals are proposal-only; their durable aggregation, cooldown, and
-user-facing acceptance are not yet wired.
+The isolated remote inspector adapter and exact-build receipt reuse are already
+merged. A real provider acceptance proof remains deferred until provider access
+is available; it does not block implementing and testing host-owned evolution
+semantics locally.
 
 ## Decisions Made
 
@@ -57,12 +53,17 @@ user-facing acceptance are not yet wired.
   `useSurfaceApprovalState` binds a summary while controls remain host-owned.
 - A stricter new-publication gate must not remove rollback to a previously
   published legacy last-good build.
+- Inferred Surface evolution never queues work on its own. The host stores and
+  aggregates signals; only explicit acceptance can queue Builder work.
+- Proposals are bound to the published revision/build. Acceptance fails closed
+  if that Surface changed, and dismissal suppresses the same proposal for 14
+  days without erasing its evidence history.
 
 ## Important Discoveries
 
-- The current primary-job slice passes `44` focused backend tests across
-  requests, pipeline, exact-build quality, and real browser build inspection;
-  Ruff passes on all changed Python files.
+- The durable proposal slice passes 26 focused backend tests across evolution
+  policy, proposal lifecycle, requests, and SDK behavior; Ruff and focused mypy
+  pass on changed backend code.
 - The scenario slice passes 47 focused backend tests, the SDK TypeScript build,
   Ruff, and mypy across 126 backend files. Browser proofs accept the SDK-bound
   approval summary and reject both missing approval binding and dense overflow.
@@ -71,15 +72,15 @@ user-facing acceptance are not yet wired.
 
 ## Blockers
 
-- The transport, immutable inspection receipt, and evidence artifact foundation
-  are merged as PR #202. The next task is the actual remote inspector adapter
-  and its provider acceptance proof; the reviewed Map/widget adapter follows.
+- A real remote inspector provider acceptance proof still needs provider-backed
+  acquisition, inspection, timeout, and recovery evidence.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
 
 ## Next Session Should Start With
 
-Implement the remote inspector adapter against the existing fixed sandbox
-toolchain. It must return only the typed inspection result and bounded evidence
-to the host, then prove cold/warm timing, timeout, and recovery behavior before
-moving to the reviewed Map/widget adapter.
+Wire trusted signal producers into the durable proposal service: Surface
+negative feedback, repeated primary-job failures, Event phase changes, and
+quality failures. Then add one quiet Event-workspace proposal card with accept
+and dismiss actions; acceptance must display ordinary Builder progress rather
+than invent a second build lifecycle.

@@ -9,8 +9,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -24,6 +26,12 @@ from ..surface_authoring import (
     surface_project_snapshot,
 )
 from ..surface_builds import surface_build_payload
+from ..surface_evolution_proposals import (
+    SurfaceEvolutionProposalError,
+    decide_surface_evolution_proposal,
+    list_surface_evolution_proposals,
+    surface_evolution_proposal_payload,
+)
 from ..surface_interactions import (
     SurfaceInteractionError,
     SurfaceInteractionRequest,
@@ -44,6 +52,13 @@ router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
 logger = logging.getLogger("aloy_backend.routes.surfaces")
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
+
+
+class SurfaceEvolutionDecisionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["accept", "dismiss"]
+
 
 _SURFACE_STAGE_MESSAGES = {
     "generating_candidate": "Designing and writing your Surface",
@@ -80,6 +95,44 @@ async def _owned_event(
     ):
         raise HTTPException(status_code=404, detail="Event not found")
     return event
+
+
+@router.get("/evolution-proposals")
+async def get_surface_evolution_proposals(
+    event_id: str,
+    context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    await _owned_event(session, context, event_id)
+    return await list_surface_evolution_proposals(
+        session,
+        context=context,
+        event_id=event_id,
+    )
+
+
+@router.post("/evolution-proposals/{proposal_id}/decision")
+async def decide_surface_evolution(
+    event_id: str,
+    proposal_id: str,
+    body: SurfaceEvolutionDecisionBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.RUN_CREATE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    try:
+        proposal = await decide_surface_evolution_proposal(
+            session,
+            context=context,
+            event=event,
+            proposal_id=proposal_id,
+            decision=body.decision,
+        )
+    except SurfaceEvolutionProposalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return surface_evolution_proposal_payload(proposal)
 
 
 def _aware(value: datetime | None) -> datetime | None:
