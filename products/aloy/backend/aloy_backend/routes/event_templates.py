@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -12,6 +12,15 @@ from sqlmodel import col, select
 
 from ..database import get_session
 from ..event_presenters import event_payload
+from ..event_template_authoring import (
+    TemplateReleaseImportInput,
+    TemplateReleasePublishInput,
+    ensure_catalog_operator,
+    import_template_release,
+    list_operator_releases,
+    operator_release_payload,
+    publish_template_release,
+)
 from ..event_templates import (
     EventTemplateError,
     find_template_installation,
@@ -56,6 +65,108 @@ def _catalog_payload(
         },
         "updated_at": template.updated_at,
     }
+
+
+def _raise_catalog_error(exc: EventTemplateError) -> NoReturn:
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/operator/releases")
+async def get_operator_template_releases(
+    context: OrganizationContext = Depends(
+        require_permission(Permission.OPERATOR_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        ensure_catalog_operator(context)
+        releases = await list_operator_releases(session)
+    except EventTemplateError as exc:
+        _raise_catalog_error(exc)
+    return {"releases": releases}
+
+
+@router.get("/operator/releases/{release_id}")
+async def get_operator_template_release(
+    release_id: str,
+    context: OrganizationContext = Depends(
+        require_permission(Permission.OPERATOR_READ)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        ensure_catalog_operator(context)
+        release = await session.get(EventTemplateRelease, release_id)
+        if release is None:
+            raise EventTemplateError("Template release not found", status_code=404)
+        return await operator_release_payload(session, release)
+    except EventTemplateError as exc:
+        _raise_catalog_error(exc)
+
+
+@router.put("/operator/releases/imports", status_code=201)
+async def import_operator_template_release(
+    body: TemplateReleaseImportInput,
+    context: OrganizationContext = Depends(require_permission(Permission.OPERATOR_ACT)),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        result = await import_template_release(session, context=context, body=body)
+        await session.commit()
+        return result
+    except EventTemplateError as exc:
+        await session.rollback()
+        _raise_catalog_error(exc)
+    except IntegrityError:
+        await session.rollback()
+        try:
+            result = await import_template_release(session, context=context, body=body)
+            await session.commit()
+            return result
+        except EventTemplateError as exc:
+            await session.rollback()
+            _raise_catalog_error(exc)
+        except IntegrityError:
+            await session.rollback()
+        raise HTTPException(status_code=409, detail="Template import conflicted")
+
+
+@router.post("/operator/releases/{release_id}/publish")
+async def publish_operator_template_release(
+    release_id: str,
+    body: TemplateReleasePublishInput,
+    context: OrganizationContext = Depends(require_permission(Permission.OPERATOR_ACT)),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        result = await publish_template_release(
+            session,
+            context=context,
+            release_id=release_id,
+            body=body,
+        )
+        await session.commit()
+        return result
+    except EventTemplateError as exc:
+        await session.rollback()
+        _raise_catalog_error(exc)
+    except IntegrityError:
+        await session.rollback()
+        try:
+            result = await publish_template_release(
+                session,
+                context=context,
+                release_id=release_id,
+                body=body,
+            )
+            await session.commit()
+            return result
+        except EventTemplateError as exc:
+            await session.rollback()
+            _raise_catalog_error(exc)
+        except IntegrityError:
+            await session.rollback()
+        raise HTTPException(status_code=409, detail="Template publication conflicted")
 
 
 @router.get("")

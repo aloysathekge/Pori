@@ -1055,6 +1055,25 @@ First backend slice completed on `aloy-v1-r12-event-template-catalog`:
   proofs, 23 Event/context/Surface regressions, and all 506 backend tests pass;
   an empty SQLite database migrates cleanly to the new head.
 
+Second backend slice completed on the same branch:
+
+- protected operator APIs list and inspect releases, stage an exact draft, and
+  publish only the reviewed checksum; Aloy Internal remains an API consumer and
+  receives no direct database or object-store authority;
+- global catalog mutations require both organization operator RBAC and a
+  deployment-owned subject allowlist that is disabled by default, so an
+  ordinary workspace owner cannot become a catalog publisher accidentally;
+- stable intent and idempotency keys return immutable audit receipts, concurrent
+  conflicts fail closed, the catalog pointer advances with an atomic
+  compare-and-swap against the reviewer's observed release, and published
+  release rows cannot be replaced;
+- publication repeats full contract/checksum validation and verifies the hash
+  and size of actual stored assets before atomically advancing the discoverable
+  catalog pointer;
+- eight focused authoring proofs plus the seven catalog/install proofs pass, and
+  a fresh SQLite database upgrades through `t2d3e4f5a6b7` at Alembic head; the
+  complete backend suite passes all 514 tests.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1143,14 +1162,16 @@ through PRs #214 and #216.
 The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
-The R12 backend contract, installation transaction, and fake seeded Career OS
-proof are now implemented without model credits. Next, give Aloy Internal a
-validated release import/publish workflow, load the first real Career OS release
-as database data, and route template-source-ready installations through the
-ordinary host build/inspection/publication pipeline. Discovery UI follows that
-end-to-end proof. University then uses the same contracts; Madrid waits for the
-trusted Map/widget phase. Subscription packaging remains a separate
-entitlement/limits design and must not leak into template taxonomy.
+The R12 backend contract, installation transaction, fake seeded Career OS
+proof, and protected two-step release API are now implemented without model
+credits. Next, give Aloy Internal a typed client and review UI over those APIs,
+then load the first real Career OS release as database data. Add a protected
+asset-upload boundary before releases ship binary assets; Aloy Internal must not
+receive direct object-store access. Route template-source-ready installations
+through the ordinary host build/inspection/publication pipeline. Discovery UI
+follows that end-to-end proof. University then uses the same contracts; Madrid
+waits for the trusted Map/widget phase. Subscription packaging remains a
+separate entitlement/limits design and must not leak into template taxonomy.
 
 R10 document ingestion remains a parallel planned architecture slice, not a
 reason to block the template proof. Keep `main` untouched until manual product

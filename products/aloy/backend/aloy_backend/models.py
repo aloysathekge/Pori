@@ -100,6 +100,9 @@ class EventTemplateRelease(SQLModel, table=True):
     schema_version: int = 1
     status: str = Field(default="draft", index=True)
     release_notes: str = ""
+    catalog_snapshot: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
     checksum: str = Field(default="", index=True)
     published_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
@@ -244,6 +247,41 @@ class EventTemplateInstallation(SQLModel, table=True):
         default_factory=dict, sa_column=Column(JSON, nullable=False)
     )
     installed_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateOperatorReceipt(SQLModel, table=True):
+    """Immutable audit receipt for a global catalog operator mutation."""
+
+    __tablename__ = "event_template_operator_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_event_template_operator_receipt_request",
+        ),
+        UniqueConstraint(
+            "intent_id",
+            name="uq_event_template_operator_receipt_intent",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etreceipt_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    action: str = Field(index=True)
+    intent_id: str = Field(index=True)
+    idempotency_key: str
+    request_fingerprint: str = Field(index=True)
+    template_id: str = Field(index=True)
+    release_id: str = Field(index=True)
+    reason: str
+    status: str = Field(index=True)
+    receipt: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(
         default_factory=_utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )

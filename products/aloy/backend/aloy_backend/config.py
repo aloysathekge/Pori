@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     surface_reinspection_tick_seconds: float = Field(default=300.0, ge=30.0)
     surface_reinspection_interval_seconds: int = Field(default=86_400, ge=3_600)
 
+    # Global Event-template catalog authority. Organization-level operator
+    # permissions are necessary but not sufficient because catalog publication
+    # affects every tenant. Comma-separated authenticated subject ids; empty is
+    # fail-closed and disables catalog authoring endpoints.
+    event_template_catalog_operator_subjects: str = ""
+
     # Execution backend for agent shell/code: 'local' (runs on the worker
     # host) or 'e2b' (isolated cloud microVM per session — needs E2B_API_KEY
     # and the pori[sandbox-e2b] extra). Aloy-managed: users never configure
@@ -133,6 +139,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def event_template_catalog_operator_subjects_set(self) -> frozenset[str]:
+        return frozenset(
+            subject.strip()
+            for subject in self.event_template_catalog_operator_subjects.split(",")
+            if subject.strip()
+        )
 
 
 settings = Settings()

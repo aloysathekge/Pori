@@ -160,6 +160,16 @@ class TemplateInstallResult:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class ValidatedTemplateRelease:
+    release: EventTemplateRelease
+    assets: tuple[EventTemplateAsset, ...]
+    compatibility: tuple[EventTemplateCompatibility, ...]
+    seeds: tuple[EventTemplateSeed, ...]
+    guided_jobs: tuple[EventTemplateGuidedJob, ...]
+    checksum: str
+
+
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -169,7 +179,7 @@ def _canonical_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _release_content(
+def template_release_content(
     release: EventTemplateRelease,
     assets: tuple[EventTemplateAsset, ...],
     compatibility: tuple[EventTemplateCompatibility, ...],
@@ -181,6 +191,7 @@ def _release_content(
         "template_id": release.template_id,
         "version": release.version,
         "release_notes": release.release_notes,
+        "catalog": release.catalog_snapshot,
         "assets": [
             {
                 "asset_key": item.asset_key,
@@ -226,7 +237,7 @@ def _release_content(
     }
 
 
-async def _release_rows(session: AsyncSession, release_id: str) -> tuple[
+async def load_template_release_rows(session: AsyncSession, release_id: str) -> tuple[
     tuple[EventTemplateAsset, ...],
     tuple[EventTemplateCompatibility, ...],
     tuple[EventTemplateSeed, ...],
@@ -269,8 +280,12 @@ async def compute_template_release_checksum(
     release = await session.get(EventTemplateRelease, release_id)
     if release is None:
         raise EventTemplateError("Template release not found", status_code=404)
-    assets, compatibility, seeds, guided_jobs = await _release_rows(session, release.id)
-    content = _release_content(release, assets, compatibility, seeds, guided_jobs)
+    assets, compatibility, seeds, guided_jobs = await load_template_release_rows(
+        session, release.id
+    )
+    content = template_release_content(
+        release, assets, compatibility, seeds, guided_jobs
+    )
     return hashlib.sha256(_canonical_bytes(content)).hexdigest()
 
 
@@ -366,35 +381,23 @@ def _validate_surface_source(seed: SurfaceSeedPayload) -> tuple[dict[str, str], 
     return files, manifest.model_dump(mode="json", by_alias=True)
 
 
-async def load_published_release(
-    session: AsyncSession,
-    *,
-    template_id: str,
-    release_id: str | None = None,
-) -> TemplateReleaseBundle:
-    template = await session.get(EventTemplate, template_id)
-    if template is None or template.status != "published":
-        raise EventTemplateError("Event template not found", status_code=404)
-    if template.discovery_group not in DISCOVERY_GROUPS:
-        raise EventTemplateError("Template has an invalid discovery group")
-    selected_release_id = release_id or template.current_release_id
-    if not selected_release_id:
-        raise EventTemplateError("Template has no published release")
-    release = await session.get(EventTemplateRelease, selected_release_id)
-    if (
-        release is None
-        or release.template_id != template.id
-        or release.status != "published"
-    ):
+async def validate_template_release(
+    session: AsyncSession, release_id: str
+) -> ValidatedTemplateRelease:
+    """Validate one stored release without granting it publication authority."""
+    release = await session.get(EventTemplateRelease, release_id)
+    if release is None:
         raise EventTemplateError("Template release not found", status_code=404)
     if release.schema_version != TEMPLATE_SCHEMA_VERSION:
         raise EventTemplateError("Template release schema is unsupported")
     if release.version < 1:
         raise EventTemplateError("Template release version must be positive")
-    assets, compatibility, seeds, guided_jobs = await _release_rows(session, release.id)
+    assets, compatibility, seeds, guided_jobs = await load_template_release_rows(
+        session, release.id
+    )
     expected = hashlib.sha256(
         _canonical_bytes(
-            _release_content(release, assets, compatibility, seeds, guided_jobs)
+            template_release_content(release, assets, compatibility, seeds, guided_jobs)
         )
     ).hexdigest()
     if not release.checksum or release.checksum != expected:
@@ -437,6 +440,42 @@ async def load_published_release(
         raise EventTemplateError(
             f"Template release failed contract validation: {exc}"
         ) from exc
+    return ValidatedTemplateRelease(
+        release=release,
+        assets=assets,
+        compatibility=compatibility,
+        seeds=seeds,
+        guided_jobs=guided_jobs,
+        checksum=expected,
+    )
+
+
+async def load_published_release(
+    session: AsyncSession,
+    *,
+    template_id: str,
+    release_id: str | None = None,
+) -> TemplateReleaseBundle:
+    template = await session.get(EventTemplate, template_id)
+    if template is None or template.status != "published":
+        raise EventTemplateError("Event template not found", status_code=404)
+    if template.discovery_group not in DISCOVERY_GROUPS:
+        raise EventTemplateError("Template has an invalid discovery group")
+    selected_release_id = release_id or template.current_release_id
+    if not selected_release_id:
+        raise EventTemplateError("Template has no published release")
+    release = await session.get(EventTemplateRelease, selected_release_id)
+    if (
+        release is None
+        or release.template_id != template.id
+        or release.status != "published"
+    ):
+        raise EventTemplateError("Template release not found", status_code=404)
+    validated = await validate_template_release(session, release.id)
+    assets = validated.assets
+    compatibility = validated.compatibility
+    seeds = validated.seeds
+    guided_jobs = validated.guided_jobs
     snapshot = {
         "template": {
             "id": template.id,
@@ -447,7 +486,7 @@ async def load_published_release(
         },
         "release_id": release.id,
         "release_checksum": release.checksum,
-        **_release_content(release, assets, compatibility, seeds, guided_jobs),
+        **template_release_content(release, assets, compatibility, seeds, guided_jobs),
     }
     if len(_canonical_bytes(snapshot)) > MAX_TEMPLATE_SNAPSHOT_BYTES:
         raise EventTemplateError("Template release snapshot exceeds the host limit")
@@ -748,5 +787,8 @@ __all__ = [
     "compute_template_release_checksum",
     "find_template_installation",
     "install_event_template",
+    "load_template_release_rows",
     "load_published_release",
+    "template_release_content",
+    "validate_template_release",
 ]
