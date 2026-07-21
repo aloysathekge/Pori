@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { MessageBubble } from '@/components/chat/MessageBubble';
-import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
+import { WorkStory } from '@/components/chat/WorkStory';
 import { ClarifyPrompt } from '@/components/chat/ClarifyPrompt';
 import { ApprovalPrompt } from '@/components/chat/ApprovalPrompt';
 import type { ApprovalDecision } from '@/api/sse';
-import type { MessageResponse, PlanItem, SSEToolEvent } from '@/types';
+import type { MessageResponse, RunTimelineEvent } from '@/types';
 
 function conversationTimeLabel(value: string) {
   const date = new Date(value);
@@ -29,11 +29,7 @@ interface Props {
   messages: MessageResponse[];
   streaming: boolean;
   streamText: string;
-  streamStatus: string;
-  streamActivity: string;
-  streamPlan: PlanItem[];
-  streamTools: SSEToolEvent[];
-  streamStep?: { step: number; max_steps: number };
+  streamStory: RunTimelineEvent[];
   clarify: { question: string; options: string[] } | null;
   onAnswerClarify: (value: string) => void;
   approval: { tool: string; arguments: Record<string, unknown> } | null;
@@ -56,11 +52,7 @@ export function MessageList({
   messages,
   streaming,
   streamText,
-  streamStatus,
-  streamActivity,
-  streamPlan,
-  streamTools,
-  streamStep,
+  streamStory,
   clarify,
   onAnswerClarify,
   approval,
@@ -121,25 +113,21 @@ export function MessageList({
           </div>
         );
       })}
-      {streaming && streamText && (
-        <MessageBubble
-          message={{
-            id: 'streaming',
-            role: 'assistant',
-            content: streamText,
-            metadata: null,
-            created_at: new Date().toISOString(),
-          }}
-        />
-      )}
       {streaming && (
-        <StreamingIndicator
-          status={streamStatus}
-          activity={streamActivity}
-          plan={streamPlan}
-          tools={streamTools}
-          step={streamStep}
-        />
+        <div>
+          <WorkStory entries={streamStory} live />
+          {streamText && (
+            <MessageBubble
+              message={{
+                id: 'streaming',
+                role: 'assistant',
+                content: streamText,
+                metadata: null,
+                created_at: new Date().toISOString(),
+              }}
+            />
+          )}
+        </div>
       )}
       {clarify && (
         <ClarifyPrompt

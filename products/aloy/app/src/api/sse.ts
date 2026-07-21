@@ -1,6 +1,10 @@
 import { ApiError, apiFetch, apiStreamFetch } from './client';
 import {
+  ACTIVITY_CHANGED,
   CLARIFICATION_REQUEST,
+  PLAN_CHANGED,
+  RUN_END,
+  RUN_START,
   TEXT_DELTA,
   THINKING_DELTA,
   TOOL_CALL_END,
@@ -38,6 +42,10 @@ export interface SSECallbacks {
     [k: string]: unknown;
   }) => void;
   onStep?: (info: { step: number; max_steps: number }) => void;
+  onRunStart?: (payload: Record<string, unknown>) => void;
+  onRunEnd?: (payload: Record<string, unknown>) => void;
+  onActivity?: (activity: string) => void;
+  onPlan?: (plan: unknown[], summary: Record<string, number>) => void;
   onClarification?: (request: ClarificationRequestPayload) => void;
   onApproval?: (request: ApprovalRequestPayload) => void;
   onMessage?: (data: SSEMessageEvent) => void;
@@ -229,6 +237,23 @@ function dispatchFrame(frame: string, cb: SSECallbacks) {
   const payload = (data.payload as Record<string, unknown>) ?? {};
 
   switch (event) {
+    case RUN_START:
+      cb.onRunStart?.(payload);
+      break;
+    case RUN_END:
+      cb.onRunEnd?.(payload);
+      break;
+    case ACTIVITY_CHANGED:
+      cb.onActivity?.(String(payload.activity ?? ''));
+      break;
+    case PLAN_CHANGED:
+      cb.onPlan?.(
+        Array.isArray(payload.plan) ? payload.plan : [],
+        payload.summary && typeof payload.summary === 'object'
+          ? payload.summary as Record<string, number>
+          : {},
+      );
+      break;
     case TEXT_DELTA:
       cb.onText?.(String(payload.text ?? ''));
       break;
@@ -262,6 +287,6 @@ function dispatchFrame(frame: string, cb: SSECallbacks) {
     case 'done':
       cb.onDone?.();
       break;
-    // run_start / run_end / step_* / status / llm_retry: no-op for now
+    // step_end / status / llm_retry: no-op for now
   }
 }

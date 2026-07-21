@@ -55,6 +55,7 @@ from ...rate_limit import rate_limited_permission
 from ...run_budgets import RunBudgetLimits, resolve_run_budget
 from ...run_outcome import build_run_outcome, flush_memory_to_db, persist_run_outcome
 from ...run_surface import resolve_run_surface
+from ...run_timeline import RunTimelineRecorder
 from ...runtime import authenticated_run_context
 from ...schemas import XLSX_MIME, MessageResponse, SendMessageRequest
 from ...skills import load_skill_catalog
@@ -628,6 +629,13 @@ def _stream_response(
     )
 
     event_collector = EventLogCollector()
+    timeline_recorder = RunTimelineRecorder(
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=conv.event_id,
+        conversation_id=conv.id,
+        run_id=stream_context.run_id,
+    )
     persister = StreamPersister(
         conv=conv,
         context=context,
@@ -651,6 +659,7 @@ def _stream_response(
                 settings=agent_settings,
                 run_context=stream_context,
                 collector=event_collector,
+                timeline_recorder=timeline_recorder,
                 tool_context_extra=surface.tool_context_extra,
                 mcp_servers=surface.mcp_servers,
                 task_attachments=task_attachments,

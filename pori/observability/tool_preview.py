@@ -76,4 +76,50 @@ def build_tool_preview(tool_name: str, params: Optional[Dict[str, Any]]) -> str:
     return _truncate(f"{tool_name}: {arg}") if arg else tool_name
 
 
-__all__ = ["build_tool_preview"]
+def build_tool_result_preview(
+    tool_name: str,
+    params: Optional[Dict[str, Any]],
+) -> str:
+    """Return a safe completion label for a finished tool call.
+
+    Success/failure is transported separately as host-owned truth. This label
+    therefore describes only the completed action and never claims an outcome
+    the executor did not report.
+    """
+    p = params if isinstance(params, dict) else {}
+
+    def first(*keys: str) -> Any:
+        for key in keys:
+            value = p.get(key)
+            if value:
+                return value
+        return None
+
+    if tool_name in ("write_file", "sandbox_write_file"):
+        return _truncate(f"Wrote {first('file_path', 'path') or 'a file'}")
+    if tool_name == "read_file":
+        return _truncate(f"Read {first('file_path', 'path') or 'a file'}")
+    if tool_name in ("create_directory", "sandbox_create_dir"):
+        return _truncate(f"Created folder {first('directory_path', 'path') or ''}")
+    if tool_name in ("list_directory", "sandbox_list_dir"):
+        return _truncate(f"Listed {first('directory_path', 'path') or ''}")
+    if tool_name == "search_files":
+        return _truncate(f"Searched for {first('content_search', 'pattern') or ''}")
+    if tool_name == "bash":
+        return _truncate(f"Ran: {first('command') or ''}")
+    if tool_name == "web_search":
+        return _truncate(f"Searched the web: {first('query') or ''}")
+    if tool_name == "update_plan":
+        todos = p.get("todos") or []
+        count = len(todos) if isinstance(todos, list) else 0
+        return f"Updated the plan ({count} step(s))"
+    if tool_name == "answer":
+        return "Wrote the answer"
+    if tool_name == "done":
+        return "Finished"
+
+    arg = first(_PRIMARY_ARG.get(tool_name, ""))
+    return _truncate(f"Finished {tool_name}: {arg}") if arg else f"Finished {tool_name}"
+
+
+__all__ = ["build_tool_preview", "build_tool_result_preview"]

@@ -19,8 +19,9 @@ import type {
   MessageResponse,
   PendingFile,
   PlanItem,
+  RunTimelineEvent,
+  RunTimelineKind,
   SSEMessageEvent,
-  SSEToolEvent,
 } from '@/types';
 
 export interface ClarifyState {
@@ -46,6 +47,20 @@ export interface UseStreamingRunParams {
   onConversationsRefresh: () => void;
 }
 
+function liveStoryEvent(
+  kind: RunTimelineKind,
+  publicPayload: Record<string, unknown>,
+  sequence: number,
+): RunTimelineEvent {
+  return {
+    id: `live-${sequence}-${Date.now()}`,
+    sequence,
+    kind,
+    public_payload: publicPayload,
+    created_at: new Date().toISOString(),
+  };
+}
+
 /**
  * Owns one streaming run: the SSE lifecycle (send → frames → final message),
  * its full UI state slice, stop/resend/continue/clarify controls, and the
@@ -62,28 +77,40 @@ export function useStreamingRun({
 }: UseStreamingRunParams) {
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [streamStatus, setStreamStatus] = useState('');
-  const [streamActivity, setStreamActivity] = useState('');
-  const [streamPlan, setStreamPlan] = useState<PlanItem[]>([]);
-  const [streamTools, setStreamTools] = useState<SSEToolEvent[]>([]);
-  const [streamStep, setStreamStep] = useState<
-    { step: number; max_steps: number } | undefined
-  >(undefined);
+  const [streamStory, setStreamStory] = useState<RunTimelineEvent[]>([]);
   const [streamText, setStreamText] = useState('');
   const [clarify, setClarify] = useState<ClarifyState | null>(null);
   const [approval, setApproval] = useState<ApprovalState | null>(null);
   // The in-flight stream's abort handle — aborted on conversation switch and
   // on unmount so a stream can never bleed into another conversation's view.
   const streamAbortRef = useRef<AbortController | null>(null);
+  const streamStoryRef = useRef<RunTimelineEvent[]>([]);
+
+  function replaceStreamStory(
+    update: (previous: RunTimelineEvent[]) => RunTimelineEvent[],
+  ) {
+    setStreamStory((previous) => {
+      const next = update(previous);
+      streamStoryRef.current = next;
+      return next;
+    });
+  }
+
+  function appendStory(
+    kind: RunTimelineKind,
+    publicPayload: Record<string, unknown>,
+  ) {
+    replaceStreamStory((previous) => [
+      ...previous,
+      liveStoryEvent(kind, publicPayload, previous.length + 1),
+    ]);
+  }
 
   const resetStreamUi = useCallback(() => {
     setStreaming(false);
     setSending(false);
-    setStreamStatus('');
-    setStreamActivity('');
-    setStreamPlan([]);
-    setStreamTools([]);
-    setStreamStep(undefined);
+    setStreamStory([]);
+    streamStoryRef.current = [];
     setStreamText('');
     setClarify(null);
     setApproval(null);
@@ -98,51 +125,66 @@ export function useStreamingRun({
   /** Shared stream callbacks — used by a fresh send AND by re-attaching to an
    *  in-flight run after navigating back. */
   function buildStreamCallbacks(): SSECallbacks {
-    let firstText = true;
     return {
-      onText: (text) => {
-        if (firstText) {
-          firstText = false;
-          setStreamStatus('Writing…');
-          setStreamActivity('');
-        }
-        setStreamText((prev) => prev + text);
+      onText: (text) => setStreamText((prev) => prev + text),
+      onRunStart: () => {
+        replaceStreamStory((previous) =>
+          previous.some((entry) => entry.kind === 'run_started')
+            ? previous
+            : [liveStoryEvent('run_started', { status: 'running' }, 1)],
+        );
       },
-      onStep: (info) => {
-        setStreamStep(info);
-        setStreamStatus('Thinking…');
+      onRunEnd: (payload) => appendStory('run_finished', payload),
+      onActivity: (activity) => {
+        if (activity.trim()) appendStory('activity_changed', { activity });
       },
+      onPlan: (plan, summary) =>
+        appendStory('plan_changed', {
+          plan: plan as PlanItem[],
+          summary,
+        }),
       onToolStart: (payload) => {
         const name = String(payload.name ?? 'tool');
-        setStreamActivity(`Running ${name}…`);
-        setStreamTools((prev) => [
-          ...prev,
-          { step: 0, tool: name, preview: '', success: false },
-        ]);
+        appendStory('action_started', {
+          call_id: String(payload.call_id ?? ''),
+          label: String(payload.label ?? `Running ${name}`),
+        });
       },
-      onToolEnd: (payload) =>
-        setStreamTools((prev) => {
-          const next = [...prev];
-          const name = String(payload.name ?? '');
-          for (let i = next.length - 1; i >= 0; i--) {
-            const entry = next[i];
-            if (entry && entry.tool === name) {
-              next[i] = { ...entry, success: Boolean(payload.success) };
-              break;
-            }
-          }
-          return next;
-        }),
-      onClarification: (req) =>
-        setClarify({ id: req.id, question: req.question, options: req.options }),
-      onApproval: (req) =>
+      onToolEnd: (payload) => {
+        const storyPayload: Record<string, unknown> = {
+          call_id: String(payload.call_id ?? ''),
+          label: String(
+            payload.label ?? `Finished ${String(payload.name ?? 'action')}`,
+          ),
+          success: Boolean(payload.success),
+        };
+        if (typeof payload.duration_seconds === 'number') {
+          storyPayload.duration_seconds = payload.duration_seconds;
+        }
+        appendStory('action_finished', storyPayload);
+      },
+      onClarification: (req) => {
+        appendStory('attention_required', {
+          request_id: req.id,
+          request_kind: 'clarification',
+          description: req.question,
+        });
+        setClarify({ id: req.id, question: req.question, options: req.options });
+      },
+      onApproval: (req) => {
+        appendStory('attention_required', {
+          request_id: req.id,
+          request_kind: 'approval',
+          description: req.description,
+        });
         setApproval({
           id: req.id,
           tool: req.tool,
           arguments: req.arguments,
           description: req.description,
           allowedDecisions: req.allowed_decisions,
-        }),
+        });
+      },
       onMessage: (data: SSEMessageEvent) => {
         const assistantMsg: MessageResponse = {
           id: `msg-${Date.now()}`,
@@ -156,6 +198,7 @@ export function useStreamingRun({
             artifacts: data.artifacts || [],
             plan: data.plan || [],
             selected_skills: data.selected_skills || [],
+            work_story: streamStoryRef.current,
             ...(data.stopped ? { stopped: true } : {}),
           },
           created_at: new Date().toISOString(),
@@ -167,22 +210,26 @@ export function useStreamingRun({
             ? prev
             : [...prev, assistantMsg],
         );
-        // Tear down the whole streaming UI (bubble + indicator) the instant the
-        // final message lands, so nothing lingers/overlaps beneath it.
+        // Move the Work Story onto the final message before live state clears.
         setStreamText('');
         setStreaming(false);
-        setStreamStatus('');
-        setStreamActivity('');
-        setStreamPlan([]);
-        setStreamTools([]);
-        setStreamStep(undefined);
+        setStreamStory([]);
+        streamStoryRef.current = [];
       },
       onError: (err) => {
+        const failedStory = [
+          ...streamStoryRef.current,
+          liveStoryEvent(
+            'run_failed',
+            { message: 'The run stopped unexpectedly.' },
+            streamStoryRef.current.length + 1,
+          ),
+        ];
         const errMsg: MessageResponse = {
           id: `err-${Date.now()}`,
           role: 'assistant',
           content: `Error: ${err}`,
-          metadata: null,
+          metadata: { work_story: failedStory },
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errMsg]);
@@ -210,7 +257,11 @@ export function useStreamingRun({
           streamAbortRef.current = controller;
           setSending(true);
           setStreaming(true);
-          setStreamStatus('Resuming…');
+          const initial = [
+            liveStoryEvent('run_started', { status: 'resuming' }, 1),
+          ];
+          streamStoryRef.current = initial;
+          setStreamStory(initial);
         },
       );
       if (!attached) return;
@@ -232,11 +283,11 @@ export function useStreamingRun({
     if (!activeId) return;
     setSending(true);
     setStreaming(true);
-    setStreamStatus('Thinking…');
-    setStreamActivity('');
-    setStreamPlan([]);
-    setStreamTools([]);
-    setStreamStep(undefined);
+    const initialStory = [
+      liveStoryEvent('run_started', { status: 'running' }, 1),
+    ];
+    streamStoryRef.current = initialStory;
+    setStreamStory(initialStory);
     setStreamText('');
     setClarify(null);
     setApproval(null);
@@ -328,7 +379,7 @@ export function useStreamingRun({
    *  the stream finishes with a final frame (which resets the UI). */
   async function stopRun() {
     if (!activeId) return;
-    setStreamStatus('Stopping…');
+    appendStory('activity_changed', { activity: 'Stopping safely' });
     try {
       await stopGeneration(activeId);
     } catch {
@@ -353,7 +404,9 @@ export function useStreamingRun({
     if (!approval) return;
     const id = approval.id;
     setApproval(null);
-    setStreamStatus(decision.type === 'approve' ? 'Sending…' : 'Skipping…');
+    appendStory('activity_changed', {
+      activity: decision.type === 'approve' ? 'Continuing approved work' : 'Skipping that action',
+    });
     try {
       await submitApproval(id, decision);
     } catch {
@@ -364,11 +417,7 @@ export function useStreamingRun({
   return {
     sending,
     streaming,
-    streamStatus,
-    streamActivity,
-    streamPlan,
-    streamTools,
-    streamStep,
+    streamStory,
     streamText,
     clarify,
     approval,

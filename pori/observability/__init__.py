@@ -1,7 +1,9 @@
 """Pori observability — span-based tracing and telemetry export."""
 
 from .events import (
+    ACTIVITY_CHANGED,
     LLM_RETRY,
+    PLAN_CHANGED,
     RUN_END,
     RUN_START,
     STEP_END,
@@ -15,7 +17,7 @@ from .events import (
 )
 from .exporters import ConsoleTelemetryExporter, TelemetryExporter
 from .store import InMemoryTraceStore, TraceStore
-from .tool_preview import build_tool_preview
+from .tool_preview import build_tool_preview, build_tool_result_preview
 from .trace import Span, SpanStatus, SpanType, Trace
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "TelemetryExporter",
     "ConsoleTelemetryExporter",
     "build_tool_preview",
+    "build_tool_result_preview",
     "PoriEvent",
     "JsonlEventSink",
     "TEXT_DELTA",
@@ -39,4 +42,6 @@ __all__ = [
     "RUN_START",
     "RUN_END",
     "LLM_RETRY",
+    "ACTIVITY_CHANGED",
+    "PLAN_CHANGED",
 ]

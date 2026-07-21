@@ -59,6 +59,8 @@ export interface MessageMetadata {
   plan?: PlanItem[];
   selected_skills?: string[];
   run_id?: string | null;
+  /** Optimistic Work Story shown until the durable Run timeline is readable. */
+  work_story?: RunTimelineEvent[];
   /** The user stopped the run; content is the partial streamed text. */
   stopped?: boolean;
 }
@@ -128,14 +130,29 @@ export interface SSEStatusEvent {
   task: string;
 }
 
-/** One tool call as it happens (full activity log). */
-export interface SSEToolEvent {
-  step: number;
-  tool: string;
-  preview: string;
-  success: boolean;
-  args?: Record<string, unknown>;
-  result?: unknown;
+export type RunTimelineKind =
+  | 'run_started'
+  | 'activity_changed'
+  | 'plan_changed'
+  | 'action_started'
+  | 'action_finished'
+  | 'attention_required'
+  | 'retrying'
+  | 'run_finished'
+  | 'run_failed';
+
+export interface RunTimelineEvent {
+  id: string;
+  run_id?: string;
+  sequence: number;
+  kind: RunTimelineKind;
+  public_payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RunTimelinePage {
+  entries: RunTimelineEvent[];
+  next_cursor: number;
 }
 
 /** A step boundary: model intent line + live plan checklist. */

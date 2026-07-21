@@ -41,6 +41,7 @@ from .approvals import (
     proposal_write_gate,
 )
 from .event_log import EventLogCollector
+from .run_timeline import RunTimelineRecorder
 from .surface_requests import SurfaceRequestHandler
 from .tools import (
     EVENT_HISTORY_SEARCH_CONTEXT_KEY,
@@ -94,6 +95,7 @@ async def stream_agent_execution(
     settings: AgentSettings,
     run_context: Optional[RunContext] = None,
     collector: Optional[EventLogCollector] = None,
+    timeline_recorder: Optional[RunTimelineRecorder] = None,
     tool_context_extra: Optional[dict] = None,
     mcp_servers: Optional[list] = None,
     task_attachments: Optional[list] = None,
@@ -238,6 +240,13 @@ async def stream_agent_execution(
             # the stream end with no message.
             logger.exception("Stream pump failed")
             live.publish(_sse_event("error", {"detail": str(exc)}))
+            if timeline_recorder is not None:
+                try:
+                    await timeline_recorder.append(
+                        "run_failed", {"message": "The run stopped unexpectedly."}
+                    )
+                except Exception:
+                    logger.debug("Run timeline failure capture failed", exc_info=True)
         finally:
             # The RUN owns the clarify bridge lifecycle (not the HTTP response):
             # a re-attached client can still answer a pending clarification.
@@ -279,6 +288,11 @@ async def stream_agent_execution(
                     except Exception:
                         logger.debug("Event log capture failed", exc_info=True)
                 live.publish(_porievent_frame(event))
+                if timeline_recorder is not None:
+                    try:
+                        await timeline_recorder.record(event)
+                    except Exception:
+                        logger.debug("Run timeline capture failed", exc_info=True)
                 if event.type == RUN_END:
                     break
 
@@ -287,6 +301,13 @@ async def stream_agent_execution(
         except Exception as exc:
             logger.exception("Streaming agent run failed")
             live.publish(_sse_event("error", {"detail": str(exc)}))
+            if timeline_recorder is not None:
+                try:
+                    await timeline_recorder.append(
+                        "run_failed", {"message": "The run stopped unexpectedly."}
+                    )
+                except Exception:
+                    logger.debug("Run timeline failure capture failed", exc_info=True)
             return
         if not result:
             live.publish(_sse_event("error", {"detail": "run produced no result"}))

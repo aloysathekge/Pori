@@ -2,7 +2,7 @@
 
 import pytest
 
-from pori.observability import build_tool_preview
+from pori.observability import build_tool_preview, build_tool_result_preview
 
 
 @pytest.mark.parametrize(
@@ -55,3 +55,17 @@ def test_no_raw_json_and_truncates_long_values():
 
 def test_handles_missing_params():
     assert build_tool_preview("write_file", None) == "Writing a file"
+
+
+@pytest.mark.parametrize(
+    "tool,params,expected",
+    [
+        ("write_file", {"file_path": "notes/report.md"}, "Wrote notes/report.md"),
+        ("read_file", {"path": "a.py"}, "Read a.py"),
+        ("bash", {"command": "npm test"}, "Ran: npm test"),
+        ("web_search", {"query": "jobs"}, "Searched the web: jobs"),
+        ("answer", {}, "Wrote the answer"),
+    ],
+)
+def test_completed_tools_have_safe_result_previews(tool, params, expected):
+    assert build_tool_result_preview(tool, params) == expected

@@ -54,7 +54,14 @@ from ..metrics import (
     TokenUsage,
     estimate_llm_call_cost,
 )
-from ..observability import RUN_END, RUN_START, STEP_START, PoriEvent
+from ..observability import (
+    ACTIVITY_CHANGED,
+    RUN_END,
+    RUN_START,
+    STEP_END,
+    STEP_START,
+    PoriEvent,
+)
 from ..observability.trace import Span, SpanStatus, SpanType, Trace
 from ..planning import PlanStore
 from ..prompts import (
@@ -480,7 +487,10 @@ class Agent:
             # Capture the model's intent for this step as the live activity line.
             next_goal = (model_output.current_state or {}).get("next_goal", "")
             if next_goal and next_goal.strip():
-                self.state.current_activity = next_goal.strip()
+                activity = next_goal.strip()
+                if activity != self.state.current_activity:
+                    self.state.current_activity = activity
+                    self._emit(ACTIVITY_CHANGED, {"activity": activity})
             if llm_span:
                 llm_span.attributes["duration_seconds"] = llm_duration
                 llm_span.finish()
@@ -617,6 +627,15 @@ class Agent:
                 current_activity=self.state.current_activity,
                 plan=self._plan_snapshot(),
             )
+
+        self._emit(
+            STEP_END,
+            {
+                "step": step_number,
+                "duration_seconds": step_duration,
+                "success": all(result.success for result in tool_results),
+            },
+        )
 
     def _record_llm_call_metrics(
         self, step_metrics: StepMetrics, llm_duration: float

@@ -6,19 +6,29 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlmodel import select
 
 from aloy_backend.background import (
     _make_progress_checkpointer,
     execute_claimed_run,
     kernel_task_id_for_run,
 )
-from aloy_backend.models import Event, Organization, OrganizationMembership, Run
+from aloy_backend.models import (
+    Event,
+    EventTrailEntry,
+    Organization,
+    OrganizationMembership,
+    Run,
+    RunTimelineEvent,
+    Task,
+)
 from pori import BudgetLedger, ExecutionBudget
+from pori.observability import ACTIVITY_CHANGED, RUN_END, RUN_START, PoriEvent
 
 pytestmark = pytest.mark.asyncio
 
 
-async def _seed_org_and_run(db_session_maker, run_kwargs=None):
+async def _seed_org_and_run(db_session_maker, run_kwargs=None, *, with_task=False):
     async with db_session_maker() as session:
         session.add(
             Organization(
@@ -44,6 +54,18 @@ async def _seed_org_and_run(db_session_maker, run_kwargs=None):
                 title="Worker resume",
             )
         )
+        task = None
+        if with_task:
+            task = Task(
+                organization_id="org-1",
+                user_id="alice",
+                event_id="evt-worker-resume",
+                title="Long Event task",
+                status="in_progress",
+                created_by="alice",
+            )
+            session.add(task)
+            await session.flush()
         run = Run(
             organization_id="org-1",
             user_id="alice",
@@ -55,9 +77,14 @@ async def _seed_org_and_run(db_session_maker, run_kwargs=None):
             attempt_count=1,
             lease_owner="worker-a",
             lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            task_id=task.id if task is not None else None,
             **(run_kwargs or {}),
         )
         session.add(run)
+        await session.flush()
+        if task is not None:
+            task.current_run_id = run.id
+            session.add(task)
         await session.commit()
         return run.id
 
@@ -108,6 +135,7 @@ async def test_reclaim_resumes_kernel_task_from_checkpoint(
 
     # The orchestrator was asked to RESUME the same kernel task…
     assert captured["resume_task_id"] == kernel_task_id
+    assert callable(captured["on_event"])
     assert callable(captured["on_step_end"])
     # …and the injected memory carries the checkpoint it will resume from.
     memory = captured["memory"]
@@ -186,6 +214,99 @@ async def test_step_checkpoint_persists_progress_and_renews_lease(
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         assert expires > datetime.now(timezone.utc) + timedelta(seconds=60)
+
+
+async def test_step_checkpoint_updates_task_plan_without_trail_spam(
+    db_session_maker, monkeypatch
+):
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
+    run_id = await _seed_org_and_run(db_session_maker, with_task=True)
+    checkpoint = _make_progress_checkpointer(
+        run_id, "worker-a", kernel_task_id_for_run(run_id)
+    )
+    plan = [{"id": "1", "content": "Compare options", "status": "in_progress"}]
+    fake_agent = SimpleNamespace(
+        state=SimpleNamespace(
+            n_steps=2,
+            consecutive_failures=0,
+            current_activity="Comparing the strongest options",
+        ),
+        budget_ledger=BudgetLedger(ExecutionBudget(max_steps=50)),
+        _plan_snapshot=lambda: plan,
+    )
+
+    await checkpoint(fake_agent)
+    await checkpoint(fake_agent)
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, run_id)
+        task = await session.get(Task, run.task_id)
+        progress_entries = (
+            (
+                await session.execute(
+                    select(EventTrailEntry).where(
+                        EventTrailEntry.run_id == run_id,
+                        EventTrailEntry.kind == "task_progress",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert task.current_activity == "Comparing the strongest options"
+        assert task.plan == plan
+        assert task.plan_version == 1
+        assert progress_entries == []
+
+
+async def test_background_run_persists_public_work_story(db_session_maker, monkeypatch):
+    monkeypatch.setattr("aloy_backend.background.async_session", db_session_maker)
+
+    class FakeOrchestrator:
+        async def execute_task(self, **kwargs):
+            emit = kwargs["on_event"]
+            emit(PoriEvent(type=RUN_START, payload={}))
+            emit(
+                PoriEvent(
+                    type=ACTIVITY_CHANGED,
+                    payload={"activity": "Reviewing the Event files"},
+                )
+            )
+            emit(PoriEvent(type=RUN_END, payload={"completed": True, "steps": 1}))
+            return {
+                "success": True,
+                "steps_taken": 1,
+                "agent": None,
+                "result": {"metrics": None},
+                "trace": {},
+            }
+
+    monkeypatch.setattr(
+        "aloy_backend.background.build_orchestrator",
+        lambda **kwargs: FakeOrchestrator(),
+    )
+    run_id = await _seed_org_and_run(db_session_maker)
+
+    await execute_claimed_run(run_id, "worker-a")
+
+    async with db_session_maker() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(RunTimelineEvent)
+                    .where(RunTimelineEvent.run_id == run_id)
+                    .order_by(RunTimelineEvent.sequence)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [row.kind for row in rows] == [
+            "run_started",
+            "activity_changed",
+            "run_finished",
+        ]
+        assert rows[1].public_payload == {"activity": "Reviewing the Event files"}
 
 
 async def test_checkpoint_refuses_when_lease_lost(db_session_maker, monkeypatch):

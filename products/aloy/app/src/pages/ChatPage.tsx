@@ -64,11 +64,7 @@ export function ChatPage() {
   const {
     sending,
     streaming,
-    streamStatus,
-    streamActivity,
-    streamPlan,
-    streamTools,
-    streamStep,
+    streamStory,
     streamText,
     clarify,
     approval,
@@ -324,11 +320,7 @@ export function ChatPage() {
                   messages={messages}
                   streaming={streaming}
                   streamText={streamText}
-                  streamStatus={streamStatus}
-                  streamActivity={streamActivity}
-                  streamPlan={streamPlan}
-                  streamTools={streamTools}
-                  streamStep={streamStep}
+                  streamStory={streamStory}
                   clarify={clarify}
                   onAnswerClarify={answerClarify}
                   approval={approval}

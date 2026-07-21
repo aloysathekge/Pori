@@ -167,7 +167,8 @@ def test_agent_default_makes_no_side_planning_call(registry, event_loop):
         memory=AgentMemory(),
     )
     assert agent.settings.planning_mode == "never"
-    result = event_loop.run_until_complete(agent.run())
+    events = []
+    result = event_loop.run_until_complete(agent.run(on_event=events.append))
     assert result["completed"] is True
     assert agent.plan_store.items()[0].content == "answer the user"
     # The plan is exposed in the run-result contract (for Cloud/UI consumers).
@@ -177,3 +178,8 @@ def test_agent_default_makes_no_side_planning_call(registry, event_loop):
     assert agent.result_summary()["plan"] == result["plan"]
     # The model's next_goal is captured as the live activity line.
     assert agent.state.current_activity == "Answering the user"
+    from pori.observability import PLAN_CHANGED
+
+    plan_event = next(event for event in events if event.type == PLAN_CHANGED)
+    assert plan_event.payload["plan"] == result["plan"]
+    assert plan_event.payload["summary"]["pending"] == 1

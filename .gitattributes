@@ -1,0 +1,2 @@
+# Keep the large agent loop stable across Windows and Linux formatter runs.
+pori/agent/core.py text eol=lf
