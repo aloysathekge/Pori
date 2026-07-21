@@ -76,10 +76,13 @@ class TestLibraryLifecycle:
 
         surface = (await client.get(f"/v1/events/{event.json()['id']}")).json()
         files_section = next(
-            section for section in surface["surface"]["sections"]
+            section
+            for section in surface["surface"]["sections"]
             if section["kind"] == "files"
         )
-        event_file = next(file for file in files_section["files"] if file["id"] == file_id)
+        event_file = next(
+            file for file in files_section["files"] if file["id"] == file_id
+        )
         assert event_file["in_library"] is True
 
     async def test_remove_deletes_the_pointer_too(self, client, db_session_maker):
@@ -124,7 +127,8 @@ class TestLibraryLifecycle:
         conversation = (await client.get(f"/v1/conversations/{conversation_id}")).json()
         surface = (await client.get(f"/v1/events/{conversation['event_id']}")).json()
         files_section = next(
-            section for section in surface["surface"]["sections"]
+            section
+            for section in surface["surface"]["sections"]
             if section["kind"] == "files"
         )
         assert all(file["id"] != file_id for file in files_section["files"])
