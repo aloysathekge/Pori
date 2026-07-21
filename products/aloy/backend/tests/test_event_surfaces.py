@@ -180,6 +180,7 @@ async def test_surface_reads_only_durable_files_and_pending_proposals(
             "id": file.id,
             "name": "status.md",
             "kind": "artifact",
+            "in_library": False,
             "content_type": "text/markdown",
             "size_bytes": 42,
             "origin_session_id": "session-1",
