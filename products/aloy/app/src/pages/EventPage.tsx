@@ -296,11 +296,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   const {
     sending,
     streaming,
-    streamStatus,
-    streamActivity,
-    streamPlan,
-    streamTools,
-    streamStep,
+    streamStory,
     streamText,
     clarify,
     approval,
@@ -729,11 +725,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 messages={messages}
                 streaming={streaming}
                 streamText={streamText}
-                streamStatus={streamStatus}
-                streamActivity={streamActivity}
-                streamPlan={streamPlan}
-                streamTools={streamTools}
-                streamStep={streamStep}
+                streamStory={streamStory}
                 clarify={clarify}
                 onAnswerClarify={answerClarify}
                 approval={approval}
@@ -859,11 +851,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                 messages={messages.slice(-12)}
                 streaming={streaming}
                 streamText={streamText}
-                streamStatus={streamStatus}
-                streamActivity={streamActivity}
-                streamPlan={streamPlan}
-                streamTools={streamTools}
-                streamStep={streamStep}
+                streamStory={streamStory}
                 clarify={clarify}
                 onAnswerClarify={answerClarify}
                 approval={approval}

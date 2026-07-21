@@ -19,6 +19,7 @@ import { FileTypeIcon } from '@/components/files/FileVisual';
 import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
+import { WorkStory } from './WorkStory';
 
 /** Auth'd download: the endpoint needs the Bearer header, so a plain <a href>
  *  can't do it — fetch the blob and click a transient object URL. */
@@ -180,6 +181,12 @@ export function MessageBubble({
             ))}
           </div>
         )}
+        {!isUser && (runId || (message.metadata?.work_story?.length ?? 0) > 0) && (
+          <WorkStory
+            runId={runId}
+            entries={message.metadata?.work_story}
+          />
+        )}
         {isUser ? (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
@@ -235,28 +242,15 @@ export function MessageBubble({
           </div>
         )}
 
-        {message.metadata?.steps_taken != null && !isUser && (
-          <div className="mt-4 flex items-center gap-3 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
-            <span>{message.metadata.steps_taken} steps</span>
-            {message.metadata.reasoning && (
-              <details className="ml-1">
-                <summary className="cursor-pointer hover:text-zinc-300">
-                  Reasoning
-                </summary>
-                <p className="mt-1 text-zinc-400">
-                  {message.metadata.reasoning}
-                </p>
-              </details>
-            )}
-            {runId && (
-              <button
-                type="button"
-                onClick={() => setReplaying(true)}
-                className="ml-auto inline-flex items-center gap-1 text-zinc-500 hover:text-accent-600"
-              >
-                <History size={12} /> Replay
-              </button>
-            )}
+        {runId && !isUser && (
+          <div className="mt-4 flex items-center border-t border-zinc-800 pt-3 text-xs text-zinc-500">
+            <button
+              type="button"
+              onClick={() => setReplaying(true)}
+              className="ml-auto inline-flex items-center gap-1 hover:text-accent-600"
+            >
+              <History size={12} /> Technical details
+            </button>
           </div>
         )}
       </div>
