@@ -139,7 +139,7 @@ manifest is:
       ]
     }
   ],
-  "widgets": []
+  "widgets": ["table", "form"]
 }
 ```
 
@@ -148,6 +148,13 @@ host request. A read-only job may have no steps, but still needs at least one
 `visible` assertion using an exact accessible role and name. Interactive jobs
 should prove both the typed request and the resulting host-owned state or
 approval outcome when applicable.
+
+The host-reviewed V1 widget registry currently accepts only these generic
+widgets: `table`, `form`, `timeline`, `chart`, and `kanban`. `approval` also
+requires the `proposals` capability, and `file_viewer` requires `files`.
+Unknown widget ids and missing capability grants fail closed before source is
+persisted. Provider-backed widgets such as maps are not yet in the registry;
+do not invent or declare them.
 
 Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`,
 `useEventRecords(namespace)`, `useInteractions`, and
