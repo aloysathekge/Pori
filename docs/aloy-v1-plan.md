@@ -764,6 +764,12 @@ Delivery slices:
    error, long-content, approval, and indeterminate states. Retain the five
    baseline captures plus compact state observations, overflow/focus/
    accessibility diagnostics, timings, and fingerprints as build evidence.
+   Run this gate once for each new executable bundle. Reopening the same build
+   or changing canonical Event/Surface data reuses its verified exact-build
+   receipt and updates through the SDK without compiling or inspecting again.
+   Changed source remains a new bundle and must pass before replacing the
+   last-good publication; narrower code-impact reuse requires trusted compiler
+   provenance and is not inferred from model-authored claims.
 3. **Optional asynchronous visual review:** defer a vision-capable Critic until
    measured Builder quality demonstrates a need. If introduced, it receives
    only selected representative captures, remains advisory and asynchronous,

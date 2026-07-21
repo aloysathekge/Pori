@@ -1250,9 +1250,17 @@ async def test_preview_persists_exact_remote_inspection_evidence(
     )
 
     preview = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
+    reopened = await handler.preview(SurfacePreviewParams(build_id=built["id"]))
 
     assert preview["preview_ready"] is True
     assert preview["quality_gate"]["passed"] is True
+    assert preview["quality_gate_reused"] is False
+    assert reopened["preview_ready"] is True
+    assert reopened["quality_gate_reused"] is True
+    assert (
+        reopened["quality_gate"]["fingerprint"]
+        == preview["quality_gate"]["fingerprint"]
+    )
     assert len(transport.requests) == 1
     assert transport.requests[0].binding.build_id == built["id"]
     assert preview["quality_gate"]["evidence"]["transport"] == {
