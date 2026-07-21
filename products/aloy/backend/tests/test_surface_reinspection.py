@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlmodel import select
 
 from aloy_backend import background as background_module
+from aloy_backend import surface_requests as surface_requests_module
 from aloy_backend.models import (
     Event,
     Run,
@@ -20,9 +22,15 @@ from aloy_backend.surface_reinspection import (
 )
 
 
-async def _create_published_surface(client, db_session_maker) -> tuple[dict, str]:
+async def _create_published_surface(
+    client,
+    db_session_maker,
+    *,
+    headers: dict[str, str] | None = None,
+) -> tuple[dict, str]:
     response = await client.post(
         "/v1/events",
+        headers=headers,
         json={"title": "University", "summary": "Semester", "phase": "active"},
     )
     assert response.status_code == 201
@@ -115,11 +123,11 @@ async def test_reinspection_endpoint_queues_and_deduplicates_active_run(
     created, build_id = await _create_published_surface(client, db_session_maker)
 
     first = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "daily_health_check"},
     )
     second = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "runtime_change"},
     )
 
@@ -130,14 +138,83 @@ async def test_reinspection_endpoint_queues_and_deduplicates_active_run(
     assert second.json()["run_id"] == first.json()["run_id"]
     assert second.json()["replayed"] is True
 
+    health = await client.get(f"/v1/events/{created['id']}/surface/operator/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "checking"
+    assert health.json()["build_id"] == build_id
+    assert health.json()["run_id"] == first.json()["run_id"]
+
+
+async def test_surface_health_controls_require_operator_authority(
+    client,
+    db_session_maker,
+):
+    organization = await client.post(
+        "/v1/organizations",
+        headers={"X-Test-User": "alice"},
+        json={"name": "Internal boundary", "slug": "internal-boundary"},
+    )
+    assert organization.status_code == 201
+    organization_id = organization.json()["id"]
+    owner_headers = {
+        "X-Test-User": "alice",
+        "X-Pori-Organization": organization_id,
+    }
+    added = await client.post(
+        f"/v1/organizations/{organization_id}/members",
+        headers=owner_headers,
+        json={"user_id": "bob", "role": "member"},
+    )
+    assert added.status_code == 201
+    member_headers = {
+        "X-Test-User": "bob",
+        "X-Pori-Organization": organization_id,
+    }
+    created, _ = await _create_published_surface(
+        client,
+        db_session_maker,
+        headers=member_headers,
+    )
+
+    health = await client.get(
+        f"/v1/events/{created['id']}/surface/operator/health",
+        headers=member_headers,
+    )
+    reinspection = await client.post(
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
+        headers=member_headers,
+        json={"reason": "manual_health_check"},
+    )
+
+    assert health.status_code == 403
+    assert reinspection.status_code == 403
+
 
 async def test_failed_trusted_reinspection_proposes_evolution(
     client,
     db_session_maker,
+    monkeypatch,
 ):
+    assignment = SimpleNamespace(
+        role=SimpleNamespace(value="surface_builder"),
+        provider="test-provider",
+        model="fixed-test-builder",
+        skill_id="surface-builder@1",
+        config_fingerprint="fixed-test-builder-config",
+        descriptor=lambda: {
+            "role": "surface_builder",
+            "provider": "test-provider",
+            "model": "fixed-test-builder",
+        },
+    )
+    monkeypatch.setattr(
+        surface_requests_module,
+        "resolve_model_assignment",
+        lambda *_args, **_kwargs: assignment,
+    )
     created, build_id = await _create_published_surface(client, db_session_maker)
     queued = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "runtime_change"},
     )
     run_id = queued.json()["run_id"]
@@ -182,6 +259,27 @@ async def test_failed_trusted_reinspection_proposes_evolution(
         assert proposal.base_build_id == build_id
         assert proposal.evidence_refs == ["sinspect-regression"]
 
+    health = await client.get(f"/v1/events/{created['id']}/surface/operator/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "needs_improvement"
+    assert health.json()["build_id"] == build_id
+
+    pending = await client.get(
+        f"/v1/events/{created['id']}/surface/evolution-proposals"
+    )
+    proposal_id = pending.json()[0]["id"]
+    accepted = await client.post(
+        f"/v1/events/{created['id']}/surface/evolution-proposals/{proposal_id}/decision",
+        json={"decision": "accept"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "queued"
+    assert accepted.json()["builder_run_id"]
+
+    runtime = await client.get(f"/v1/events/{created['id']}/surface/runtime")
+    assert runtime.status_code == 200
+    assert runtime.json()["published_build_id"] == build_id
+
 
 async def test_inspector_outage_retries_without_quality_proposal(
     client,
@@ -189,7 +287,7 @@ async def test_inspector_outage_retries_without_quality_proposal(
 ):
     created, _ = await _create_published_surface(client, db_session_maker)
     queued = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "daily_health_check"},
     )
     run_id = queued.json()["run_id"]
@@ -235,7 +333,7 @@ async def test_passing_reinspection_completes_without_proposal(
 ):
     created, _ = await _create_published_surface(client, db_session_maker)
     queued = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "runtime_change"},
     )
     run_id = queued.json()["run_id"]
@@ -274,6 +372,54 @@ async def test_passing_reinspection_completes_without_proposal(
         )
         assert proposal is None
 
+    health = await client.get(f"/v1/events/{created['id']}/surface/operator/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "ready"
+    assert health.json()["inspection_id"] == "sinspect-passed"
+
+
+async def test_surface_health_distinguishes_inspector_outage_from_regression(
+    client,
+    db_session_maker,
+):
+    created, build_id = await _create_published_surface(client, db_session_maker)
+    queued = await client.post(
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
+        json={"reason": "manual_health_check"},
+    )
+    run_id = queued.json()["run_id"]
+    await _claim_run(db_session_maker, run_id, "worker-outage")
+    async with db_session_maker() as session:
+        run = await session.get(Run, run_id)
+        assert run is not None
+        run.attempt_count = run.max_attempts
+        session.add(run)
+        await session.commit()
+
+    class UnavailableHandler:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def preview(self, _params):
+            raise RuntimeError("inspector unavailable")
+
+    completed = await execute_claimed_surface_reinspection(
+        run_id,
+        "worker-outage",
+        session_factory=db_session_maker,
+        handler_factory=UnavailableHandler,
+    )
+    assert completed is False
+
+    health = await client.get(f"/v1/events/{created['id']}/surface/operator/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "unavailable"
+    assert health.json()["build_id"] == build_id
+    proposals = await client.get(
+        f"/v1/events/{created['id']}/surface/evolution-proposals"
+    )
+    assert proposals.json() == []
+
 
 async def test_worker_dispatches_model_free_reinspection_run(
     client,
@@ -282,7 +428,7 @@ async def test_worker_dispatches_model_free_reinspection_run(
 ):
     created, _ = await _create_published_surface(client, db_session_maker)
     queued = await client.post(
-        f"/v1/events/{created['id']}/surface/reinspections",
+        f"/v1/events/{created['id']}/surface/operator/reinspections",
         json={"reason": "runtime_change"},
     )
     run_id = queued.json()["run_id"]

@@ -15,6 +15,7 @@ from .models import (
     EventTrailEntry,
     Organization,
     Run,
+    SurfaceBuild,
     SurfaceInspection,
     SurfaceProject,
 )
@@ -22,6 +23,7 @@ from .runtime import authenticated_run_context
 from .surface_builds import SurfaceBuildHandler, SurfacePreviewParams
 from .surface_evolution import SurfaceEvolutionSignal
 from .surface_evolution_proposals import record_surface_evolution_signal
+from .surface_quality import SURFACE_QUALITY_RECEIPT_KEY
 from .tenancy import OrganizationContext, OrganizationPolicy
 
 SURFACE_REINSPECTION_RUN_KIND = "surface_reinspection"
@@ -34,12 +36,215 @@ SURFACE_REINSPECTION_PROFILE = {
 
 logger = logging.getLogger("aloy_backend.surface_reinspection")
 
+_USER_CHECK_LABELS = {
+    "runtime_execution": "Opens correctly",
+    "declared_interactions": "Buttons and actions",
+    "primary_job_simulation": "Main task flow",
+    "viewport_matrix": "Desktop and mobile layout",
+    "state_matrix": "Loading and error states",
+    "accessibility_audit": "Basic accessibility",
+    "focus_indicator_audit": "Keyboard navigation",
+    "contrast_audit": "Readable text",
+}
+
 
 class SurfaceReinspectionError(ValueError):
     def __init__(self, status_code: int, detail: str):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+
+
+def _health_checks(receipt: dict[str, Any]) -> list[dict[str, str]]:
+    checks = dict(receipt.get("checks") or {})
+    return [
+        {
+            "id": check_id,
+            "label": label,
+            "status": str(dict(checks.get(check_id) or {}).get("status") or "unknown"),
+        }
+        for check_id, label in _USER_CHECK_LABELS.items()
+        if check_id in checks
+    ]
+
+
+async def surface_health_snapshot(
+    session: AsyncSession,
+    *,
+    context: OrganizationContext,
+    event: Event,
+) -> dict[str, Any]:
+    """Return one user-safe health state for the currently published Surface."""
+
+    project = (
+        (
+            await session.execute(
+                select(SurfaceProject).where(
+                    SurfaceProject.organization_id == context.organization_id,
+                    SurfaceProject.user_id == context.user_id,
+                    SurfaceProject.event_id == event.id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if project is None or not project.published_build_id:
+        return {
+            "status": "no_surface",
+            "message": "This Event does not have a live Surface yet.",
+            "build_id": None,
+            "run_id": None,
+            "inspection_id": None,
+            "checked_at": None,
+            "checks": [],
+        }
+
+    build_id = project.published_build_id
+    recent_runs = list(
+        (
+            await session.execute(
+                select(Run)
+                .where(
+                    Run.organization_id == context.organization_id,
+                    Run.user_id == context.user_id,
+                    Run.event_id == event.id,
+                    Run.run_kind == SURFACE_REINSPECTION_RUN_KIND,
+                )
+                .order_by(col(Run.created_at).desc())
+                .limit(25)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    latest_run = next(
+        (
+            run
+            for run in recent_runs
+            if str(dict(run.run_profile or {}).get("build_id") or "") == build_id
+        ),
+        None,
+    )
+    inspection = (
+        (
+            await session.execute(
+                select(SurfaceInspection)
+                .where(
+                    SurfaceInspection.organization_id == context.organization_id,
+                    SurfaceInspection.user_id == context.user_id,
+                    SurfaceInspection.event_id == event.id,
+                    SurfaceInspection.build_id == build_id,
+                )
+                .order_by(col(SurfaceInspection.created_at).desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    build = await session.get(SurfaceBuild, build_id)
+    publication_receipt = dict(
+        ((build.resource_metrics if build is not None else {}) or {}).get(
+            SURFACE_QUALITY_RECEIPT_KEY
+        )
+        or {}
+    )
+    receipt_checks = _health_checks(publication_receipt)
+    inspection_checks = (
+        [
+            {
+                "id": str(item.get("id") or ""),
+                "label": _USER_CHECK_LABELS.get(
+                    str(item.get("id") or ""),
+                    str(item.get("id") or "Check").replace("_", " ").title(),
+                ),
+                "status": str(item.get("status") or "unknown"),
+            }
+            for item in list(dict(inspection.summary or {}).get("checks") or [])
+            if isinstance(item, dict) and item.get("id")
+        ]
+        if inspection
+        else []
+    )
+    checks = inspection_checks or receipt_checks
+
+    if latest_run is not None and latest_run.status in {"pending", "running"}:
+        retrying = dict(latest_run.progress or {}).get("stage") == "retry_scheduled"
+        return {
+            "status": "checking",
+            "message": (
+                "The trusted check is temporarily unavailable and will retry."
+                if retrying
+                else "Aloy is checking the live Surface in the background."
+            ),
+            "build_id": build_id,
+            "run_id": latest_run.id,
+            "inspection_id": inspection.id if inspection else None,
+            "checked_at": (
+                inspection.completed_at or inspection.created_at if inspection else None
+            ),
+            "checks": checks,
+        }
+    if latest_run is not None and latest_run.status == "failed":
+        return {
+            "status": "unavailable",
+            "message": "Aloy could not complete the latest check. The current Surface remains live.",
+            "build_id": build_id,
+            "run_id": latest_run.id,
+            "inspection_id": inspection.id if inspection else None,
+            "checked_at": latest_run.completed_at,
+            "checks": checks,
+        }
+
+    if latest_run is not None and latest_run.status == "completed":
+        stage = str(dict(latest_run.progress or {}).get("stage") or "")
+        if stage in {"passed", "quality_regression"}:
+            passed = stage == "passed"
+            return {
+                "status": "ready" if passed else "needs_improvement",
+                "message": (
+                    "The live Surface passed its trusted checks."
+                    if passed
+                    else "Aloy found a problem and prepared a safe improvement."
+                ),
+                "build_id": build_id,
+                "run_id": latest_run.id,
+                "inspection_id": dict(latest_run.progress or {}).get("inspection_id"),
+                "checked_at": latest_run.completed_at,
+                "checks": checks,
+            }
+
+    if inspection is not None:
+        passed = inspection.status == "passed"
+        return {
+            "status": "ready" if passed else "needs_improvement",
+            "message": (
+                "The live Surface passed its trusted checks."
+                if passed
+                else "Aloy found a problem and prepared a safe improvement."
+            ),
+            "build_id": build_id,
+            "run_id": latest_run.id if latest_run else None,
+            "inspection_id": inspection.id,
+            "checked_at": inspection.completed_at or inspection.created_at,
+            "checks": checks,
+        }
+
+    publication_passed = publication_receipt.get("passed") is True
+    return {
+        "status": "ready" if publication_passed else "unavailable",
+        "message": (
+            "The live Surface passed its publication checks."
+            if publication_passed
+            else "Aloy has not completed a trusted check for this Surface yet."
+        ),
+        "build_id": build_id,
+        "run_id": latest_run.id if latest_run else None,
+        "inspection_id": None,
+        "checked_at": publication_receipt.get("inspected_at"),
+        "checks": checks,
+    }
 
 
 async def queue_surface_reinspection(
@@ -463,5 +668,6 @@ __all__ = [
     "execute_claimed_surface_reinspection",
     "queue_due_surface_reinspections",
     "queue_surface_reinspection",
+    "surface_health_snapshot",
     "surface_reinspection_run_payload",
 ]

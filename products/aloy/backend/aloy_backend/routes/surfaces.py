@@ -50,6 +50,7 @@ from ..surface_publication import (
 from ..surface_reinspection import (
     SurfaceReinspectionError,
     queue_surface_reinspection,
+    surface_health_snapshot,
     surface_reinspection_run_payload,
 )
 from ..surface_runtime import InvalidSurfaceBundle, build_surface_runtime_document
@@ -160,12 +161,12 @@ async def submit_surface_feedback(
     return surface_evolution_proposal_payload(proposal)
 
 
-@router.post("/reinspections", status_code=202)
+@router.post("/operator/reinspections", status_code=202)
 async def create_surface_reinspection(
     event_id: str,
     body: SurfaceReinspectionBody,
     context: OrganizationContext = Depends(
-        rate_limited_permission(Permission.RUN_CREATE)
+        require_permission(Permission.POLICY_MANAGE)
     ),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -180,6 +181,22 @@ async def create_surface_reinspection(
     except SurfaceReinspectionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return surface_reinspection_run_payload(run, replayed=replayed)
+
+
+@router.get("/operator/health")
+async def get_surface_health(
+    event_id: str,
+    context: OrganizationContext = Depends(
+        require_permission(Permission.POLICY_MANAGE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await _owned_event(session, context, event_id)
+    return await surface_health_snapshot(
+        session,
+        context=context,
+        event=event,
+    )
 
 
 @router.post("/evolution-proposals/{proposal_id}/decision")
