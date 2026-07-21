@@ -30,6 +30,7 @@ from .surface_builds import (
     SurfaceBuildParams,
     SurfacePreviewParams,
 )
+from .surface_manifest import parse_surface_manifest
 from .surface_publication import SurfacePublicationParams
 
 MAX_CANDIDATE_SUBMISSIONS = 2
@@ -258,11 +259,15 @@ class SurfaceHostPipeline:
         authoring_handler: Any,
         build_handler: SurfaceBuildHandler,
         stage_observer: Callable[[str], Awaitable[None]] | None = None,
+        required_primary_jobs: list[dict[str, str]] | None = None,
     ) -> None:
         self._run_id = run_id
         self._authoring = authoring_handler
         self._builds = build_handler
         self._stage_observer = stage_observer
+        self._required_primary_jobs = [
+            dict(item) for item in required_primary_jobs or []
+        ]
 
     async def _stage(self, stage: str) -> None:
         if self._stage_observer is not None:
@@ -279,6 +284,57 @@ class SurfaceHostPipeline:
 
         await self._stage("validating_candidate")
         started = perf_counter()
+        if self._required_primary_jobs:
+            required_descriptions = [
+                item["description"] for item in self._required_primary_jobs
+            ]
+            diagnostics: list[dict[str, Any]] = []
+            if candidate.primary_jobs != required_descriptions:
+                diagnostics.append(
+                    {
+                        "code": "primary_job_contract_mismatch",
+                        "message": (
+                            "Candidate primary_jobs must exactly match the host-frozen "
+                            "job descriptions in their original order"
+                        ),
+                        "path": "/surface.json",
+                    }
+                )
+            try:
+                manifest = parse_surface_manifest(
+                    {item.source_path: item.content for item in candidate.files}
+                )
+                declared = [
+                    {"id": job.id, "description": job.description}
+                    for job in manifest.primary_jobs
+                ]
+                if declared != self._required_primary_jobs:
+                    diagnostics.append(
+                        {
+                            "code": "primary_job_manifest_mismatch",
+                            "message": (
+                                "surface.json must declare every host-issued primary job "
+                                "id and description exactly once and in order"
+                            ),
+                            "path": "/surface.json",
+                        }
+                    )
+            except ValueError as exc:
+                diagnostics.append(
+                    {
+                        "code": "primary_job_manifest_invalid",
+                        "message": str(exc),
+                        "path": "/surface.json",
+                    }
+                )
+            if diagnostics:
+                timings["contract"] = round((perf_counter() - started) * 1000, 3)
+                return SurfacePipelineResult(
+                    status="repair_required",
+                    candidate_fingerprint=digest,
+                    diagnostics=_diagnostics_for_stage("validation", diagnostics),
+                    timings_ms=timings,
+                )
         before = await self._authoring.read()
         draft = dict((before.get("draft") or {}).get("files") or {})
         candidate_by_path = {item.source_path: item for item in candidate.files}

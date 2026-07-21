@@ -97,11 +97,12 @@ def _inspection_evidence() -> dict:
             ],
         },
         "timings": {
-            "policy_version": "aloy-surface-timings@1",
+            "policy_version": "aloy-surface-timings@2",
             "runtime_bootstrap_ms": 100.0,
             "viewport_matrix_ms": 200.0,
             "state_matrix_ms": 300.0,
             "interaction_checks_ms": 0.0,
+            "primary_jobs_ms": 0.0,
             "total_ms": 600.0,
         },
     }

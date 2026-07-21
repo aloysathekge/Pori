@@ -61,6 +61,7 @@ from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
     record_surface_builder_failure,
     record_surface_builder_started,
+    surface_request_primary_jobs,
     verified_surface_publication,
 )
 from .surface_workspace import resolve_surface_authoring_runtime
@@ -482,6 +483,7 @@ async def execute_claimed_surface_builder(
                 authoring_handler=runtime.authoring_handler,
                 build_handler=runtime.build_handler,
                 stage_observer=observe_stage,
+                required_primary_jobs=surface_request_primary_jobs(run),
             )
             previous_candidate: BaseModel | None = None
             diagnostics: list[dict[str, Any]] = []

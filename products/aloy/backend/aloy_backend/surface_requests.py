@@ -41,6 +41,8 @@ from .tenancy import OrganizationPolicy
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
 SURFACE_BUILDER_AGENT_ID = "surface-builder"
+SURFACE_PRIMARY_JOB_POLICY_VERSION = "aloy-surface-primary-jobs@1"
+SURFACE_PRIMARY_JOB_RECEIPT_KIND = "surface_primary_job_contract"
 
 
 class SurfacePublicationRequiredError(RuntimeError):
@@ -116,8 +118,87 @@ def _request_fingerprint(params: SurfaceRequestParams) -> str:
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _builder_task(params: SurfaceRequestParams) -> str:
-    request = json.dumps(params.model_dump(mode="json"), indent=2, sort_keys=True)
+def _primary_job_contract(params: SurfaceRequestParams) -> dict[str, Any]:
+    descriptions = params.jobs or [params.goal]
+    jobs = [
+        {
+            "id": "job_" + sha256(description.encode("utf-8")).hexdigest()[:16],
+            "description": description,
+        }
+        for description in descriptions
+    ]
+    body = {
+        "policy_version": SURFACE_PRIMARY_JOB_POLICY_VERSION,
+        "jobs": jobs,
+    }
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return {
+        "kind": SURFACE_PRIMARY_JOB_RECEIPT_KIND,
+        **body,
+        "fingerprint": sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+
+
+def surface_request_primary_jobs(run: Run) -> list[dict[str, str]]:
+    """Read and authenticate the immutable jobs frozen by the request host."""
+    matches = [
+        dict(item)
+        for item in run.execution_receipts or []
+        if item.get("kind") == SURFACE_PRIMARY_JOB_RECEIPT_KIND
+    ]
+    if not matches:
+        return []
+    if len(matches) != 1:
+        raise ValueError("Surface Run has an ambiguous primary-job contract")
+    receipt = matches[0]
+    body = {
+        "policy_version": receipt.get("policy_version"),
+        "jobs": receipt.get("jobs"),
+    }
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    if (
+        body["policy_version"] != SURFACE_PRIMARY_JOB_POLICY_VERSION
+        or receipt.get("fingerprint") != sha256(encoded.encode("utf-8")).hexdigest()
+    ):
+        raise ValueError("Surface primary-job contract is invalid")
+    jobs = body["jobs"]
+    if (
+        not isinstance(jobs, list)
+        or not jobs
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"id", "description"}
+            and isinstance(item.get("id"), str)
+            and len(item["id"]) == 20
+            and item["id"].startswith("job_")
+            and all(character in "0123456789abcdef" for character in item["id"][4:])
+            and isinstance(item.get("description"), str)
+            and 3 <= len(item["description"]) <= 500
+            for item in jobs
+        )
+    ):
+        raise ValueError("Surface primary-job contract is malformed")
+    normalized = [
+        {"id": str(item["id"]), "description": str(item["description"])}
+        for item in jobs
+    ]
+    if len({item["id"] for item in normalized}) != len(normalized):
+        raise ValueError("Surface primary-job contract has duplicate ids")
+    return normalized
+
+
+def _builder_task(
+    params: SurfaceRequestParams,
+    primary_job_contract: dict[str, Any],
+) -> str:
+    request = {
+        **params.model_dump(mode="json"),
+        "primary_job_contract": {
+            "policy_version": primary_job_contract["policy_version"],
+            "jobs": primary_job_contract["jobs"],
+        },
+    }
+    encoded_request = json.dumps(request, indent=2, sort_keys=True)
     return (
         "Create or revise the Event's durable interactive Surface for the "
         "product request below. Use the trusted Event context and current draft "
@@ -127,7 +208,10 @@ def _builder_task(params: SurfaceRequestParams) -> str:
         "publishes the candidate. Never convert schedule rows, display sections, "
         "or navigation "
         "items into canonical Tasks unless the request explicitly requires real "
-        "actionable work.\n\nSurface request:\n" + request
+        "actionable work. Copy every host-issued primary job id and description "
+        "exactly into surface.json and implement a semantic browser path with "
+        "host-observable assertions for each one.\n\nSurface request:\n"
+        + encoded_request
     )
 
 
@@ -208,6 +292,7 @@ class SurfaceRequestHandler:
                 policy,
                 {"max_steps": 40, "timeout_seconds": 900},
             )
+            primary_job_contract = _primary_job_contract(params)
 
             conversation_id = event.primary_conversation_id
             run = Run(
@@ -223,7 +308,7 @@ class SurfaceRequestHandler:
                 run_kind=SURFACE_BUILDER_RUN_KIND,
                 run_profile=SURFACE_BUILDER_RUN_PROFILE.descriptor(),
                 model_assignment=assignment.descriptor(),
-                task=_builder_task(params),
+                task=_builder_task(params, primary_job_contract),
                 max_steps=budget.max_steps,
                 max_tool_calls=budget.max_tool_calls,
                 max_tokens=budget.max_tokens,
@@ -231,6 +316,7 @@ class SurfaceRequestHandler:
                 timeout_seconds=budget.timeout_seconds,
                 max_attempts=min(3, policy.max_attempts),
                 isolation_profile="worker-process",
+                execution_receipts=[primary_job_contract],
             )
             event.updated_at = datetime.now(timezone.utc)
             session.add(event)
@@ -251,6 +337,11 @@ class SurfaceRequestHandler:
                     payload={
                         "goal": params.goal,
                         "experience": params.experience,
+                        "primary_job_contract": {
+                            "policy_version": primary_job_contract["policy_version"],
+                            "jobs": primary_job_contract["jobs"],
+                            "fingerprint": primary_job_contract["fingerprint"],
+                        },
                         "profile": SURFACE_BUILDER_RUN_PROFILE.descriptor(),
                         "model_assignment": {
                             "role": assignment.role.value,
@@ -381,7 +472,9 @@ __all__ = [
     "SurfaceRequestHandler",
     "SurfaceRequestParams",
     "SurfacePublicationRequiredError",
+    "SURFACE_PRIMARY_JOB_POLICY_VERSION",
     "record_surface_builder_failure",
     "record_surface_builder_started",
+    "surface_request_primary_jobs",
     "verified_surface_publication",
 ]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -72,11 +74,12 @@ def _inspection_evidence() -> dict:
             ],
         },
         "timings": {
-            "policy_version": "aloy-surface-timings@1",
+            "policy_version": "aloy-surface-timings@2",
             "runtime_bootstrap_ms": 100.0,
             "viewport_matrix_ms": 200.0,
             "state_matrix_ms": 300.0,
             "interaction_checks_ms": 0.0,
+            "primary_jobs_ms": 0.0,
             "total_ms": 600.0,
         },
     }
@@ -169,11 +172,12 @@ def test_quality_receipt_requires_focus_and_contrast_evidence(evidence_key: str)
     [
         {},
         {
-            "policy_version": "aloy-surface-timings@1",
+            "policy_version": "aloy-surface-timings@2",
             "runtime_bootstrap_ms": 100.0,
             "viewport_matrix_ms": 200.0,
             "state_matrix_ms": 300.0,
             "interaction_checks_ms": 0.0,
+            "primary_jobs_ms": 0.0,
             "total_ms": 50.0,
         },
     ],
@@ -214,3 +218,69 @@ def test_quality_receipt_rejects_legacy_state_policy():
 
     assert receipt["passed"] is False
     assert receipt["checks"]["state_matrix"]["status"] == "failed"
+
+
+def test_quality_receipt_requires_every_declared_primary_job_to_pass():
+    manifest = SurfaceManifest.model_validate(
+        {
+            "primary_jobs": [
+                {
+                    "id": "job_0123456789abcdef",
+                    "description": "See the week",
+                    "steps": [],
+                    "assertions": [
+                        {"kind": "visible", "role": "heading", "name": "This week"}
+                    ],
+                }
+            ]
+        }
+    )
+    missing = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=manifest,
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=_inspection_evidence(),
+    )
+    assert missing["passed"] is False
+    assert missing["checks"]["primary_job_simulation"]["status"] == "failed"
+
+    evidence = _inspection_evidence()
+    job_evidence = {
+        "id": "job_0123456789abcdef",
+        "description": "See the week",
+        "passed": True,
+        "steps": 0,
+        "assertions": [{"kind": "visible", "passed": True}],
+    }
+    job_evidence["fingerprint"] = hashlib.sha256(
+        json.dumps(
+            job_evidence,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    evidence["primary_jobs"] = {
+        "policy_version": "aloy-surface-primary-jobs@1",
+        "required": ["job_0123456789abcdef"],
+        "passed": True,
+        "jobs": [job_evidence],
+    }
+    receipt = create_surface_quality_receipt(
+        build_id="build-1",
+        revision_id="revision-1",
+        source_checksum="source-sha",
+        bundle_sha256="bundle-sha",
+        validation_passed=True,
+        manifest=manifest,
+        runtime_proven=True,
+        runtime_diagnostics=[],
+        inspection_evidence=evidence,
+    )
+    assert receipt["passed"] is True
+    assert receipt["checks"]["primary_job_simulation"]["status"] == "passed"

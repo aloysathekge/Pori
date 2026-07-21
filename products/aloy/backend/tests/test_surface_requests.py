@@ -25,6 +25,7 @@ from aloy_backend.surface_requests import (
     SurfaceBuilderCompletionGuard,
     SurfaceRequestHandler,
     SurfaceRequestParams,
+    surface_request_primary_jobs,
     verified_surface_publication,
 )
 from pori import stable_fingerprint
@@ -128,6 +129,10 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
         assert "Never convert schedule rows" in run.task
+        frozen_jobs = surface_request_primary_jobs(run)
+        assert [item["description"] for item in frozen_jobs] == params.jobs
+        assert all(item["id"].startswith("job_") for item in frozen_jobs)
+        assert frozen_jobs[0]["id"] in run.task
         trails = list(
             (
                 await session.execute(
@@ -141,6 +146,7 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
             .all()
         )
         assert len(trails) == 1
+        assert trails[0].payload["primary_job_contract"]["jobs"] == frozen_jobs
 
 
 async def test_surface_ready_receipt_requires_this_runs_live_publication(
