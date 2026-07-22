@@ -40,6 +40,7 @@ EvidenceKind = Literal[
 ]
 MAX_BOOTSTRAP_EVIDENCE_CHARS = 100_000
 MAX_BOOTSTRAP_EVIDENCE_ITEM_CHARS = 16_000
+EVENT_BOOTSTRAP_INPUT_POLICY_VERSION = "aloy-event-bootstrap-input@2"
 _BOOTSTRAP_LIFECYCLE_TRAIL_KINDS = {
     "event_bootstrap_queued",
     "event_bootstrap_retried",
@@ -506,14 +507,42 @@ def render_event_context_pack(snapshot: EventContextSnapshot) -> str:
     )
 
 
+def event_bootstrap_input_projection(
+    snapshot: EventContextSnapshot,
+) -> dict[str, Any]:
+    """Project only stable, user-supplied evidence for Event understanding.
+
+    The general Event context snapshot intentionally includes live Tasks,
+    Proposals, files, Trail, and Surface records. Those are useful to Aloy's
+    ongoing Session, but they are operational outputs and must not invalidate
+    or recursively retrigger the one-time Event Brief model Run.
+    """
+    pack = dict(snapshot.pack or {})
+    return {
+        "policy_version": EVENT_BOOTSTRAP_INPUT_POLICY_VERSION,
+        "context": {
+            "schema_version": pack.get("schema_version"),
+            "event": pack.get("event"),
+            "readiness": pack.get("readiness"),
+            "evidence_catalog": pack.get("evidence_catalog") or [],
+            "cache_policy": pack.get("cache_policy") or {},
+        },
+        "evidence": list(snapshot.evidence_payload or []),
+    }
+
+
+def event_bootstrap_input_fingerprint(snapshot: EventContextSnapshot) -> str:
+    """Stable identity for the exact evidence visible to the bootstrap model."""
+    return stable_fingerprint(event_bootstrap_input_projection(snapshot))
+
+
 def render_event_bootstrap_input(snapshot: EventContextSnapshot) -> str:
-    """Render the exact frozen pack plus private bounded evidence for bootstrap."""
+    """Render the frozen, evidence-only bootstrap input."""
     return json.dumps(
         {
             "snapshot_id": snapshot.id,
             "snapshot_version": snapshot.version,
-            "context": snapshot.pack,
-            "evidence": snapshot.evidence_payload,
+            **event_bootstrap_input_projection(snapshot),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -672,12 +701,15 @@ def context_status_payload(
 
 
 __all__ = [
+    "EVENT_BOOTSTRAP_INPUT_POLICY_VERSION",
     "ContextReadiness",
     "EventBriefPayload",
     "EventContextPack",
     "EventEvidenceRef",
     "GroundedText",
     "context_status_payload",
+    "event_bootstrap_input_fingerprint",
+    "event_bootstrap_input_projection",
     "publish_event_brief",
     "refresh_event_context_snapshot",
     "render_event_bootstrap_input",

@@ -130,6 +130,7 @@ new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
     },
     accessibility: {
       main_landmarks: document.querySelectorAll('main,[role=main]').length,
+      surface_roots: document.querySelectorAll('[data-aloy-surface-root]').length,
       controls: controls.length,
       unnamed_controls: unnamedControls.length,
       unnamed_control_samples: unnamedControls.slice(0, 10).map(sample),
@@ -737,17 +738,6 @@ def inspect_surface_runtime(
                     evidence_sink["viewport_matrix"] = viewport_evidence
                     evidence_sink["_capture_blobs"] = captures
                 diagnostics.extend(viewport_diagnostics)
-                if diagnostics:
-                    timings["state_matrix_ms"] = 0.0
-                    timings["interaction_checks_ms"] = 0.0
-                    timings["primary_jobs_ms"] = 0.0
-                    timings["total_ms"] = round(
-                        (time.monotonic() - inspection_started) * 1000,
-                        3,
-                    )
-                    if evidence_sink is not None:
-                        evidence_sink["timings"] = timings
-                    return diagnostics
                 state_started = time.monotonic()
                 state_diagnostics, state_evidence = _inspect_state_matrix(
                     socket,
@@ -762,7 +752,7 @@ def inspect_surface_runtime(
                 if evidence_sink is not None:
                     evidence_sink["state_matrix"] = state_evidence
                 diagnostics.extend(state_diagnostics)
-                if diagnostics or manifest is None:
+                if manifest is None:
                     timings["interaction_checks_ms"] = 0.0
                     timings["primary_jobs_ms"] = 0.0
                     timings["total_ms"] = round(
@@ -840,16 +830,45 @@ def inspect_surface_runtime(
                         "jobs": primary_job_evidence,
                     }
                 interaction_started = time.monotonic()
-                for check in manifest.interaction_checks:
+                interaction_reset_id = send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": (
+                            "new Promise(resolve=>{window.__aloySetSmokeContext("
+                            + json.dumps(context, ensure_ascii=True, default=str)
+                            + ");requestAnimationFrame(()=>requestAnimationFrame("
+                            "()=>resolve(true)));})"
+                        ),
+                        "awaitPromise": True,
+                        "returnByValue": True,
+                    },
+                )
+                _, interaction_reset_exceptions = _receive_evaluation(
+                    socket,
+                    result_id=interaction_reset_id,
+                    deadline=time.monotonic() + 3.0,
+                )
+                if interaction_reset_exceptions:
                     diagnostics.extend(
-                        _execute_interaction_check(
-                            socket,
-                            send=send,
-                            check=check,
-                            manifest=manifest,
-                            deadline=time.monotonic() + INSPECTION_TIMEOUT_SECONDS,
-                        )
+                        _diagnostic("runtime_exception", message)
+                        for message in interaction_reset_exceptions[:20]
                     )
+                else:
+                    # The interaction suite starts from canonical Event data,
+                    # then preserves accepted host state between its ordered
+                    # checks so multi-step workflows remain provable.
+                    for check in manifest.interaction_checks:
+                        diagnostics.extend(
+                            _execute_interaction_check(
+                                socket,
+                                send=send,
+                                check=check,
+                                manifest=manifest,
+                                deadline=(
+                                    time.monotonic() + INSPECTION_TIMEOUT_SECONDS
+                                ),
+                            )
+                        )
                 timings["interaction_checks_ms"] = round(
                     (time.monotonic() - interaction_started) * 1000,
                     3,
@@ -1219,19 +1238,38 @@ def _inspect_viewport_matrix(
                     viewport=viewport,
                 )
             )
-        if int(layout.get("clipped_controls") or 0) > 0:
+        clipped_control_count = int(layout.get("clipped_controls") or 0)
+        if clipped_control_count > 0:
+            clipped_samples = [
+                dict(item)
+                for item in list(layout.get("clipped_control_samples") or [])[:5]
+                if isinstance(item, dict)
+            ]
             diagnostics.append(
                 _viewport_diagnostic(
                     "viewport_clipped_control",
-                    "A visible interactive control is clipped horizontally",
+                    (
+                        f"Found {clipped_control_count} horizontally clipped "
+                        "interactive control(s). Make controls wrap or shrink "
+                        "inside the viewport; affected controls: "
+                        + json.dumps(clipped_samples, ensure_ascii=True)
+                    ),
                     viewport=viewport,
                 )
             )
-        if int(accessibility.get("main_landmarks") or 0) != 1:
+        main_landmark_count = int(accessibility.get("main_landmarks") or 0)
+        if main_landmark_count != 1:
+            surface_root_count = int(accessibility.get("surface_roots") or 0)
+            root_guidance = (
+                " SurfaceRoot already renders a <main>; replace every nested "
+                "<main> or role=main with a <div> or <section>."
+                if surface_root_count > 0 and main_landmark_count > 1
+                else " The root App shell must render one persistent main landmark."
+            )
             diagnostics.append(
                 _viewport_diagnostic(
                     "accessibility_main_landmark",
-                    "The Surface must expose exactly one visible main landmark",
+                    (f"Found {main_landmark_count} main landmarks." + root_guidance),
                     viewport=viewport,
                 )
             )
@@ -1447,21 +1485,105 @@ def _inspect_state_matrix(
                     )
                 )
                 continue
-            layout = dict(result.get("layout") or {})
-            accessibility = dict(result.get("accessibility") or {})
             expected_resource_states = dict(fixture.get("resource_states") or {})
             expected_resources = set(expected_resource_states)
-            state_regions = list(accessibility.get("resource_state_regions") or [])
-            matching_regions = [
-                item
-                for item in state_regions
-                if isinstance(item, dict)
-                and item.get("resource") in expected_resources
-                and item.get("state")
-                == dict(expected_resource_states[str(item.get("resource"))]).get(
-                    "status"
-                )
-            ]
+
+            def matching_resource_regions(
+                audit: dict[str, Any],
+            ) -> list[dict[str, Any]]:
+                audit_accessibility = dict(audit.get("accessibility") or {})
+                regions = list(audit_accessibility.get("resource_state_regions") or [])
+                return [
+                    item
+                    for item in regions
+                    if isinstance(item, dict)
+                    and item.get("resource") in expected_resources
+                    and item.get("state")
+                    == dict(expected_resource_states[str(item.get("resource"))]).get(
+                        "status"
+                    )
+                ]
+
+            matching_regions = matching_resource_regions(result)
+            navigation_steps: list[dict[str, Any]] = []
+            if (
+                applicable
+                and expected_resources
+                and not matching_regions
+                and manifest is not None
+            ):
+                # A resource region may live behind a tab or route. Use only
+                # the manifest's purpose-specific navigation contract. Primary
+                # jobs may contain destructive or reasoning controls and must
+                # never be guessed as state-inspection navigation.
+                candidate_views = [
+                    view
+                    for view in manifest.resource_views
+                    if view.resource in expected_resources
+                ]
+                for view in candidate_views:
+                    view_steps: list[dict[str, Any]] = []
+                    for step in view.steps:
+                        step_value = step.model_dump(mode="json")
+                        step_id = send(
+                            "Runtime.evaluate",
+                            {
+                                "expression": _interaction_expression(step_value),
+                                "awaitPromise": True,
+                                "returnByValue": True,
+                            },
+                        )
+                        step_result, step_exceptions = _receive_evaluation(
+                            socket,
+                            result_id=step_id,
+                            deadline=time.monotonic() + 2.0,
+                        )
+                        step_observation = {
+                            **step_value,
+                            "completed": (
+                                not step_exceptions
+                                and isinstance(step_result, dict)
+                                and step_result.get("ok") is True
+                            ),
+                        }
+                        view_steps.append(step_observation)
+                        if step_observation["completed"] is not True:
+                            break
+                        time.sleep(0.1)
+                    navigation_steps.append(
+                        {
+                            "resource": view.resource,
+                            "steps": view_steps,
+                            "completed": bool(view_steps)
+                            and all(item["completed"] for item in view_steps),
+                        }
+                    )
+                    if not view_steps or not all(
+                        item["completed"] for item in view_steps
+                    ):
+                        continue
+                    navigation_audit_id = send(
+                        "Runtime.evaluate",
+                        {
+                            "expression": _VIEWPORT_AUDIT_EXPRESSION,
+                            "awaitPromise": True,
+                            "returnByValue": True,
+                        },
+                    )
+                    navigated, navigation_exceptions = _receive_evaluation(
+                        socket,
+                        result_id=navigation_audit_id,
+                        deadline=time.monotonic() + 3.0,
+                    )
+                    if navigation_exceptions or not isinstance(navigated, dict):
+                        continue
+                    navigated_matches = matching_resource_regions(navigated)
+                    if navigated_matches:
+                        result = navigated
+                        matching_regions = navigated_matches
+                        break
+            layout = dict(result.get("layout") or {})
+            accessibility = dict(result.get("accessibility") or {})
             approval_regions = list(accessibility.get("approval_state_regions") or [])
             if int(layout.get("root_children") or 0) < 1:
                 diagnostics.append(
@@ -1504,12 +1626,19 @@ def _inspect_state_matrix(
                     )
                 )
             if applicable and expected_resources and not matching_regions:
+                declared_resources = (
+                    [view.resource for view in manifest.resource_views]
+                    if manifest is not None
+                    else []
+                )
                 diagnostics.append(
                     _viewport_diagnostic(
                         "state_region_missing",
                         (
                             f"The {state} state exposes no visible SDK-bound "
-                            "resource region"
+                            "resource region. If the region is behind navigation, "
+                            "declare its exact click path in surface.json "
+                            f"resource_views; declared resources: {declared_resources}"
                         ),
                         viewport=viewport,
                     )
@@ -1559,6 +1688,7 @@ def _inspect_state_matrix(
                 "layout": layout,
                 "accessibility": accessibility,
                 "matching_resource_regions": len(matching_regions),
+                "resource_navigation_steps": navigation_steps,
                 "expected_approval_state": (
                     expected_approval_state if approval_contract_applicable else None
                 ),
@@ -1685,7 +1815,7 @@ def _visible_assertion_expression(assertion: dict[str, Any]) -> str:
         "const name=element=>{const direct=element.getAttribute('aria-label');if(direct)return direct;"
         "const labelledBy=element.getAttribute('aria-labelledby');if(labelledBy){const value=labelledBy.split(/\\s+/).map(id=>document.getElementById(id)?.textContent||'').join(' ').trim();if(value)return value;}"
         "return element.textContent||'';};"
-        "const selectors={button:'button,[role=button]',textbox:'input:not([type=hidden]),textarea,[role=textbox]',combobox:'select,[role=combobox]',heading:'h1,h2,h3,h4,h5,h6,[role=heading]',region:'main,section,[role=region]',status:'[role=status]'};"
+        "const selectors={button:'button,[role=button]',textbox:'input:not([type=hidden]),textarea,[role=textbox]',combobox:'select,[role=combobox]',heading:'h1,h2,h3,h4,h5,h6,[role=heading]',region:'main,section,[role=region]',status:'[role=status]',list:'ul,ol,[role=list]',listitem:'li,[role=listitem]',link:'a,[role=link]',img:'img,[role=img]',table:'table,[role=table]',row:'tr,[role=row]',cell:'td,th,[role=cell],[role=gridcell],[role=columnheader],[role=rowheader]'};"
         "const candidates=[...document.querySelectorAll(selectors[assertion.role]||'')].filter(element=>{const style=getComputedStyle(element);const rect=element.getBoundingClientRect();return style.visibility!=='hidden'&&style.display!=='none'&&rect.width>0&&rect.height>0;});"
         "const match=candidates.find(element=>normalize(name(element))===normalize(assertion.name));"
         "return match?{ok:true}:{ok:false,error:`No visible ${assertion.role} named ${assertion.name}`,available:candidates.map(name).slice(0,30)};})()"
@@ -1700,6 +1830,8 @@ def _request_name(request: dict[str, Any]) -> str | None:
         return str(params.get("name") or "")
     if request.get("method") == "askAloy":
         return "aloy.ask"
+    if request.get("method") == "openResource":
+        return "event.resource.open"
     action = params.get("action")
     return str(action.get("name") or "") if isinstance(action, dict) else None
 
@@ -1716,12 +1848,21 @@ def _execute_primary_job(
     started_at = time.monotonic()
     diagnostics: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
+    job_context = (
+        context
+        if job.fixture == "current"
+        else surface_state_fixture_context(
+            context,
+            job.fixture,
+            manifest=manifest,
+        )
+    )
     reset_id = send(
         "Runtime.evaluate",
         {
             "expression": (
                 "new Promise(resolve=>{window.__aloySetSmokeContext("
-                + json.dumps(context, ensure_ascii=True, default=str)
+                + json.dumps(job_context, ensure_ascii=True, default=str)
                 + ");requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)));})"
             ),
             "awaitPromise": True,
@@ -1847,6 +1988,23 @@ def _execute_primary_job(
                     and _request_name(item) == assertion.name
                 ]
                 outcome.update({"count": len(matches), "passed": len(matches) == 1})
+                if len(matches) == 1 and assertion.method == "openResource":
+                    known_files = {
+                        str(item.get("id") or "")
+                        for item in list(
+                            dict(job_context.get("data") or {}).get("files") or []
+                        )
+                        if isinstance(item, dict)
+                    }
+                    file_id = str(
+                        dict(matches[0].get("params") or {}).get("fileId") or ""
+                    )
+                    outcome.update(
+                        {
+                            "file_id": file_id,
+                            "passed": bool(file_id) and file_id in known_files,
+                        }
+                    )
                 if len(matches) == 1 and assertion.method in {
                     "command",
                     "dispatch",
@@ -1921,6 +2079,7 @@ def _execute_primary_job(
     evidence: dict[str, Any] = {
         "id": job.id,
         "description": job.description,
+        "fixture": job.fixture,
         "passed": not diagnostics,
         "steps": len(job.steps),
         "assertions": observations,
@@ -2022,8 +2181,14 @@ def _execute_interaction_check(
                 else (
                     expected.name == "aloy.ask"
                     if expected.method == "askAloy"
-                    else isinstance(item["params"].get("action"), dict)
-                    and item["params"]["action"].get("name") == expected.name
+                    else (
+                        expected.name == "event.resource.open"
+                        and isinstance(item["params"].get("fileId"), str)
+                        and bool(item["params"]["fileId"])
+                        if expected.method == "openResource"
+                        else isinstance(item["params"].get("action"), dict)
+                        and item["params"]["action"].get("name") == expected.name
+                    )
                 )
             )
         ),

@@ -45,6 +45,35 @@ def test_skills_list_tool_searches_catalog_metadata():
     assert "system prompt" in payload["skills"][0]["readiness_reasons"][0]
 
 
+def test_skills_list_uses_the_current_model_capabilities():
+    registry = _registry_with_skill_tools()
+    catalog = SkillCatalog()
+    catalog.register(
+        SkillManifest(
+            slug="builder",
+            name="Builder",
+            version="1",
+            summary="Build a structured result",
+            required_model_capabilities=frozenset({"structured_output"}),
+        ),
+        "Build well.",
+    )
+
+    result = ToolExecutor(registry).execute_tool(
+        "skills_list",
+        {"query": "builder", "limit": 5},
+        {
+            "skill_catalog": catalog,
+            "capability_snapshot": registry.snapshot(),
+            "model_capabilities": frozenset({"structured_output"}),
+        },
+    )
+
+    payload = result["result"]
+    assert payload["skills"][0]["eligible"] is True
+    assert payload["skills"][0]["reasons"] == ()
+
+
 def test_skill_view_tool_loads_linked_files(tmp_path):
     skill_root = tmp_path / "teach"
     (skill_root / "references").mkdir(parents=True)

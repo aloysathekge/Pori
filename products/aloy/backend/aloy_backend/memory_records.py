@@ -7,7 +7,7 @@ surfaces that read/write long-term knowledge.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable, Sequence
 
 from pori import (
@@ -24,6 +24,21 @@ from pori import (
 
 from .models import KnowledgeEntry
 from .schemas import KnowledgeEntryResponse
+
+# Product features may have historically stored their provenance category in
+# ``KnowledgeEntry.kind``. The kernel contract intentionally keeps this field
+# limited to cognitive memory kinds. Translate known legacy values at the
+# backend boundary while preserving the original category in record metadata.
+_LEGACY_MEMORY_KIND_MAP: dict[str, MemoryKind] = {
+    "template_context": MemoryKind.SEMANTIC,
+}
+
+
+def _canonical_memory_kind(kind: str) -> MemoryKind:
+    legacy_kind = _LEGACY_MEMORY_KIND_MAP.get(kind)
+    if legacy_kind is not None:
+        return legacy_kind
+    return MemoryKind(kind)
 
 
 def personal_organization_id(user_id: str) -> str:
@@ -49,9 +64,13 @@ def request_scope(
 
 
 def row_to_record(row: KnowledgeEntry) -> MemoryRecord:
+    kind = _canonical_memory_kind(row.kind)
+    metadata = dict(row.metadata_ or {})
+    if kind.value != row.kind:
+        metadata.setdefault("source_memory_kind", row.kind)
     provenance = row.provenance or {
         "source": row.source,
-        "metadata": row.metadata_ or {},
+        "metadata": metadata,
     }
     return MemoryRecord.model_validate(
         {
@@ -63,7 +82,7 @@ def row_to_record(row: KnowledgeEntry) -> MemoryRecord:
                 "agent_id": row.agent_id,
                 "session_id": row.session_id,
             },
-            "kind": row.kind,
+            "kind": kind,
             "content": row.content,
             "tags": row.tags or [],
             "importance": row.importance,
@@ -78,7 +97,7 @@ def row_to_record(row: KnowledgeEntry) -> MemoryRecord:
             "updated_at": row.updated_at,
             "event_at": row.event_at,
             "deleted_at": row.deleted_at,
-            "metadata": row.metadata_ or {},
+            "metadata": metadata,
         }
     )
 

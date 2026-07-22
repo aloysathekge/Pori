@@ -4,6 +4,7 @@ import {
   type SurfaceInteractionMethod,
   type SurfaceInteractionRequest,
   type SurfaceInteractionResponse,
+  type SurfaceResourceRef,
   type SurfaceRuntimeContext,
 } from '../../api/surfaces';
 import { ApiError } from '../../api/client';
@@ -38,7 +39,13 @@ export interface SurfaceAloyHandoff {
   componentId: string;
   message?: string;
   reason?: string;
+  resourceRefs: SurfaceResourceRef[];
   response: SurfaceInteractionResponse;
+}
+
+export interface SurfaceResourceOpenRequest {
+  fileId: string;
+  componentId: string;
 }
 
 export function shouldSummonAloy(
@@ -56,6 +63,7 @@ export function shouldSummonAloy(
 export interface SurfaceBridgeOptions {
   onStatus?: (update: SurfaceBridgeStatusUpdate) => void;
   onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
+  onOpenResource?: (request: SurfaceResourceOpenRequest) => void | Promise<void>;
   contextTimeoutMs?: number;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
@@ -84,7 +92,13 @@ type BridgeRequest = {
   type: 'request';
   sessionId: string;
   requestId: string;
-  method: 'getContext' | 'command' | 'dispatch' | 'askAloy' | 'requestAction';
+  method:
+    | 'getContext'
+    | 'command'
+    | 'dispatch'
+    | 'askAloy'
+    | 'requestAction'
+    | 'openResource';
   params?: unknown;
 };
 
@@ -121,6 +135,24 @@ function payload(value: unknown): Record<string, unknown> {
     throw new Error('Surface bridge payload is too large');
   }
   return result;
+}
+
+function resourceRefs(value: unknown): SurfaceResourceRef[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new Error('Surface bridge resource references are invalid');
+  }
+  const refs = value.map((candidate) => {
+    const ref = object(candidate);
+    if (ref.type !== 'file') {
+      throw new Error('Surface bridge resource type is invalid');
+    }
+    return { type: 'file' as const, id: string(ref.id, 'resource id', 200) };
+  });
+  if (new Set(refs.map((ref) => `${ref.type}:${ref.id}`)).size !== refs.length) {
+    throw new Error('Surface bridge resource references must be unique');
+  }
+  return refs;
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -179,8 +211,8 @@ export class SurfaceBridgeHost {
   private readonly eventId: string;
   private readonly buildId: string;
   private readonly options: Required<
-    Omit<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff'>
-  > & Pick<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff'>;
+    Omit<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource'>
+  > & Pick<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource'>;
   private readonly dependencies: SurfaceBridgeDependencies;
 
   constructor(
@@ -194,6 +226,7 @@ export class SurfaceBridgeHost {
     this.options = {
       onStatus: options.onStatus,
       onAloyHandoff: options.onAloyHandoff,
+      onOpenResource: options.onOpenResource,
       contextTimeoutMs: options.contextTimeoutMs ?? 12_000,
       handshakeTimeoutMs: options.handshakeTimeoutMs ?? 5_000,
       heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
@@ -472,6 +505,56 @@ export class SurfaceBridgeHost {
       this.respond(request.requestId, { ok: true, result: this.context });
       return;
     }
+    if (request.method === 'openResource') {
+      try {
+        const params = object(request.params);
+        const fileId = string(params.fileId, 'file id', 200);
+        const componentId = typeof params.componentId === 'string'
+          ? params.componentId.trim().slice(0, 200) || 'surface'
+          : 'surface';
+        if (!this.context?.capabilities.includes('files')) {
+          this.respond(request.requestId, {
+            ok: false,
+            error: 'This Surface does not have access to Event files',
+            errorCode: 'permission_denied',
+            retryable: false,
+          });
+          return;
+        }
+        const file = this.context.data.files?.find((candidate) => candidate.id === fileId);
+        if (!file) {
+          this.respond(request.requestId, {
+            ok: false,
+            error: 'This resource is no longer available in the Event',
+            errorCode: 'invalid',
+            retryable: false,
+          });
+          return;
+        }
+        if (!this.options.onOpenResource) {
+          this.respond(request.requestId, {
+            ok: false,
+            error: 'The Event resource viewer is unavailable',
+            errorCode: 'unavailable',
+            retryable: true,
+          });
+          return;
+        }
+        await this.options.onOpenResource({ fileId, componentId });
+        this.respond(request.requestId, {
+          ok: true,
+          result: { opened: true, fileId },
+        });
+      } catch (cause) {
+        this.respond(request.requestId, {
+          ok: false,
+          error: errorMessage(cause, 'Could not open this Event resource'),
+          errorCode: 'failed',
+          retryable: false,
+        });
+      }
+      return;
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(
@@ -495,6 +578,7 @@ export class SurfaceBridgeHost {
       let bodyPayload: Record<string, unknown>;
       let message: string | undefined;
       let reason: string | undefined;
+      let refs: SurfaceResourceRef[] = [];
       if (request.method === 'command' || request.method === 'dispatch') {
         method = request.method;
         name = string(params.name, 'intent name', 128);
@@ -504,6 +588,7 @@ export class SurfaceBridgeHost {
         name = 'aloy.ask';
         message = string(params.message, 'message');
         bodyPayload = payload(params.context);
+        refs = resourceRefs(params.resources);
       } else if (request.method === 'requestAction') {
         method = 'request_action';
         const action = object(params.action);
@@ -522,8 +607,20 @@ export class SurfaceBridgeHost {
         componentId: componentId.slice(0, 200),
         message,
         reason,
+        resourceRefs: refs,
       };
       if (!this.context) throw new Error('Surface context is unavailable');
+      if (refs.length) {
+        if (!this.context.capabilities.includes('files')) {
+          throw new Error('This Surface does not have access to Event files');
+        }
+        const available = new Set(
+          (this.context.data.files ?? []).map((file) => file.id),
+        );
+        if (refs.some((ref) => !available.has(ref.id))) {
+          throw new Error('One or more Event resources are no longer available');
+        }
+      }
       result = await this.dependencies.createInteraction(
         this.eventId,
         {
@@ -536,6 +633,7 @@ export class SurfaceBridgeHost {
           payload: bodyPayload,
           message,
           reason,
+          resource_refs: refs,
           idempotency_key: idempotencyKey,
         },
         controller.signal,

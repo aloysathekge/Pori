@@ -569,10 +569,44 @@ bounded number of candidate resubmissions. This keeps model behavior focused on
 authoring while publication correctness remains deterministic.
 
 The Builder path is therefore not an agent tool loop. It is a bounded
-structured-generation loop: candidate, trusted host diagnostics, and at most
-one complete repair candidate in V1. Aloy records each candidate fingerprint
-and stage receipt; the model cannot directly mutate a draft, launch a compiler,
-or advance the live publication pointer.
+structured-generation loop: one product candidate, trusted host diagnostics,
+and at most two focused repair candidates under one aggregate token budget in
+V1. Every repair is rebased onto the exact rejected source; it does not receive
+an older draft buried in the broader Event context. The trusted inspector does
+not reveal quality gates
+one at a time: after a bundle boots, it completes every independent viewport,
+state, accessibility, interaction, and primary-job check it can safely execute
+and returns one compact diagnostic bundle. The repair uses exact single-match
+source replacements, whole-file writes only where necessary, and file creation
+or deletion against the frozen rejected revision. Ordered exact transactions
+may target one file more than once; Aloy applies them sequentially to an
+in-memory copy and commits only the final fully validated candidate. Missing or
+ambiguous matches reject the whole transaction without changing the frozen
+source. Redundant idempotent operations are normalized away so one already-
+satisfied manifest write cannot discard other meaningful changes. If the final
+transaction is still byte-identical to its frozen base, the Run ends immediately
+and never triggers another paid call. Aloy
+records each candidate fingerprint and stage receipt; the model cannot directly
+mutate a draft, launch a compiler, or advance the live publication pointer.
+
+The Builder receives a purpose-scoped context projection, not the entire Event
+operational record. It gets the complete editable draft exactly once, active
+Event/Brief facts, bounded canonical records and permitted excerpts, compact
+semantic Trail summaries, and published revision metadata without a duplicate
+copy of published source. This keeps generation grounded while preventing old
+build receipts and repeated source from dominating latency, tokens, or prompt
+cache boundaries.
+
+Browser proofs have explicit isolation boundaries too. Each primary job starts
+from a fresh host-owned context. The ordered interaction suite resets once to
+canonical Event data, then preserves host-accepted state between checks so a
+workflow can create a record and act on that record without inheriting a
+synthetic primary-job fixture. Jobs execute
+against current canonical Event data by default. A job that specifically proves
+loading, empty, stale, error, permission, long-content, or approval behavior must
+declare the corresponding trusted fixture; the host projects it only for that
+proof. Hypothetical state UI is never required to be visible against incompatible
+live data.
 
 Structured generation may take minutes and does not stream partial source.
 That must never look like inactivity. The Builder writes a durable heartbeat
@@ -639,6 +673,12 @@ revision. Optional visual critique may run asynchronously when measured quality
 justifies it, but it is not a V1 publication dependency. The Surface Builder
 skill teaches the model how to work, while schemas, tools, sandboxing, CSP,
 host bridges, and the publish service enforce the boundary.
+
+Tabbed and routed applications declare `resource_views`: bounded accessible
+click paths that reveal each otherwise-hidden SDK-bound resource region. The
+state inspector uses only those dedicated paths. It never guesses by clicking
+arbitrary primary-job controls, which could issue a durable command, reasoning
+request, or consequential action during quality inspection.
 
 Publishing is versioned and risk-aware. A safe visual repair or read-only view
 may publish automatically after passing the gate. A major navigation change
@@ -1198,6 +1238,16 @@ A host-owned readiness gate controls expensive bootstrap work:
 - **rich context:** build from the same general pipeline with stronger evidence,
   never through domain-specific University, travel, or career conditionals.
 
+The paid bootstrap boundary is semantic and mutation-driven. Its immutable
+input contains only Event identity, setup readiness, permitted evidence, and
+the cache policy needed to produce the first Event Brief. Operational Tasks,
+Proposals, Trail activity, files produced after setup, and Surface build/state
+changes may refresh the general Event context, but they cannot change the
+bootstrap fingerprint or silently queue another bootstrap. Only explicit
+creation, setup/evidence ingestion or mutation, Event-memory correction, or a
+user-requested retry may pass the readiness gate. Opening, refreshing, or
+polling an Event is always model-free.
+
 Before a Surface exists, the trusted Workbench remains fully usable through
 Conversation, Tasks, Files, Trail, and context status. It may say **Your
 Surface will take shape as Aloy understands this Event**. A published first
@@ -1342,6 +1392,24 @@ icon with a host-owned thumbnail. Hosted thumbnails use short-lived object
 URLs and range-capable media loading; local Blob thumbnails are size-bounded so
 a file list never silently buffers a large video. Thumbnail failure falls back
 to the correct format icon and never prevents opening the original.
+
+Generated Surfaces receive only typed metadata for files in their Event and
+only when their immutable manifest declares the `files` capability. A Surface
+opens a file by emitting `openResource(fileId)` through the SDK. Aloy's trusted
+host revalidates the ID against the signed-in user and current Event, then
+opens the same first-class Workbench viewer used everywhere else. The iframe
+never receives object-store credentials, a permanent blob URL, or raw host
+filesystem access, and opening a resource does not summon Aloy or create a Run.
+
+When a Surface asks Aloy to reason about a file, it sends an explicit typed
+resource reference with the request. Both the host bridge and backend validate
+the reference again, attach the trusted file chip to the Event's permanent
+Conversation turn, and include its identity in the Run's context envelope.
+This makes Surface selections visible to Aloy without copying file contents
+through generated React or granting the iframe broader Event authority. The
+worker adds only those validated files to the Run's lazy file manifest, so
+Aloy can fetch one when needed without promoting it to the global library or
+paying the byte-transfer cost before reasoning actually requires it.
 
 Office previews prioritize safe access to content over false visual fidelity.
 Layout-faithful Office conversion, thumbnails, waveform generation, captions,

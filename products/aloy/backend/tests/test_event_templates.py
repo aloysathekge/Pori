@@ -328,6 +328,18 @@ async def test_install_materializes_ordinary_event_context_surface_and_provenanc
             await _count(session, KnowledgeEntry, KnowledgeEntry.event_id == event_id)
             == 1
         )
+        template_context = (
+            (
+                await session.execute(
+                    select(KnowledgeEntry).where(KnowledgeEntry.event_id == event_id)
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert template_context.kind == "semantic"
+        assert "event-template" in (template_context.tags or [])
+        assert template_context.provenance["kind"] == "event_template"
         assert (
             await _count(
                 session, EventContextSnapshot, EventContextSnapshot.event_id == event_id

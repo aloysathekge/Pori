@@ -2,6 +2,63 @@
 
 ## Active Task
 
+The live provider acceptance exposed and the branch now corrects a Builder
+control-flow flaw before any further paid testing: runtime inspection used to
+stop after each quality class, allowing successive model submissions to reveal
+viewport, state, and job failures one paid cycle at a time. The trusted browser
+now completes every independent post-boot inspection and returns one compact
+diagnostic bundle. V1 permits one initial generation plus at most two focused
+repairs under a 200,000 aggregate-token cap; duplicate/no-op repair terminates
+immediately. Existing revisions support safe
+single-match `replace_text` transactions in addition to file writes/deletes, and
+tabbed/routed SDK state uses explicit manifest `resource_views` rather than
+guessing from arbitrary job controls. The Surface Builder run profile is v3.
+Focused Pori tests, the full 73-test Surface slice, Ruff, full kernel/backend
+mypy, and Aloy app tests/lint/build are green without a provider call. A second
+spend-boundary defect found during local recovery is also corrected: Event
+reads no longer enqueue the one-time Brief bootstrap, and the bootstrap now
+keys only on its versioned setup/evidence projection. Operational
+Surface/Task/Trail churn may refresh general context but cannot supersede the
+Brief or trigger another paid Run. Regression coverage proves both boundaries.
+Both accidental local bootstrap Runs were cancelled before claim; the corrected
+API stayed at zero Runs under live UI polling and the restarted worker stayed
+idle. A controlled Career OS Builder acceptance then stopped at the two-call
+cap and exposed an over-strict source rule: both otherwise structured outputs
+contained ordered edits to one path. The transaction now supports sequential
+same-file edits atomically, with exact-match checks on every step. Its
+prompt projection also removes duplicate published source and compacts internal
+Trail/evidence context, reducing the live fixture from 213,346 to 65,506
+serialized characters. A second bounded acceptance honored the two-call cap
+(57,686 total tokens, no conversation-model call) and exposed a final host
+semantic error: an already-satisfied `surface.json` write caused the entire
+otherwise meaningful transaction to be rejected. The host now normalizes such
+idempotent operations, rejects only a net-unchanged transaction, and never
+reports a nonexistent third submission. Focused checks and the expanded
+78-test Surface slice are green. A subsequent real Career OS request exposed
+that a source-contract rebase consumed the only repair before a missing
+TypeScript binding could be corrected. Repair prompts now use the exact rejected
+source without unrelated Event context. That request also exposed a browser-test
+isolation flaw: an empty-files job was asserted against current populated data,
+then its fixture leaked into the following interaction suite. Primary jobs can
+now declare trusted state fixtures and reset independently; the ordered
+interaction suite resets once to canonical data and then preserves accepted
+state between its checks. The retained candidate was recovered
+with zero model tokens and published as Career OS revision 14 after compilation,
+fixture-aware browser inspection, interaction proofs, and primary-job proofs all
+passed. The expanded 82-test Surface/request slice, focused Ruff and mypy, and
+the Aloy app's 29 tests, lint, typecheck, and production build are green.
+
+The Event-actions UX slice passed all seven GitHub checks and merged into
+`aloy-v1` through PR #222. The follow-on branch
+`aloy-v1-r12-surface-resources` now implements the trusted Event-resource
+boundary for generated Surfaces: typed file/artifact metadata, a host-owned
+`openResource(fileId)` Workbench intent with no Run or storage URL, and
+resource-aware `askAloy` turns whose explicit file IDs are revalidated by both
+the browser host and backend before entering the permanent Event Conversation.
+The Surface Builder skill and parent Surface/vision contracts describe the
+same API. Focused backend, bridge, SDK, lint, type, and production-build checks
+are green; the branch is ready for review and remains unmerged.
+
 R11 durable Work Story hardening passed all seven GitHub checks and merged into
 `aloy-v1` through PR #216. R12's governed Event-template catalog passed all
 seven checks and merged through PR #217. The first model-free slice defines
@@ -269,6 +326,12 @@ control on those request cards.
   writes or committed credentials.
 
 ## Next Session Should Start With
+
+Cancel or reconcile the interrupted local `event_bootstrap` Run before starting
+the worker. Then run exactly one explicitly approved provider acceptance request
+against the Builder v2 ceiling and inspect its retained generation, exhaustive
+diagnostic, exact-edit, build, and publication receipts. Do not restore three
+automatic submissions or stage-by-stage paid repair.
 
 Review and merge the Event lifecycle slice, then continue the protected
 template asset-upload boundary before shipping releases with binary assets. Do

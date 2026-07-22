@@ -178,7 +178,8 @@ await dispatch("assessment.study_help_requested", {
 V1 SDK capabilities should cover:
 
 - Event metadata and namespaced Surface data;
-- tenant-scoped Tasks, artifacts, Proposals, receipts, and selected Trail data;
+- tenant- and Event-scoped Tasks, artifact/file metadata, Proposals, receipts,
+  and selected Trail data;
 - reactive subscriptions to Event data revisions;
 - `useSurfaceInteraction(id)` and controller lifecycle state for a command's
   host-owned Run, Proposal, execution, and terminal outcome;
@@ -187,7 +188,10 @@ V1 SDK capabilities should cover:
   visible approval-summary region, but never owns approval or execution
   controls;
 - structured `dispatch(name, payload)` intents;
-- `askAloy(message, context)` for an explicit model turn;
+- `openResource(fileId)` for a host-owned Workbench viewer intent that creates
+  no Run and exposes no storage URL to generated code;
+- `askAloy(message, context, {resources})` for an explicit model turn with
+  optional trusted Event-file references;
 - `requestAction(action)` for host-validated consequential intent;
 - trusted host widgets such as maps, file previews, approvals, and credential
   collection where generated code must not own the privileged implementation.

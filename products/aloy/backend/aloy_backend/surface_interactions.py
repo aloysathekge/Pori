@@ -102,6 +102,13 @@ class SurfaceInteractionError(ValueError):
         self.attempt_id = attempt_id
 
 
+class SurfaceResourceRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    type: Literal["file"]
+    id: str = Field(min_length=1, max_length=200)
+
+
 class SurfaceInteractionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -114,6 +121,7 @@ class SurfaceInteractionRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     message: str | None = Field(default=None, max_length=50_000)
     reason: str | None = Field(default=None, max_length=4000)
+    resource_refs: list[SurfaceResourceRef] = Field(default_factory=list, max_length=20)
     idempotency_key: str = Field(min_length=8, max_length=200)
 
     @model_validator(mode="after")
@@ -123,6 +131,12 @@ class SurfaceInteractionRequest(BaseModel):
                 raise ValueError("ask_aloy requires name aloy.ask and a message")
         elif self.message is not None:
             raise ValueError("message is only valid for ask_aloy")
+        if self.resource_refs and self.method != "ask_aloy":
+            raise ValueError("resource_refs are only valid for ask_aloy")
+        if len({(ref.type, ref.id) for ref in self.resource_refs}) != len(
+            self.resource_refs
+        ):
+            raise ValueError("resource_refs must be unique")
         if (
             len(
                 json.dumps(self.payload, sort_keys=True, separators=(",", ":")).encode()
@@ -530,6 +544,47 @@ def _declaration_for(
     return declaration
 
 
+async def _resolve_resource_refs(
+    session: AsyncSession,
+    *,
+    context: OrganizationContext,
+    event: Event,
+    manifest: SurfaceManifest,
+    request: SurfaceInteractionRequest,
+) -> list[StoredFile]:
+    if not request.resource_refs:
+        return []
+    if "files" not in manifest.capabilities:
+        raise SurfaceInteractionError(
+            403,
+            "Surface lacks files capability",
+            code="permission_denied",
+        )
+    file_ids = [ref.id for ref in request.resource_refs]
+    files = list(
+        (
+            await session.execute(
+                select(StoredFile).where(
+                    StoredFile.organization_id == context.organization_id,
+                    StoredFile.user_id == context.user_id,
+                    StoredFile.event_id == event.id,
+                    col(StoredFile.id).in_(file_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_id = {file.id: file for file in files}
+    if len(by_id) != len(file_ids):
+        raise SurfaceInteractionError(
+            422,
+            "One or more referenced Event resources are unavailable",
+            code="invalid_resource_ref",
+        )
+    return [by_id[file_id] for file_id in file_ids]
+
+
 def _attempt_class(
     manifest: SurfaceManifest,
     request: SurfaceInteractionRequest,
@@ -694,6 +749,13 @@ async def handle_surface_interaction(
         return payload
 
     declaration = _declaration_for(manifest, request)
+    referenced_files = await _resolve_resource_refs(
+        session,
+        context=context,
+        event=event,
+        manifest=manifest,
+        request=request,
+    )
     now = datetime.now(timezone.utc)
     if request.method == "ask_aloy":
         command = ResolvedSurfaceCommand(
@@ -861,7 +923,15 @@ async def handle_surface_interaction(
             "data_revision": project.data_revision,
             "context_snapshot_id": snapshot.id,
             "context_snapshot_fingerprint": snapshot.fingerprint,
+            "resource_refs": [
+                {"type": "file", "id": file.id, "name": file.name}
+                for file in referenced_files
+            ],
         }
+        message_files = [
+            {"file_id": file.id, "name": file.name, "size": file.size_bytes}
+            for file in referenced_files
+        ]
         user_message = Message(
             conversation_id=conversation.id,
             role="user",
@@ -877,6 +947,7 @@ async def handle_surface_interaction(
                 "surface_input": request.payload,
                 "code_revision_id": revision.id,
                 "data_revision": project.data_revision,
+                **({"files": message_files} if message_files else {}),
             },
         )
         budget = resolve_run_budget(context.policy)
@@ -892,7 +963,16 @@ async def handle_surface_interaction(
                 "<trusted-surface-command>\n"
                 f"{json.dumps(trigger, sort_keys=True)}\n"
                 "</trusted-surface-command>\n"
-                f"{'User request' if is_direct_question else 'Surface request'}: "
+                + (
+                    "<referenced-event-resources>\n"
+                    f"{json.dumps(trigger['resource_refs'], sort_keys=True)}\n"
+                    "Use the trusted Event file tools to inspect these explicit "
+                    "references when needed.\n"
+                    "</referenced-event-resources>\n"
+                    if referenced_files
+                    else ""
+                )
+                + f"{'User request' if is_direct_question else 'Surface request'}: "
                 f"{message}"
             ),
             max_steps=budget.max_steps,
@@ -1113,6 +1193,7 @@ __all__ = [
     "command_attempt_payload",
     "SurfaceInteractionError",
     "SurfaceInteractionRequest",
+    "SurfaceResourceRef",
     "handle_surface_interaction",
     "interaction_payload",
     "record_surface_interaction_rejection",

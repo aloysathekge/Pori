@@ -17,11 +17,16 @@ from aloy_backend.event_bootstrap import (
     execute_claimed_event_bootstrap,
     queue_event_bootstrap_if_ready,
 )
-from aloy_backend.event_context import EventBriefPayload, EventEvidenceRef, GroundedText
+from aloy_backend.event_context import (
+    EventBriefPayload,
+    EventEvidenceRef,
+    GroundedText,
+    event_bootstrap_input_fingerprint,
+    refresh_event_context_snapshot,
+)
 from aloy_backend.models import (
     Event,
     EventBrief,
-    EventContextSnapshot,
     EventTrailEntry,
     KnowledgeEntry,
     Organization,
@@ -121,6 +126,96 @@ async def test_queue_is_snapshot_bound_idempotent_and_freezes_evidence(
         )
 
 
+async def test_surface_lifecycle_activity_cannot_queue_another_bootstrap_run(
+    db_session_maker,
+):
+    async with db_session_maker() as session:
+        await _seed_ready_event(session)
+        original_snapshot, original_run, created = await queue_event_bootstrap_if_ready(
+            session,
+            organization_id="org-bootstrap",
+            user_id="alice",
+            event_id="evt-bootstrap",
+        )
+        assert original_run is not None
+        assert created is True
+        session.add(
+            EventTrailEntry(
+                organization_id="org-bootstrap",
+                user_id="alice",
+                event_id="evt-bootstrap",
+                actor_id="aloy:surface-builder",
+                kind="surface_build_failed",
+                summary="A rejected Surface candidate retained the last-good build",
+                run_id="surface-run",
+            )
+        )
+        await session.commit()
+
+        (
+            operational_snapshot,
+            _pack,
+            snapshot_created,
+        ) = await refresh_event_context_snapshot(
+            session,
+            organization_id="org-bootstrap",
+            user_id="alice",
+            event_id="evt-bootstrap",
+        )
+        current_snapshot, same_run, queued = await queue_event_bootstrap_if_ready(
+            session,
+            organization_id="org-bootstrap",
+            user_id="alice",
+            event_id="evt-bootstrap",
+        )
+
+        assert snapshot_created is True
+        assert operational_snapshot.id != original_snapshot.id
+        assert current_snapshot.id == operational_snapshot.id
+        assert event_bootstrap_input_fingerprint(
+            operational_snapshot
+        ) == event_bootstrap_input_fingerprint(original_snapshot)
+        assert queued is False
+        assert same_run is not None
+        assert same_run.id == original_run.id
+        runs = list(
+            (
+                await session.execute(
+                    select(Run).where(Run.run_kind == EVENT_BOOTSTRAP_RUN_KIND)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(runs) == 1
+
+
+async def test_reading_event_workspace_never_queues_bootstrap_run(
+    client,
+    db_session_maker,
+):
+    async with db_session_maker() as session:
+        await _seed_ready_event(session, event_id="evt-read-only")
+        await session.commit()
+
+    response = await client.get(
+        "/v1/events/evt-read-only",
+        headers={
+            "X-Test-User": "alice",
+            "X-Pori-Organization": "org-bootstrap",
+        },
+    )
+
+    assert response.status_code == 200
+    async with db_session_maker() as session:
+        runs = list(
+            (await session.execute(select(Run).where(Run.event_id == "evt-read-only")))
+            .scalars()
+            .all()
+        )
+        assert runs == []
+
+
 async def test_bootstrap_executes_without_tools_and_publishes_grounded_brief(
     db_session_maker, monkeypatch
 ):
@@ -171,7 +266,20 @@ async def test_bootstrap_executes_without_tools_and_publishes_grounded_brief(
         run.attempt_count = 1
         run.lease_owner = "worker-a"
         run.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        session.add(run)
+        session.add_all(
+            [
+                run,
+                EventTrailEntry(
+                    organization_id="org-bootstrap",
+                    user_id="alice",
+                    event_id="evt-bootstrap",
+                    actor_id="aloy:surface-builder",
+                    kind="surface_candidate_rejected",
+                    summary="A Surface candidate failed quality inspection",
+                    run_id="surface-run",
+                ),
+            ]
+        )
         await session.commit()
         run_id = run.id
 

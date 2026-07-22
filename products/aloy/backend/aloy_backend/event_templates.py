@@ -702,7 +702,10 @@ async def install_event_template(
                     event_id=event.id,
                     content=entry.content,
                     tags=[*entry.tags, "event-template"],
-                    kind="template_context",
+                    # Template context is declarative knowledge. Its origin is
+                    # carried by tags/provenance rather than widening the
+                    # kernel's semantic/episodic/procedural memory taxonomy.
+                    kind="semantic",
                     confidence=1.0,
                     sensitivity="internal",
                     source="admin",

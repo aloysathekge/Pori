@@ -18,6 +18,20 @@ MAX_INTERACTION_CHECKS = 100
 MAX_INTERACTION_CHECK_STEPS = 20
 MAX_PRIMARY_JOBS = 20
 MAX_PRIMARY_JOB_ASSERTIONS = 20
+MAX_RESOURCE_VIEWS = 50
+
+SurfacePrimaryJobFixture = Literal[
+    "current",
+    "loading",
+    "empty",
+    "stale",
+    "error",
+    "permission_denied",
+    "pending",
+    "indeterminate",
+    "long_content",
+    "approval_required",
+]
 
 _CAPABILITY = re.compile(
     r"^(?:event|tasks|files|proposals|receipts|trail|ask_aloy|(?:data|records):[a-z][a-z0-9_.-]{0,63})$"
@@ -112,7 +126,7 @@ class SurfaceInteractionCheckStep(BaseModel):
 class SurfaceInteractionCheckExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    method: Literal["command", "dispatch", "askAloy", "requestAction"]
+    method: Literal["command", "dispatch", "askAloy", "openResource", "requestAction"]
     name: str = Field(min_length=1, max_length=128)
 
 
@@ -128,6 +142,30 @@ class SurfaceInteractionCheck(BaseModel):
     expect: SurfaceInteractionCheckExpectation
 
 
+class SurfaceResourceView(BaseModel):
+    """A semantic navigation path to one SDK-bound resource region.
+
+    State inspection must never guess which arbitrary button reveals hidden
+    content. A tabbed or routed Surface declares the safe click path explicitly
+    and the host still proves that the destination renders the expected
+    ``useSurfaceResourceState`` binding.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    resource: str
+    steps: list[SurfaceInteractionCheckStep] = Field(
+        min_length=1,
+        max_length=MAX_INTERACTION_CHECK_STEPS,
+    )
+
+    @model_validator(mode="after")
+    def validate_navigation_steps(self) -> "SurfaceResourceView":
+        if any(step.action != "click" for step in self.steps):
+            raise ValueError("Resource view navigation may contain only click steps")
+        return self
+
+
 class SurfacePrimaryJobAssertion(BaseModel):
     """One host-observable outcome for a complete user job."""
 
@@ -135,10 +173,28 @@ class SurfacePrimaryJobAssertion(BaseModel):
 
     kind: Literal["visible", "request", "state", "approval"]
     role: (
-        Literal["button", "textbox", "combobox", "heading", "region", "status"] | None
+        Literal[
+            "button",
+            "textbox",
+            "combobox",
+            "heading",
+            "region",
+            "status",
+            "list",
+            "listitem",
+            "link",
+            "img",
+            "table",
+            "row",
+            "cell",
+        ]
+        | None
     ) = None
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    method: Literal["command", "dispatch", "askAloy", "requestAction"] | None = None
+    method: (
+        Literal["command", "dispatch", "askAloy", "openResource", "requestAction"]
+        | None
+    ) = None
     namespace: str | None = None
     key: str | None = Field(default=None, min_length=1, max_length=200)
     field: str | None = Field(default=None, min_length=1, max_length=100)
@@ -231,6 +287,10 @@ class SurfacePrimaryJob(BaseModel):
 
     id: str
     description: str = Field(min_length=3, max_length=500)
+    # Primary jobs normally execute against current canonical Event data. A
+    # job that proves a host-owned non-current state must name the exact trusted
+    # fixture instead of asserting that hypothetical UI against live data.
+    fixture: SurfacePrimaryJobFixture = "current"
     steps: list[SurfaceInteractionCheckStep] = Field(
         default_factory=list, max_length=MAX_INTERACTION_CHECK_STEPS
     )
@@ -256,6 +316,10 @@ class SurfaceManifest(BaseModel):
     intents: dict[str, SurfaceIntentDeclaration] = Field(default_factory=dict)
     interaction_checks: list[SurfaceInteractionCheck] = Field(
         default_factory=list, max_length=MAX_INTERACTION_CHECKS
+    )
+    resource_views: list[SurfaceResourceView] = Field(
+        default_factory=list,
+        max_length=MAX_RESOURCE_VIEWS,
     )
     primary_jobs: list[SurfacePrimaryJob] = Field(
         default_factory=list, max_length=MAX_PRIMARY_JOBS
@@ -288,6 +352,14 @@ class SurfaceManifest(BaseModel):
     def validate_intent_capabilities(self) -> "SurfaceManifest":
         granted = set(self.capabilities)
         validate_surface_widgets(self.widgets, granted)
+        resource_view_names = [view.resource for view in self.resource_views]
+        if len(resource_view_names) != len(set(resource_view_names)):
+            raise ValueError("Surface resource view names must be unique")
+        for view in self.resource_views:
+            if view.resource not in granted:
+                raise ValueError(
+                    f"Resource view {view.resource} requires that capability"
+                )
         for name, declaration in self.intents.items():
             if declaration.write:
                 capability = f"data:{declaration.write.namespace}"
@@ -302,6 +374,13 @@ class SurfaceManifest(BaseModel):
                     raise ValueError("askAloy checks must expect aloy.ask")
                 if "ask_aloy" not in granted:
                     raise ValueError("askAloy check requires ask_aloy capability")
+            elif expectation.method == "openResource":
+                if expectation.name != "event.resource.open":
+                    raise ValueError(
+                        "openResource checks must expect event.resource.open"
+                    )
+                if "files" not in granted:
+                    raise ValueError("openResource check requires files capability")
             else:
                 checked_declaration = self.intents.get(expectation.name)
                 if checked_declaration is None:
@@ -331,6 +410,16 @@ class SurfaceManifest(BaseModel):
                     if assertion.name != "aloy.ask" or "ask_aloy" not in granted:
                         raise ValueError(
                             "askAloy primary-job assertions require aloy.ask and ask_aloy"
+                        )
+                    continue
+                if assertion.method == "openResource":
+                    if (
+                        assertion.name != "event.resource.open"
+                        or "files" not in granted
+                    ):
+                        raise ValueError(
+                            "openResource primary-job assertions require "
+                            "event.resource.open and files"
                         )
                     continue
                 job_declaration = self.intents.get(str(assertion.name or ""))
@@ -480,6 +569,7 @@ __all__ = [
     "SURFACE_PROTOCOL_VERSION",
     "SURFACE_SDK_VERSION",
     "SurfaceInteractionCheck",
+    "SurfaceResourceView",
     "SurfacePrimaryJob",
     "SurfacePrimaryJobAssertion",
     "SurfaceIntentDeclaration",

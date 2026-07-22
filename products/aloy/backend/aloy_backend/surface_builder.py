@@ -1,9 +1,11 @@
 """Dedicated no-tool Surface Builder execution.
 
 The Builder is a single structured-output model role. It returns complete
-candidate source; the trusted host executes the lifecycle and may provide
-deterministic diagnostics for one bounded repair call. The model never receives
-authoring, build, preview, publication, filesystem, or answer tools.
+source for a new Surface or bounded source transactions for an existing revision.
+The trusted host materializes a complete candidate, executes the lifecycle,
+and may provide one exhaustive diagnostic bundle for one bounded repair call. The
+model never receives authoring, build, preview, publication, filesystem, or
+answer tools.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
@@ -53,9 +56,12 @@ from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .surface_pipeline import (
     MAX_CANDIDATE_SUBMISSIONS,
     SurfaceCandidate,
+    SurfaceCandidateEditEnvelope,
     SurfaceCandidateEnvelope,
     SurfaceHostPipeline,
     SurfacePipelineResult,
+    bind_surface_manifest_primary_jobs,
+    materialize_surface_candidate_edit,
 )
 from .surface_requests import (
     SURFACE_BUILDER_RUN_KIND,
@@ -69,9 +75,13 @@ from .tenancy import OrganizationPolicy
 
 logger = logging.getLogger("aloy_backend.surface_builder")
 
-MAX_SURFACE_PROMPT_CONTEXT_CHARS = 700_000
+MAX_SURFACE_PROMPT_CONTEXT_CHARS = 480_000
+MAX_SURFACE_PROMPT_TRAIL_ENTRIES = 40
+MAX_SURFACE_PROMPT_FILE_EXCERPTS = 8
+MAX_SURFACE_PROMPT_FILE_EXCERPT_CHARS = 8_000
 SURFACE_PROGRESS_HEARTBEAT_SECONDS = 5.0
 MAX_REJECTED_OUTPUT_EXCERPT_CHARS = 24_000
+SURFACE_STREAM_IDLE_TIMEOUT_SECONDS = 60.0
 
 
 class SurfaceCandidateExhaustedError(RuntimeError):
@@ -108,6 +118,46 @@ class SurfacePipelineInfrastructureError(RuntimeError):
             "Surface host pipeline failed",
         )
         super().__init__(message)
+
+
+@dataclass
+class _GenerationProgress:
+    """Non-sensitive evidence that a streaming Builder call is advancing."""
+
+    output_chars: int = 0
+    output_chunks: int = 0
+    first_output_at: datetime | None = None
+    last_output_at: datetime | None = None
+    first_output_monotonic: float | None = None
+    last_output_monotonic: float | None = None
+
+    def on_delta(self, value: str) -> None:
+        if not value:
+            return
+        now = datetime.now(timezone.utc)
+        monotonic_now = perf_counter()
+        self.output_chars += len(value)
+        self.output_chunks += 1
+        if self.first_output_at is None:
+            self.first_output_at = now
+            self.first_output_monotonic = monotonic_now
+        self.last_output_at = now
+        self.last_output_monotonic = monotonic_now
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "generation_phase": (
+                "receiving_output" if self.output_chunks else "waiting_for_output"
+            ),
+            "output_chars": self.output_chars,
+            "output_chunks": self.output_chunks,
+            "first_output_at": (
+                self.first_output_at.isoformat() if self.first_output_at else None
+            ),
+            "last_output_at": (
+                self.last_output_at.isoformat() if self.last_output_at else None
+            ),
+        }
 
 
 def _json(value: Any) -> str:
@@ -174,24 +224,60 @@ def _candidate_contract_diagnostics(
     ]
 
 
-def _render_prompt_context(value: dict[str, Any]) -> str:
-    """Keep structured generation bounded and refuse unsafe partial revisions."""
-    rendered = _json(value)
-    if len(rendered) <= MAX_SURFACE_PROMPT_CONTEXT_CHARS:
-        return rendered
-    # Event file excerpts and old Trail entries are useful but less important
-    # than complete current source. Trim those before refusing the request.
-    reduced = {
-        **value,
+def _surface_builder_prompt_projection(
+    value: dict[str, Any],
+    *,
+    compact: bool = False,
+) -> dict[str, Any]:
+    """Project only the trusted context required to author one Surface revision.
+
+    The editable draft must remain complete. Published source duplicates that
+    draft in the common case and is authority evidence rather than model input,
+    so only its metadata crosses the generation boundary. Trail payloads are
+    operational receipts; compact semantic entries are enough to orient design.
+    """
+    surface = dict(value.get("surface") or {})
+    published = dict(surface.get("published") or {})
+    published.pop("files", None)
+    surface["published"] = published
+    trail_limit = 15 if compact else MAX_SURFACE_PROMPT_TRAIL_ENTRIES
+    excerpt_count = 3 if compact else MAX_SURFACE_PROMPT_FILE_EXCERPTS
+    excerpt_chars = 3_000 if compact else MAX_SURFACE_PROMPT_FILE_EXCERPT_CHARS
+    trail = []
+    for entry in list(value.get("trail") or [])[:trail_limit]:
+        if not isinstance(entry, dict):
+            continue
+        trail.append(
+            {
+                key: entry[key]
+                for key in ("id", "kind", "summary", "created_at")
+                if key in entry
+            }
+        )
+    return {
+        "event": value.get("event") or {},
+        "brief": value.get("brief") or {},
+        "tasks": list(value.get("tasks") or [])[: (50 if compact else 100)],
+        "proposals": list(value.get("proposals") or [])[: (25 if compact else 50)],
+        "files": list(value.get("files") or [])[: (50 if compact else 100)],
         "file_excerpts": {
-            path: content[:12_000]
+            path: content[:excerpt_chars]
             for path, content in list(dict(value.get("file_excerpts") or {}).items())[
-                :20
+                :excerpt_count
             ]
         },
-        "trail": list(value.get("trail") or [])[:100],
+        "trail": trail,
+        "surface": surface,
     }
-    rendered = _json(reduced)
+
+
+def _render_prompt_context(value: dict[str, Any]) -> str:
+    """Keep structured generation purpose-scoped and refuse partial source."""
+    rendered = _json(_surface_builder_prompt_projection(value))
+    if len(rendered) <= MAX_SURFACE_PROMPT_CONTEXT_CHARS:
+        return rendered
+    # Keep the complete editable draft while reducing optional canonical context.
+    rendered = _json(_surface_builder_prompt_projection(value, compact=True))
     if len(rendered) > MAX_SURFACE_PROMPT_CONTEXT_CHARS:
         raise ValueError(
             "Surface Builder context exceeds the safe structured-generation limit"
@@ -282,16 +368,53 @@ def _messages(
     instructions: str,
     previous_candidate: BaseModel | None,
     diagnostics: list[dict[str, Any]],
+    repair_files: dict[str, str] | None,
+    candidate_mode: str,
+    required_primary_jobs: list[dict[str, str]],
 ) -> list[Any]:
+    if candidate_mode == "edit":
+        contract = (
+            "\n\nRevision contract: an existing Surface is frozen in the supplied "
+            "context. Return only the smallest source transactions required for "
+            "this request. Prefer replace_text with an exact fragment that occurs "
+            "once; use a whole-file write only when the file truly needs a broad "
+            "rewrite. Transactions execute in listed order and may make multiple "
+            "exact changes to the same file. Preserve every unmentioned file and "
+            "never repeat the complete project."
+        )
+    else:
+        contract = (
+            "\n\nCreation contract: no usable Surface source exists yet. Return one "
+            "complete candidate containing every required model-owned source file."
+        )
     repair = ""
     if previous_candidate is not None:
+        repair_source = _json({"files": repair_files or {}})
+        if len(repair_source) > MAX_SURFACE_PROMPT_CONTEXT_CHARS:
+            raise ValueError("Surface repair source exceeds the safe generation limit")
         repair = (
-            "\n\nThe host rejected the previous complete candidate. Return a new "
-            "complete replacement that repairs every diagnostic.\nDiagnostics:\n"
-            + _json(diagnostics)
-            + "\nPrevious candidate:\n"
+            "\n\nThe host rejected the previous candidate. The exact current "
+            "rejected source below is now the sole editing base; do not use an "
+            "older Event-context draft or stale match. Return a corrected "
+            "candidate in the same revision mode that repairs the entire "
+            "diagnostic bundle. For an incremental revision, return only minimal "
+            "replace_text, write, or delete transactions; ordered transactions "
+            "may target the same file.\nDiagnostics:\n"
+            + _json(_compact_repair_diagnostics(diagnostics))
+            + "\nExact current rejected source:\n"
+            + repair_source
+            + "\nPrevious submitted transaction:\n"
             + previous_candidate.model_dump_json()
         )
+    host_contract = (
+        "\n\nHost-owned acceptance jobs:\n"
+        + _json(required_primary_jobs)
+        + "\nDo not copy these jobs into provider metadata; the host binds their "
+        "ids and descriptions. In surface.json, provide exactly one ordered "
+        "browser proof per job using the exact id and description. Use "
+        'method "openResource" with name "event.resource.open" to prove a '
+        "trusted Event file viewer action; never invent host_ui."
+    )
     return [
         SystemMessage(
             content=(
@@ -303,12 +426,66 @@ def _messages(
         UserMessage(
             content=(
                 task
-                + "\n\nTrusted Event and current Surface context:\n"
-                + context
+                + (
+                    "\n\nTrusted Event and current Surface context:\n" + context
+                    if previous_candidate is None
+                    else ""
+                )
+                + contract
+                + host_contract
                 + repair
             )
         ),
     ]
+
+
+def _compact_repair_diagnostics(
+    values: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse repeated composition failures into one actionable bundle.
+
+    Exact per-composition evidence remains in the retained pipeline receipt.
+    The paid repair prompt receives one entry per underlying problem, with
+    bounded examples and the affected states/viewports, instead of dozens of
+    nearly identical diagnostics.
+    """
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for raw in values:
+        item = dict(raw)
+        key = (
+            item.get("stage"),
+            item.get("code"),
+            item.get("severity"),
+            item.get("path"),
+            item.get("line"),
+        )
+        group = groups.setdefault(
+            key,
+            {
+                "stage": item.get("stage"),
+                "code": item.get("code"),
+                "severity": item.get("severity", "error"),
+                "message": str(item.get("message") or "Surface validation failed"),
+                "path": item.get("path"),
+                "line": item.get("line"),
+                "occurrences": 0,
+                "viewports": [],
+                "states": [],
+                "examples": [],
+            },
+        )
+        group["occurrences"] += 1
+        viewport = item.get("viewport")
+        if viewport is not None and viewport not in group["viewports"]:
+            group["viewports"].append(viewport)
+        state = item.get("state")
+        if state is not None and state not in group["states"]:
+            group["states"].append(state)
+        message = str(item.get("message") or "")
+        if message and message != group["message"] and message not in group["examples"]:
+            if len(group["examples"]) < 4:
+                group["examples"].append(message)
+    return list(groups.values())[:40]
 
 
 async def _progress_heartbeat(
@@ -317,6 +494,7 @@ async def _progress_heartbeat(
     *,
     stage: str,
     submission: int,
+    generation_progress: _GenerationProgress | None = None,
 ) -> None:
     """Keep long non-streaming model generation visibly alive."""
     try:
@@ -334,6 +512,11 @@ async def _progress_heartbeat(
                     **(heartbeat_run.progress or {}),
                     "stage": stage,
                     "submission": submission,
+                    **(
+                        generation_progress.payload()
+                        if generation_progress is not None
+                        else {}
+                    ),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
                 heartbeat_session.add(heartbeat_run)
@@ -352,6 +535,58 @@ async def _stop_progress_heartbeat(heartbeat: asyncio.Task[None]) -> None:
         # cancellation inside ``_progress_heartbeat``. Cancellation is the
         # expected shutdown path here, so the owner must absorb it as well.
         return
+
+
+async def _await_candidate_generation(
+    invocation: Any,
+    *,
+    progress: _GenerationProgress,
+    first_output_timeout_seconds: float,
+    deadline: float,
+) -> Any:
+    """Await a structured stream with first-output, idle, and Run deadlines."""
+    task = asyncio.create_task(invocation)
+    started = perf_counter()
+    try:
+        while True:
+            now = perf_counter()
+            remaining = deadline - now
+            if remaining <= 0:
+                raise BudgetExceeded(
+                    "Duration budget exceeded",
+                    code="max_duration_seconds",
+                )
+            if progress.first_output_monotonic is None:
+                progress_timeout = first_output_timeout_seconds - (now - started)
+                if progress_timeout <= 0:
+                    raise SurfaceGenerationTimeoutError(
+                        "Surface generation produced no output before the "
+                        f"{first_output_timeout_seconds:g}-second deadline"
+                    )
+            else:
+                last_output = progress.last_output_monotonic or now
+                progress_timeout = SURFACE_STREAM_IDLE_TIMEOUT_SECONDS - (
+                    now - last_output
+                )
+                if progress_timeout <= 0:
+                    raise SurfaceGenerationTimeoutError(
+                        "Surface generation stopped producing output for "
+                        f"{SURFACE_STREAM_IDLE_TIMEOUT_SECONDS:g} seconds"
+                    )
+            done, _ = await asyncio.wait(
+                {task},
+                timeout=min(1.0, remaining, progress_timeout),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if done:
+                return await task
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 async def execute_claimed_surface_builder(
@@ -447,6 +682,20 @@ async def execute_claimed_surface_builder(
                 run_context=run_context,
                 session_factory=async_session,
             )
+            project_snapshot = dict(
+                getattr(runtime, "project_snapshot", None)
+                or runtime.prompt_context.get("surface")
+                or {}
+            )
+            draft_snapshot = dict(project_snapshot.get("draft") or {})
+            base_files = {
+                str(path): str(content)
+                for path, content in dict(draft_snapshot.get("files") or {}).items()
+            }
+            base_revision_id = project_snapshot.get("expected_revision")
+            candidate_mode = (
+                "edit" if base_revision_id is not None and base_files else "complete"
+            )
             context = _render_prompt_context(runtime.prompt_context)
             instructions = surface_builder_instructions()
             prompt_fingerprint = stable_fingerprint(
@@ -455,6 +704,8 @@ async def execute_claimed_surface_builder(
                     "skill_id": SURFACE_BUILDER_SKILL_ID,
                     "task": run.task,
                     "context": context,
+                    "candidate_mode": candidate_mode,
+                    "base_revision_id": base_revision_id,
                     "model_assignment": assignment.config_fingerprint,
                 }
             )
@@ -478,19 +729,18 @@ async def execute_claimed_surface_builder(
                 session.add(claimed_run)
                 await session.commit()
 
-            pipeline = pipeline_factory(
-                run_id=run.id,
-                authoring_handler=runtime.authoring_handler,
-                build_handler=runtime.build_handler,
-                stage_observer=observe_stage,
-                required_primary_jobs=surface_request_primary_jobs(run),
-            )
             previous_candidate: BaseModel | None = None
             diagnostics: list[dict[str, Any]] = []
             published: SurfacePipelineResult | None = None
+            seen_candidate_fingerprints: set[str] = set()
+            required_primary_jobs = surface_request_primary_jobs(run)
+            required_primary_job_descriptions = [
+                item["description"] for item in required_primary_jobs
+            ]
 
             for submission in range(1, MAX_CANDIDATE_SUBMISSIONS + 1):
                 submissions = submission
+                prior_diagnostics = list(diagnostics)
                 budget_ledger.consume_step()
                 remaining = deadline - perf_counter()
                 if remaining <= 0:
@@ -499,12 +749,25 @@ async def execute_claimed_surface_builder(
                         code="max_duration_seconds",
                     )
                 started = perf_counter()
+                generation_progress = _GenerationProgress()
+                claimed_run.progress = {
+                    **(claimed_run.progress or {}),
+                    "stage": "generating_candidate",
+                    "submission": submission,
+                    "candidate_mode": candidate_mode,
+                    "base_revision_id": base_revision_id,
+                    **generation_progress.payload(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                session.add(claimed_run)
+                await session.commit()
                 heartbeat = asyncio.create_task(
                     _progress_heartbeat(
                         run.id,
                         worker_id,
                         stage="generating_candidate",
                         submission=submission,
+                        generation_progress=generation_progress,
                     )
                 )
                 try:
@@ -512,48 +775,59 @@ async def execute_claimed_surface_builder(
                         remaining,
                         float(assignment.generation_timeout_seconds),
                     )
+                    output_schema = (
+                        SurfaceCandidateEditEnvelope
+                        if candidate_mode == "edit"
+                        else SurfaceCandidateEnvelope
+                    )
                     llm_calls_before = budget_ledger.snapshot()["llm_calls_used"]
                     try:
-                        response = await asyncio.wait_for(
+                        response = await _await_candidate_generation(
                             structured_invoker(
                                 llm,
-                                SurfaceCandidateEnvelope,
+                                output_schema,
                                 _messages(
                                     task=run.task,
                                     context=context,
                                     instructions=instructions,
                                     previous_candidate=previous_candidate,
                                     diagnostics=diagnostics,
+                                    repair_files=(
+                                        base_files
+                                        if previous_candidate is not None
+                                        else None
+                                    ),
+                                    candidate_mode=candidate_mode,
+                                    required_primary_jobs=required_primary_jobs,
                                 ),
                                 include_raw=True,
+                                on_delta=generation_progress.on_delta,
                                 meta={
                                     "run_id": run.id,
                                     "run_kind": SURFACE_BUILDER_RUN_KIND,
                                     "submission": submission,
+                                    "candidate_mode": candidate_mode,
+                                    "base_revision_id": base_revision_id,
                                     "profile": SURFACE_BUILDER_RUN_PROFILE.profile_id,
                                     "generation_timeout_seconds": generation_timeout,
                                 },
                             ),
-                            timeout=generation_timeout,
+                            progress=generation_progress,
+                            first_output_timeout_seconds=generation_timeout,
+                            deadline=deadline,
                         )
-                    except TimeoutError as exc:
-                        if remaining <= float(assignment.generation_timeout_seconds):
-                            raise BudgetExceeded(
-                                "Duration budget exceeded",
-                                code="max_duration_seconds",
-                            ) from exc
+                    except SurfaceGenerationTimeoutError:
                         receipts.append(
                             {
                                 "kind": "surface_generation_timeout",
                                 "worker_attempt": run.attempt_count,
                                 "submission": submission,
+                                "candidate_mode": candidate_mode,
                                 "timeout_seconds": generation_timeout,
+                                **generation_progress.payload(),
                             }
                         )
-                        raise SurfaceGenerationTimeoutError(
-                            "Surface candidate generation exceeded "
-                            f"{generation_timeout:g} seconds"
-                        ) from exc
+                        raise
                     # Production's structured invoker calls the budgeted model
                     # and charges itself. Test/custom invokers may return a
                     # provider result directly; charge that completed call once
@@ -583,30 +857,88 @@ async def execute_claimed_surface_builder(
                         }
                     )
                     raise SurfaceCandidateOutputError(diagnostic)
-                envelope = (
-                    parsed
-                    if isinstance(parsed, SurfaceCandidateEnvelope)
-                    else SurfaceCandidateEnvelope.model_validate(
-                        parsed.model_dump(mode="python")
-                        if isinstance(parsed, BaseModel)
-                        else parsed
-                    )
+                parsed_value = (
+                    parsed.model_dump(mode="python")
+                    if isinstance(parsed, BaseModel)
+                    else parsed
                 )
+                envelope: BaseModel | None = None
+                changed_file_count = 0
                 try:
-                    candidate = SurfaceCandidate.model_validate(
-                        envelope.model_dump(mode="python")
+                    if candidate_mode == "edit":
+                        edit_envelope = (
+                            parsed
+                            if isinstance(parsed, SurfaceCandidateEditEnvelope)
+                            else SurfaceCandidateEditEnvelope.model_validate(
+                                parsed_value
+                            )
+                        )
+                        envelope = edit_envelope
+                        changed_file_count = len(edit_envelope.changes)
+                        candidate = materialize_surface_candidate_edit(
+                            edit_envelope,
+                            base_files=base_files,
+                            primary_jobs=required_primary_job_descriptions,
+                        )
+                    else:
+                        complete_envelope = (
+                            parsed
+                            if isinstance(parsed, SurfaceCandidateEnvelope)
+                            else SurfaceCandidateEnvelope.model_validate(parsed_value)
+                        )
+                        envelope = complete_envelope
+                        changed_file_count = len(complete_envelope.files)
+                        candidate = SurfaceCandidate.model_validate(
+                            {
+                                "summary": complete_envelope.summary,
+                                "primary_jobs": required_primary_job_descriptions,
+                                "files": [
+                                    item.model_dump(mode="python")
+                                    for item in complete_envelope.files
+                                ],
+                            }
+                        )
+                    candidate = bind_surface_manifest_primary_jobs(
+                        candidate,
+                        required_primary_jobs=required_primary_jobs,
                     )
                 except ValidationError as exc:
                     diagnostics = _candidate_contract_diagnostics(exc)
+                except ValueError as exc:
+                    diagnostics = [
+                        {
+                            "stage": "candidate_validation",
+                            "code": "invalid_surface_candidate",
+                            "severity": "error",
+                            "message": str(exc),
+                        }
+                    ]
+                else:
+                    diagnostics = []
+                if diagnostics:
                     receipts.append(
                         {
                             "kind": "surface_candidate_contract_rejected",
                             "worker_attempt": run.attempt_count,
                             "submission": submission,
+                            "candidate_mode": candidate_mode,
                             "diagnostics": diagnostics,
                         }
                     )
-                    previous_candidate = envelope
+                    previous_candidate = envelope or (
+                        parsed if isinstance(parsed, BaseModel) else None
+                    )
+                    if submission >= MAX_CANDIDATE_SUBMISSIONS:
+                        run.progress = {
+                            **(run.progress or {}),
+                            "stage": "candidate_rejected",
+                            "submission": submission,
+                            "diagnostics": diagnostics,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        session.add(run)
+                        await session.commit()
+                        break
                     run.progress = {
                         **(run.progress or {}),
                         "stage": "repairing_candidate",
@@ -617,6 +949,48 @@ async def execute_claimed_surface_builder(
                     session.add(run)
                     await session.commit()
                     continue
+
+                if candidate.fingerprint in seen_candidate_fingerprints:
+                    diagnostics = [
+                        {
+                            "stage": "candidate_validation",
+                            "code": "duplicate_surface_candidate",
+                            "severity": "error",
+                            "message": (
+                                "The candidate is byte-identical to an already "
+                                "rejected submission and cannot repair the listed "
+                                "diagnostics. Change the smallest relevant source "
+                                "file before resubmitting."
+                            ),
+                        },
+                        *prior_diagnostics,
+                    ]
+                    receipts.append(
+                        {
+                            "kind": "surface_candidate_duplicate",
+                            "worker_attempt": run.attempt_count,
+                            "submission": submission,
+                            "candidate_mode": candidate_mode,
+                            "candidate_fingerprint": candidate.fingerprint,
+                            "diagnostics": diagnostics,
+                        }
+                    )
+                    previous_candidate = envelope
+                    run.progress = {
+                        **(run.progress or {}),
+                        "stage": "candidate_rejected",
+                        "submission": submission,
+                        "candidate_fingerprint": candidate.fingerprint,
+                        "diagnostics": diagnostics,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    session.add(run)
+                    await session.commit()
+                    # A byte-identical repair proves that the assignment did
+                    # not respond to the exhaustive diagnostic bundle. A
+                    # further paid call would be a blind retry.
+                    break
+                seen_candidate_fingerprints.add(candidate.fingerprint)
 
                 run.progress = {
                     **(run.progress or {}),
@@ -630,6 +1004,14 @@ async def execute_claimed_surface_builder(
                 pipeline_progress.update(
                     submission=submission,
                     candidate_fingerprint=candidate.fingerprint,
+                )
+                pipeline = pipeline_factory(
+                    run_id=run.id,
+                    authoring_handler=runtime.authoring_handler,
+                    build_handler=runtime.build_handler,
+                    stage_observer=observe_stage,
+                    required_primary_jobs=required_primary_jobs,
+                    expected_base_revision_id=base_revision_id,
                 )
                 remaining = deadline - perf_counter()
                 if remaining <= 0:
@@ -652,6 +1034,9 @@ async def execute_claimed_surface_builder(
                     {
                         "kind": "surface_candidate",
                         "submission": submission,
+                        "candidate_mode": candidate_mode,
+                        "changed_file_count": changed_file_count,
+                        **generation_progress.payload(),
                         **outcome.model_dump(mode="json"),
                     }
                 )
@@ -664,12 +1049,23 @@ async def execute_claimed_surface_builder(
                         revision_id=outcome.revision_id,
                         build_id=outcome.build_id,
                     )
-                previous_candidate = candidate
+                previous_candidate = envelope
                 diagnostics = outcome.diagnostics
+                if outcome.revision_id:
+                    base_revision_id = outcome.revision_id
+                    base_files = {
+                        item.source_path: item.content for item in candidate.files
+                    }
+                    candidate_mode = "edit"
+                final_submission = submission >= MAX_CANDIDATE_SUBMISSIONS
                 run.progress = {
                     **(run.progress or {}),
-                    "stage": "repairing_candidate",
-                    "submission": submission + 1,
+                    "stage": (
+                        "candidate_rejected"
+                        if final_submission
+                        else "repairing_candidate"
+                    ),
+                    "submission": submission if final_submission else submission + 1,
                     "diagnostics": diagnostics,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
