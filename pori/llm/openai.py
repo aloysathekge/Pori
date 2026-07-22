@@ -190,8 +190,7 @@ class ChatOpenAI:
             output_format.model_json_schema()
         )
         openai_messages = [
-            {"role": m.role, "content": _to_openai_content(m.content)}
-            for m in messages
+            {"role": m.role, "content": _to_openai_content(m.content)} for m in messages
         ]
         openai_messages = structured_policy.prepare_messages(
             openai_messages,

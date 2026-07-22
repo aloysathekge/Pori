@@ -292,9 +292,7 @@ def _surface_activity_payload(run: Run) -> dict:
         "message": message,
         "submission": int(progress.get("submission") or 1),
         "max_submissions": (
-            MAX_CANDIDATE_SUBMISSIONS
-            if run.run_kind == SURFACE_BUILDER_RUN_KIND
-            else 1
+            MAX_CANDIDATE_SUBMISSIONS if run.run_kind == SURFACE_BUILDER_RUN_KIND else 1
         ),
         "candidate_mode": progress.get("candidate_mode"),
         "generation_phase": progress.get("generation_phase"),

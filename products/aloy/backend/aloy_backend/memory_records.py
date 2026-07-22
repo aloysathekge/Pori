@@ -25,7 +25,6 @@ from pori import (
 from .models import KnowledgeEntry
 from .schemas import KnowledgeEntryResponse
 
-
 # Product features may have historically stored their provenance category in
 # ``KnowledgeEntry.kind``. The kernel contract intentionally keeps this field
 # limited to cognitive memory kinds. Translate known legacy values at the

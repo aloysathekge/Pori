@@ -428,9 +428,7 @@ def test_fireworks_kimi_structured_output_includes_schema_and_disables_reasoning
 def test_fireworks_kimi_k2p7_code_disables_reasoning_for_builder_output():
     from pori.llm.fireworks import ChatFireworks
 
-    llm = ChatFireworks(
-        api_key="x", model="accounts/fireworks/models/kimi-k2p7-code"
-    )
+    llm = ChatFireworks(api_key="x", model="accounts/fireworks/models/kimi-k2p7-code")
     llm._client = _OAIClient(
         _OAIResp([_OAIChoice(_OAIMessage(content='{"status":"ready"}'))])
     )

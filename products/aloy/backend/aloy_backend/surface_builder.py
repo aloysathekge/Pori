@@ -391,9 +391,7 @@ def _messages(
     if previous_candidate is not None:
         repair_source = _json({"files": repair_files or {}})
         if len(repair_source) > MAX_SURFACE_PROMPT_CONTEXT_CHARS:
-            raise ValueError(
-                "Surface repair source exceeds the safe generation limit"
-            )
+            raise ValueError("Surface repair source exceeds the safe generation limit")
         repair = (
             "\n\nThe host rejected the previous candidate. The exact current "
             "rejected source below is now the sole editing base; do not use an "
@@ -795,7 +793,9 @@ async def execute_claimed_surface_builder(
                                     previous_candidate=previous_candidate,
                                     diagnostics=diagnostics,
                                     repair_files=(
-                                        base_files if previous_candidate is not None else None
+                                        base_files
+                                        if previous_candidate is not None
+                                        else None
                                     ),
                                     candidate_mode=candidate_mode,
                                     required_primary_jobs=required_primary_jobs,
