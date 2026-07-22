@@ -377,6 +377,11 @@ class LocalDevelopmentSurfaceBuildRunner:
         }
         return paths if all(path.is_file() for path in paths.values()) else None
 
+    @property
+    def available(self) -> bool:
+        """Whether this checkout has the complete pinned local toolchain."""
+        return shutil.which("node") is not None and self._toolchain_paths() is not None
+
     def _build_sync(
         self,
         *,

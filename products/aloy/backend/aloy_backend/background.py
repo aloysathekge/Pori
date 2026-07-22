@@ -67,6 +67,10 @@ from .surface_lifecycle import (
     reconcile_surface_run,
     surface_interaction_for_run,
 )
+from .surface_materialization import (
+    SURFACE_MATERIALIZATION_RUN_KIND,
+    execute_claimed_surface_materialization,
+)
 from .surface_reinspection import (
     SURFACE_REINSPECTION_RUN_KIND,
     execute_claimed_surface_reinspection,
@@ -237,6 +241,13 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
             # live bundle. It owns no general agent tools or publication power.
             await session.rollback()
             await execute_claimed_surface_reinspection(run_id, worker_id)
+            return
+        if run.run_kind == SURFACE_MATERIALIZATION_RUN_KIND:
+            # Reviewed source already exists. This model-free specialist uses
+            # the same build, inspection, and publication authority as the
+            # Builder without asking a model to rewrite reviewed code.
+            await session.rollback()
+            await execute_claimed_surface_materialization(run_id, worker_id)
             return
 
         metrics: dict | None = None

@@ -29,6 +29,8 @@ from .models import (
     EventTemplateSeed,
     EventTrailEntry,
     KnowledgeEntry,
+    Organization,
+    Run,
     SurfaceDataRecord,
     SurfaceProject,
     SurfaceRevision,
@@ -42,6 +44,11 @@ from .surface_authoring import (
     surface_source_path,
 )
 from .surface_manifest import SURFACE_SDK_VERSION, parse_surface_manifest
+from .surface_materialization import (
+    SURFACE_MATERIALIZATION_RUN_KIND,
+    queue_surface_revision_materialization,
+)
+from .tenancy import OrganizationPolicy
 
 TEMPLATE_SCHEMA_VERSION = 1
 MAX_TEMPLATE_SNAPSHOT_BYTES = 2 * 1024 * 1024
@@ -157,6 +164,7 @@ class TemplateReleaseBundle:
 class TemplateInstallResult:
     installation: EventTemplateInstallation
     event: Event
+    surface_run_id: str | None
     replayed: bool
 
 
@@ -539,11 +547,84 @@ async def _replay_installation(
     event = await session.get(Event, installation.event_id)
     if event is None:
         raise EventTemplateError("Installed Event provenance is incomplete")
+    surface_run_id = await _ensure_installed_surface_materialization(
+        session,
+        event=event,
+        installation=installation,
+    )
     return TemplateInstallResult(
         installation=installation,
         event=event,
+        surface_run_id=surface_run_id,
         replayed=True,
     )
+
+
+async def _ensure_installed_surface_materialization(
+    session: AsyncSession,
+    *,
+    event: Event,
+    installation: EventTemplateInstallation,
+) -> str | None:
+    existing = (
+        (
+            await session.execute(
+                select(Run)
+                .where(
+                    Run.organization_id == event.organization_id,
+                    Run.user_id == event.user_id,
+                    Run.event_id == event.id,
+                    Run.run_kind == SURFACE_MATERIALIZATION_RUN_KIND,
+                )
+                .order_by(col(Run.created_at))
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        return existing.id
+    project = (
+        (
+            await session.execute(
+                select(SurfaceProject).where(
+                    SurfaceProject.organization_id == event.organization_id,
+                    SurfaceProject.user_id == event.user_id,
+                    SurfaceProject.event_id == event.id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if (
+        project is None
+        or project.published_build_id is not None
+        or project.draft_revision_id is None
+    ):
+        return None
+    revision = await session.get(SurfaceRevision, project.draft_revision_id)
+    if revision is None:
+        raise EventTemplateError("Installed Surface source is incomplete")
+    organization = await session.get(Organization, event.organization_id)
+    policy = OrganizationPolicy.model_validate(
+        organization.policy if organization is not None else {}
+    )
+    run, _ = await queue_surface_revision_materialization(
+        session,
+        event=event,
+        project=project,
+        revision=revision,
+        policy=policy,
+        trigger="event_template_installation",
+        actor_id=event.user_id,
+        origin_evidence=[
+            {"template_installation_id": installation.id},
+            {"template_release_id": installation.release_id},
+        ],
+    )
+    return run.id
 
 
 async def install_event_template(
@@ -773,9 +854,15 @@ async def install_event_template(
         event_id=event.id,
     )
     await session.flush()
+    surface_run_id = await _ensure_installed_surface_materialization(
+        session,
+        event=event,
+        installation=installation,
+    )
     return TemplateInstallResult(
         installation=installation,
         event=event,
+        surface_run_id=surface_run_id,
         replayed=False,
     )
 

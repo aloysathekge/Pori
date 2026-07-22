@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import func
 from sqlmodel import select
 
@@ -19,6 +20,7 @@ from aloy_backend.models import (
     EventTemplateSeed,
     EventTrailEntry,
     KnowledgeEntry,
+    Run,
     SurfaceBuild,
     SurfaceDataRecord,
     SurfaceProject,
@@ -27,8 +29,15 @@ from aloy_backend.models import (
     Task,
 )
 from aloy_backend.runtime import authenticated_run_context
-from aloy_backend.surface_build_runner import SurfaceBuildRunnerResult
+from aloy_backend.surface_build_runner import (
+    LocalDevelopmentSurfaceBuildRunner,
+    SurfaceBuildRunnerResult,
+)
 from aloy_backend.surface_builds import SurfaceBuildHandler, SurfaceBuildParams
+from aloy_backend.surface_materialization import (
+    SURFACE_MATERIALIZATION_RUN_KIND,
+    execute_claimed_surface_materialization,
+)
 
 
 class FakeTemplateBuildRunner:
@@ -286,7 +295,9 @@ async def test_install_materializes_ordinary_event_context_surface_and_provenanc
     assert body["event"]["title"] == "Career OS"
     assert body["event"]["phase"] == "setup"
     assert body["installation"]["release_id"] == release_id
-    assert body["surface"]["status"] == "source_seeded"
+    assert body["surface"]["status"] == "preparing"
+    assert body["surface"]["run_id"]
+    assert body["surface"]["run_status"] == "pending"
     assert body["replayed"] is False
 
     async with db_session_maker() as session:
@@ -334,6 +345,15 @@ async def test_install_materializes_ordinary_event_context_surface_and_provenanc
         )
         assert (
             await _count(session, SurfaceBuild, SurfaceBuild.event_id == event_id) == 0
+        )
+        assert (
+            await _count(
+                session,
+                Run,
+                Run.event_id == event_id,
+                Run.run_kind == SURFACE_MATERIALIZATION_RUN_KIND,
+            )
+            == 1
         )
         assert (
             await _count(
@@ -442,6 +462,81 @@ async def test_seeded_source_enters_the_normal_surface_build_pipeline(
     assert result["replayed"] is False
     async with db_session_maker() as session:
         assert await _count(session, SurfaceBuild) == 1
+
+
+async def test_source_seeded_run_builds_inspects_and_publishes_without_a_model(
+    client, db_session_maker
+):
+    runner = LocalDevelopmentSurfaceBuildRunner()
+    if not runner.available:
+        pytest.skip("The pinned local Surface toolchain is not installed")
+    template_id, _ = await _seed_career_os(db_session_maker)
+    installed = await client.post(
+        f"/v1/event-templates/{template_id}/install",
+        json={"idempotency_key": "install-auto-materialization"},
+    )
+    event_id = installed.json()["event"]["id"]
+    run_id = installed.json()["surface"]["run_id"]
+    assert installed.json()["surface"]["status"] == "preparing"
+    assert run_id
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, run_id)
+        assert run is not None
+        run.status = "running"
+        run.attempt_count = 1
+        run.lease_owner = "worker-template-materialization"
+        run.lease_expires_at = datetime.now(timezone.utc)
+        session.add(run)
+        await session.commit()
+
+    store = MemoryObjectStore()
+
+    def handler_factory(**kwargs):
+        return SurfaceBuildHandler(
+            run_context=kwargs["run_context"],
+            runner=runner,
+            object_store=store,
+            session_factory=kwargs["session_factory"],
+        )
+
+    completed = await execute_claimed_surface_materialization(
+        run_id,
+        "worker-template-materialization",
+        session_factory=db_session_maker,
+        handler_factory=handler_factory,
+    )
+
+    assert completed is True
+    async with db_session_maker() as session:
+        run = await session.get(Run, run_id)
+        project = (
+            (
+                await session.execute(
+                    select(SurfaceProject).where(SurfaceProject.event_id == event_id)
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert run is not None
+        assert run.status == "completed"
+        assert run.success is True
+        assert run.model_assignment is None
+        assert project.lifecycle == "published"
+        assert project.published_revision_id == project.draft_revision_id
+        assert project.published_build_id is not None
+        assert (
+            await _count(session, SurfaceBuild, SurfaceBuild.event_id == event_id) == 1
+        )
+        assert (
+            await _count(
+                session,
+                SurfacePublication,
+                SurfacePublication.event_id == event_id,
+            )
+            == 1
+        )
 
 
 async def test_catalog_changes_and_withdrawal_do_not_mutate_installed_event(

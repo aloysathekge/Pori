@@ -20,6 +20,7 @@ async function activityFromTrail(eventId: string): Promise<SurfaceActivity | nul
   const completed = entry.kind === 'surface_published';
   const queued = entry.kind === 'surface_build_queued';
   const retrying = entry.kind === 'surface_build_retry_scheduled';
+  const materializing = entry.payload.mode === 'persisted_source';
   const startedAt = new Date(entry.created_at);
   const elapsed = Number.isNaN(startedAt.getTime())
     ? 0
@@ -33,10 +34,10 @@ async function activityFromTrail(eventId: string): Promise<SurfaceActivity | nul
       : completed
         ? 'Your Surface is ready'
         : retrying
-          ? 'Retrying the Surface safely'
+          ? materializing ? 'Retrying the starting Surface safely' : 'Retrying the Surface safely'
           : queued
-            ? 'Waiting for the Surface Builder'
-            : 'Designing and writing your Surface',
+            ? materializing ? 'Preparing your starting Surface' : 'Waiting for the Surface Builder'
+            : materializing ? 'Checking and publishing your starting Surface' : 'Designing and writing your Surface',
     submission: 1,
     attempt_count: Number(entry.payload.attempt ?? 1),
     max_attempts: Number(entry.payload.max_attempts ?? 3),
