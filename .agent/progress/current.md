@@ -16,6 +16,11 @@ The separate `aloy-internal` phase-4 branch now consumes that boundary through
 a typed client, bounded loopback bridge, and fixture/live-local Governance
 review screen. It displays the exact checksum and observed catalog pointer and
 returns Pori's receipt unchanged.
+The stacked phase-5 branch now holds the first real Career OS v1 release and a
+generic release kit. Its exact React source passes Pori's manifest, build,
+runtime, interaction, and four-primary-job gates, plus a local protected
+stage/publish/install proof. It creates one honest setup Task, separates sample
+and setup-gap posture, and routes research to the permanent Event conversation.
 
 The trusted universal file viewer, Surface quality/inspection contracts,
 operator-only control APIs, and the separate private `aloy-internal` control
@@ -187,19 +192,20 @@ available and does not block model-free template and ingestion contracts.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
 - The product database, protected API, and Aloy Internal review workflow now
-  have the generic catalog authoring contract but no production Career OS
-  release yet. Template source still needs a generic host-build kickoff before
-  a seeded Surface can become live.
+  have a reviewed Career OS v1 candidate, but it has not been staged or
+  published in a configured catalog. Template source still needs a generic
+  host-build kickoff before a seeded Surface can become live.
 
 ## Next Session Should Start With
 
-Prepare and review the first real Career OS release bundle in `aloy-internal`,
-then stage and publish it as database data through the protected API. Connect a
-successful installation's template-source-ready record to the normal host
-build/inspection/publication pipeline before adding template discovery and
-install UI. Add a protected asset-upload boundary before shipping releases with
-binary assets; do not grant Aloy Internal direct object-store access, create a
-parallel template build path, or let a release publish itself.
+Review and merge the Career OS release branch, then stage and publish its exact
+fingerprint as database data through the protected API when catalog authority
+is configured. Connect a successful installation's template-source-ready
+record to the normal host build/inspection/publication pipeline before adding
+template discovery and install UI. Add a protected asset-upload boundary before
+shipping releases with binary assets; do not grant Aloy Internal direct
+object-store access, create a parallel template build path, or let a release
+publish itself.
 
 In parallel planning, keep R10 document ingestion behind the provider-neutral
 `DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file

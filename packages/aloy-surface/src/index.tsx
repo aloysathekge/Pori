@@ -414,6 +414,8 @@ export interface SurfaceDataRecord<T = Record<string, unknown>> {
     | 'estimated'
     | 'pending'
     | 'committed'
+    | 'template_sample'
+    | 'template_setup_gap'
     | 'failed'
     | 'indeterminate';
   provenance: Record<string, unknown>;

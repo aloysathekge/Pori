@@ -1074,6 +1074,23 @@ Second backend slice completed on the same branch:
   a fresh SQLite database upgrades through `t2d3e4f5a6b7` at Alembic head; the
   complete backend suite passes all 514 tests.
 
+First real release candidate completed in the separate Aloy Internal phase-5
+branch:
+
+- Career OS v1 is editable release data with ordinary React/CSS source, not a
+  product-domain branch in Aloy; it seeds no fake applications and creates only
+  one setup Task;
+- four capability-scoped intents preserve direction and application state,
+  change pipeline stage, and route a reasoning request into the permanent Event
+  conversation;
+- a generic offline release kit assembles, bounds, fingerprints, and reviews
+  source before checksum-guarded loopback staging; publication remains a
+  separate Governance action;
+- Pori's real manifest parser, local host build, runtime inspection, four
+  interaction paths, and four primary jobs pass on the exact candidate; and a
+  temporary local database acceptance proof staged, published, and installed
+  it through the generic APIs without model credits.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1162,17 +1179,17 @@ through PRs #214 and #216.
 The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
-The R12 backend contract, installation transaction, fake seeded Career OS
-proof, protected two-step release API, and Aloy Internal typed review workflow
-are now implemented without model credits. Next, prepare and review the first
-real Career OS bundle, then load it as database data through those APIs. Add a
-protected asset-upload boundary before releases ship binary assets; Aloy
-Internal must not receive direct object-store access. Route
+The R12 backend contract, installation transaction, protected two-step release
+API, Aloy Internal review workflow, and first real Career OS v1 candidate are
+implemented without model credits. Next, merge and stage the exact reviewed
+candidate when operator authority is configured, then route
 template-source-ready installations through the ordinary host
 build/inspection/publication pipeline. Discovery UI follows that end-to-end
-proof. University then uses the same contracts; Madrid waits for the trusted
-Map/widget phase. Subscription packaging remains a separate entitlement/limits
-design and must not leak into template taxonomy.
+proof. Add a protected asset-upload boundary before binary template assets;
+Aloy Internal must not receive direct object-store access. University then uses
+the same contracts; Madrid waits for the trusted Map/widget phase. Subscription
+packaging remains a separate entitlement/limits design and must not leak into
+template taxonomy.
 
 R10 document ingestion remains a parallel planned architecture slice, not a
 reason to block the template proof. Keep `main` untouched until manual product
