@@ -69,6 +69,15 @@ async def test_event_memory_loads_global_and_same_event_without_leakage(
                     content="A knowledge",
                 ),
                 KnowledgeEntry(
+                    id="legacy-template-context",
+                    organization_id="org-1",
+                    user_id="alice",
+                    event_id=event_a.id,
+                    content="Career template context",
+                    kind="template_context",
+                    tags=["event-template"],
+                ),
+                KnowledgeEntry(
                     id="event-b-memory",
                     organization_id="org-1",
                     user_id="alice",
@@ -132,7 +141,18 @@ async def test_event_memory_loads_global_and_same_event_without_leakage(
         )
 
     knowledge = {record.content for record in memory.memory_records}
-    assert knowledge == {"global preference", "A knowledge"}
+    assert knowledge == {
+        "global preference",
+        "A knowledge",
+        "Career template context",
+    }
+    legacy_template = next(
+        record
+        for record in memory.memory_records
+        if record.id == "legacy-template-context"
+    )
+    assert legacy_template.kind.value == "semantic"
+    assert legacy_template.metadata["source_memory_kind"] == "template_context"
     rendered = "\n".join(message.content for message in memory.messages)
     assert "current A message" in rendered
     assert "sibling A message" not in rendered
