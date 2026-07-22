@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import shutil
 from datetime import datetime, timezone
 
 import pytest
@@ -468,8 +467,9 @@ async def test_seeded_source_enters_the_normal_surface_build_pipeline(
 async def test_source_seeded_run_builds_inspects_and_publishes_without_a_model(
     client, db_session_maker
 ):
-    if shutil.which("node") is None:
-        pytest.skip("Node.js is not installed")
+    runner = LocalDevelopmentSurfaceBuildRunner()
+    if not runner.available:
+        pytest.skip("The pinned local Surface toolchain is not installed")
     template_id, _ = await _seed_career_os(db_session_maker)
     installed = await client.post(
         f"/v1/event-templates/{template_id}/install",
@@ -495,7 +495,7 @@ async def test_source_seeded_run_builds_inspects_and_publishes_without_a_model(
     def handler_factory(**kwargs):
         return SurfaceBuildHandler(
             run_context=kwargs["run_context"],
-            runner=LocalDevelopmentSurfaceBuildRunner(),
+            runner=runner,
             object_store=store,
             session_factory=kwargs["session_factory"],
         )

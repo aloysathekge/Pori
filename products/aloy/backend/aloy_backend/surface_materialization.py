@@ -497,14 +497,14 @@ async def execute_claimed_surface_materialization(
             run.reasoning = str(exc)[:4000]
             run.progress = {
                 **(run.progress or {}),
-                "stage": "cancelled"
-                if cancelled
-                else "failed"
-                if terminal
-                else "retry_scheduled",
-                "pipeline_attempt": pipeline_attempt + 1
-                if retry_host
-                else pipeline_attempt,
+                "stage": (
+                    "cancelled"
+                    if cancelled
+                    else "failed" if terminal else "retry_scheduled"
+                ),
+                "pipeline_attempt": (
+                    pipeline_attempt + 1 if retry_host else pipeline_attempt
+                ),
                 "error": str(exc)[:1000],
                 "updated_at": now.isoformat(),
             }

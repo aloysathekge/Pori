@@ -245,9 +245,7 @@ def template_release_content(
     }
 
 
-async def load_template_release_rows(
-    session: AsyncSession, release_id: str
-) -> tuple[
+async def load_template_release_rows(session: AsyncSession, release_id: str) -> tuple[
     tuple[EventTemplateAsset, ...],
     tuple[EventTemplateCompatibility, ...],
     tuple[EventTemplateSeed, ...],
