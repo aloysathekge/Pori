@@ -20,6 +20,7 @@ import type { MessageResponse } from '@/types';
 import { RunReplay } from './RunReplay';
 import { Markdown } from './Markdown';
 import { WorkStory } from './WorkStory';
+import { surfaceConversationPresentation } from './surfaceConversationPresentation';
 
 /** Auth'd download: the endpoint needs the Bearer header, so a plain <a href>
  *  can't do it — fetch the blob and click a transient object URL. */
@@ -51,6 +52,8 @@ export function MessageBubble({
 }) {
   const isUser = message.role === 'user';
   const isSurfaceAction = message.metadata?.kind === 'surface_action_lifecycle';
+  const surfacePresentation = surfaceConversationPresentation(message);
+  const isSurfaceRequestCard = surfacePresentation.card;
   const surfaceActionStatus = message.metadata?.status ?? 'waiting_approval';
   const artifacts = message.metadata?.artifacts ?? [];
   const runId = message.metadata?.run_id ?? null;
@@ -89,11 +92,11 @@ export function MessageBubble({
   );
 
   return (
-    <article className={`group flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`min-w-0 ${isUser ? 'max-w-[min(82%,42rem)] text-right' : 'w-full'}`}>
+    <article className={`group flex w-full ${isUser && !isSurfaceRequestCard ? 'justify-end' : 'justify-start'}`}>
+      <div className={`min-w-0 ${isUser && !isSurfaceRequestCard ? 'max-w-[min(82%,42rem)] text-right' : 'w-full'}`}>
       <div
         className={`${
-          isSurfaceAction
+          isSurfaceAction || isSurfaceRequestCard
             ? 'max-w-3xl rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-3 text-zinc-200 shadow-sm'
             : isUser
               ? 'rounded-2xl border border-accent-500/15 bg-accent-500/[0.06] px-4 py-3 text-[15px] leading-6 text-zinc-200 shadow-sm selection:bg-accent-500/20 sm:text-base'
@@ -116,6 +119,22 @@ export function MessageBubble({
             </span>
             <span className="ml-auto rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] capitalize text-zinc-400">
               {surfaceActionStatus.replaceAll('_', ' ')}
+            </span>
+          </div>
+        )}
+        {isSurfaceRequestCard && (
+          <div className="mb-2 flex items-center gap-2 border-b border-zinc-700/80 pb-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-300">
+              Surface request
+            </span>
+            <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] capitalize ${
+              surfacePresentation.status === 'failed'
+                ? 'bg-red-500/10 text-red-300'
+                : surfacePresentation.status === 'stopped'
+                  ? 'bg-zinc-800 text-zinc-400'
+                  : 'bg-accent-500/10 text-accent-400'
+            }`}>
+              {surfacePresentation.status}
             </span>
           </div>
         )}
@@ -181,17 +200,17 @@ export function MessageBubble({
             ))}
           </div>
         )}
-        {!isUser && (runId || (message.metadata?.work_story?.length ?? 0) > 0) && (
+        {!isUser && !isSurfaceRequestCard && (runId || (message.metadata?.work_story?.length ?? 0) > 0) && (
           <WorkStory
             runId={runId}
             entries={message.metadata?.work_story}
           />
         )}
         {isUser ? (
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words">{surfacePresentation.content}</p>
         ) : (
           <div>
-            <Markdown>{message.content}</Markdown>
+            <Markdown>{surfacePresentation.content}</Markdown>
           </div>
         )}
 
@@ -242,7 +261,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {runId && !isUser && (
+        {runId && !isUser && !isSurfaceRequestCard && (
           <div className="mt-4 flex items-center border-t border-zinc-800 pt-3 text-xs text-zinc-500">
             <button
               type="button"
@@ -256,7 +275,7 @@ export function MessageBubble({
       </div>
 
         <div className={`mt-2 flex min-h-7 items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
-          {isUser && onResend && (
+          {isUser && !isSurfaceRequestCard && onResend && (
             <button
               type="button"
               onClick={() => onResend(message.content)}

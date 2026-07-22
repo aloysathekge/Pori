@@ -9,7 +9,6 @@ and semantic Trail in one transaction with each trusted state transition.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -22,6 +21,7 @@ from .models import (
     Run,
     SurfaceInteraction,
 )
+from .surface_presentation import interaction_presentation_label
 
 RUN_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 ACTION_TERMINAL_STATUSES = frozenset(
@@ -191,12 +191,16 @@ async def reconcile_surface_run(
 
     message = outcome_message
     if message is None and interaction.conversation_id:
+        label = interaction_presentation_label(
+            interaction.result,
+            component_id=interaction.component_id,
+        )
         if status == "cancelled":
-            content = "The reasoning request from this Surface was stopped."
+            content = f"**{label}** was stopped. You can restart it from the Surface."
         else:
-            detail = f" {error[:500]}" if error else ""
             content = (
-                f"The reasoning request from this Surface could not finish.{detail}"
+                f"Aloy couldn't complete **{label}** right now. "
+                "You can try again from the Surface."
             )
         message = Message(
             conversation_id=interaction.conversation_id,
@@ -205,16 +209,22 @@ async def reconcile_surface_run(
             metadata_={
                 "kind": "surface_reasoning_result",
                 "status": status,
+                "surface_request_label": label,
                 "surface_interaction_id": interaction.id,
                 "run_id": run.id,
             },
         )
         session.add(message)
     elif message is not None:
+        label = interaction_presentation_label(
+            interaction.result,
+            component_id=interaction.component_id,
+        )
         message.metadata_ = {
             **(message.metadata_ or {}),
             "kind": "surface_reasoning_result",
             "status": status,
+            "surface_request_label": label,
             "surface_interaction_id": interaction.id,
             "run_id": run.id,
         }

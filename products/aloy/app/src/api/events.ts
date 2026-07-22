@@ -249,8 +249,8 @@ export interface TodayEmailsResponse {
   messages: TodayEmailMessage[];
 }
 
-export function listEvents() {
-  return apiFetch<EventSummary[]>('/events');
+export function listEvents(lifecycle: 'active' | 'archived' | 'all' = 'active') {
+  return apiFetch<EventSummary[]>(`/events?lifecycle=${lifecycle}`);
 }
 
 export function createEvent(data: {
@@ -270,11 +270,23 @@ export function createEvent(data: {
 
 export function updateEvent(
   eventId: string,
-  data: Partial<Pick<EventSummary, 'title' | 'summary' | 'phase'>>,
+  data: Partial<Pick<EventSummary, 'title' | 'summary' | 'phase' | 'lifecycle'>>,
 ) {
   return apiFetch<EventSummary>(`/events/${eventId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  });
+}
+
+export function permanentlyDeleteEvent(eventId: string, confirmation: string) {
+  return apiFetch<{
+    deleted: true;
+    event_id: string;
+    storage_objects: number;
+    storage_cleanup: 'complete' | 'pending';
+  }>(`/events/${eventId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ confirmation }),
   });
 }
 

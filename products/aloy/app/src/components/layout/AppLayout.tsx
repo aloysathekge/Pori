@@ -1,10 +1,10 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Archive,
   CalendarClock,
   ChevronRight,
   FileText,
-  Folder,
   LogOut,
   Menu,
   MessageSquarePlus,
@@ -66,6 +66,35 @@ function RailLink({
   );
 }
 
+function EventRailLink({
+  event,
+  duplicateTitle,
+  onClick,
+}: {
+  event: EventSummary;
+  duplicateTitle: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <NavLink
+      to={`/events/${event.id}`}
+      onClick={onClick}
+      title={duplicateTitle ? `${event.title} · Created ${new Date(event.created_at).toLocaleDateString()}` : event.title}
+      className={({ isActive }) => `flex min-h-11 items-center gap-2.5 rounded-lg px-2 text-sm transition-colors ${isActive ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'}`}
+    >
+      <EventCover event={event} className="h-7 w-9 shrink-0 rounded-md border border-zinc-800" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{event.title}</span>
+        {duplicateTitle && (
+          <span className="block truncate text-[10px] text-zinc-600">
+            Created {new Date(event.created_at).toLocaleDateString()}
+          </span>
+        )}
+      </span>
+    </NavLink>
+  );
+}
+
 export function AppLayout() {
   const { signOut } = useAuth();
   const location = useLocation();
@@ -117,9 +146,14 @@ export function AppLayout() {
   const compact = false;
   const closeMobile = () => setSidebarOpen(false);
   const dedicatedEvents = events.filter((event) => !event.is_life);
+  const eventTitleCounts = dedicatedEvents.reduce((counts, event) => {
+    counts.set(event.title, (counts.get(event.title) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
   const activeEvent = dedicatedEvents.find((event) => location.pathname === `/events/${event.id}`);
   const mobileTitle = activeEvent?.title
     || (location.pathname.startsWith('/events/new') || location.pathname.startsWith('/events/start') ? 'New Event'
+      : location.pathname.startsWith('/events/archived') ? 'Archived Events'
       : location.pathname.startsWith('/chat') ? 'Life'
         : location.pathname.startsWith('/today') ? 'Today'
           : utilityItems.find((item) => location.pathname.startsWith(item.to))?.label
@@ -251,15 +285,20 @@ export function AppLayout() {
           )}
           <div className={compact ? 'mt-3 space-y-1' : 'space-y-0.5'}>
             {dedicatedEvents.map((event) => (
-              <RailLink
+              <EventRailLink
                 key={event.id}
-                to={`/events/${event.id}`}
-                icon={Folder}
-                label={event.title}
-                compact={compact}
+                event={event}
+                duplicateTitle={(eventTitleCounts.get(event.title) ?? 0) > 1}
                 onClick={closeMobile}
               />
             ))}
+            <RailLink
+              to="/events/archived"
+              icon={Archive}
+              label="Archived"
+              compact={compact}
+              onClick={closeMobile}
+            />
           </div>
 
           {!compact && (
@@ -366,12 +405,19 @@ export function AppLayout() {
                 {dedicatedEvents.map((event) => (
                   <button key={event.id} type="button" onClick={() => { setMobileSheet(null); navigate(`/events/${event.id}`); }} className="flex min-h-16 w-full items-center gap-3 rounded-2xl px-2 text-left hover:bg-zinc-800/70">
                     <EventCover event={event} className="h-11 w-14 shrink-0 rounded-xl border border-zinc-800" />
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-zinc-100">{event.title}</span><span className="mt-0.5 block truncate text-xs text-zinc-500">{event.summary || event.phase || 'Active Event'}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-zinc-100">{event.title}</span><span className="mt-0.5 block truncate text-xs text-zinc-500">{(eventTitleCounts.get(event.title) ?? 0) > 1 ? `Created ${new Date(event.created_at).toLocaleDateString()}` : event.summary || event.phase || 'Active Event'}</span></span>
                   </button>
                 ))}
+                <button type="button" onClick={() => { setMobileSheet(null); navigate('/events/archived'); }} className="flex min-h-14 w-full items-center gap-3 rounded-2xl px-2 text-left text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-200">
+                  <span className="flex h-11 w-14 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950/60"><Archive size={18} /></span>
+                  <span className="text-sm font-semibold">Archived Events</span>
+                </button>
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center"><p className="text-sm text-zinc-400">No dedicated Events yet.</p><button type="button" onClick={startEvent} className="mt-3 text-sm font-semibold text-accent-700">Create your first Event</button></div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center"><p className="text-sm text-zinc-400">No dedicated Events yet.</p><button type="button" onClick={startEvent} className="mt-3 text-sm font-semibold text-accent-700">Create your first Event</button></div>
+                <button type="button" onClick={() => { setMobileSheet(null); navigate('/events/archived'); }} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl text-sm font-semibold text-zinc-500 hover:bg-zinc-800/70 hover:text-zinc-200"><Archive size={17} /> Archived Events</button>
+              </div>
             )}
           </section>
         </div>

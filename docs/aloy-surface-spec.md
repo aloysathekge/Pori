@@ -196,6 +196,13 @@ Every intent includes the Event, published code revision, data revision,
 component/action identity, payload, actor, timestamp, and idempotency key. The
 host validates the declared schema and current tenant/Event before persistence.
 
+State intents declare their mutation semantics explicitly. `create` fails when
+the key exists; `replace`, `merge`, and `delete` fail when it is missing; and
+`upsert` creates on first save and replaces on later saves. `upsert` is for
+singleton settings or preferences whose one Save action is valid in both the
+empty and populated states. It must not hide a missing-record conflict for an
+ordinary entity that the user intended to edit or delete.
+
 ### 6.1 Interaction classes
 
 | class | examples | behavior |
@@ -209,6 +216,13 @@ host validates the declared schema and current tenant/Event before persistence.
 The model must not be invoked for every mouse movement or presentation-only
 interaction. Meaningful user choices must not disappear into iframe-local
 state.
+
+Reasoning intents declare a reviewed, human-readable label. A Surface control
+creates a first-class lifecycle card in the permanent Event conversation using
+that label; it never creates a synthetic user bubble containing a command id,
+hook name, or worker instruction. Safe status and recovery copy remain
+user-facing, while retry exhaustion, provider errors, Run envelopes, and other
+diagnostics remain in trusted Trail/operator evidence.
 
 When a reasoning interaction wakes Aloy, the trusted Run envelope contains the
 interaction ID and canonical snapshot identity but not a model-trusted copy of
@@ -333,7 +347,10 @@ boundary owned by Aloy even when generated source contains hostile strings.
 
 During pre-publication preview, the authenticated app fetches the selected
 immutable build as a host-constructed document and navigates a Blob URL inside
-an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`. The
+an iframe with `sandbox="allow-scripts allow-forms"` and no
+`allow-same-origin`. `allow-forms` permits React submit events; the host-owned
+runtime still enforces `form-action 'none'`, so generated forms cannot navigate
+or transmit data directly and must use the typed Aloy bridge. The
 document repeats the strict CSP in a leading meta element because fetch-time
 response headers do not carry over to Blob navigation. No bearer token,
 object-store reference, source tree, or build log enters the iframe. This

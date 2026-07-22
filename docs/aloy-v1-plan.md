@@ -305,7 +305,7 @@ split into the following independently merged branches:
    before repair. Host-owned files such as `index.html` remain forbidden.
 3. **`aloy-v1-r5-surface-command-runtime`** - introduce the versioned
    host-owned Surface command contract behind V1 compatibility. Define typed
-   entities and explicit `create`/`replace`/`merge`/`delete` semantics;
+   entities and explicit `create`/`replace`/`merge`/`upsert`/`delete` semantics;
    host-owned query and command hooks with pending/error/conflict/retry states;
    one canonical data projection shared by Surface and Event Conversation; an
    Event-scoped detailed-state read tool; and validated `local`, `state`,

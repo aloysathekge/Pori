@@ -4,7 +4,13 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from aloy_backend.models import ActionProposal, Event, EventTrailEntry, Task
+from aloy_backend.models import (
+    ActionProposal,
+    Conversation,
+    Event,
+    EventTrailEntry,
+    Task,
+)
 
 
 async def test_event_creation_queues_cover_without_blocking_and_upload_can_replace_it(
@@ -44,6 +50,98 @@ async def test_event_creation_queues_cover_without_blocking_and_upload_can_repla
     assert response.content == b"\x89PNG\r\n\x1a\ncover-body"
 
     monkeypatch.setattr(storage_mod, "_STORE", None)
+
+
+async def test_event_archive_restore_and_listing_are_explicit(client):
+    created = await client.post(
+        "/v1/events",
+        json={"title": "Career OS", "cover_mode": "none"},
+    )
+    event_id = created.json()["id"]
+
+    archived = await client.patch(
+        f"/v1/events/{event_id}", json={"lifecycle": "archived"}
+    )
+    assert archived.status_code == 200
+    assert archived.json()["lifecycle"] == "archived"
+    assert event_id not in {
+        row["id"] for row in (await client.get("/v1/events")).json()
+    }
+    assert event_id in {
+        row["id"]
+        for row in (
+            await client.get("/v1/events", params={"lifecycle": "archived"})
+        ).json()
+    }
+
+    restored = await client.patch(
+        f"/v1/events/{event_id}", json={"lifecycle": "active"}
+    )
+    assert restored.status_code == 200
+    assert restored.json()["lifecycle"] == "active"
+    assert event_id in {row["id"] for row in (await client.get("/v1/events")).json()}
+
+
+async def test_life_cannot_be_archived_or_permanently_deleted(client):
+    life = next(
+        row for row in (await client.get("/v1/events")).json() if row["is_life"]
+    )
+
+    archived = await client.patch(
+        f"/v1/events/{life['id']}", json={"lifecycle": "archived"}
+    )
+    assert archived.status_code == 409
+    assert archived.json()["detail"] == "Life cannot be archived"
+
+    deleted = await client.request(
+        "DELETE",
+        f"/v1/events/{life['id']}",
+        json={"confirmation": life["title"]},
+    )
+    assert deleted.status_code == 409
+    assert deleted.json()["detail"] == "Life cannot be permanently deleted"
+
+
+async def test_permanent_delete_requires_archive_and_exact_name(
+    client, db_session_maker
+):
+    created = await client.post(
+        "/v1/events",
+        json={"title": "Career OS", "cover_mode": "none"},
+    )
+    event_id = created.json()["id"]
+    conversation_id = created.json()["conversation_id"]
+
+    not_archived = await client.request(
+        "DELETE",
+        f"/v1/events/{event_id}",
+        json={"confirmation": "Career OS"},
+    )
+    assert not_archived.status_code == 409
+
+    assert (
+        await client.patch(f"/v1/events/{event_id}", json={"lifecycle": "archived"})
+    ).status_code == 200
+    mismatch = await client.request(
+        "DELETE",
+        f"/v1/events/{event_id}",
+        json={"confirmation": "career os"},
+    )
+    assert mismatch.status_code == 422
+
+    deleted = await client.request(
+        "DELETE",
+        f"/v1/events/{event_id}",
+        json={"confirmation": "Career OS"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert deleted.json()["event_id"] == event_id
+    assert (await client.get(f"/v1/events/{event_id}")).status_code == 404
+
+    async with db_session_maker() as session:
+        assert await session.get(Event, event_id) is None
+        assert await session.get(Conversation, conversation_id) is None
 
 
 async def test_reading_life_does_not_create_an_empty_conversation(client):

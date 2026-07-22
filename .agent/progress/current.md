@@ -42,6 +42,40 @@ a release's guided starting jobs, rename the Event, and install the exact
 listed release with a stable retry key, or continue into the existing custom
 setup flow. Catalog failure never blocks custom Event creation.
 
+The Event lifecycle slice is implemented on `aloy-v1-r12-event-lifecycle`.
+Event settings now archive a workspace through the canonical lifecycle
+boundary; normal navigation lists only active Events, while an Archived Events
+library restores or permanently deletes an exact-name-confirmed Event. Life is
+never archivable or deletable, active Runs are asked to stop on archive, and
+permanent deletion refuses until they are terminal. Purge removes the complete
+tenant-scoped Event aggregate and its owned object-storage keys without touching
+shared template releases or other Events.
+
+The live Surface form boundary is corrected on the same branch. Generated
+React forms now receive `allow-forms` inside the opaque-origin iframe while the
+host runtime retains `form-action 'none'`, no same-origin access, and no network
+access. Form submits therefore reach the typed MessageChannel bridge without
+granting generated code direct transmission authority. The SDK also generates
+transport/idempotency identifiers without assuming secure-context
+`crypto.randomUUID`, and the browser publication gate exercises that fallback.
+The running Career OS proof saved `Aloy Studio / AI Engineer / Remote`, showed
+trusted success feedback, and preserved the row after a full runtime reload.
+The command contract now also has an explicit `upsert` operation for singleton
+settings and preferences: it creates on first save and replaces on later saves,
+while strict `replace`, `merge`, and `delete` still expose missing-record
+conflicts. Career OS Direction was upgraded through an immutable revision and
+the ordinary build, browser-inspection, and publication pipeline. The signed-in
+live proof saved Direction twice and preserved it after a Surface reload.
+Surface reasoning no longer leaks command ids or worker mechanics into the
+Event conversation. Reviewed intent labels drive compact Surface-request
+lifecycle cards; legacy leaked messages render through a safe compatibility
+projection, zero-action failures use ordinary product language, raw failures
+remain in Trail/operator evidence, and reasoning controls stay busy for the
+full accepted interaction lifecycle. Career OS revision 4 was published with
+the `Research matching roles` label, and the signed-in UI proof contains no
+command identifier, retry-exhaustion copy, action counter, or technical-details
+control on those request cards.
+
 ## Decisions Made
 
 - Work Story sequencing cannot depend on a `Run` row because inline
@@ -236,13 +270,10 @@ setup flow. Catalog failure never blocks custom Event creation.
 
 ## Next Session Should Start With
 
-Merge the discovery slice. Configure local-only catalog authority and the loopback
-operator bridge outside Git, stage the exact Career OS v1 fingerprint, review
-and publish it through Governance, and perform the signed-in install ->
-preparing -> live Surface proof. Add a protected asset-upload boundary before
-shipping releases with binary assets; do not grant Aloy Internal direct
-object-store access, create a parallel template build path, or let a release
-publish itself.
+Review and merge the Event lifecycle slice, then continue the protected
+template asset-upload boundary before shipping releases with binary assets. Do
+not grant Aloy Internal direct object-store access, create a parallel template
+build path, or let a release publish itself.
 
 In parallel planning, keep R10 document ingestion behind the provider-neutral
 `DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file

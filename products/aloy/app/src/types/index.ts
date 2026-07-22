@@ -47,6 +47,8 @@ export interface MessageMetadata {
   phase?: string;
   status?: string;
   surface_interaction_id?: string;
+  surface_request_label?: string;
+  surface_request_origin?: 'surface_control' | 'user_question';
   proposal_id?: string;
   tool?: string;
   has_receipt?: boolean;

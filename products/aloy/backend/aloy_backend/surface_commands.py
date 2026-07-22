@@ -22,7 +22,7 @@ SURFACE_COMMAND_CONTRACT_VERSION: Literal["1"] = "1"
 SurfaceCommandEffect = Literal[
     "local", "state", "reasoning", "external_action", "automation", "source_change"
 ]
-SurfaceStateOperation = Literal["create", "replace", "merge", "delete"]
+SurfaceStateOperation = Literal["create", "replace", "merge", "upsert", "delete"]
 SurfaceWakePolicy = Literal["never", "immediate", "approval", "scheduled", "builder"]
 
 _LEGACY_EFFECTS: dict[str, SurfaceCommandEffect] = {

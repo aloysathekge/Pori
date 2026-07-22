@@ -148,6 +148,13 @@ Emerging → Active → Dormant → Concluded → Archived
 - **Concluded:** the intended outcome is complete and may later be reopened.
 - **Archived:** hidden from normal navigation and operationally inactive.
 
+Archive is reversible: the Event moves to an explicit Archived Events library,
+its schedules and proactive work remain paused, and restoring it returns the
+same conversation, tasks, memory, files, Trail, and Surface. Permanent deletion
+is a separate destructive action available only from that library. It requires
+the exact Event name, refuses while work is still stopping, erases the whole
+Event aggregate and its owned storage, and is never available for Life.
+
 Users control lifecycle changes. Aloy may recommend a change, but V1 never
 silently makes an Event dormant, concluded, or archived. Manual Event creation
 is a direct user action, not a Proposal.
@@ -438,7 +445,10 @@ generated React
 ```
 
 The versioned Surface contract declares entities, payload schemas, and explicit
-write semantics such as `create`, `replace`, `merge`, and `delete`. Generated
+write semantics such as `create`, `replace`, `merge`, `upsert`, and `delete`.
+`upsert` is explicit and reserved for one-key settings/preferences that are
+valid to create on first save and replace later; strict update/delete commands
+still reject missing entities. Generated
 code may choose a button's presentation and placement, but it does not invent
 persistence behavior, reducers, retries, completion claims, or approval
 authority. Host-owned command hooks expose pending, committed, failed,
