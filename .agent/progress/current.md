@@ -1,13 +1,26 @@
-# Current State - 2026-07-21
+# Current State - 2026-07-22
 
 ## Active Task
 
-R11 durable Work Story hardening is active on
-`aloy-v1-r11-work-story-hardening`. The existing user-safe timeline now has a
-database-atomic sequence cursor, replay identities, versioned typed public
-payloads, terminal reconciliation, bounded event/payload growth, and a
-replaceable low-latency notification seam with durable cursor polling as the
-cross-process fallback. R12 remains the next product slice after this merge.
+R11 durable Work Story hardening passed all seven GitHub checks and merged into
+`aloy-v1` through PR #216. R12 is active on
+`aloy-v1-r12-event-template-catalog`. The first model-free slice now defines
+versioned catalog/release/asset/compatibility/seed/guided-job/installation
+records and a generic idempotent installation transaction. A fake Career OS
+release proves the contract in tests without adding Career behavior to Aloy.
+The second slice adds the protected global authoring boundary: Aloy Internal
+can stage, review, and publish exact releases through versioned APIs with
+deployment-scoped authority, organization RBAC, idempotent intent, and immutable
+audit receipts rather than direct database access.
+The separate `aloy-internal` phase-4 branch now consumes that boundary through
+a typed client, bounded loopback bridge, and fixture/live-local Governance
+review screen. It displays the exact checksum and observed catalog pointer and
+returns Pori's receipt unchanged.
+The stacked phase-5 branch now holds the first real Career OS v1 release and a
+generic release kit. Its exact React source passes Pori's manifest, build,
+runtime, interaction, and four-primary-job gates, plus a local protected
+stage/publish/install proof. It creates one honest setup Task, separates sample
+and setup-gap posture, and routes research to the permanent Event conversation.
 
 The trusted universal file viewer, Surface quality/inspection contracts,
 operator-only control APIs, and the separate private `aloy-internal` control
@@ -39,6 +52,20 @@ available and does not block model-free template and ingestion contracts.
 - Career OS is the first permanent starting template, University follows, and
   Madrid waits for the trusted Map/widget phase. Sparse context creates visible
   setup gaps rather than invented facts.
+- A template release may seed Surface source and canonical data, but it cannot
+  publish itself. Installation leaves the project at a template-source-ready
+  build boundary; the ordinary host build, inspection, and publication gate
+  must make it live.
+- Template sample data and setup gaps use distinct canonical postures and retain
+  release provenance. Neither is represented as user-confirmed truth.
+- Global template publication requires both ordinary operator RBAC and an
+  explicit deployment-owned subject allowlist. The allowlist is empty and
+  authoring is disabled by default; being an owner of an ordinary organization
+  does not grant global catalog authority.
+- Import only stages a checksum-bound draft. Publication requires the exact
+  reviewed checksum, revalidates stored content and real asset bytes, then
+  advances the catalog pointer only if its reviewed prior value still matches,
+  and records an immutable receipt.
 - File ingestion is separate from presentation. Upload returns after durable
   original storage; OCR, normalization, indexing, and enrichment are resumable
   host-owned background work.
@@ -120,6 +147,20 @@ available and does not block model-free template and ingestion contracts.
   terminal crash repair, cancellation, payload drift, event limits, cursor
   pagination beyond 500 entries, notification wakeup, and organization
   isolation.
+- Seven template tests prove published discovery without subscription coupling,
+  ordinary Event/context/Task/Surface materialization, replay idempotency,
+  intentional repeat installs, catalog-withdrawal independence, corrupt-release
+  rejection, and tenant isolation. Twenty-three existing Event/context/Surface
+  regressions pass; the complete backend suite passes 506 tests; and an empty
+  SQLite database upgrades to template migration `s1d2e3f4a5b6` at Alembic
+  head.
+- Eight authoring proofs cover fail-closed deployment authority, organization
+  RBAC, draft visibility, idempotent imports/publications, exact-checksum draft
+  replacement, published-release immutability, post-review tamper rejection,
+  stored-asset integrity, and installed-Event independence. Together with the
+  seven install/catalog proofs, all 15 pass; an empty SQLite database upgrades
+  to authoring migration `t2d3e4f5a6b7` at Alembic head, and the complete
+  backend suite passes all 514 tests.
 - The Surface health slice passes focused backend tests, including the
   credit-free regression -> proposal -> accepted Builder queue flow while the
   old build remains published and ordinary members are denied operator health
@@ -150,15 +191,21 @@ available and does not block model-free template and ingestion contracts.
   acquisition, inspection, timeout, and recovery evidence.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
+- The product database, protected API, and Aloy Internal review workflow now
+  have a reviewed Career OS v1 candidate, but it has not been staged or
+  published in a configured catalog. Template source still needs a generic
+  host-build kickoff before a seeded Surface can become live.
 
 ## Next Session Should Start With
 
-Create `aloy-v1-r12-event-template-catalog` from current `aloy-v1`. Implement
-the catalog/release/install schema and an idempotent fake Career OS installation
-before discovery UI or model generation. Prove that installation produces only
-ordinary Event, context, Surface, and provenance records; a second request does
-not duplicate them; catalog edits do not mutate installed Events; and no
-domain-specific runtime condition is introduced.
+Review and merge the Career OS release branch, then stage and publish its exact
+fingerprint as database data through the protected API when catalog authority
+is configured. Connect a successful installation's template-source-ready
+record to the normal host build/inspection/publication pipeline before adding
+template discovery and install UI. Add a protected asset-upload boundary before
+shipping releases with binary assets; do not grant Aloy Internal direct
+object-store access, create a parallel template build path, or let a release
+publish itself.
 
 In parallel planning, keep R10 document ingestion behind the provider-neutral
 `DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file

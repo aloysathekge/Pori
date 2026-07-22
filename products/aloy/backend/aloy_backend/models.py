@@ -58,6 +58,235 @@ class OrganizationMembership(SQLModel, table=True):
     )
 
 
+class EventTemplate(SQLModel, table=True):
+    """Discoverable template identity; releases hold immutable install content."""
+
+    __tablename__ = "event_templates"
+
+    id: str = Field(
+        default_factory=lambda: f"etpl_{uuid.uuid4().hex}", primary_key=True
+    )
+    slug: str = Field(unique=True, index=True)
+    title: str
+    summary: str = ""
+    discovery_group: str = Field(index=True)
+    status: str = Field(default="draft", index=True)
+    current_release_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateRelease(SQLModel, table=True):
+    """Immutable, validated version of one Event template."""
+
+    __tablename__ = "event_template_releases"
+    __table_args__ = (
+        UniqueConstraint(
+            "template_id", "version", name="uq_event_template_release_version"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etrel_{uuid.uuid4().hex}", primary_key=True
+    )
+    template_id: str = Field(foreign_key="event_templates.id", index=True)
+    version: int = Field(index=True)
+    schema_version: int = 1
+    status: str = Field(default="draft", index=True)
+    release_notes: str = ""
+    catalog_snapshot: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    checksum: str = Field(default="", index=True)
+    published_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateAsset(SQLModel, table=True):
+    """Content-addressed asset reference owned by a template release."""
+
+    __tablename__ = "event_template_assets"
+    __table_args__ = (
+        UniqueConstraint(
+            "release_id", "asset_key", name="uq_event_template_release_asset"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etasset_{uuid.uuid4().hex}", primary_key=True
+    )
+    release_id: str = Field(foreign_key="event_template_releases.id", index=True)
+    asset_key: str = Field(index=True)
+    kind: str = Field(index=True)
+    storage_key: str
+    content_type: str = "application/octet-stream"
+    sha256: str = Field(index=True)
+    size_bytes: int = 0
+    metadata_: dict = Field(
+        default_factory=dict, sa_column=Column("metadata", JSON, nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateCompatibility(SQLModel, table=True):
+    """One host/runtime compatibility requirement for a release."""
+
+    __tablename__ = "event_template_compatibility"
+    __table_args__ = (
+        UniqueConstraint(
+            "release_id", "requirement_key", name="uq_event_template_compatibility"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etcompat_{uuid.uuid4().hex}", primary_key=True
+    )
+    release_id: str = Field(foreign_key="event_template_releases.id", index=True)
+    requirement_key: str = Field(index=True)
+    requirement: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    required: bool = True
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateSeed(SQLModel, table=True):
+    """Generic bounded materialization instruction in a template release."""
+
+    __tablename__ = "event_template_seeds"
+    __table_args__ = (
+        UniqueConstraint(
+            "release_id", "seed_key", name="uq_event_template_release_seed"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etseed_{uuid.uuid4().hex}", primary_key=True
+    )
+    release_id: str = Field(foreign_key="event_template_releases.id", index=True)
+    seed_key: str = Field(index=True)
+    kind: str = Field(index=True)
+    ordinal: int = Field(default=0, index=True)
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateGuidedJob(SQLModel, table=True):
+    """A generic starter job optionally materialized as an Event Task."""
+
+    __tablename__ = "event_template_guided_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "release_id", "job_key", name="uq_event_template_release_guided_job"
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etjob_{uuid.uuid4().hex}", primary_key=True
+    )
+    release_id: str = Field(foreign_key="event_template_releases.id", index=True)
+    job_key: str = Field(index=True)
+    title: str
+    instructions: str = ""
+    definition_of_done: str = ""
+    priority: str = Field(default="normal", index=True)
+    execution_profile: str = Field(default="general", index=True)
+    ordinal: int = Field(default=0, index=True)
+    materialize_task: bool = True
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateInstallation(SQLModel, table=True):
+    """Tenant-owned immutable receipt pinning an Event to one release."""
+
+    __tablename__ = "event_template_installations"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "user_id",
+            "idempotency_key",
+            name="uq_event_template_installation_request",
+        ),
+        UniqueConstraint("event_id", name="uq_event_template_installation_event"),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etinst_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    template_id: str = Field(index=True)
+    release_id: str = Field(index=True)
+    event_id: str = Field(foreign_key="events.id", index=True)
+    idempotency_key: str
+    status: str = Field(default="installed", index=True)
+    release_snapshot: dict = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    installed_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class EventTemplateOperatorReceipt(SQLModel, table=True):
+    """Immutable audit receipt for a global catalog operator mutation."""
+
+    __tablename__ = "event_template_operator_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_event_template_operator_receipt_request",
+        ),
+        UniqueConstraint(
+            "intent_id",
+            name="uq_event_template_operator_receipt_intent",
+        ),
+    )
+
+    id: str = Field(
+        default_factory=lambda: f"etreceipt_{uuid.uuid4().hex}", primary_key=True
+    )
+    organization_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    action: str = Field(index=True)
+    intent_id: str = Field(index=True)
+    idempotency_key: str
+    request_fingerprint: str = Field(index=True)
+    template_id: str = Field(index=True)
+    release_id: str = Field(index=True)
+    reason: str
+    status: str = Field(index=True)
+    receipt: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Event(SQLModel, table=True):
     """Durable aggregate root for a user's life or project work."""
 
