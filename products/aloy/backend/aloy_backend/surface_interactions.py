@@ -63,6 +63,7 @@ from .surface_manifest import (
     SurfaceManifest,
     validate_intent_payload,
 )
+from .surface_presentation import surface_request_label
 from .surface_requests import SurfaceRequestParams, queue_surface_builder_run
 from .surface_resource_states import (
     SURFACE_RESOURCE_STATE_VERSION,
@@ -846,9 +847,12 @@ async def handle_surface_interaction(
             user_id=context.user_id,
             event_id=event.id,
         )
-        message = (request.message or "").strip()
-        if not message:
-            message = f"Carry out the {request.name} reasoning command from this Event Surface."
+        is_direct_question = request.method == "ask_aloy"
+        label = surface_request_label(
+            declared_label=(declaration.label if declaration is not None else None),
+            component_id=request.component_id,
+        )
+        message = (request.message or "").strip() if is_direct_question else label
         trigger = {
             "contract_version": SURFACE_COMMAND_CONTRACT_VERSION,
             "event_id": event.id,
@@ -864,6 +868,10 @@ async def handle_surface_interaction(
             content=message,
             metadata_={
                 "kind": "surface_interaction",
+                "surface_request_label": label,
+                "surface_request_origin": (
+                    "user_question" if is_direct_question else "surface_control"
+                ),
                 "surface_interaction_id": interaction.id,
                 "surface_command": trigger,
                 "surface_input": request.payload,
@@ -884,7 +892,8 @@ async def handle_surface_interaction(
                 "<trusted-surface-command>\n"
                 f"{json.dumps(trigger, sort_keys=True)}\n"
                 "</trusted-surface-command>\n"
-                f"User request: {message}"
+                f"{'User request' if is_direct_question else 'Surface request'}: "
+                f"{message}"
             ),
             max_steps=budget.max_steps,
             max_tool_calls=budget.max_tool_calls,
@@ -903,6 +912,7 @@ async def handle_surface_interaction(
             "trigger": trigger,
             "run_id": run.id,
             "conversation_id": conversation.id,
+            "presentation": {"label": label},
         }
         session.add(
             EventTrailEntry(

@@ -149,6 +149,19 @@ host request. A read-only job may have no steps, but still needs at least one
 should prove both the typed request and the resulting host-owned state or
 approval outcome when applicable.
 
+Choose state operations deliberately: `create` must fail when the key already
+exists; `replace`, `merge`, and `delete` must fail when it is missing; `upsert`
+creates on the first save and replaces on later saves. Use `upsert` for a
+singleton preferences/settings form whose one Save action is valid in both the
+empty and populated states. Do not use it where a missing entity should expose
+a stale or deleted-item conflict.
+
+Every reasoning intent must declare a short, user-facing `label` such as
+`Research matching roles`. Aloy uses that label in the permanent Event
+conversation and lifecycle feedback. Never expose command identifiers, hook
+names, component ids, retry counters, worker errors, or protocol instructions
+as user-facing copy.
+
 The host-reviewed V1 widget registry currently accepts only these generic
 widgets: `table`, `form`, `timeline`, `chart`, and `kanban`. `approval` also
 requires the `proposals` capability, and `file_viewer` requires `files`.

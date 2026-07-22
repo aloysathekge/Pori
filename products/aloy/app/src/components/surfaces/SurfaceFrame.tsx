@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useSurfaceActivity } from '@/hooks/useSurfaceActivity';
 import { SurfaceActivityStatus } from './SurfaceActivityStatus';
 import { SurfaceBridgeHost, type SurfaceAloyHandoff } from './surfaceBridge';
+import { SURFACE_IFRAME_SANDBOX } from './surfaceSecurity';
 
 interface SurfaceFrameProps {
   eventId: string;
@@ -440,7 +441,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
               ref={iframeRef}
               src={state.url}
               onLoad={() => void connectBridge(state.build)}
-              sandbox="allow-scripts"
+              sandbox={SURFACE_IFRAME_SANDBOX}
               referrerPolicy="no-referrer"
               title={`${eventTitle} live Surface`}
               className="h-full w-full border-0 bg-white"

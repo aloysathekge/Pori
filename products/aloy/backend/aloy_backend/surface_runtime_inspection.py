@@ -772,6 +772,34 @@ def inspect_surface_runtime(
                     if evidence_sink is not None:
                         evidence_sink["timings"] = timings
                     return diagnostics
+                # Production Surfaces run in an opaque-origin sandbox. Secure
+                # context conveniences such as crypto.randomUUID() are not a
+                # portable runtime dependency there. Exercise every declared
+                # job under that same constraint so a bundle cannot publish
+                # with controls that render but fail before reaching the host.
+                constraint_id = send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": (
+                            "(() => {if(typeof Crypto!=='undefined'"
+                            "&&Crypto.prototype){Object.defineProperty("
+                            "Crypto.prototype,'randomUUID',{value:undefined,"
+                            "configurable:true});}return true;})()"
+                        ),
+                        "returnByValue": True,
+                    },
+                )
+                _, constraint_exceptions = _receive_evaluation(
+                    socket,
+                    result_id=constraint_id,
+                    deadline=time.monotonic() + 2.0,
+                )
+                if constraint_exceptions:
+                    diagnostics.extend(
+                        _diagnostic("runtime_constraint_failed", message)
+                        for message in constraint_exceptions[:5]
+                    )
+                    return diagnostics
                 # Interaction paths execute at a stable wide composition after
                 # every required responsive composition has been inspected.
                 wide = REQUIRED_SURFACE_VIEWPORTS[0]

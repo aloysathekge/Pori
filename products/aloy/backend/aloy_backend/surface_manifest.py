@@ -31,7 +31,7 @@ class SurfaceDataWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     namespace: str
-    operation: Literal["create", "replace", "merge", "delete"] = "replace"
+    operation: Literal["create", "replace", "merge", "upsert", "delete"] = "replace"
     key: str | None = Field(default=None, min_length=1, max_length=200)
     key_field: str | None = Field(default=None, min_length=1, max_length=100)
     posture: Literal["user_reported"] = "user_reported"
@@ -53,6 +53,7 @@ class SurfaceDataWrite(BaseModel):
 class SurfaceIntentDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    label: str | None = Field(default=None, min_length=1, max_length=160)
     interaction_class: Literal[
         "local",
         "state",

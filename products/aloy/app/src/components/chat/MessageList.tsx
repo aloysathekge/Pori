@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { WorkStory } from '@/components/chat/WorkStory';
 import { ClarifyPrompt } from '@/components/chat/ClarifyPrompt';
 import { ApprovalPrompt } from '@/components/chat/ApprovalPrompt';
 import type { ApprovalDecision } from '@/api/sse';
 import type { MessageResponse, RunTimelineEvent } from '@/types';
+import { collapseResolvedSurfaceRequests } from './surfaceConversationPresentation';
 
 function conversationTimeLabel(value: string) {
   const date = new Date(value);
@@ -66,6 +67,10 @@ export function MessageList({
   afterMessages,
 }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const visibleMessages = useMemo(
+    () => collapseResolvedSurfaceRequests(messages),
+    [messages],
+  );
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -89,8 +94,8 @@ export function MessageList({
           </button>
         </div>
       )}
-      {messages.map((msg, index) => {
-        const previous = messages[index - 1];
+      {visibleMessages.map((msg, index) => {
+        const previous = visibleMessages[index - 1];
         const date = new Date(msg.created_at);
         const previousDate = previous ? new Date(previous.created_at) : null;
         const startsDay = !previousDate

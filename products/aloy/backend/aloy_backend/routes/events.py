@@ -34,6 +34,11 @@ from ..event_bootstrap import (
     queue_event_bootstrap_if_ready,
 )
 from ..event_context import context_status_payload
+from ..event_lifecycle import (
+    EventLifecycleError,
+    permanently_delete_event,
+    set_event_lifecycle,
+)
 from ..event_presenters import (
     context_item_payload,
     event_payload,
@@ -109,6 +114,13 @@ class EventUpdateBody(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     summary: str | None = Field(default=None, max_length=2000)
     phase: str | None = Field(default=None, max_length=200)
+    lifecycle: Literal["active", "archived"] | None = None
+
+
+class EventDeleteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: str = Field(min_length=1, max_length=300)
 
 
 class TaskCreateBody(BaseModel):
@@ -382,6 +394,17 @@ async def update_event(
     event = await _load_event(session, context, event_id)
     previous_phase = event.phase
     changed: list[str] = []
+    if body.lifecycle is not None and body.lifecycle != event.lifecycle:
+        try:
+            await set_event_lifecycle(
+                session,
+                event=event,
+                lifecycle=body.lifecycle,
+                actor_id=context.user_id,
+            )
+        except EventLifecycleError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        changed.append("lifecycle")
     if body.title is not None and body.title != event.title:
         event.title = body.title
         changed.append("title")
@@ -395,17 +418,19 @@ async def update_event(
         return event_payload(event)
 
     session.add(event)
-    session.add(
-        EventTrailEntry(
-            organization_id=context.organization_id,
-            user_id=context.user_id,
-            event_id=event.id,
-            actor_id=context.user_id,
-            kind="event_updated",
-            summary=f"Updated Event {', '.join(changed)}",
-            payload={"changed": changed, "phase": event.phase},
+    identity_changes = [field for field in changed if field != "lifecycle"]
+    if identity_changes:
+        session.add(
+            EventTrailEntry(
+                organization_id=context.organization_id,
+                user_id=context.user_id,
+                event_id=event.id,
+                actor_id=context.user_id,
+                kind="event_updated",
+                summary=f"Updated Event {', '.join(identity_changes)}",
+                payload={"changed": identity_changes, "phase": event.phase},
+            )
         )
-    )
     if "phase" in changed and event.phase:
         try:
             await record_surface_evolution_signal(
@@ -556,6 +581,7 @@ async def get_event_cover(
 
 @router.get("")
 async def list_events(
+    lifecycle: Literal["active", "archived", "all"] = Query(default="active"),
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
@@ -565,6 +591,11 @@ async def list_events(
         user_id=context.user_id,
     )
     await session.commit()
+    lifecycle_filter = (
+        col(Event.lifecycle) == lifecycle
+        if lifecycle != "all"
+        else col(Event.lifecycle).in_(["active", "archived"])
+    )
     events = (
         (
             await session.execute(
@@ -572,7 +603,7 @@ async def list_events(
                 .where(
                     Event.organization_id == context.organization_id,
                     Event.user_id == context.user_id,
-                    Event.lifecycle != "archived",
+                    lifecycle_filter,
                 )
                 .order_by(col(Event.is_life).desc(), col(Event.updated_at).desc())
             )
@@ -581,6 +612,27 @@ async def list_events(
         .all()
     )
     return [event_payload(event) for event in events]
+
+
+@router.delete("/{event_id}")
+async def delete_event(
+    event_id: str,
+    body: EventDeleteBody,
+    context: OrganizationContext = Depends(
+        rate_limited_permission(Permission.AGENT_WRITE)
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    event = await _load_event(session, context, event_id)
+    try:
+        return await permanently_delete_event(
+            session,
+            event=event,
+            confirmation=body.confirmation,
+        )
+    except EventLifecycleError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.get("/{event_id}")

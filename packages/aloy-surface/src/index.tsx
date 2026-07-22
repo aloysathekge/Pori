@@ -15,6 +15,7 @@ import type {
   ReactElement,
   ReactNode,
 } from 'react';
+import { createRuntimeId } from './runtimeId';
 
 /** Stable visual values for generated Surfaces. */
 export const surfaceTokens = {
@@ -799,7 +800,7 @@ function send(request: PendingRequest) {
   }
   clearPendingTimeout(request);
   pending.delete(request.requestId);
-  request.requestId = crypto.randomUUID();
+  request.requestId = createRuntimeId('request');
   request.attempts += 1;
   pending.set(request.requestId, request);
   request.timeout = setTimeout(() => {
@@ -998,7 +999,7 @@ function componentId(value?: string) {
 }
 
 function idempotencyKey(value?: string) {
-  return value?.trim().slice(0, 200) || crypto.randomUUID();
+  return value?.trim().slice(0, 200) || createRuntimeId('command');
 }
 
 export function subscribeSurface(listener: () => void) {
@@ -1334,15 +1335,16 @@ export function useSurfaceCommand<
     (input: TInput) => {
       if (inFlight.current) return inFlight.current;
       let snapshot: TInput;
+      let requestId: string;
       try {
         snapshot = snapshotCommandInput(input);
+        requestId = idempotencyKey();
       } catch (cause) {
         const nextError = requestError(cause, 'command');
         setError(nextError);
         setStatus('failed');
         return Promise.reject(nextError);
       }
-      const requestId = idempotencyKey();
       lastRequest.current = { input: snapshot, idempotencyKey: requestId };
       return run(snapshot, requestId);
     },
@@ -1384,7 +1386,7 @@ export function useSurfaceCommand<
 
   return {
     status,
-    pending: status === 'pending',
+    pending: status === 'pending' || isSurfaceInteractionActive(interaction?.status),
     result,
     error,
     interaction,

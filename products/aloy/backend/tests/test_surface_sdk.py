@@ -212,7 +212,7 @@ def _state_command_manifest() -> dict:
                         "key_field": "id",
                     },
                 }
-                for operation in ("create", "replace", "merge", "delete")
+                for operation in ("create", "replace", "merge", "upsert", "delete")
             },
         }
     ).model_dump(mode="json", by_alias=True, exclude_defaults=True)
@@ -514,6 +514,42 @@ async def test_host_owned_state_commands_enforce_exact_entity_semantics(
     assert context.json()["data"]["surface"]["career"] == []
 
 
+async def test_upsert_state_command_supports_first_save_and_later_edits(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "Career OS")
+    build_id, revision_id = await _seed_runtime(
+        db_session_maker, event["id"], _state_command_manifest()
+    )
+
+    async def save(revision: int, company: str, key: str):
+        return await client.post(
+            f"/v1/events/{event['id']}/surface/interactions",
+            json={
+                "build_id": build_id,
+                "code_revision_id": revision_id,
+                "data_revision": revision,
+                "method": "command",
+                "name": "career.upsert",
+                "component_id": "career-direction",
+                "payload": {"id": "preferences", "company": company},
+                "idempotency_key": key,
+            },
+        )
+
+    created = await save(0, "First direction", "career-upsert-create-0001")
+    updated = await save(1, "Refined direction", "career-upsert-update-0002")
+
+    assert created.status_code == 202, created.text
+    assert created.json()["result"]["command"]["operation"] == "upsert"
+    assert created.json()["result"]["record"]["data"]["company"] == ("First direction")
+    assert updated.status_code == 202, updated.text
+    assert updated.json()["result"]["record"]["data"]["company"] == (
+        "Refined direction"
+    )
+
+
 async def test_source_change_command_queues_bound_surface_builder(
     client,
     db_session_maker,
@@ -591,6 +627,7 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
             "intents": {
                 "event.review_selection": {
                     "class": "reasoning",
+                    "label": "Review selected options",
                     "schema": {
                         "type": "object",
                         "properties": {"selectionId": {"type": "string"}},
@@ -663,6 +700,11 @@ async def test_reasoning_command_uses_host_rendered_snapshot_envelope(
         message = (await session.execute(select(Message))).scalars().one()
         assert hostile_value not in run.task
         assert "<trusted-surface-command>" in run.task
+        assert "Surface request: Review selected options" in run.task
+        assert message.content == "Review selected options"
+        assert message.metadata_["surface_request_label"] == "Review selected options"
+        assert message.metadata_["surface_request_origin"] == "surface_control"
+        assert "event.review_selection" not in message.content
         assert message.metadata_["surface_input"]["selectionId"] == hostile_value
 
 
@@ -678,6 +720,7 @@ async def test_surface_reasoning_worker_fails_closed_then_reconciles_exact_conte
             "intents": {
                 "event.compare_selection": {
                     "class": "reasoning",
+                    "label": "Compare selected options",
                     "schema": {
                         "type": "object",
                         "properties": {
@@ -789,6 +832,16 @@ async def test_surface_reasoning_worker_fails_closed_then_reconciles_exact_conte
         )
         assert failed_interaction.status == "failed"
         assert "did not read" in (failed_interaction.error or "")
+        failed_message = await session.get(
+            Message, failed_interaction.outcome_message_id
+        )
+        assert failed_message is not None
+        assert "did not read" not in failed_message.content
+        assert "safe retry" not in failed_message.content
+        assert (
+            failed_message.metadata_["surface_request_label"]
+            == "Compare selected options"
+        )
 
     completed_interaction_id, completed_run_id = await queue_and_lease(
         "event-context-gate-completed-1",
@@ -921,6 +974,7 @@ async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
         assert runs[0].conversation_id == event["conversation_id"]
         assert len(messages) == 1
         assert messages[0].metadata_["kind"] == "surface_interaction"
+        assert messages[0].metadata_["surface_request_origin"] == "user_question"
 
         run = runs[0]
         run.status = "running"

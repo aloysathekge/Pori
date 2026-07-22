@@ -157,9 +157,13 @@ export function WorkStory({ runId, entries: suppliedEntries = [], live = false }
   const finishedActions = story.actions.filter((action) => action.status !== 'running');
   const runningAction = story.actions.findLast((action) => action.status === 'running');
   const summary = story.failed
-    ? `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
+    ? finishedActions.length === 0
+      ? "Couldn't complete this request"
+      : `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
     : story.cancelled
-      ? `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
+      ? finishedActions.length === 0
+        ? 'Request stopped'
+        : `Work stopped · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
     : story.completed
       ? `Worked for ${formatDuration(story.elapsed)} · ${finishedActions.length} action${finishedActions.length === 1 ? '' : 's'}`
       : story.needsAttention
