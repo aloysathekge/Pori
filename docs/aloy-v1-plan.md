@@ -1111,6 +1111,22 @@ Automatic starting-Surface materialization completed on the stacked
 - a real local toolchain acceptance proof installs a template, builds its React
   source, passes browser inspection, and publishes it with no model assignment.
 
+User-facing discovery and installation completed on
+`aloy-v1-r12-template-discovery`:
+
+- every New Event entry point opens a responsive, catalog-backed chooser before
+  a draft is created, so template exploration does not leave abandoned setup
+  records;
+- templates are grouped by discovery taxonomy rather than subscription tier,
+  and cards render only server-published catalog records rather than Career OS
+  constants;
+- release preview shows the useful guided starting jobs, accepts an optional
+  Event-name override, and pins installation to the exact listed release with a
+  stable idempotency key that survives a failed retry;
+- install returns the ordinary Event immediately and navigates into its
+  workspace while the model-free starting Surface reports `preparing`; and
+- unavailable or empty catalogs never block the existing custom Event setup.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1200,11 +1216,13 @@ The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
 The R12 backend contract, installation transaction, protected two-step release
-API, Aloy Internal review workflow, first real Career OS v1 candidate, and
-automatic model-free source materialization are implemented without model
-credits. Next, merge and stage the exact reviewed candidate when operator
-authority is configured, prove the live catalog path, then add template
-discovery and install UI. Add a protected asset-upload boundary before binary template assets;
+API, Aloy Internal review workflow, first real Career OS v1 candidate,
+automatic model-free source materialization, and catalog discovery/install UI
+are implemented without model credits. The catalog branch merged through PR
+#217; materialization PR #218 and the internal Career OS release PR remain the
+integration gates. Next, configure local-only operator authority outside Git,
+stage and publish the exact reviewed candidate, then prove the signed-in
+install -> preparing -> live Surface path. Add a protected asset-upload boundary before binary template assets;
 Aloy Internal must not receive direct object-store access. University then uses
 the same contracts; Madrid waits for the trusted Map/widget phase. Subscription
 packaging remains a separate entitlement/limits design and must not leak into

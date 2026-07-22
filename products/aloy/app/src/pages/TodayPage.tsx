@@ -401,7 +401,7 @@ export function TodayPage() {
                 {creatingConversation ? <LoaderCircle size={16} className="animate-spin" /> : <ChatIcon size={17} />}
                 New conversation
               </Button>
-              <Button variant="outline" onClick={() => navigate('/events/new')} className="border-accent-700/60 text-accent-700">
+              <Button variant="outline" onClick={() => navigate('/events/start')} className="border-accent-700/60 text-accent-700">
                 <EventIcon size={17} /> New Event
               </Button>
             </div>

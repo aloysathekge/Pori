@@ -328,7 +328,7 @@ export function SchedulesPage() {
             <EventIcon size={28} className="mx-auto text-zinc-600" />
             <h2 className="mt-4 font-display text-xl font-semibold text-zinc-200">Create an Event first</h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-500">Schedules belong to one dedicated Event so context, permissions, results, and memory never drift into the wrong part of your life.</p>
-            <Button className="mt-5" onClick={() => navigate('/events/new')}>Create an Event</Button>
+            <Button className="mt-5" onClick={() => navigate('/events/start')}>Create an Event</Button>
           </div>
         ) : schedules.length === 0 ? (
           <div className="mt-10 grid gap-8 border-y border-zinc-800 py-10 md:grid-cols-[1fr_0.85fr] md:items-center">

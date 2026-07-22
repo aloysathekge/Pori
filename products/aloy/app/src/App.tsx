@@ -17,6 +17,7 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { TodayPage } from '@/pages/TodayPage';
 import { EventPage } from '@/pages/EventPage';
 import { EventSetupPage } from '@/pages/EventSetupPage';
+import { EventStartPage } from '@/pages/EventStartPage';
 import { Spinner } from '@/components/ui/Spinner';
 import { ToastProvider } from '@/components/ui/ToastProvider';
 import type { ReactNode } from 'react';
@@ -80,6 +81,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="/today" replace />} />
         <Route path="today" element={<TodayPage />} />
+        <Route path="events/start" element={<EventStartPage />} />
         <Route path="events/new" element={<EventSetupPage />} />
         <Route path="events/:eventId" element={<EventPage />} />
         <Route path="chat" element={<ChatPage />} />

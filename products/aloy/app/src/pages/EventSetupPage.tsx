@@ -198,8 +198,8 @@ export function EventSetupPage() {
     <div className="h-full overflow-y-auto bg-zinc-950">
       <div className="mx-auto flex min-h-full max-w-5xl flex-col px-5 py-5 sm:px-8 lg:py-6">
         <header className="sticky top-0 z-20 -mx-5 flex items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/95 px-5 py-2 backdrop-blur sm:-mx-8 sm:px-8 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
-          <button type="button" onClick={() => navigate('/today')} className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-200">
-            <ArrowLeft size={16} /> <span className="hidden sm:inline">Back to </span>Today
+          <button type="button" onClick={() => navigate('/events/start')} className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-200">
+            <ArrowLeft size={16} /> Ways to start
           </button>
           <Button onClick={() => void submit()} disabled={saving || !draft || !title.trim()} className="px-5">
             {saving ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowRight size={16} />}
