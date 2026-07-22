@@ -1417,7 +1417,7 @@ The Event remains durable while browser Sessions are disposable leases. A
 globally managed browser connection owns one user's identity for one site and
 login; an Event receives a narrower revocable grant over that connection.
 Login, CAPTCHA, two-factor authentication, and credential entry occur through
-a trusted embedded browser takeover. Credentials, provider Contexts, raw CDP,
+a trusted embedded browser takeover. Credentials, provider Profiles, raw CDP,
 and vendor Live View capabilities never enter Conversation, model input,
 generated Surface code, or general Event memory.
 
@@ -1426,8 +1426,16 @@ Sessions, persistent browser profiles, proxies, observability, and adaptive DOM
 operations, but Pori/Aloy owns the Task and Run loop, budgets, permission
 checks, Proposal boundary, success verification, recovery, Trail, and Receipt.
 Browser work follows the least-powerful ladder: official connection/API,
-Search, Fetch, deterministic Playwright recipe, bounded adaptive DOM operation,
+Search, Fetch, deterministic browser recipe, bounded adaptive DOM operation,
 visual fallback, then human takeover.
+
+Browser Use is the first integration: its constrained open-source Python
+runtime acts as a bounded specialist, while Browser Use Cloud may supply raw
+remote browsers, persistent Profiles, CDP, and interactive Live View. Desktop
+may instead use an isolated Aloy-managed Chromium profile or an explicitly
+authorized Chrome tab/profile. These execution locations share one Run,
+grant, takeover, evidence, Proposal, and Receipt model; none replaces Aloy's
+durable Event agent.
 
 Consequential browser actions are staged and approved before execution. Aloy
 freezes the account, target, material values, page evidence, and action

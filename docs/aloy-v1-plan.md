@@ -1183,29 +1183,41 @@ work must not absorb browser credentials or general web authority.
 
 The planned sequence is:
 
-1. **B0 — contracts and fake provider:** provider-neutral browser Session,
-   Context, evidence, action, and error contracts; durable connection/grant/Run
-   state; injection, concurrency, and crash tests.
-2. **B1 — Browserbase connection and read-only Session:** Context creation,
-   exclusive connection leases, backend-mediated Live View, login/takeover,
-   reauthentication, and one allowlisted deterministic read canary.
-3. **B2 — research ladder and authenticated observations:** API/Search/Fetch
-   routing before browser allocation, typed Stagehand atomic operations,
-   read-only monitoring, evidence, and Today attention.
-4. **B3 — adaptive reliability:** reviewed recipes, page fingerprints, repair
-   limits, checkpoints, reconnect, provider queues, budgets, privacy, proxy,
-   and prompt-injection gates.
-5. **B4 — staged external actions:** Proposal-bound stage/execute/reconcile
+1. **B0 — contracts and fake provider:** provider-neutral Profile, Session,
+   specialist, takeover, evidence, capability, action, and error contracts;
+   durable connection/grant/Run state; fencing, injection, concurrency, and
+   crash tests.
+2. **B1 — Browser Use Cloud connection and read-only browser:** raw Cloud
+   browser creation over CDP, persistent Profile lifecycle, exclusive fenced
+   leases, backend-authorized Live View, login/takeover, reauthentication, and
+   one allowlisted deterministic read canary.
+3. **B2 — bounded Browser Use specialist:** pinned upstream dependency,
+   restricted tools, allowed domains, signed Run manifests, typed events and
+   results, output verification, developer-selected model configuration, and
+   proof that specialist success claims cannot commit Event truth.
+4. **B3 — research ladder and background observations:** API/Search/Fetch
+   routing before browser allocation, reviewed deterministic recipes, bounded
+   adaptive operations, read-only monitoring, evidence, Today attention,
+   checkpoints, and cost telemetry.
+5. **B4 — trusted Desktop managed browser:** isolated local Chromium, encrypted
+   device Profile, visible takeover, device-presence routing, and the same Run,
+   grant, evidence, and Receipt semantics as Cloud.
+6. **B5 — existing Chrome supervised connection:** explicit tab/profile
+   authorization, visible control, disconnect, origin isolation, and
+   unrelated-tab denial before any unattended use.
+7. **B6 — staged external actions:** Proposal-bound stage/execute/reconcile
    flow, frozen action fingerprints, and one reversible non-payment write
-   canary with effectively-once drills.
-6. **B5 — hardened release:** controlled file transfer, quarantine, retention,
-   multi-site evals, and measured reliability, latency, cost, and support gates.
+   canary with effectively-once and takeover drills.
+8. **B7 — hardened release:** controlled file transfer, quarantine, retention,
+   multi-site evals, and measured reliability, latency, cost, authentication
+   health, and support gates.
 
-Browserbase is the first provider, but Aloy owns the agent loop. The hosted
-Browserbase Agents abstraction is not the canonical executor because it owns a
-parallel model/tool loop and currently couples browser access with fixed shell
-and filesystem tools. The initial path uses Browserbase Sessions plus
-deterministic Playwright and bounded Stagehand operations behind Pori contracts.
+Browser Use is the first provider and bounded browser specialist, but Aloy owns
+the durable agent loop. The initial path integrates and pins the open-source
+Python package without forking it, connects to raw Browser Use Cloud browsers,
+and configures a restricted tool registry behind Pori contracts. Fully hosted
+open-ended agents may be benchmarked, but cannot own Event policy, approval,
+memory, or success declaration.
 
 ## 8. Immediate next action
 
