@@ -119,7 +119,7 @@ export function AppLayout() {
   const dedicatedEvents = events.filter((event) => !event.is_life);
   const activeEvent = dedicatedEvents.find((event) => location.pathname === `/events/${event.id}`);
   const mobileTitle = activeEvent?.title
-    || (location.pathname.startsWith('/events/new') ? 'New Event'
+    || (location.pathname.startsWith('/events/new') || location.pathname.startsWith('/events/start') ? 'New Event'
       : location.pathname.startsWith('/chat') ? 'Life'
         : location.pathname.startsWith('/today') ? 'Today'
           : utilityItems.find((item) => location.pathname.startsWith(item.to))?.label
@@ -140,7 +140,7 @@ export function AppLayout() {
   function startEvent() {
     closeMobile();
     setMobileSheet(null);
-    navigate('/events/new');
+    navigate('/events/start');
   }
 
   return (

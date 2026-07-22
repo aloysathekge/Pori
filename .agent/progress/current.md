@@ -3,8 +3,8 @@
 ## Active Task
 
 R11 durable Work Story hardening passed all seven GitHub checks and merged into
-`aloy-v1` through PR #216. R12 is active on
-`aloy-v1-r12-event-template-catalog`. The first model-free slice now defines
+`aloy-v1` through PR #216. R12's governed Event-template catalog passed all
+seven checks and merged through PR #217. The first model-free slice defines
 versioned catalog/release/asset/compatibility/seed/guided-job/installation
 records and a generic idempotent installation transaction. A fake Career OS
 release proves the contract in tests without adding Career behavior to Aloy.
@@ -12,17 +12,18 @@ The second slice adds the protected global authoring boundary: Aloy Internal
 can stage, review, and publish exact releases through versioned APIs with
 deployment-scoped authority, organization RBAC, idempotent intent, and immutable
 audit receipts rather than direct database access.
-The separate `aloy-internal` phase-4 branch now consumes that boundary through
+The separate `aloy-internal` phase-4 work consumes that boundary through
 a typed client, bounded loopback bridge, and fixture/live-local Governance
 review screen. It displays the exact checksum and observed catalog pointer and
 returns Pori's receipt unchanged.
-The stacked phase-5 branch now holds the first real Career OS v1 release and a
+Phase 4 passed clean-checkout CI and merged through internal PR #4. The
+phase-5 branch now holds the first real Career OS v1 release and a
 generic release kit. Its exact React source passes Pori's manifest, build,
 runtime, interaction, and four-primary-job gates, plus a local protected
 stage/publish/install proof. It creates one honest setup Task, separates sample
 and setup-gap posture, and routes research to the permanent Event conversation.
-The next R12 slice is now implemented on
-`aloy-v1-r12-template-build-kickoff`: installing reviewed source atomically
+The next R12 slice passed all seven checks and merged into `aloy-v1` through PR
+#218: installing reviewed source atomically
 queues a durable model-free Surface materialization Run. The worker sends the
 frozen revision through the same build, inspection, quality, and publication
 authority used after model generation, while leaving the Event conversation
@@ -33,6 +34,13 @@ operator-only control APIs, and the separate private `aloy-internal` control
 plane are established. R10 document ingestion/OCR is fully specified but not
 implemented. Real provider acceptance remains deferred until credentials are
 available and does not block model-free template and ingestion contracts.
+
+The user-facing discovery/install slice is implemented on
+`aloy-v1-r12-template-discovery`. Every New Event entry point now opens a
+responsive chooser backed only by the published catalog API. Users may inspect
+a release's guided starting jobs, rename the Event, and install the exact
+listed release with a stable retry key, or continue into the existing custom
+setup flow. Catalog failure never blocks custom Event creation.
 
 ## Decisions Made
 
@@ -180,6 +188,15 @@ available and does not block model-free template and ingestion contracts.
   rejection, worker dispatch, transient retry, and real local build → browser
   inspection → publication. Focused Ruff and mypy pass; the Aloy app production
   build and ESLint pass.
+- Template discovery passes the Aloy production build, ESLint, and all 14 app
+  tests. Signed-in desktop and 390x844 mobile browser checks prove the route,
+  responsive fallback, and custom-creation escape path against the currently
+  running pre-catalog backend.
+- Aloy Internal phase 5 passes `bun run check` after merging the clean-checkout
+  package-resolution fix: all 18 tests, typechecks, lint, and production builds
+  pass. Career OS v1 merged into the private repo's `main` through PR #5; its
+  exact offline review fingerprint is
+  `a914fb5865531441e12bc3cffab53a88220447ac049b10216d679b54e190c0ae`.
 - The Surface health slice passes focused backend tests, including the
   credit-free regression -> proposal -> accepted Builder queue flow while the
   old build remains published and ordinary members are denied operator health
@@ -210,20 +227,22 @@ available and does not block model-free template and ingestion contracts.
   acquisition, inspection, timeout, and recovery evidence.
 - Live University, Madrid, and Career provider proofs and pinned remote E2B
   acceptance remain deferred gates.
-- The product database, protected API, and Aloy Internal review workflow now
-  have a reviewed Career OS v1 candidate, but it has not been staged or
-  published in a configured catalog. The generic automatic host-build kickoff
-  now exists; catalog discovery/install UI still needs the live release.
+- The product database, protected API, Aloy Internal review workflow, automatic
+  host-build kickoff, and discovery/install UI now exist. Career OS v1 cannot
+  be staged into the developer's live local catalog until Pori has an explicit
+  catalog-operator subject and Aloy Internal has its loopback organization and
+  operator-token configuration. Do not bypass this boundary with direct DB
+  writes or committed credentials.
 
 ## Next Session Should Start With
 
-Review and merge the Career OS release and automatic materialization branches,
-then stage and publish the exact Career OS fingerprint as database data through
-the protected API when catalog authority is configured. Add template discovery
-and install UI only after that live end-to-end proof. Add a protected
-asset-upload boundary before shipping releases with binary assets; do not grant
-Aloy Internal direct object-store access, create a parallel template build
-path, or let a release publish itself.
+Merge the discovery slice. Configure local-only catalog authority and the loopback
+operator bridge outside Git, stage the exact Career OS v1 fingerprint, review
+and publish it through Governance, and perform the signed-in install ->
+preparing -> live Surface proof. Add a protected asset-upload boundary before
+shipping releases with binary assets; do not grant Aloy Internal direct
+object-store access, create a parallel template build path, or let a release
+publish itself.
 
 In parallel planning, keep R10 document ingestion behind the provider-neutral
 `DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file
