@@ -15,11 +15,14 @@ import {
   Settings,
   X,
 } from 'lucide-react';
-import { listEvents, type EventSummary } from '@/api/events';
+import { listEvents, updateEvent, type EventSummary } from '@/api/events';
 import { createConversation } from '@/api/conversations';
 import { useAuth } from '@/contexts/useAuth';
+import { useToast } from '@/contexts/toast';
 import { WorkspaceFocusContext } from '@/contexts/WorkspaceFocusContext';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { Spinner } from '@/components/ui/Spinner';
 import { EventCover } from '@/components/events/EventCover';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AloyMark, ChatIcon, EventIcon, MemoryIcon, TodayIcon } from '@/components/icons';
@@ -69,34 +72,65 @@ function RailLink({
 function EventRailLink({
   event,
   duplicateTitle,
-  onClick,
+  menuOpen,
+  onNavigate,
+  onToggleMenu,
+  onOpenSettings,
+  onArchive,
 }: {
   event: EventSummary;
   duplicateTitle: boolean;
-  onClick: () => void;
+  menuOpen: boolean;
+  onNavigate: () => void;
+  onToggleMenu: () => void;
+  onOpenSettings: () => void;
+  onArchive: () => void;
 }) {
   return (
-    <NavLink
-      to={`/events/${event.id}`}
-      onClick={onClick}
-      title={duplicateTitle ? `${event.title} · Created ${new Date(event.created_at).toLocaleDateString()}` : event.title}
-      className={({ isActive }) => `flex min-h-11 items-center gap-2.5 rounded-lg px-2 text-sm transition-colors ${isActive ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'}`}
-    >
-      <EventCover event={event} className="h-7 w-9 shrink-0 rounded-md border border-zinc-800" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate">{event.title}</span>
-        {duplicateTitle && (
-          <span className="block truncate text-[10px] text-zinc-600">
-            Created {new Date(event.created_at).toLocaleDateString()}
-          </span>
-        )}
-      </span>
-    </NavLink>
+    <div className="group/event relative">
+      <NavLink
+        to={`/events/${event.id}`}
+        onClick={onNavigate}
+        title={duplicateTitle ? `${event.title} · Created ${new Date(event.created_at).toLocaleDateString()}` : event.title}
+        className={({ isActive }) => `flex min-h-11 items-center gap-2.5 rounded-lg px-2 pr-10 text-sm transition-colors ${isActive ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'}`}
+      >
+        <EventCover event={event} className="h-7 w-9 shrink-0 rounded-md border border-zinc-800" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{event.title}</span>
+          {duplicateTitle && (
+            <span className="block truncate text-[10px] text-zinc-600">
+              Created {new Date(event.created_at).toLocaleDateString()}
+            </span>
+          )}
+        </span>
+      </NavLink>
+      <button
+        type="button"
+        onClick={onToggleMenu}
+        className={`absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${menuOpen ? 'bg-zinc-700 text-zinc-100' : 'opacity-70 group-hover/event:opacity-100'}`}
+        aria-label={`Actions for ${event.title}`}
+        aria-expanded={menuOpen}
+        title={`Manage ${event.title}`}
+      >
+        <MoreHorizontal size={17} />
+      </button>
+      {menuOpen && (
+        <div className="relative z-20 mx-1 mb-1 mt-1 space-y-1 rounded-xl border border-zinc-700 bg-zinc-900 p-1.5 shadow-xl" role="menu" aria-label={`${event.title} actions`}>
+          <button type="button" role="menuitem" onClick={onOpenSettings} className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white">
+            <Settings size={15} /> Event settings
+          </button>
+          <button type="button" role="menuitem" onClick={onArchive} className="flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300">
+            <Archive size={15} /> Archive Event…
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function AppLayout() {
   const { signOut } = useAuth();
+  const { showToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [events, setEvents] = useState<EventSummary[]>([]);
@@ -104,6 +138,10 @@ export function AppLayout() {
   const [sidebarPeek, setSidebarPeek] = useState(false);
   const [workspaceFocused, setWorkspaceFocused] = useState(false);
   const [mobileSheet, setMobileSheet] = useState<'create' | 'events' | null>(null);
+  const [eventMenuId, setEventMenuId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<EventSummary | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState('');
   const [actionError, setActionError] = useState('');
   const [expanded, setExpanded] = useState(
     () => !['slim', 'auto'].includes(localStorage.getItem('aloy.nav') || ''),
@@ -144,7 +182,10 @@ export function AppLayout() {
   }
 
   const compact = false;
-  const closeMobile = () => setSidebarOpen(false);
+  const closeMobile = () => {
+    setSidebarOpen(false);
+    setEventMenuId(null);
+  };
   const dedicatedEvents = events.filter((event) => !event.is_life);
   const eventTitleCounts = dedicatedEvents.reduce((counts, event) => {
     counts.set(event.title, (counts.get(event.title) ?? 0) + 1);
@@ -175,6 +216,43 @@ export function AppLayout() {
     closeMobile();
     setMobileSheet(null);
     navigate('/events/start');
+  }
+
+  function openEventSettings(event: EventSummary) {
+    setEventMenuId(null);
+    setSidebarOpen(false);
+    setMobileSheet(null);
+    navigate(`/events/${event.id}?panel=settings`);
+  }
+
+  function requestEventArchive(event: EventSummary) {
+    setEventMenuId(null);
+    setArchiveError('');
+    setArchiveTarget(event);
+  }
+
+  async function archiveEvent() {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    setArchiveError('');
+    try {
+      await updateEvent(archiveTarget.id, { lifecycle: 'archived' });
+      setEvents((current) => current.filter((event) => event.id !== archiveTarget.id));
+      showToast({
+        tone: 'success',
+        title: `${archiveTarget.title} archived`,
+        description: 'Its work is paused. Restore or permanently delete it from Archived Events.',
+      });
+      if (location.pathname === `/events/${archiveTarget.id}`) {
+        navigate('/today', { replace: true });
+      }
+      setArchiveTarget(null);
+      setSidebarOpen(false);
+    } catch (cause) {
+      setArchiveError(cause instanceof Error ? cause.message : 'The Event could not be archived.');
+    } finally {
+      setArchiving(false);
+    }
   }
 
   return (
@@ -289,7 +367,11 @@ export function AppLayout() {
                 key={event.id}
                 event={event}
                 duplicateTitle={(eventTitleCounts.get(event.title) ?? 0) > 1}
-                onClick={closeMobile}
+                menuOpen={eventMenuId === event.id}
+                onNavigate={closeMobile}
+                onToggleMenu={() => setEventMenuId((current) => current === event.id ? null : event.id)}
+                onOpenSettings={() => openEventSettings(event)}
+                onArchive={() => requestEventArchive(event)}
               />
             ))}
             <RailLink
@@ -422,6 +504,31 @@ export function AppLayout() {
           </section>
         </div>
       )}
+
+      <Modal
+        open={archiveTarget !== null}
+        onClose={() => { if (!archiving) setArchiveTarget(null); }}
+        title={archiveTarget ? `Archive ${archiveTarget.title}?` : 'Archive Event?'}
+      >
+        <p className="text-sm leading-6 text-zinc-400">
+          Aloy will stop waking for this Event, and it will disappear from Today and your active Events. Its conversation, tasks, files, memory, Trail, and Surface remain intact.
+        </p>
+        <p className="mt-3 text-xs leading-5 text-zinc-500">
+          You can restore it—or permanently delete it—from Archived Events.
+        </p>
+        {archiveError && (
+          <p role="alert" className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {archiveError}
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setArchiveTarget(null)} disabled={archiving}>Cancel</Button>
+          <Button variant="danger" onClick={() => void archiveEvent()} disabled={archiving}>
+            {archiving ? <Spinner className="h-4 w-4" /> : <Archive size={16} />}
+            Archive Event
+          </Button>
+        </div>
+      </Modal>
     </div>
     </WorkspaceFocusContext.Provider>
   );

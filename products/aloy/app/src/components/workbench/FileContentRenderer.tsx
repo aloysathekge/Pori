@@ -1,7 +1,11 @@
-import { useState } from 'react';
-import { FileQuestion, FileWarning, Music2, Presentation } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Code2, Eye, FileQuestion, FileWarning, Music2, Presentation, ShieldCheck } from 'lucide-react';
 import type { FilePresentation } from '@/api/files';
 import { Markdown } from '@/components/chat/Markdown';
+import {
+  buildHtmlArtifactPreviewDocument,
+  HTML_ARTIFACT_IFRAME_SANDBOX,
+} from './htmlArtifactSecurity';
 
 interface FileContentRendererProps {
   presentation: FilePresentation;
@@ -105,6 +109,65 @@ function PreviewTruncated() {
   );
 }
 
+function HtmlPreview({ presentation, text }: { presentation: FilePresentation; text: string | null }) {
+  const canPreview = text !== null && !presentation.preview?.truncated;
+  const [mode, setMode] = useState<'preview' | 'code'>(() =>
+    presentation.kind === 'artifact' && canPreview ? 'preview' : 'code',
+  );
+  const document = useMemo(
+    () => text === null ? '' : buildHtmlArtifactPreviewDocument(text),
+    [text],
+  );
+
+  if (text === null) return <Unavailable presentation={presentation} />;
+
+  return (
+    <div className="flex h-full min-h-[32rem] flex-col">
+      <div className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-3">
+        <div className="flex rounded-lg border border-zinc-800 bg-zinc-900 p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode('preview')}
+            disabled={!canPreview}
+            className={`flex min-h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium ${mode === 'preview' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'} disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            <Eye size={14} /> Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('code')}
+            className={`flex min-h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium ${mode === 'code' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'}`}
+          >
+            <Code2 size={14} /> Code
+          </button>
+        </div>
+        <p className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-zinc-500" title="Runs without network, Aloy, Event state, storage, navigation, or download access">
+          <ShieldCheck size={13} className="shrink-0 text-emerald-600" /> Isolated preview
+        </p>
+      </div>
+
+      {mode === 'preview' && canPreview ? (
+        <iframe
+          key={presentation.sha256}
+          title={`Interactive preview of ${presentation.name}`}
+          srcDoc={document}
+          sandbox={HTML_ARTIFACT_IFRAME_SANDBOX}
+          referrerPolicy="no-referrer"
+          allow="camera 'none'; geolocation 'none'; microphone 'none'"
+          className="min-h-0 flex-1 border-0 bg-white"
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <pre className="min-h-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-4 font-mono text-xs leading-6 text-zinc-200"><code>{text}</code></pre>
+          {presentation.preview?.truncated && (
+            <div className="mt-3"><PreviewTruncated /></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FileContentRenderer({ presentation, sourceUrl, text }: FileContentRendererProps) {
   switch (presentation.renderer) {
     case 'markdown':
@@ -114,6 +177,8 @@ export function FileContentRenderer({ presentation, sourceUrl, text }: FileConte
           {presentation.preview?.truncated && <PreviewTruncated />}
         </>
       );
+    case 'html':
+      return <HtmlPreview presentation={presentation} text={text} />;
     case 'code':
     case 'text':
       return text === null ? <Unavailable presentation={presentation} /> : (

@@ -127,7 +127,7 @@ Gate:
 - no browser console errors on the Event route;
 - conversation output streams visibly;
 - leaving and reopening Career OS returns the same Conversation;
-- Tasks, Decisions, Files, and Trail render in the context pane at desktop and
+- Tasks, Decisions, Resources, and Trail render in the context pane at desktop and
   mobile widths;
 - the visual QA report has `final result: passed`.
 

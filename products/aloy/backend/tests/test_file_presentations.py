@@ -75,7 +75,8 @@ def test_routes_supported_formats_to_fixed_host_renderers():
     assert presentation_kind("notes.docx", DOCX_MIME) == "document"
     assert presentation_kind("marks.xlsx", XLSX_MIME) == "spreadsheet"
     assert presentation_kind("deck.pptx", PPTX_MIME) == "slides"
-    assert presentation_kind("index.html", "text/html") == "code"
+    assert presentation_kind("index.html", "text/html") == "html"
+    assert presentation_kind("dashboard.bin", "text/html; charset=utf-8") == "html"
     assert presentation_kind("worker.py", "text/x-python") == "code"
     assert presentation_kind("component.ts", "video/mp2t") == "code"
     assert presentation_kind("notes.txt", "text/plain") == "text"
@@ -120,13 +121,13 @@ async def test_presentation_endpoint_returns_docx_preview(client):
     assert body["source_url"] is None  # local storage uses authenticated streaming
 
 
-async def test_presentation_endpoint_returns_html_as_inert_source(client):
+async def test_presentation_endpoint_returns_html_for_isolated_preview(client):
     html = b"<!doctype html><title>Safe source view</title><h1>Hello</h1>"
     file_id = await _upload(client, "index.html", html, "text/html")
     response = await client.get(f"/v1/files/{file_id}/presentation")
     assert response.status_code == 200
     body = response.json()
-    assert body["renderer"] == "code"
+    assert body["renderer"] == "html"
     assert body["preview"] == {"text": html.decode(), "truncated": False}
     assert body["source_url"] is None
 

@@ -17,6 +17,7 @@ export interface StoredFileView {
 
 export type FileRenderer =
   | 'markdown'
+  | 'html'
   | 'code'
   | 'text'
   | 'image'

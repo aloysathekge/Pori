@@ -4,7 +4,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   Circle,
-  FileText,
+  Library,
   Link2,
   ListTodo,
   PanelRightClose,
@@ -20,7 +20,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { getConversation, getConversationMessages } from '@/api/conversations';
 import { retryEventContext, type EventSetupContextItem } from '@/api/eventSetup';
 import {
@@ -48,6 +48,7 @@ import { FileThumbnail, FileTypeIcon } from '@/components/files/FileVisual';
 import { ProposalCard } from '@/components/events/ProposalCard';
 import { EventCover } from '@/components/events/EventCover';
 import { EventSettingsPanel } from '@/components/events/EventSettingsPanel';
+import { groupEventResources } from '@/components/events/eventResources';
 import { SettingsIcon } from '@/components/icons';
 import { SurfaceOpenCard } from '@/components/surfaces/SurfaceOpenCard';
 import { SurfaceEvolutionProposalCard } from '@/components/surfaces/SurfaceEvolutionProposalCard';
@@ -91,10 +92,27 @@ function taskCanToggle(status: EventTask['status']) {
 
 export function EventPage() {
   const { eventId = '' } = useParams();
-  return <EventPageWorkspace key={eventId} eventId={eventId} />;
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  return (
+    <EventPageWorkspace
+      key={eventId}
+      eventId={eventId}
+      requestedPanel={searchParams.get('panel')}
+      panelRequestKey={location.key}
+    />
+  );
 }
 
-function EventPageWorkspace({ eventId }: { eventId: string }) {
+function EventPageWorkspace({
+  eventId,
+  requestedPanel,
+  panelRequestKey,
+}: {
+  eventId: string;
+  requestedPanel: string | null;
+  panelRequestKey: string;
+}) {
   const { focused: workbenchFocused, setFocused: setWorkbenchFocused } = useWorkspaceFocus();
   const [data, setData] = useState<EventSurfaceResponse | null>(null);
   const [messages, setMessages] = useState<MessageResponse[]>([]);
@@ -127,6 +145,13 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
       return [SURFACE_TAB];
     }
   });
+
+  useEffect(() => {
+    if (requestedPanel !== 'settings') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a sidebar action explicitly requests this host-owned panel
+    setContextTab('settings');
+    setContextOpen(true);
+  }, [panelRequestKey, requestedPanel]);
   const [activeWorkbenchTabId, setActiveWorkbenchTabId] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:workbench-active`) || SURFACE_TAB.id);
   const [showSurfaceAlongside, setShowSurfaceAlongside] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:surface-alongside`) === 'true');
   const [resourceRatio, setResourceRatio] = useState(() => {
@@ -576,6 +601,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
   const tasks = tasksSection?.kind === 'tasks' ? tasksSection.tasks : [];
   const activity = trailEntries;
   const files = filesSection?.kind === 'files' ? filesSection.files : [];
+  const { sources: sourceFiles, artifacts } = groupEventResources(files);
   const contextItems = contextSection?.kind === 'context' ? contextSection.items : [];
   const contextStatus =
     contextStatusSection?.kind === 'context_status' ? contextStatusSection.status : null;
@@ -590,7 +616,7 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     { id: 'tasks', icon: ListTodo, label: 'Tasks', count: openTasks },
     { id: 'approvals', icon: ShieldCheck, label: 'Approvals', count: data.surface.proposals.length },
     { id: 'receipts', icon: BadgeCheck, label: 'Receipts', count: receipts.length },
-    { id: 'files', icon: FileText, label: 'Files', count: files.length + contextItems.length },
+    { id: 'files', icon: Library, label: 'Resources', count: files.length + contextItems.length },
     { id: 'trail', icon: Activity, label: 'Trail' },
     { id: 'settings', icon: SettingsIcon, label: 'Settings' },
   ];
@@ -629,6 +655,37 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
     }
   }
 
+  function renderResourceFile(file: EventFile) {
+    return (
+      <div
+        key={file.id}
+        className="flex w-full items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/50 transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-within:border-zinc-700"
+      >
+        <button
+          type="button"
+          onClick={() => openFile(file)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/60"
+        >
+          <FileThumbnail file={file} />
+          <div className="min-w-0">
+            <p className="truncate text-sm text-zinc-300">{file.name}</p>
+            <p className="text-xs text-zinc-500">
+              {file.kind === 'artifact' ? 'Created by Aloy' : 'Added source'} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB
+            </p>
+          </div>
+        </button>
+        <div className="pr-1.5">
+          <FileActionsMenu
+            file={file}
+            onOpen={() => openFile(file)}
+            onAskAloy={askAloyAboutFile}
+            onDeleted={handleFileDeleted}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden bg-zinc-950">
       <section className="relative flex min-w-0 flex-1 flex-col">
@@ -658,6 +715,18 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
             </div>
             <button
               type="button"
+              onClick={() => {
+                setContextTab('settings');
+                setContextOpen(true);
+              }}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
+              aria-label="Open Event settings"
+              title="Event settings"
+            >
+              <SettingsIcon size={19} />
+            </button>
+            <button
+              type="button"
               onClick={() => setContextOpen((value) => !value)}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
               aria-label={contextOpen ? 'Close event context' : 'Open event context'}
@@ -679,6 +748,20 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setContextTab('settings');
+              setContextOpen(true);
+            }}
+            className={`hidden min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors md:flex ${contextOpen && contextTab === 'settings' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200'}`}
+            aria-label="Open Event settings"
+            aria-pressed={contextOpen && contextTab === 'settings'}
+            title="Event settings"
+          >
+            <SettingsIcon size={17} />
+            <span className="hidden lg:inline">Event settings</span>
+          </button>
           <button
             type="button"
             onClick={() => setContextOpen((value) => !value)}
@@ -1081,7 +1164,9 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     )}
                   </div>
                 )}
-                {contextItems.length > 0 && <p className="pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Context sources</p>}
+                {(contextItems.length > 0 || sourceFiles.length > 0) && (
+                  <p className="pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Sources</p>
+                )}
                 {contextItems.map((item) => {
                   const statusStyle = item.status === 'ready'
                     ? 'text-emerald-600'
@@ -1109,34 +1194,14 @@ function EventPageWorkspace({ eventId }: { eventId: string }) {
                     </div>
                   );
                 })}
-                {contextItems.length > 0 && files.length > 0 && <p className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Event files</p>}
-                {files.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex w-full items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/50 transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-within:border-zinc-700"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => openFile(file)}
-                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/60"
-                    >
-                      <FileThumbnail file={file} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-zinc-300">{file.name}</p>
-                        <p className="text-xs text-zinc-500">{file.kind} · {Math.max(1, Math.round(file.size_bytes / 1024))} KB</p>
-                      </div>
-                    </button>
-                    <div className="pr-1.5">
-                      <FileActionsMenu
-                        file={file}
-                        onOpen={() => openFile(file)}
-                        onAskAloy={askAloyAboutFile}
-                        onDeleted={handleFileDeleted}
-                      />
-                    </div>
-                  </div>
-                ))}
-                {files.length === 0 && contextItems.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">No Event files or context sources yet.</p>}
+                {sourceFiles.map(renderResourceFile)}
+                {artifacts.length > 0 && (
+                  <p className="pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Artifacts</p>
+                )}
+                {artifacts.map(renderResourceFile)}
+                {files.length === 0 && contextItems.length === 0 && (
+                  <p className="py-8 text-center text-sm text-zinc-500">No sources or artifacts have been added to this Event yet.</p>
+                )}
               </div>
             )}
 

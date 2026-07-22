@@ -33,7 +33,7 @@ router = APIRouter(prefix="/files", tags=["files"])
 _CHUNK = 256 * 1024
 _MAX_OFFICE_PREVIEW_READ = 25 * 1024 * 1024 + 1
 _OFFICE_PRESENTATION_KINDS = {"document", "spreadsheet", "slides"}
-_TEXT_PRESENTATION_KINDS = {"code", "markdown", "text"}
+_TEXT_PRESENTATION_KINDS = {"code", "html", "markdown", "text"}
 
 
 def _file_view(r: StoredFile, *, event: Event | None = None) -> dict:

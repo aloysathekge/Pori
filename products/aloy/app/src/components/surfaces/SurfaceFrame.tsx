@@ -51,6 +51,8 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const historyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const historyPopoverRef = useRef<HTMLDivElement | null>(null);
   const bridgeRef = useRef<SurfaceBridgeHost | null>(null);
   const onAloyHandoffRef = useRef(onAloyHandoff);
   const currentBuildId = useRef<string | null>(null);
@@ -104,6 +106,15 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
       currentBuildId.current = build.id;
       window.localStorage.setItem(surfaceSeenKey(eventId), build.id);
       setState({ kind: 'ready', url, build });
+      void listSurfacePublications(eventId)
+        .then((publications) => {
+          if (currentRequest === requestId.current) setHistory(publications);
+        })
+        .catch((cause) => {
+          if (currentRequest === requestId.current) {
+            setHistoryError(cause instanceof Error ? cause.message : String(cause));
+          }
+        });
     } catch (cause) {
       if (currentRequest !== requestId.current) return;
       setState({
@@ -154,6 +165,40 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
   }, [clearReconnect]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (historyPopoverRef.current?.contains(target)) return;
+      if (historyButtonRef.current?.contains(target)) return;
+      setHistoryOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setHistoryOpen(false);
+      historyButtonRef.current?.focus();
+    }
+
+    function closeWhenSurfaceReceivesFocus() {
+      window.setTimeout(() => {
+        if (document.activeElement === iframeRef.current) setHistoryOpen(false);
+      }, 0);
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('blur', closeWhenSurfaceReceivesFocus);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('blur', closeWhenSurfaceReceivesFocus);
+    };
+  }, [historyOpen]);
 
   function scheduleReconnect(build: SurfaceBuild, message?: string) {
     if (reconnectTimer.current) return;
@@ -258,10 +303,15 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
     }
   }
 
+  const currentPublication = useMemo(() => {
+    if (state.kind !== 'ready' || !history) return null;
+    return history.find((publication) => publication.build_id === state.build.id) ?? null;
+  }, [history, state]);
   const buildLabel = useMemo(() => {
     if (state.kind !== 'ready') return null;
+    if (currentPublication) return `Revision ${currentPublication.revision_number}`;
     return state.build.bundle_sha256?.slice(0, 8) ?? state.build.id.slice(0, 8);
-  }, [state]);
+  }, [currentPublication, state]);
   const rollbackTargets = useMemo(() => {
     if (state.kind !== 'ready' || !history) return [];
     const seen = new Set<string>([state.build.id]);
@@ -327,10 +377,13 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
           )}
           {state.kind === 'ready' && (
             <button
+              ref={historyButtonRef}
               type="button"
               onClick={() => void toggleHistory()}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 sm:h-8 sm:w-8"
               aria-label="Surface version history"
+              aria-expanded={historyOpen}
+              aria-controls="surface-version-history"
               title="Surface version history"
             >
               <History size={14} />
@@ -349,7 +402,13 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
             <RefreshCw size={14} />
           </button>
           {historyOpen && state.kind === 'ready' && (
-            <div className="absolute right-2 top-10 w-[min(18rem,calc(100vw-1rem))] rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl sm:right-3">
+            <div
+              ref={historyPopoverRef}
+              id="surface-version-history"
+              role="dialog"
+              aria-label="Published Surface versions"
+              className="absolute right-2 top-10 w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl sm:right-3"
+            >
               <div className="px-2 pb-2 pt-1">
                 <p className="text-xs font-semibold text-zinc-200">Published versions</p>
                 <p className="mt-0.5 text-[10px] text-zinc-500">
@@ -364,8 +423,32 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
               {!history && !historyError && (
                 <div className="flex justify-center py-4"><Spinner className="h-4 w-4" /></div>
               )}
+              {history && (
+                <div className="mb-1 rounded-lg border border-accent-600/20 bg-accent-600/10 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-xs font-semibold text-zinc-100">
+                      {currentPublication
+                        ? `Revision ${currentPublication.revision_number}`
+                        : 'Current Surface'}
+                    </p>
+                    <span className="shrink-0 rounded-full bg-accent-600/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-500">
+                      Current
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    {currentPublication
+                      ? `${currentPublication.action === 'rollback' ? 'Restored' : 'Published'} ${new Date(currentPublication.created_at).toLocaleString()}`
+                      : `Build ${buildLabel}`}
+                  </p>
+                </div>
+              )}
               {history && rollbackTargets.length === 0 && (
                 <p className="px-2 py-3 text-xs text-zinc-500">No earlier published version yet.</p>
+              )}
+              {history && rollbackTargets.length > 0 && (
+                <p className="px-2 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+                  Earlier versions
+                </p>
               )}
               {rollbackTargets.slice(0, 6).map((publication) => (
                 <div key={publication.id} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-zinc-900">

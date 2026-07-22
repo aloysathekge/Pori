@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Archive, CalendarClock, ImagePlus } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { CalendarClock, ImagePlus } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { updateEvent, uploadEventCover, type EventSummary } from '@/api/events';
 import { listSchedules } from '@/api/schedules';
 import { MemoryIcon } from '@/components/icons';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
 import { Spinner } from '@/components/ui/Spinner';
-import { useToast } from '@/contexts/toast';
 import { EventCover } from './EventCover';
 import { EventMemoryPanel } from './EventMemoryPanel';
 
@@ -24,8 +22,6 @@ export function EventSettingsPanel({
   refreshKey,
   onEventChanged,
 }: EventSettingsPanelProps) {
-  const navigate = useNavigate();
-  const { showToast } = useToast();
   const [section, setSection] = useState<SettingsSection>('general');
   const [scheduleCount, setScheduleCount] = useState<number | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -33,8 +29,6 @@ export function EventSettingsPanel({
   const [error, setError] = useState('');
   const [phase, setPhase] = useState(event.phase);
   const [savingPhase, setSavingPhase] = useState(false);
-  const [archiveOpen, setArchiveOpen] = useState(false);
-  const [archiving, setArchiving] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -81,25 +75,6 @@ export function EventSettingsPanel({
       setError(cause instanceof Error ? cause.message : 'The Event phase could not be updated.');
     } finally {
       setSavingPhase(false);
-    }
-  }
-
-  async function archiveEvent() {
-    setArchiving(true);
-    setError('');
-    try {
-      await updateEvent(event.id, { lifecycle: 'archived' });
-      showToast({
-        tone: 'success',
-        title: `${event.title} archived`,
-        description: 'Its work is paused. Restore or permanently delete it from Archived Events.',
-      });
-      navigate('/today', { replace: true });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The Event could not be archived.');
-      setArchiveOpen(false);
-    } finally {
-      setArchiving(false);
     }
   }
 
@@ -224,42 +199,11 @@ export function EventSettingsPanel({
             </div>
           </section>
 
-          {!event.is_life && (
-            <section className="rounded-xl border border-zinc-800 p-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">Archive Event</p>
-                  <p className="mt-1 text-xs leading-5 text-zinc-500">
-                    Pause this workspace and remove it from your sidebar without losing its history.
-                  </p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setArchiveOpen(true)}>
-                  <Archive size={14} /> Archive
-                </Button>
-              </div>
-            </section>
-          )}
         </div>
       ) : (
         <EventMemoryPanel eventId={event.id} refreshKey={refreshKey} />
       )}
 
-      <Modal
-        open={archiveOpen}
-        onClose={() => { if (!archiving) setArchiveOpen(false); }}
-        title={`Archive ${event.title}?`}
-      >
-        <p className="text-sm leading-6 text-zinc-400">
-          Aloy will stop waking for this Event, and it will disappear from Today and your normal sidebar. Its conversation, tasks, files, memory, Trail, and Surface remain intact.
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setArchiveOpen(false)} disabled={archiving}>Cancel</Button>
-          <Button variant="secondary" onClick={() => void archiveEvent()} disabled={archiving}>
-            {archiving ? <Spinner className="h-4 w-4" /> : <Archive size={16} />}
-            Archive Event
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

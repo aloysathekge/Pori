@@ -735,6 +735,20 @@ not merely to a Conversation. Aloy presents three product categories:
 - **Outputs/artifacts:** promoted results with Run, Task, and evidence
   provenance.
 
+The Event shell groups them under one **Resources** destination without
+collapsing their meaning:
+
+- **Sources** are inputs Aloy may ground work in: user uploads, retained links,
+  connected data, and other trusted Event context;
+- **Artifacts** are outputs Aloy created or promoted: reports, timetables,
+  plans, spreadsheets, images, code, and other durable deliverables.
+
+A link Aloy cites or recommends remains in the Conversation with its
+provenance. It becomes an Event Source only when the user or an authorized
+workflow explicitly retains it. A link contained in a generated deliverable
+remains part of that Artifact. Aloy must never silently turn every cited URL
+into durable Event context.
+
 These categories are product semantics, not fragile physical folders. A
 sandbox scratch file becomes an artifact only when the finalizer stores it
 durably, records provenance, and adds the semantic Trail entry. Files can link
@@ -1049,7 +1063,7 @@ state while changing how those regions are arranged:
   Split view is reserved for widths that can support it without damaging either
   region;
 - Event context opens as a full-screen mobile panel. Its Tasks, Approvals,
-  Receipts, Files, Trail, and Settings remain trusted host UI and keep large,
+  Receipts, Resources, Trail, and Settings remain trusted host UI and keep large,
   non-overlapping controls;
 - Surface, artifact, file, and Run Replay tabs remain first-class Workbench
   content. Tabs scroll horizontally rather than compressing labels and close
@@ -1291,11 +1305,20 @@ Surface code never receives unrestricted file access.
 The Workbench uses one trusted file-presentation pipeline for user uploads and
 Run artifacts. Original bytes remain immutable in object storage. The host
 classifies the file, verifies access and presentation limits, and selects a
-fixed renderer; it never executes file-authored HTML or asks generated Surface
-code to render a document. A presentation may contain an expiring original-byte
-URL, inert structured preview data, bounded extracted text, and honest preview
+fixed renderer. A presentation may contain an expiring original-byte URL,
+inert structured preview data, bounded extracted text, and honest preview
 diagnostics. Every representation remains linked to the original file ID and
 hash.
+
+HTML is a special artifact presentation, not a second Surface runtime. A
+bounded Aloy-created HTML artifact opens in **Preview** by default and may run
+its local scripts inside a host-owned opaque-origin iframe. The iframe receives
+no Surface SDK, Aloy bridge, Event state, credentials, storage authority,
+network access, download authority, or permission to navigate the host. The
+Workbench also offers **Code** so the source remains inspectable. User-uploaded
+HTML starts in Code and requires an explicit Preview choice; truncated HTML is
+code-only. Interactions inside this preview are temporary unless the artifact
+itself renders a new durable output through a separate trusted host flow.
 
 Initial renderer classes are:
 
@@ -1304,6 +1327,7 @@ Initial renderer classes are:
 - audio and video through native controls, with range-capable delivery when
   object storage or the authenticated transport supports it;
 - Markdown, code, logs, and other text through escaped host renderers;
+- bounded HTML through the isolated Preview/Code renderer described above;
 - DOCX as bounded paragraph blocks, XLSX as bounded sheet tables, and PPTX as
   bounded slide text cards;
 - unknown, encrypted, corrupt, or oversized preview formats through file

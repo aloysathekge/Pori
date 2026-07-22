@@ -15,7 +15,7 @@ interface StoredFileViewerProps {
 }
 
 const SOURCE_RENDERERS = new Set(['image', 'pdf', 'audio', 'video']);
-const TEXT_RENDERERS = new Set(['code', 'markdown', 'text']);
+const TEXT_RENDERERS = new Set(['code', 'html', 'markdown', 'text']);
 
 function formatSize(size: number) {
   if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -25,6 +25,7 @@ function formatSize(size: number) {
 function rendererLabel(renderer: FilePresentation['renderer']) {
   return ({
     markdown: 'Markdown',
+    html: 'Interactive HTML',
     code: 'Code',
     text: 'Text',
     image: 'Image',
