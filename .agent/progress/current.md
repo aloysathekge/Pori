@@ -22,8 +22,8 @@ generic release kit. Its exact React source passes Pori's manifest, build,
 runtime, interaction, and four-primary-job gates, plus a local protected
 stage/publish/install proof. It creates one honest setup Task, separates sample
 and setup-gap posture, and routes research to the permanent Event conversation.
-The next R12 slice is implemented on
-`aloy-v1-r12-template-build-kickoff` and is under review in PR #218: installing reviewed source atomically
+The next R12 slice passed all seven checks and merged into `aloy-v1` through PR
+#218: installing reviewed source atomically
 queues a durable model-free Surface materialization Run. The worker sends the
 frozen revision through the same build, inspection, quality, and publication
 authority used after model generation, while leaving the Event conversation
@@ -194,7 +194,9 @@ setup flow. Catalog failure never blocks custom Event creation.
   running pre-catalog backend.
 - Aloy Internal phase 5 passes `bun run check` after merging the clean-checkout
   package-resolution fix: all 18 tests, typechecks, lint, and production builds
-  pass.
+  pass. Career OS v1 merged into the private repo's `main` through PR #5; its
+  exact offline review fingerprint is
+  `a914fb5865531441e12bc3cffab53a88220447ac049b10216d679b54e190c0ae`.
 - The Surface health slice passes focused backend tests, including the
   credit-free regression -> proposal -> accepted Builder queue flow while the
   old build remains published and ordinary members are denied operator health
@@ -234,8 +236,7 @@ setup flow. Catalog failure never blocks custom Event creation.
 
 ## Next Session Should Start With
 
-Merge Pori PR #218 and internal PR #5 after their checks, then merge the
-discovery slice. Configure local-only catalog authority and the loopback
+Merge the discovery slice. Configure local-only catalog authority and the loopback
 operator bridge outside Git, stage the exact Career OS v1 fingerprint, review
 and publish it through Governance, and perform the signed-in install ->
 preparing -> live Surface proof. Add a protected asset-upload boundary before

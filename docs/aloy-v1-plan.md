@@ -1218,9 +1218,11 @@ an optional operator consumer of protected APIs, never a product dependency.
 The R12 backend contract, installation transaction, protected two-step release
 API, Aloy Internal review workflow, first real Career OS v1 candidate,
 automatic model-free source materialization, and catalog discovery/install UI
-are implemented without model credits. The catalog branch merged through PR
-#217; materialization PR #218 and the internal Career OS release PR remain the
-integration gates. Next, configure local-only operator authority outside Git,
+are implemented without model credits. The catalog and materialization work
+merged through PRs #217 and #218; Career OS v1 merged into Aloy Internal's
+`main` through PR #5 with reviewed fingerprint
+`a914fb5865531441e12bc3cffab53a88220447ac049b10216d679b54e190c0ae`.
+Next, merge the discovery UI, configure local-only operator authority outside Git,
 stage and publish the exact reviewed candidate, then prove the signed-in
 install -> preparing -> live Surface path. Add a protected asset-upload boundary before binary template assets;
 Aloy Internal must not receive direct object-store access. University then uses
