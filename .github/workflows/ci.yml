@@ -73,7 +73,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Install (editable pori + backend + dev extras)
-        run: uv sync --extra dev
+        run: uv sync --frozen --extra dev
 
       - name: Black (format check)
         run: uv run black --check aloy_backend/ tests/
