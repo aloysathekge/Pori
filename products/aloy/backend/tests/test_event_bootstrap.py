@@ -17,8 +17,10 @@ from aloy_backend.event_bootstrap import (
     execute_claimed_event_bootstrap,
     queue_event_bootstrap_if_ready,
 )
-from aloy_backend.event_context import EventBriefPayload, EventEvidenceRef, GroundedText
 from aloy_backend.event_context import (
+    EventBriefPayload,
+    EventEvidenceRef,
+    GroundedText,
     event_bootstrap_input_fingerprint,
     refresh_event_context_snapshot,
 )
