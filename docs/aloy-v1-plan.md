@@ -1091,6 +1091,26 @@ branch:
   temporary local database acceptance proof staged, published, and installed
   it through the generic APIs without model credits.
 
+Automatic starting-Surface materialization completed on the stacked
+`aloy-v1-r12-template-build-kickoff` branch:
+
+- installation remains fast and transactional: it persists ordinary Event,
+  context, Task, data, and immutable Surface revision truth, then queues a
+  model-free Run and returns `surface.status = preparing`;
+- the specialist Run freezes project, revision, checksum, prior publication
+  pointers, and provenance in a fingerprinted receipt, receives no model or
+  source-write authority, and does not occupy the permanent Event conversation;
+- a shared `SurfaceRevisionHostPipeline` now owns build, preview/quality
+  inspection, and atomic publication for both reviewed persisted source and the
+  already-existing model-authored candidate path;
+- Run progress exposes checking, compiling, inspection, publication, safe retry,
+  terminal failure, and ready states through the existing Surface activity UX;
+- crash replay keeps the same idempotent stage identity, classified transient
+  host failure advances a durable attempt, and tampered or superseded source
+  fails closed without publishing; and
+- a real local toolchain acceptance proof installs a template, builds its React
+  source, passes browser inspection, and publishes it with no model assignment.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1180,12 +1200,11 @@ The private `aloy-internal` repository is bootstrapped separately and must stay
 an optional operator consumer of protected APIs, never a product dependency.
 
 The R12 backend contract, installation transaction, protected two-step release
-API, Aloy Internal review workflow, and first real Career OS v1 candidate are
-implemented without model credits. Next, merge and stage the exact reviewed
-candidate when operator authority is configured, then route
-template-source-ready installations through the ordinary host
-build/inspection/publication pipeline. Discovery UI follows that end-to-end
-proof. Add a protected asset-upload boundary before binary template assets;
+API, Aloy Internal review workflow, first real Career OS v1 candidate, and
+automatic model-free source materialization are implemented without model
+credits. Next, merge and stage the exact reviewed candidate when operator
+authority is configured, prove the live catalog path, then add template
+discovery and install UI. Add a protected asset-upload boundary before binary template assets;
 Aloy Internal must not receive direct object-store access. University then uses
 the same contracts; Madrid waits for the trusted Map/widget phase. Subscription
 packaging remains a separate entitlement/limits design and must not leak into

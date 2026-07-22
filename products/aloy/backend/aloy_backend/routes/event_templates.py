@@ -27,7 +27,7 @@ from ..event_templates import (
     install_event_template,
     load_published_release,
 )
-from ..models import Event, EventTemplate, EventTemplateRelease, SurfaceProject
+from ..models import Event, EventTemplate, EventTemplateRelease, Run, SurfaceProject
 from ..rate_limit import rate_limited_permission
 from ..tenancy import OrganizationContext, Permission, require_permission
 
@@ -302,6 +302,7 @@ async def install_template(
                 idempotency_key=body.idempotency_key,
                 title=body.title,
             )
+            await session.commit()
         except EventTemplateError as replay_exc:
             raise HTTPException(
                 status_code=replay_exc.status_code,
@@ -324,6 +325,21 @@ async def install_template(
         .scalars()
         .first()
     )
+    surface_run = (
+        await session.get(Run, result.surface_run_id)
+        if result.surface_run_id is not None
+        else None
+    )
+    surface_status = "not_seeded"
+    if project is not None:
+        if project.published_build_id and project.published_revision_id:
+            surface_status = "published"
+        elif surface_run is not None and surface_run.status in {"pending", "running"}:
+            surface_status = "preparing"
+        elif surface_run is not None and surface_run.status in {"failed", "cancelled"}:
+            surface_status = "failed"
+        else:
+            surface_status = "source_seeded"
     return {
         "installation": {
             "id": result.installation.id,
@@ -336,7 +352,9 @@ async def install_template(
         "event": event_payload(event),
         "surface": {
             "project_id": project.id if project is not None else None,
-            "status": "source_seeded" if project is not None else "not_seeded",
+            "status": surface_status,
+            "run_id": surface_run.id if surface_run is not None else None,
+            "run_status": surface_run.status if surface_run is not None else None,
         },
         "replayed": result.replayed,
     }

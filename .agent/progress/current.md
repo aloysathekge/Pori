@@ -21,6 +21,12 @@ generic release kit. Its exact React source passes Pori's manifest, build,
 runtime, interaction, and four-primary-job gates, plus a local protected
 stage/publish/install proof. It creates one honest setup Task, separates sample
 and setup-gap posture, and routes research to the permanent Event conversation.
+The next R12 slice is now implemented on
+`aloy-v1-r12-template-build-kickoff`: installing reviewed source atomically
+queues a durable model-free Surface materialization Run. The worker sends the
+frozen revision through the same build, inspection, quality, and publication
+authority used after model generation, while leaving the Event conversation
+available to the user.
 
 The trusted universal file viewer, Surface quality/inspection contracts,
 operator-only control APIs, and the separate private `aloy-internal` control
@@ -58,6 +64,14 @@ available and does not block model-free template and ingestion contracts.
   must make it live.
 - Template sample data and setup gaps use distinct canonical postures and retain
   release provenance. Neither is represented as user-confirmed truth.
+- Persisted template source does not invoke the Builder model. A dedicated
+  model-free Run is bound to the exact revision checksum and uses the shared
+  revision pipeline; it has no source-write, network, model, or conversation
+  authority.
+- Materialization publishes only after the normal host quality receipt passes.
+  Crash replay reuses the same stage idempotency keys; a classified transient
+  host failure advances a durable pipeline-attempt counter, while invalid,
+  tampered, or superseded source fails terminally without changing live state.
 - Global template publication requires both ordinary operator RBAC and an
   explicit deployment-owned subject allowlist. The allowlist is empty and
   authoring is disabled by default; being an owner of an ordinary organization
@@ -161,6 +175,11 @@ available and does not block model-free template and ingestion contracts.
   seven install/catalog proofs, all 15 pass; an empty SQLite database upgrades
   to authoring migration `t2d3e4f5a6b7` at Alembic head, and the complete
   backend suite passes all 514 tests.
+- The materialization slice passes 34 focused proofs across generic revision
+  lifecycle, template installation/authoring, user-visible activity, tamper
+  rejection, worker dispatch, transient retry, and real local build → browser
+  inspection → publication. Focused Ruff and mypy pass; the Aloy app production
+  build and ESLint pass.
 - The Surface health slice passes focused backend tests, including the
   credit-free regression -> proposal -> accepted Builder queue flow while the
   old build remains published and ordinary members are denied operator health
@@ -193,19 +212,18 @@ available and does not block model-free template and ingestion contracts.
   acceptance remain deferred gates.
 - The product database, protected API, and Aloy Internal review workflow now
   have a reviewed Career OS v1 candidate, but it has not been staged or
-  published in a configured catalog. Template source still needs a generic
-  host-build kickoff before a seeded Surface can become live.
+  published in a configured catalog. The generic automatic host-build kickoff
+  now exists; catalog discovery/install UI still needs the live release.
 
 ## Next Session Should Start With
 
-Review and merge the Career OS release branch, then stage and publish its exact
-fingerprint as database data through the protected API when catalog authority
-is configured. Connect a successful installation's template-source-ready
-record to the normal host build/inspection/publication pipeline before adding
-template discovery and install UI. Add a protected asset-upload boundary before
-shipping releases with binary assets; do not grant Aloy Internal direct
-object-store access, create a parallel template build path, or let a release
-publish itself.
+Review and merge the Career OS release and automatic materialization branches,
+then stage and publish the exact Career OS fingerprint as database data through
+the protected API when catalog authority is configured. Add template discovery
+and install UI only after that live end-to-end proof. Add a protected
+asset-upload boundary before shipping releases with binary assets; do not grant
+Aloy Internal direct object-store access, create a parallel template build
+path, or let a release publish itself.
 
 In parallel planning, keep R10 document ingestion behind the provider-neutral
 `DocumentProcessor` and `DocumentGraph` contracts. Also exercise one real file

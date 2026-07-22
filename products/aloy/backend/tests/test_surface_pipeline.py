@@ -7,6 +7,7 @@ from aloy_backend.surface_authoring import SurfaceAuthoringError
 from aloy_backend.surface_pipeline import (
     SurfaceCandidate,
     SurfaceHostPipeline,
+    SurfaceRevisionHostPipeline,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -146,6 +147,35 @@ async def test_host_pipeline_replaces_source_and_owns_every_lifecycle_stage():
         path for path, operation in patches if operation == "write"
     }
     assert set(result.timings_ms) == {"persist", "build", "preview", "publish"}
+
+
+async def test_persisted_revision_uses_the_same_build_preview_publication_path():
+    builds = FakeBuilds()
+    stages: list[str] = []
+
+    async def observe(stage: str) -> None:
+        stages.append(stage)
+
+    result = await SurfaceRevisionHostPipeline(
+        run_id="run-existing-source",
+        build_handler=builds,
+        stage_observer=observe,
+    ).execute(
+        revision_id="revision-reviewed",
+        source_fingerprint="a" * 64,
+        expected_published_revision_id="revision-live",
+        expected_published_build_id="build-live",
+        attempt=1,
+    )
+
+    assert result.status == "published"
+    assert result.revision_id == "revision-reviewed"
+    assert builds.calls == ["build", "preview", "publish"]
+    assert stages == [
+        "building_bundle",
+        "inspecting_preview",
+        "publishing_surface",
+    ]
 
 
 async def test_host_pipeline_rejects_candidate_that_redefines_frozen_jobs():

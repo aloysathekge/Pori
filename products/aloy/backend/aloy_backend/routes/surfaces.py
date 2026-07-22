@@ -41,6 +41,7 @@ from ..surface_interactions import (
     record_surface_interaction_rejection,
     surface_runtime_context,
 )
+from ..surface_materialization import SURFACE_MATERIALIZATION_RUN_KIND
 from ..surface_publication import (
     SurfacePublicationParams,
     change_surface_publication,
@@ -60,6 +61,9 @@ router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
 logger = logging.getLogger("aloy_backend.routes.surfaces")
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
+SURFACE_ACTIVITY_RUN_KINDS = frozenset(
+    {SURFACE_BUILDER_RUN_KIND, SURFACE_MATERIALIZATION_RUN_KIND}
+)
 
 
 class SurfaceEvolutionDecisionBody(BaseModel):
@@ -91,6 +95,7 @@ class SurfaceReinspectionBody(BaseModel):
 
 
 _SURFACE_STAGE_MESSAGES = {
+    "validating_source": "Checking your starting Surface",
     "generating_candidate": "Designing and writing your Surface",
     "validating_candidate": "Checking the generated application",
     "building_bundle": "Compiling the Surface",
@@ -245,14 +250,27 @@ def _surface_activity_payload(run: Run) -> dict:
         and lease_expires_at < now
     )
     status = "overdue" if overdue else run.status
+    materializing = run.run_kind == SURFACE_MATERIALIZATION_RUN_KIND
     if status == "pending":
-        message = "Waiting for the Surface Builder"
+        message = (
+            "Preparing your starting Surface"
+            if materializing
+            else "Waiting for the Surface Builder"
+        )
     elif status == "completed" and run.success:
         message = "Your Surface is ready"
     elif status == "overdue":
-        message = "The Surface Builder stopped reporting progress"
+        message = (
+            "Surface preparation stopped reporting progress"
+            if materializing
+            else "The Surface Builder stopped reporting progress"
+        )
     elif status in {"failed", "cancelled"}:
-        message = "The Surface could not be completed"
+        message = (
+            "The starting Surface could not be prepared"
+            if materializing
+            else "The Surface could not be completed"
+        )
     else:
         message = _SURFACE_STAGE_MESSAGES.get(stage, "Building your Surface")
     started_at = _aware(run.started_at or run.created_at)
@@ -322,7 +340,7 @@ async def get_surface_activity(
     context: OrganizationContext = Depends(require_permission(Permission.RUN_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> dict | None:
-    """Return the latest durable Builder state, including pre-build work."""
+    """Return the latest durable Surface preparation state."""
     event = await _owned_event(session, context, event_id)
     run = (
         (
@@ -332,7 +350,7 @@ async def get_surface_activity(
                     Run.organization_id == context.organization_id,
                     Run.user_id == context.user_id,
                     Run.event_id == event.id,
-                    Run.run_kind == SURFACE_BUILDER_RUN_KIND,
+                    col(Run.run_kind).in_(SURFACE_ACTIVITY_RUN_KINDS),
                 )
                 .order_by(col(Run.created_at).desc())
                 .limit(1)

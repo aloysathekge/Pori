@@ -376,13 +376,63 @@ class SurfaceHostPipeline:
         if not revision_id:
             raise ValueError("Host persisted no Surface revision")
 
+        project = dict(persisted.get("project") or {})
+        return await SurfaceRevisionHostPipeline(
+            run_id=self._run_id,
+            build_handler=self._builds,
+            stage_observer=self._stage_observer,
+        ).execute(
+            revision_id=revision_id,
+            source_fingerprint=digest,
+            expected_published_revision_id=project.get("published_revision_id"),
+            expected_published_build_id=project.get("published_build_id"),
+            attempt=submission,
+            timings_ms=timings,
+        )
+
+
+class SurfaceRevisionHostPipeline:
+    """Build, inspect, and publish one already-persisted immutable revision.
+
+    Model-authored candidates enter here after source persistence. Reviewed
+    template source enters at the same boundary, so there is one compiler,
+    quality gate, publication authority, and idempotency contract.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        build_handler: SurfaceBuildHandler,
+        stage_observer: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
+        self._run_id = run_id
+        self._builds = build_handler
+        self._stage_observer = stage_observer
+
+    async def _stage(self, stage: str) -> None:
+        if self._stage_observer is not None:
+            await self._stage_observer(stage)
+
+    async def execute(
+        self,
+        *,
+        revision_id: str,
+        source_fingerprint: str,
+        expected_published_revision_id: str | None,
+        expected_published_build_id: str | None,
+        attempt: int = 1,
+        timings_ms: dict[str, float] | None = None,
+    ) -> SurfacePipelineResult:
+        timings = dict(timings_ms or {})
+
         await self._stage("building_bundle")
         started = perf_counter()
         build = await self._builds.build(
             SurfaceBuildParams(
                 revision_id=revision_id,
                 idempotency_key=_idempotency_key(
-                    self._run_id, submission, "build", digest
+                    self._run_id, attempt, "build", source_fingerprint
                 ),
             )
         )
@@ -400,7 +450,7 @@ class SurfaceHostPipeline:
                 )
             return SurfacePipelineResult(
                 status=_failed_build_status(diagnostics),
-                candidate_fingerprint=digest,
+                candidate_fingerprint=source_fingerprint,
                 revision_id=revision_id,
                 build_id=build_id or None,
                 diagnostics=diagnostics,
@@ -419,30 +469,29 @@ class SurfaceHostPipeline:
             )
             return SurfacePipelineResult(
                 status=_failed_build_status(diagnostics),
-                candidate_fingerprint=digest,
+                candidate_fingerprint=source_fingerprint,
                 revision_id=revision_id,
                 build_id=build_id,
                 diagnostics=diagnostics,
                 timings_ms=timings,
             )
 
-        project = dict(persisted.get("project") or {})
         await self._stage("publishing_surface")
         started = perf_counter()
         publication = await self._builds.publish(
             SurfacePublicationParams(
                 build_id=build_id,
-                expected_published_revision_id=project.get("published_revision_id"),
-                expected_published_build_id=project.get("published_build_id"),
+                expected_published_revision_id=expected_published_revision_id,
+                expected_published_build_id=expected_published_build_id,
                 idempotency_key=_idempotency_key(
-                    self._run_id, submission, "publish", digest
+                    self._run_id, attempt, "publish", source_fingerprint
                 ),
             )
         )
         timings["publish"] = round((perf_counter() - started) * 1000, 3)
         return SurfacePipelineResult(
             status="published",
-            candidate_fingerprint=digest,
+            candidate_fingerprint=source_fingerprint,
             revision_id=revision_id,
             build_id=build_id,
             publication=publication,
@@ -458,6 +507,7 @@ __all__ = [
     "SurfaceCandidateEnvelopeFile",
     "SurfaceCandidateFile",
     "SurfaceHostPipeline",
+    "SurfaceRevisionHostPipeline",
     "SurfacePipelineDiagnostic",
     "SurfacePipelineResult",
 ]
