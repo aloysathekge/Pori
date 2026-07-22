@@ -173,6 +173,80 @@ class ChatOpenAI:
                     raw_content=content,
                 ) from exc
 
+    async def ainvoke_structured_with_deltas(
+        self,
+        messages: list[BaseMessage],
+        output_format: type[T],
+        on_delta: Callable[[str], None],
+    ) -> T:
+        """Stream one schema-bound response while retaining final validation.
+
+        Providers still receive the exact response-format contract used by
+        ``ainvoke``. Only complete accumulated JSON is parsed; partial chunks
+        are progress evidence, never trusted application data.
+        """
+        structured_policy = self._structured_output_policy()
+        output_schema = structured_policy.adapt_schema(
+            output_format.model_json_schema()
+        )
+        openai_messages = [
+            {"role": m.role, "content": _to_openai_content(m.content)}
+            for m in messages
+        ]
+        openai_messages = structured_policy.prepare_messages(
+            openai_messages,
+            output_schema,
+        )
+        request: dict[str, Any] = {
+            "model": self.model,
+            "messages": openai_messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "response_format": structured_policy.response_format(output_schema),
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        request.update(structured_policy.request_options)
+        stream = await retry_async(
+            lambda: self._client.chat.completions.create(**request),
+            getattr(self, "_retry_config", None),
+            label="openai",
+        )
+        content_parts: list[str] = []
+        usage = None
+        async for chunk in stream:
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            content = getattr(choices[0].delta, "content", None)
+            if not content:
+                continue
+            content_parts.append(content)
+            try:
+                on_delta(content)
+            except Exception:
+                # Progress reporting must never corrupt provider generation.
+                pass
+
+        if usage is not None:
+            self.last_usage = {
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage, "completion_tokens", 0),
+                "total_tokens": getattr(usage, "total_tokens", 0),
+            }
+        else:
+            self.last_usage = None
+        content = "".join(content_parts)
+        try:
+            return output_format.model_validate_json(content)
+        except ValidationError as exc:
+            raise StructuredOutputParseError(
+                f"Structured output parse failed: {exc}",
+                raw_content=content,
+            ) from exc
+
     async def ainvoke_tools(
         self,
         messages: list[BaseMessage],
@@ -405,6 +479,26 @@ class StructuredWrapper(Generic[T]):
         """Invoke with structured output."""
         try:
             result = await self._llm.ainvoke(messages, output_format=self._output_model)
+        except StructuredOutputParseError as exc:
+            if self._include_raw:
+                return {"parsed": None, "raw": exc.raw_content, "error": str(exc)}
+            raise
+        if self._include_raw:
+            return {"parsed": result, "raw": None}
+        return cast(T, result)
+
+    async def ainvoke_with_deltas(
+        self,
+        messages: list[BaseMessage],
+        on_delta: Callable[[str], None],
+    ) -> dict[str, Any] | T:
+        """Stream raw JSON deltas but expose only the validated final model."""
+        try:
+            result = await self._llm.ainvoke_structured_with_deltas(
+                messages,
+                self._output_model,
+                on_delta,
+            )
         except StructuredOutputParseError as exc:
             if self._include_raw:
                 return {"parsed": None, "raw": exc.raw_content, "error": str(exc)}

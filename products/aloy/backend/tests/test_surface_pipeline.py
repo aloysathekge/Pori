@@ -3,11 +3,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aloy_backend.surface_authoring import SurfaceAuthoringError
+from aloy_backend.surface_authoring import SurfaceAuthoringError, SurfaceConflictError
 from aloy_backend.surface_pipeline import (
     SurfaceCandidate,
+    SurfaceCandidateEditEnvelope,
     SurfaceHostPipeline,
     SurfaceRevisionHostPipeline,
+    bind_surface_manifest_primary_jobs,
+    materialize_surface_candidate_edit,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -34,6 +37,295 @@ def _candidate(label: str = "University") -> SurfaceCandidate:
             ],
         }
     )
+
+
+async def test_incremental_edit_materializes_complete_candidate_from_frozen_source():
+    candidate = materialize_surface_candidate_edit(
+        SurfaceCandidateEditEnvelope.model_validate(
+            {
+                "summary": "Career resources",
+                "changes": [
+                    {
+                        "path": "src/App.tsx",
+                        "operation": "write",
+                        "content": "export default function App(){return <main>Resources</main>}",
+                    },
+                    {
+                        "path": "/workspace/src/old.css",
+                        "operation": "delete",
+                        "content": None,
+                    },
+                ],
+            }
+        ),
+        base_files={
+            "/surface.json": (
+                '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+                '"sdk_version":"1","capabilities":[],"intents":{},"widgets":[]}'
+            ),
+            "/src/App.tsx": "export default function App(){return <main>Old</main>}",
+            "/src/old.css": "main { color: red; }",
+        },
+        primary_jobs=["See resources"],
+    )
+
+    files = {item.source_path: item.content for item in candidate.files}
+    assert files["/src/App.tsx"].endswith("Resources</main>}")
+    assert "/src/old.css" not in files
+    assert "/surface.json" in files
+
+
+async def test_exact_text_edit_changes_one_fragment_without_rewriting_the_file():
+    original = (
+        "export default function App(){return "
+        "<SurfaceRoot><main>Resources</main></SurfaceRoot>}"
+    )
+    candidate = materialize_surface_candidate_edit(
+        SurfaceCandidateEditEnvelope.model_validate(
+            {
+                "summary": "Accessible resources",
+                "changes": [
+                    {
+                        "path": "/workspace/src/App.tsx",
+                        "operation": "replace_text",
+                        "match": "<main>Resources</main>",
+                        "replacement": "<section>Resources</section>",
+                    }
+                ],
+            }
+        ),
+        base_files={
+            "/surface.json": (
+                '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+                '"sdk_version":"1","capabilities":[],"intents":{},"widgets":[]}'
+            ),
+            "/src/App.tsx": original,
+        },
+        primary_jobs=["See resources"],
+    )
+
+    files = {item.source_path: item.content for item in candidate.files}
+    assert files["/src/App.tsx"] == original.replace(
+        "<main>Resources</main>",
+        "<section>Resources</section>",
+    )
+
+
+async def test_ordered_exact_text_edits_can_change_the_same_file_atomically():
+    candidate = materialize_surface_candidate_edit(
+        SurfaceCandidateEditEnvelope.model_validate(
+            {
+                "summary": "Useful resources",
+                "changes": [
+                    {
+                        "path": "/workspace/src/App.tsx",
+                        "operation": "replace_text",
+                        "match": "<main>Old</main>",
+                        "replacement": "<main>Resources</main>",
+                    },
+                    {
+                        "path": "/workspace/src/App.tsx",
+                        "operation": "replace_text",
+                        "match": "<main>Resources</main>",
+                        "replacement": "<section>Useful resources</section>",
+                    },
+                ],
+            }
+        ),
+        base_files={
+            "/surface.json": (
+                '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+                '"sdk_version":"1"}'
+            ),
+            "/src/App.tsx": ("export default function App(){return <main>Old</main>}"),
+        },
+        primary_jobs=["See resources"],
+    )
+
+    files = {item.source_path: item.content for item in candidate.files}
+    assert files["/src/App.tsx"] == (
+        "export default function App(){return <section>Useful resources</section>}"
+    )
+
+
+async def test_redundant_edit_is_ignored_when_transaction_has_a_real_change():
+    manifest = (
+        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+        '"sdk_version":"1"}'
+    )
+    candidate = materialize_surface_candidate_edit(
+        SurfaceCandidateEditEnvelope.model_validate(
+            {
+                "summary": "Useful resources",
+                "changes": [
+                    {
+                        "path": "/workspace/surface.json",
+                        "operation": "write",
+                        "content": manifest,
+                    },
+                    {
+                        "path": "/workspace/src/App.tsx",
+                        "operation": "replace_text",
+                        "match": "<main>Old</main>",
+                        "replacement": "<main>Resources</main>",
+                    },
+                ],
+            }
+        ),
+        base_files={
+            "/surface.json": manifest,
+            "/src/App.tsx": "export default function App(){return <main>Old</main>}",
+        },
+        primary_jobs=["See resources"],
+    )
+
+    files = {item.source_path: item.content for item in candidate.files}
+    assert files["/surface.json"] == manifest
+    assert files["/src/App.tsx"].endswith("<main>Resources</main>}")
+
+
+async def test_entirely_redundant_edit_transaction_is_rejected():
+    manifest = (
+        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+        '"sdk_version":"1"}'
+    )
+
+    with pytest.raises(ValueError, match="transaction does not change source"):
+        materialize_surface_candidate_edit(
+            SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": "No source change",
+                    "changes": [
+                        {
+                            "path": "/workspace/surface.json",
+                            "operation": "write",
+                            "content": manifest,
+                        }
+                    ],
+                }
+            ),
+            base_files={
+                "/surface.json": manifest,
+                "/src/App.tsx": (
+                    "export default function App(){return <main>Old</main>}"
+                ),
+            },
+            primary_jobs=["See resources"],
+        )
+
+
+async def test_ordered_edit_failure_leaves_frozen_source_unchanged():
+    base_files = {
+        "/surface.json": (
+            '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+            '"sdk_version":"1"}'
+        ),
+        "/src/App.tsx": "export default function App(){return <main>Old</main>}",
+    }
+
+    with pytest.raises(ValueError, match="found 0 occurrences"):
+        materialize_surface_candidate_edit(
+            SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": "Broken transaction",
+                    "changes": [
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "replace_text",
+                            "match": "<main>Old</main>",
+                            "replacement": "<main>Resources</main>",
+                        },
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "replace_text",
+                            "match": "<footer>Missing</footer>",
+                            "replacement": "<footer>Ready</footer>",
+                        },
+                    ],
+                }
+            ),
+            base_files=base_files,
+            primary_jobs=["See resources"],
+        )
+
+    assert base_files["/src/App.tsx"].endswith("<main>Old</main>}")
+
+
+async def test_exact_text_edit_fails_closed_when_match_is_ambiguous():
+    with pytest.raises(ValueError, match="found 2 occurrences"):
+        materialize_surface_candidate_edit(
+            SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": "Ambiguous repair",
+                    "changes": [
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "replace_text",
+                            "match": "Resources",
+                            "replacement": "Files",
+                        }
+                    ],
+                }
+            ),
+            base_files={
+                "/surface.json": (
+                    '{"format":"aloy-react-surface",'
+                    '"entrypoint":"/src/App.tsx","sdk_version":"1"}'
+                ),
+                "/src/App.tsx": "const title='Resources'; const tab='Resources';",
+            },
+            primary_jobs=["See resources"],
+        )
+
+
+async def test_host_binds_model_job_proofs_to_frozen_contract():
+    candidate = SurfaceCandidate.model_validate(
+        {
+            "summary": "Resources",
+            "primary_jobs": ["model metadata is ignored"],
+            "files": [
+                {
+                    "path": "/workspace/surface.json",
+                    "content": (
+                        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+                        '"sdk_version":"1","capabilities":[],"intents":{},'
+                        '"primary_jobs":[{"id":"job_0000000000000000",'
+                        '"description":"Open a resource","steps":[],'
+                        '"assertions":[{"kind":"visible","role":"heading",'
+                        '"name":"Resources"}]}],"widgets":[]}'
+                    ),
+                },
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "content": "export default function App(){return <h1>Resources</h1>}",
+                },
+            ],
+        }
+    )
+
+    rebound = bind_surface_manifest_primary_jobs(
+        candidate,
+        required_primary_jobs=[
+            {"id": "job_1234567890abcdef", "description": "Open a resource"}
+        ],
+    )
+
+    assert rebound.primary_jobs == ["Open a resource"]
+    manifest = next(
+        item.content for item in rebound.files if item.source_path == "/surface.json"
+    )
+    assert '"id": "job_1234567890abcdef"' in manifest
+    assert "job_0000000000000000" not in manifest
+
+
+async def test_host_pipeline_rejects_source_that_changed_after_context_freeze():
+    with pytest.raises(SurfaceConflictError, match="context was frozen"):
+        await SurfaceHostPipeline(
+            run_id="run-stale-base",
+            authoring_handler=FakeAuthoring(),
+            build_handler=FakeBuilds(),
+            expected_base_revision_id="different-revision",
+        ).execute(_candidate(), submission=1)
 
 
 class FakeAuthoring:

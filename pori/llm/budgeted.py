@@ -28,6 +28,20 @@ class _BudgetedStructuredInvoker:
         self._owner.charge_completed_call()
         return result
 
+    async def ainvoke_with_deltas(
+        self,
+        messages: list[BaseMessage],
+        on_delta: Callable[[str], None],
+    ) -> Any:
+        self._owner.preflight()
+        stream_invoke = getattr(self._inner, "ainvoke_with_deltas", None)
+        if not callable(stream_invoke):
+            result = await self._inner.ainvoke(messages)
+        else:
+            result = await stream_invoke(messages, on_delta)
+        self._owner.charge_completed_call()
+        return result
+
 
 class BudgetedChatModel:
     """Transparent model proxy charging one shared :class:`BudgetLedger`.

@@ -39,6 +39,11 @@ async function activityFromTrail(eventId: string): Promise<SurfaceActivity | nul
             ? materializing ? 'Preparing your starting Surface' : 'Waiting for the Surface Builder'
             : materializing ? 'Checking and publishing your starting Surface' : 'Designing and writing your Surface',
     submission: 1,
+    max_submissions: materializing ? 1 : 3,
+    candidate_mode: null,
+    generation_phase: null,
+    output_chars: 0,
+    output_chunks: 0,
     attempt_count: Number(entry.payload.attempt ?? 1),
     max_attempts: Number(entry.payload.max_attempts ?? 3),
     started_at: entry.created_at,

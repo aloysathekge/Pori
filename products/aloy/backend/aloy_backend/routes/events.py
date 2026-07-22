@@ -33,7 +33,7 @@ from ..event_bootstrap import (
     latest_event_bootstrap_run,
     queue_event_bootstrap_if_ready,
 )
-from ..event_context import context_status_payload
+from ..event_context import context_status_payload, refresh_event_context_snapshot
 from ..event_lifecycle import (
     EventLifecycleError,
     permanently_delete_event,
@@ -745,19 +745,20 @@ async def get_event_surface(
         .scalars()
         .all()
     )
-    context_snapshot, bootstrap_run, _queued = await queue_event_bootstrap_if_ready(
+    # Reading an Event must remain model-free. Refresh the host-owned context view,
+    # but only explicit setup/evidence mutations may enqueue the paid bootstrap run.
+    context_snapshot, _pack, _created = await refresh_event_context_snapshot(
         session,
         organization_id=context.organization_id,
         user_id=context.user_id,
         event_id=event.id,
     )
-    if bootstrap_run is None:
-        bootstrap_run = await latest_event_bootstrap_run(
-            session,
-            organization_id=context.organization_id,
-            user_id=context.user_id,
-            event_id=event.id,
-        )
+    bootstrap_run = await latest_event_bootstrap_run(
+        session,
+        organization_id=context.organization_id,
+        user_id=context.user_id,
+        event_id=event.id,
+    )
     await session.commit()
     return {
         "event": event_payload(event),

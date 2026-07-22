@@ -128,6 +128,7 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert run.model_assignment == assignment.descriptor()
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
+        assert run.max_tokens == 200_000
         evolution_receipts = [
             item
             for item in run.execution_receipts or []

@@ -44,6 +44,11 @@ def _snapshot_from_context(context: Dict[str, Any]):
     return None
 
 
+def _model_capabilities_from_context(context: Dict[str, Any]) -> frozenset[str]:
+    values = context.get("model_capabilities") or ()
+    return frozenset(str(value) for value in values)
+
+
 def register_skill_tools(registry: ToolRegistry) -> None:
     """Register skill catalog tools on the provided registry."""
 
@@ -58,6 +63,7 @@ def register_skill_tools(registry: ToolRegistry) -> None:
     def skills_list_tool(params: SkillsListParams, context: Dict[str, Any]):
         catalog = _catalog_from_context(context)
         snapshot = _snapshot_from_context(context)
+        model_capabilities = _model_capabilities_from_context(context)
         if catalog is None:
             return {
                 "available": False,
@@ -72,7 +78,12 @@ def register_skill_tools(registry: ToolRegistry) -> None:
             }
 
         if params.query.strip():
-            hits = catalog.search(params.query, snapshot, limit=params.limit)
+            hits = catalog.search(
+                params.query,
+                snapshot,
+                model_capabilities=model_capabilities,
+                limit=params.limit,
+            )
             return {
                 "available": True,
                 "query": params.query,
@@ -90,7 +101,11 @@ def register_skill_tools(registry: ToolRegistry) -> None:
             "available": True,
             "query": "",
             "skills": [
-                item.model_dump() for item in catalog.index(snapshot)[: params.limit]
+                item.model_dump()
+                for item in catalog.index(
+                    snapshot,
+                    model_capabilities=model_capabilities,
+                )[: params.limit]
             ],
         }
 

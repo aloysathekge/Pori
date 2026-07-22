@@ -286,7 +286,10 @@ split into the following independently merged branches:
    build, preview, publish, and answer calls with one complete candidate
    submission through provider structured output and an empty model tool
    surface. The host persists, validates, builds, inspects, and publishes,
-   returning structured repair diagnostics for one bounded full resubmission.
+   returning one exhaustive, compact diagnostic bundle for one bounded repair
+   submission. Repairs use exact single-match source transactions or the
+   smallest necessary whole-file replacement; a duplicate/no-op repair stops
+   without another provider call.
    Publication alone advances the live pointer atomically; failed candidates
    remain inspectable drafts/builds and never replace last-good. Long
    non-streaming generation writes a durable heartbeat, every host stage updates
@@ -486,6 +489,12 @@ stale-snapshot replacement. Creation and ingestion trigger it automatically;
 the Workbench exposes waiting, queued, running, ready, and failed states plus a
 safe manual retry. Fake structured-model tests cover the flow without model
 credits. Connection synchronization and bootstrap Surface/cover work remain.
+The bootstrap idempotency boundary is now a versioned semantic projection of
+setup readiness and permitted evidence rather than the general operational
+Event snapshot. Surface/Trail/Task churn cannot supersede it, and Event GET,
+refresh, and live polling paths are forbidden from enqueueing paid Runs. Only
+explicit setup/evidence mutations and the deliberate retry route may queue or
+replace bootstrap work.
 
 **R5.5e implemented on `aloy-v1-event-memory-settings`:** the Event's own
 settings, opened by the settings icon directly after Trail in the right Event
@@ -722,6 +731,38 @@ boundary contracts pass on the final code. Responsive/accessibility evidence
 and real-provider University, Madrid, and Career acceptance remain explicit
 manual gates; this slice does not claim them from static inspection.
 
+The live R12 acceptance then exposed two further Builder-boundary defects.
+Incremental source changes are now an ordered atomic transaction, so several
+exact edits may safely target the same file while missing or ambiguous matches
+still reject the whole candidate. Builder context is now purpose-scoped: it
+keeps the complete editable draft, removes duplicate published source, compacts
+operational Trail to semantic summaries, and bounds optional evidence excerpts.
+On the Career OS acceptance fixture this reduced serialized context from
+213,346 to 65,506 characters (69.3%) before any provider call.
+
+A second bounded acceptance confirmed the spend ceiling—exactly two Builder
+calls, 57,686 total tokens, and no conversation-model call—but exposed one last
+transaction-boundary flaw. Both candidates included an already-satisfied
+`surface.json` write alongside their meaningful source changes, and the host
+discarded the whole candidate as a no-op. Ordered transactions now normalize
+redundant idempotent operations while still rejecting an entirely unchanged
+result. Terminal progress also reports the actual final submission instead of
+suggesting a nonexistent third attempt. The expanded 78-test Surface slice and
+static checks pass; a successful provider publication remains an explicit live
+acceptance gate rather than an inferred result.
+
+The next real user request proved that a fixed two-call ceiling was itself the
+wrong abstraction. Its first candidate needed a source-transaction rebase; its
+second reached TypeScript but had no remaining repair opportunity for a missing
+binding. Builder v3 now allows one product generation plus at most two focused
+repairs, capped at 200,000 aggregate tokens. Repair prompts contain the exact
+rejected source and compact diagnostics, not the full Event context or an older
+draft. Primary jobs reset independently, the ordered interaction suite starts
+from canonical data while preserving its accepted state, and non-current jobs
+name a trusted state fixture. The retained Career OS candidate was recovered without
+a model call and published as revision 14 only after compilation, fixture-aware
+browser inspection, interaction proofs, and primary-job proofs all passed.
+
 Scope:
 
 - run the provider-success/database-crash reconciliation drill;
@@ -780,8 +821,10 @@ Delivery slices:
    and never becomes a V1 publication dependency or waiver mechanism.
 4. **Primary-job simulation and bounded repair:** freeze the requested user
    jobs, execute their accessible pointer and keyboard paths, validate typed
-   outcomes against Event truth, and allow only bounded complete-candidate
-   repairs. Exhaustion retains the last-good publication.
+   outcomes against Event truth, and allow one bounded repair after an
+   exhaustive host inspection pass. Hidden tab or route state is reached only
+   through manifest-declared `resource_views`, never guessed from arbitrary
+   job controls. Exhaustion retains the last-good publication.
 5. **Reviewed SDK foundations and widgets:** provide calm responsive tokens,
    primitives, and a versioned host registry. Privileged widgets such as Map
    are host-owned adapters with explicit data, credential, attribution,

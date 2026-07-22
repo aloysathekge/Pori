@@ -1,4 +1,4 @@
-"""Host-owned lifecycle for one complete model-authored Surface candidate.
+"""Host-owned lifecycle for one materialized model-authored Surface candidate.
 
 The model proposes source. Aloy owns every mechanical and authority-bearing
 step after that: immutable persistence, deterministic validation, isolated
@@ -33,7 +33,14 @@ from .surface_builds import (
 from .surface_manifest import parse_surface_manifest
 from .surface_publication import SurfacePublicationParams
 
-MAX_CANDIDATE_SUBMISSIONS = 2
+# One original candidate plus one deliberate repair. The trusted host must
+# return every independent diagnostic it can observe in the first pass; it may
+# not turn sequential quality gates into additional paid model submissions.
+# One product generation plus two bounded, diagnostic-driven repairs. Repairs
+# use the exact rejected source as their base and omit unrelated Event context,
+# so a source-contract rebase cannot consume the only compiler-repair chance.
+MAX_CANDIDATE_SUBMISSIONS = 3
+_UNSET_BASE_REVISION = object()
 
 # These diagnostics describe Aloy's build infrastructure, not model-authored
 # source. Sending them back to the model wastes latency and tokens because no
@@ -53,6 +60,19 @@ HOST_FAILURE_CODES = frozenset(
         "surface_quality_evidence_incomplete",
     }
 )
+
+
+def _normalize_candidate_path(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = value.replace("\\", "/")
+    if normalized == "/surface.json" or normalized.startswith("/src/"):
+        return f"/workspace{normalized}"
+    if normalized == "surface.json" or normalized.startswith("src/"):
+        return f"/workspace/{normalized}"
+    if normalized.startswith("workspace/"):
+        return f"/{normalized}"
+    return normalized
 
 
 class SurfaceCandidateFile(BaseModel):
@@ -80,16 +100,7 @@ class SurfaceCandidateFile(BaseModel):
         selected. All other paths still fail the existing workspace/toolchain
         allow-list validation below.
         """
-        if not isinstance(value, str):
-            return value
-        normalized = value.replace("\\", "/")
-        if normalized == "/surface.json" or normalized.startswith("/src/"):
-            return f"/workspace{normalized}"
-        if normalized == "surface.json" or normalized.startswith("src/"):
-            return f"/workspace/{normalized}"
-        if normalized.startswith("workspace/"):
-            return f"/{normalized}"
-        return normalized
+        return _normalize_candidate_path(value)
 
     @field_validator("path")
     @classmethod
@@ -132,8 +143,83 @@ class SurfaceCandidateEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     summary: str
-    primary_jobs: list[str]
     files: list[SurfaceCandidateEnvelopeFile]
+
+
+class SurfaceCandidateEditEnvelopeFile(BaseModel):
+    """One bounded source mutation proposed against a frozen host revision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(
+        description=(
+            "Absolute model-owned source path below /workspace/. Return only a "
+            "path that must be written or deleted for this requested revision."
+        )
+    )
+    operation: Literal["write", "delete", "replace_text"]
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Complete UTF-8 file content for write; null for delete or replace_text."
+        ),
+    )
+    match: str | None = Field(
+        default=None,
+        description=(
+            "For replace_text, the exact non-empty source fragment that must "
+            "occur once in the current transaction state. Changes execute in "
+            "order, so this includes earlier changes to the same file."
+        ),
+    )
+    replacement: str | None = Field(
+        default=None,
+        description=(
+            "For replace_text, the complete replacement for match. It may be "
+            "empty when removing a fragment."
+        ),
+    )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def normalize_model_path(cls, value: Any) -> Any:
+        return _normalize_candidate_path(value)
+
+    @model_validator(mode="after")
+    def validate_operation_payload(self) -> "SurfaceCandidateEditEnvelopeFile":
+        if self.operation == "write":
+            if (
+                self.content is None
+                or self.match is not None
+                or self.replacement is not None
+            ):
+                raise ValueError(
+                    "write requires content and cannot contain match or replacement"
+                )
+        elif self.operation == "delete":
+            if any(
+                value is not None
+                for value in (self.content, self.match, self.replacement)
+            ):
+                raise ValueError("delete cannot contain content, match, or replacement")
+        elif not self.match or self.replacement is None or self.content is not None:
+            raise ValueError(
+                "replace_text requires a non-empty match and replacement, "
+                "and cannot contain content"
+            )
+        return self
+
+
+class SurfaceCandidateEditEnvelope(BaseModel):
+    """Provider-facing incremental revision for an existing Surface."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    summary: str
+    changes: list[SurfaceCandidateEditEnvelopeFile] = Field(
+        min_length=1,
+        max_length=MAX_SURFACE_FILES * 2,
+    )
 
 
 class SurfaceCandidate(BaseModel):
@@ -198,6 +284,159 @@ class SurfaceCandidate(BaseModel):
         return hashlib.sha256(encoded).hexdigest()
 
 
+def materialize_surface_candidate_edit(
+    envelope: SurfaceCandidateEditEnvelope,
+    *,
+    base_files: dict[str, str],
+    primary_jobs: list[str],
+) -> SurfaceCandidate:
+    """Apply a model's bounded file edits to frozen host-owned source.
+
+    The model never writes a revision directly. Every operation is normalized
+    through the existing authoring contract, then the resulting complete file
+    set passes the same authoritative candidate validation as a new Surface.
+    """
+    if not base_files:
+        raise ValueError("Incremental Surface generation requires existing source")
+    materialized = {str(path): str(content) for path, content in base_files.items()}
+    frozen_base = dict(materialized)
+    for change in envelope.changes:
+        path = surface_source_path(change.path)
+        if change.operation == "delete":
+            if path not in materialized:
+                raise ValueError(f"Cannot delete missing Surface source file: {path}")
+            del materialized[path]
+            continue
+        if change.operation == "replace_text":
+            if path not in materialized:
+                raise ValueError(
+                    f"Cannot replace text in missing Surface source file: {path}"
+                )
+            assert change.match is not None
+            assert change.replacement is not None
+            occurrences = materialized[path].count(change.match)
+            if occurrences != 1:
+                raise ValueError(
+                    "replace_text match must occur exactly once in "
+                    f"{path}; found {occurrences} occurrences"
+                )
+            content = materialized[path].replace(
+                change.match,
+                change.replacement,
+                1,
+            )
+        else:
+            assert change.content is not None
+            content = change.content
+        # Treat an idempotent operation as transaction noise, not as a reason
+        # to discard other valid changes. Provider output can legitimately
+        # restate an already-satisfied manifest edit while changing another
+        # file. The host still rejects an entirely unchanged transaction below.
+        if materialized.get(path) == content:
+            continue
+        patch = SurfaceFilePatch(
+            path=change.path,
+            operation="write",
+            content=content,
+        )
+        assert patch.content is not None
+        materialized[path] = patch.content
+    if materialized == frozen_base:
+        raise ValueError("Surface edit transaction does not change source")
+    return SurfaceCandidate.model_validate(
+        {
+            "summary": envelope.summary,
+            "primary_jobs": primary_jobs,
+            "files": [
+                {"path": f"/workspace{path}", "content": content}
+                for path, content in sorted(materialized.items())
+            ],
+        }
+    )
+
+
+def bind_surface_manifest_primary_jobs(
+    candidate: SurfaceCandidate,
+    *,
+    required_primary_jobs: list[dict[str, str]],
+) -> SurfaceCandidate:
+    """Bind model-authored job proofs to host-issued ids and descriptions.
+
+    The Builder owns the browser steps and assertions because those depend on
+    the UI it created. It never owns the acceptance contract identity. This
+    boundary replaces copied or stale ids/descriptions deterministically while
+    leaving the executable proof unchanged. A missing or ambiguous proof set
+    is left untouched so the normal fail-closed pipeline emits diagnostics.
+    """
+    if not required_primary_jobs:
+        return candidate
+    by_path = {item.source_path: item for item in candidate.files}
+    manifest_file = by_path.get("/surface.json")
+    if manifest_file is None:
+        return candidate
+    try:
+        manifest_value = json.loads(manifest_file.content)
+    except (TypeError, ValueError):
+        return candidate
+    if not isinstance(manifest_value, dict):
+        return candidate
+    declared_value = manifest_value.get("primary_jobs")
+    if not isinstance(declared_value, list):
+        return candidate
+    declared = [item for item in declared_value if isinstance(item, dict)]
+    if len(declared) != len(declared_value):
+        return candidate
+
+    required_descriptions = [item["description"] for item in required_primary_jobs]
+    matched: list[dict[str, Any]] = []
+    for description in required_descriptions:
+        matches = [
+            item
+            for item in declared
+            if str(item.get("description") or "") == description
+        ]
+        if len(matches) != 1:
+            matched = []
+            break
+        matched.append(dict(matches[0]))
+    if not matched:
+        if len(declared) != len(required_primary_jobs):
+            return candidate
+        matched = [dict(item) for item in declared]
+
+    manifest_value["primary_jobs"] = [
+        {
+            **proof,
+            "id": required["id"],
+            "description": required["description"],
+        }
+        for proof, required in zip(matched, required_primary_jobs, strict=True)
+    ]
+    rebound_content = json.dumps(
+        manifest_value,
+        ensure_ascii=False,
+        indent=2,
+    )
+    rebound_files = [
+        (
+            SurfaceCandidateFile(
+                path=item.path,
+                content=rebound_content,
+            )
+            if item.source_path == "/surface.json"
+            else item
+        )
+        for item in candidate.files
+    ]
+    return SurfaceCandidate.model_validate(
+        {
+            "summary": candidate.summary,
+            "primary_jobs": required_descriptions,
+            "files": [item.model_dump(mode="python") for item in rebound_files],
+        }
+    )
+
+
 class SurfacePipelineDiagnostic(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
 
@@ -260,6 +499,7 @@ class SurfaceHostPipeline:
         build_handler: SurfaceBuildHandler,
         stage_observer: Callable[[str], Awaitable[None]] | None = None,
         required_primary_jobs: list[dict[str, str]] | None = None,
+        expected_base_revision_id: str | None | object = _UNSET_BASE_REVISION,
     ) -> None:
         self._run_id = run_id
         self._authoring = authoring_handler
@@ -268,6 +508,7 @@ class SurfaceHostPipeline:
         self._required_primary_jobs = [
             dict(item) for item in required_primary_jobs or []
         ]
+        self._expected_base_revision_id = expected_base_revision_id
 
     async def _stage(self, stage: str) -> None:
         if self._stage_observer is not None:
@@ -336,6 +577,13 @@ class SurfaceHostPipeline:
                     timings_ms=timings,
                 )
         before = await self._authoring.read()
+        if (
+            self._expected_base_revision_id is not _UNSET_BASE_REVISION
+            and before.get("expected_revision") != self._expected_base_revision_id
+        ):
+            raise SurfaceConflictError(
+                "Surface source changed after Builder context was frozen"
+            )
         draft = dict((before.get("draft") or {}).get("files") or {})
         candidate_by_path = {item.source_path: item for item in candidate.files}
         patches = [
@@ -503,6 +751,8 @@ __all__ = [
     "HOST_FAILURE_CODES",
     "MAX_CANDIDATE_SUBMISSIONS",
     "SurfaceCandidate",
+    "SurfaceCandidateEditEnvelope",
+    "SurfaceCandidateEditEnvelopeFile",
     "SurfaceCandidateEnvelope",
     "SurfaceCandidateEnvelopeFile",
     "SurfaceCandidateFile",
@@ -510,4 +760,6 @@ __all__ = [
     "SurfaceRevisionHostPipeline",
     "SurfacePipelineDiagnostic",
     "SurfacePipelineResult",
+    "bind_surface_manifest_primary_jobs",
+    "materialize_surface_candidate_edit",
 ]

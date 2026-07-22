@@ -27,6 +27,11 @@ export interface SurfaceActivity {
     | string;
   message: string;
   submission: number;
+  max_submissions: number;
+  candidate_mode?: 'complete' | 'edit' | string | null;
+  generation_phase?: 'waiting_for_output' | 'receiving_output' | string | null;
+  output_chars?: number;
+  output_chunks?: number;
   attempt_count: number;
   max_attempts: number;
   started_at: string;

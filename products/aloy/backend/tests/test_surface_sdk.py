@@ -48,6 +48,96 @@ from aloy_backend.tools.surface_state import (
 from pori.tools.registry import ToolRegistry
 
 
+def test_manifest_accepts_trusted_open_resource_quality_proofs():
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["files"],
+            "interaction_checks": [
+                {
+                    "name": "Open an Event file",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Open CV",
+                        }
+                    ],
+                    "expect": {
+                        "method": "openResource",
+                        "name": "event.resource.open",
+                    },
+                }
+            ],
+            "primary_jobs": [
+                {
+                    "id": "job_0123456789abcdef",
+                    "description": "Open a file in the trusted viewer",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Open CV",
+                        }
+                    ],
+                    "assertions": [
+                        {
+                            "kind": "request",
+                            "method": "openResource",
+                            "name": "event.resource.open",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert manifest.interaction_checks[0].expect.method == "openResource"
+    assert manifest.primary_jobs[0].assertions[0].method == "openResource"
+
+    value = manifest.model_dump(mode="json", by_alias=True)
+    value["capabilities"] = []
+    with pytest.raises(ValueError, match="requires files"):
+        SurfaceManifest.model_validate(value)
+
+
+def test_manifest_resource_views_are_safe_capability_bound_navigation():
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["files"],
+            "resource_views": [
+                {
+                    "resource": "files",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert manifest.resource_views[0].resource == "files"
+    invalid = manifest.model_dump(mode="json", by_alias=True)
+    invalid["resource_views"][0]["resource"] = "tasks"
+    with pytest.raises(ValueError, match="requires that capability"):
+        SurfaceManifest.model_validate(invalid)
+
+    unsafe = manifest.model_dump(mode="json", by_alias=True)
+    unsafe["resource_views"][0]["steps"] = [
+        {
+            "action": "fill",
+            "role": "textbox",
+            "name": "Search",
+            "value": "anything",
+        }
+    ]
+    with pytest.raises(ValueError, match="only click steps"):
+        SurfaceManifest.model_validate(unsafe)
+
+
 async def _create_event(client, title: str = "University") -> dict:
     response = await client.post(
         "/v1/events",

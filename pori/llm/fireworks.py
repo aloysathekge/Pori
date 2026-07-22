@@ -58,7 +58,9 @@ class ChatFireworks(ChatOpenAI):
         model = self.model.lower()
         request_options = (
             {"reasoning_effort": "none"}
-            if any(family in model for family in ("kimi-k2p6", "glm-5p2"))
+            if any(
+                family in model for family in ("kimi-k2p6", "kimi-k2p7", "glm-5p2")
+            )
             else {}
         )
         return StructuredOutputPolicy(

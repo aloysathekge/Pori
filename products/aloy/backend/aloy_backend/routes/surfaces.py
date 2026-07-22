@@ -42,6 +42,7 @@ from ..surface_interactions import (
     surface_runtime_context,
 )
 from ..surface_materialization import SURFACE_MATERIALIZATION_RUN_KIND
+from ..surface_pipeline import MAX_CANDIDATE_SUBMISSIONS
 from ..surface_publication import (
     SurfacePublicationParams,
     change_surface_publication,
@@ -61,8 +62,13 @@ router = APIRouter(prefix="/events/{event_id}/surface", tags=["surfaces"])
 logger = logging.getLogger("aloy_backend.routes.surfaces")
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
+SURFACE_RECOVERY_RUN_KIND = "surface_recovery"
 SURFACE_ACTIVITY_RUN_KINDS = frozenset(
-    {SURFACE_BUILDER_RUN_KIND, SURFACE_MATERIALIZATION_RUN_KIND}
+    {
+        SURFACE_BUILDER_RUN_KIND,
+        SURFACE_MATERIALIZATION_RUN_KIND,
+        SURFACE_RECOVERY_RUN_KIND,
+    }
 )
 
 
@@ -271,6 +277,11 @@ def _surface_activity_payload(run: Run) -> dict:
             if materializing
             else "The Surface could not be completed"
         )
+    elif (
+        stage == "generating_candidate"
+        and progress.get("generation_phase") == "receiving_output"
+    ):
+        message = "Writing your Surface"
     else:
         message = _SURFACE_STAGE_MESSAGES.get(stage, "Building your Surface")
     started_at = _aware(run.started_at or run.created_at)
@@ -280,6 +291,15 @@ def _surface_activity_payload(run: Run) -> dict:
         "stage": stage,
         "message": message,
         "submission": int(progress.get("submission") or 1),
+        "max_submissions": (
+            MAX_CANDIDATE_SUBMISSIONS
+            if run.run_kind == SURFACE_BUILDER_RUN_KIND
+            else 1
+        ),
+        "candidate_mode": progress.get("candidate_mode"),
+        "generation_phase": progress.get("generation_phase"),
+        "output_chars": int(progress.get("output_chars") or 0),
+        "output_chunks": int(progress.get("output_chunks") or 0),
         "attempt_count": run.attempt_count,
         "max_attempts": run.max_attempts,
         "started_at": started_at,
@@ -352,7 +372,11 @@ async def get_surface_activity(
                     Run.event_id == event.id,
                     col(Run.run_kind).in_(SURFACE_ACTIVITY_RUN_KINDS),
                 )
-                .order_by(col(Run.created_at).desc())
+                .order_by(
+                    col(Run.created_at).desc(),
+                    col(Run.started_at).desc(),
+                    col(Run.id).desc(),
+                )
                 .limit(1)
             )
         )

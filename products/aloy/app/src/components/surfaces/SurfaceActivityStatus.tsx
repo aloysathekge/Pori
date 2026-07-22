@@ -23,6 +23,11 @@ function duration(seconds: number) {
   return `${minutes}m ${remainder.toString().padStart(2, '0')}s`;
 }
 
+function generatedSize(chars: number) {
+  if (chars < 1_000) return `${chars} characters received`;
+  return `${(chars / 1_000).toFixed(chars < 10_000 ? 1 : 0)}k characters received`;
+}
+
 export function SurfaceActivityStatus({
   activity,
   compact = false,
@@ -34,8 +39,12 @@ export function SurfaceActivityStatus({
   const retry = activity.attempt_count > 1
     ? `Builder attempt ${activity.attempt_count} of ${activity.max_attempts}`
     : activity.submission > 1
-      ? `Candidate ${activity.submission} of 2`
+      ? `Candidate ${activity.submission} of ${activity.max_submissions}`
       : null;
+  const receivingSource = active
+    && activity.stage === 'generating_candidate'
+    && activity.generation_phase === 'receiving_output'
+    && (activity.output_chars ?? 0) > 0;
 
   return (
     <div className={compact ? '' : 'mx-auto w-full max-w-md'} role="status" aria-live="polite">
@@ -57,7 +66,9 @@ export function SurfaceActivityStatus({
           </p>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
             {active
-              ? `Aloy is working in the background · ${duration(activity.elapsed_seconds)}`
+              ? receivingSource
+                ? `${generatedSize(activity.output_chars ?? 0)} · ${duration(activity.elapsed_seconds)}`
+                : `Aloy is working in the background · ${duration(activity.elapsed_seconds)}`
               : ready
                 ? 'The new visual workspace has been published.'
                 : 'Your conversation and last working Surface remain available.'}

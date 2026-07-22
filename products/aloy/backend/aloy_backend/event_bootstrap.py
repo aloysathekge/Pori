@@ -24,6 +24,7 @@ from pori import (
 from .database import async_session
 from .event_context import (
     EventBriefPayload,
+    event_bootstrap_input_fingerprint,
     publish_event_brief,
     refresh_event_context_snapshot,
     render_event_bootstrap_input,
@@ -190,6 +191,8 @@ async def queue_event_bootstrap_if_ready(
         policy,
         {"max_steps": 3, "timeout_seconds": 180},
     )
+    bootstrap_input_fingerprint = event_bootstrap_input_fingerprint(snapshot)
+    bootstrap_idempotency_key = f"event-bootstrap:{bootstrap_input_fingerprint}"
 
     existing = (
         (
@@ -199,7 +202,7 @@ async def queue_event_bootstrap_if_ready(
                     Run.user_id == user_id,
                     Run.event_id == event_id,
                     Run.run_kind == EVENT_BOOTSTRAP_RUN_KIND,
-                    Run.context_snapshot_id == snapshot.id,
+                    Run.idempotency_key == bootstrap_idempotency_key,
                 )
             )
         )
@@ -255,7 +258,7 @@ async def queue_event_bootstrap_if_ready(
         agent_id=EVENT_BOOTSTRAP_AGENT_ID,
         session_id=event.primary_conversation_id or event.id,
         conversation_id=event.primary_conversation_id,
-        idempotency_key=f"event-bootstrap:{snapshot.fingerprint}",
+        idempotency_key=bootstrap_idempotency_key,
         run_kind=EVENT_BOOTSTRAP_RUN_KIND,
         context_snapshot_id=snapshot.id,
         run_profile=EVENT_BOOTSTRAP_RUN_PROFILE.descriptor(),
@@ -278,7 +281,7 @@ async def queue_event_bootstrap_if_ready(
                     select(Run).where(
                         Run.event_id == event_id,
                         Run.run_kind == EVENT_BOOTSTRAP_RUN_KIND,
-                        Run.context_snapshot_id == snapshot.id,
+                        Run.idempotency_key == bootstrap_idempotency_key,
                     )
                 )
             )
@@ -418,7 +421,9 @@ async def execute_claimed_event_bootstrap(
                 raise PermissionError("Event bootstrap ownership is unavailable")
 
             current_snapshot = await _current_snapshot(session, run)
-            if current_snapshot.id != snapshot.id:
+            if event_bootstrap_input_fingerprint(
+                current_snapshot
+            ) != event_bootstrap_input_fingerprint(snapshot):
                 await _supersede_stale_run(
                     session, run=run, current_snapshot=current_snapshot
                 )
@@ -514,7 +519,9 @@ async def execute_claimed_event_bootstrap(
                 await session.rollback()
                 return False
             current_snapshot = await _current_snapshot(session, run)
-            if current_snapshot.id != snapshot.id:
+            if event_bootstrap_input_fingerprint(
+                current_snapshot
+            ) != event_bootstrap_input_fingerprint(snapshot):
                 await _supersede_stale_run(
                     session, run=run, current_snapshot=current_snapshot
                 )
@@ -541,7 +548,7 @@ async def execute_claimed_event_bootstrap(
             run.prompt_fingerprint = stable_fingerprint(
                 {
                     "profile": EVENT_BOOTSTRAP_RUN_PROFILE.fingerprint,
-                    "snapshot": snapshot.fingerprint,
+                    "bootstrap_input": event_bootstrap_input_fingerprint(snapshot),
                     "model": model_name,
                 }
             )
@@ -549,6 +556,9 @@ async def execute_claimed_event_bootstrap(
                 "model": model_name,
                 "structured_output": True,
                 "context_snapshot_version": snapshot.version,
+                "bootstrap_input_fingerprint": event_bootstrap_input_fingerprint(
+                    snapshot
+                ),
                 "budget_usage": budget_usage,
             }
             run.selected_skills = []

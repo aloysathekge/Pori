@@ -48,6 +48,7 @@ SURFACE_BUILDER_RUN_KIND = "surface_builder"
 SURFACE_BUILDER_AGENT_ID = "surface-builder"
 SURFACE_PRIMARY_JOB_POLICY_VERSION = "aloy-surface-primary-jobs@1"
 SURFACE_PRIMARY_JOB_RECEIPT_KIND = "surface_primary_job_contract"
+SURFACE_BUILDER_MAX_TOTAL_TOKENS = 200_000
 
 
 class SurfacePublicationRequiredError(RuntimeError):
@@ -246,7 +247,14 @@ async def queue_surface_builder_run(
         allowed_provider_profiles=(policy.allowed_provider_profiles or None),
         allowed_models=policy.allowed_models or None,
     )
-    budget = resolve_run_budget(policy, {"max_steps": 40, "timeout_seconds": 900})
+    budget = resolve_run_budget(
+        policy,
+        {
+            "max_steps": 40,
+            "max_tokens": SURFACE_BUILDER_MAX_TOTAL_TOKENS,
+            "timeout_seconds": 900,
+        },
+    )
     primary_job_contract = _primary_job_contract(params)
     conversation_id = event.primary_conversation_id
     run = Run(

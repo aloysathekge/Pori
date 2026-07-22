@@ -320,6 +320,75 @@ async def test_local_browser_gate_rejects_overflow_and_unnamed_controls():
     assert evidence["viewport_matrix"]["passed"] is False
 
 
+async def test_browser_gate_reports_independent_failures_in_one_pass():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["files"],
+            "primary_jobs": [
+                {
+                    "id": "job_0123456789abcdef",
+                    "description": "Open the Event resources",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        }
+                    ],
+                    "assertions": [
+                        {
+                            "kind": "visible",
+                            "role": "heading",
+                            "name": "Resources",
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="exhaustive-diagnostics-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                "export default function App(){return "
+                "<main style={{width:900}}><h1>Overview</h1></main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+
+    evidence: dict = {}
+    diagnostics = inspect_surface_runtime(
+        build_surface_runtime_document(result.bundle),
+        {
+            "protocol_version": "1",
+            "sdk_version": "1",
+            "event_id": "event-smoke",
+            "project_id": "project-smoke",
+            "build_id": "build-smoke",
+            "code_revision_id": "revision-smoke",
+            "data_revision": 0,
+            "capabilities": ["files"],
+            "widgets": [],
+            "data": {"files": [], "interactions": []},
+        },
+        manifest=manifest,
+        evidence_sink=evidence,
+    )
+
+    codes = {item["code"] for item in diagnostics}
+    assert "viewport_page_overflow" in codes
+    assert "state_region_missing" in codes
+    assert "primary_job_step_failed" in codes
+    assert "state_matrix" in evidence
+    assert "primary_jobs" in evidence
+
+
 async def test_local_browser_gate_rejects_hidden_focus_and_low_contrast():
     if shutil.which("node") is None:
         pytest.skip("Node.js is not installed")
@@ -512,7 +581,7 @@ async def test_local_browser_gate_rejects_render_exception():
         build_id="runtime-exception-local-toolchain",
         files={
             "/src/App.tsx": (
-                "export default function App() { " "throw new Error('render failed'); }"
+                "export default function App() { throw new Error('render failed'); }"
             )
         },
         manifest={},
@@ -722,7 +791,163 @@ async def test_local_browser_gate_executes_accessible_interaction_checks():
         context,
         manifest=broken,
     )
-    assert {item["code"] for item in diagnostics} == {"state_region_missing"}
+    assert {item["code"] for item in diagnostics} == {
+        "state_region_missing",
+        "runtime_interaction_step_failed",
+    }
+
+
+async def test_local_browser_gate_proves_trusted_resource_opening():
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is not installed")
+    manifest = SurfaceManifest.model_validate(
+        {
+            "capabilities": ["files"],
+            "resource_views": [
+                {
+                    "resource": "files",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        }
+                    ],
+                }
+            ],
+            "interaction_checks": [
+                {
+                    "name": "Open a resource",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        },
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Open CV",
+                        },
+                    ],
+                    "expect": {
+                        "method": "openResource",
+                        "name": "event.resource.open",
+                    },
+                }
+            ],
+            "primary_jobs": [
+                {
+                    "id": "job_0123456789abcdef",
+                    "description": "Open a file in the trusted viewer",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        },
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Open CV",
+                        },
+                    ],
+                    "assertions": [
+                        {
+                            "kind": "request",
+                            "method": "openResource",
+                            "name": "event.resource.open",
+                        }
+                    ],
+                },
+                {
+                    "id": "job_fedcba9876543210",
+                    "description": "Show useful guidance when no files exist",
+                    "fixture": "empty",
+                    "steps": [
+                        {
+                            "action": "click",
+                            "role": "button",
+                            "name": "Resources",
+                        }
+                    ],
+                    "assertions": [
+                        {
+                            "kind": "visible",
+                            "role": "heading",
+                            "name": "No resources yet",
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+    result = await LocalDevelopmentSurfaceBuildRunner().build(
+        build_id="resource-open-local-toolchain",
+        files={
+            "/src/App.tsx": (
+                'import React, { useState } from "react"; '
+                "import { openResource, useEventFiles, useSurfaceResourceState } "
+                'from "@aloy/surface"; '
+                "export default function App(){const files=useEventFiles();"
+                "const resource=useSurfaceResourceState('files');const file=files[0];"
+                "const [view,setView]=useState('overview');return <main>"
+                "<button onClick={()=>setView('resources')}>Resources</button>"
+                "{view==='resources'?<section {...resource.feedbackProps}>"
+                "<h1>Resources</h1>{file?<button onClick={()=>openResource(file.id,"
+                "{componentId:'resources'})}>Open CV</button>:<h2>No resources yet</h2>}"
+                "</section>:<section><h1>Overview</h1></section>}</main>}"
+            )
+        },
+        manifest=manifest.model_dump(mode="json", by_alias=True),
+    )
+    if result.status == "blocked":
+        pytest.skip("Pinned Aloy app dependencies are not installed")
+    assert result.bundle is not None
+    context = {
+        "protocol_version": "1",
+        "sdk_version": "1",
+        "event_id": "event-smoke",
+        "project_id": "project-smoke",
+        "build_id": "build-smoke",
+        "code_revision_id": "revision-smoke",
+        "data_revision": 0,
+        "capabilities": ["files"],
+        "widgets": [],
+        "data": {
+            "files": [
+                {
+                    "id": "file-smoke",
+                    "name": "cv.pdf",
+                    "kind": "upload",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 1024,
+                }
+            ],
+            "interactions": [],
+        },
+    }
+    evidence: dict = {}
+
+    assert (
+        inspect_surface_runtime(
+            build_surface_runtime_document(result.bundle),
+            context,
+            manifest=manifest,
+            evidence_sink=evidence,
+        )
+        == []
+    )
+    assert evidence["primary_jobs"]["passed"] is True
+    assert evidence["primary_jobs"]["required"] == [
+        "job_0123456789abcdef",
+        "job_fedcba9876543210",
+    ]
+    assert evidence["primary_jobs"]["jobs"][1]["fixture"] == "empty"
+    assert any(
+        observation["resource_navigation_steps"]
+        for observation in evidence["state_matrix"]["observations"]
+    )
 
 
 async def test_local_browser_gate_projects_accepted_state_between_checks():

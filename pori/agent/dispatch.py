@@ -556,6 +556,7 @@ async def execute_actions(
                 "evolution_repository": self.evolution_repository,
                 "skill_catalog": self.skill_catalog,
                 "capability_snapshot": self.capability_snapshot,
+                "model_capabilities": self.model_capabilities,
                 "tools_registry": self.tools_registry,
                 "plan_store": self.plan_store,
                 "task_id": self.task_id,

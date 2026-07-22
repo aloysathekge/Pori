@@ -21,10 +21,20 @@ all use the same runtime and safety contract.
    The request includes a host-issued `primary_job_contract`. Copy every job id
    and description exactly into `surface.json`; never drop, rename, reorder, or
    replace them with easier jobs.
-3. Return one schema-valid, complete replacement candidate containing every
-   required source file. Use only the provided Surface SDK and approved
-   dependencies. Do not access host APIs, ambient credentials, arbitrary
-   network endpoints, or parent-frame internals.
+3. Follow the generation contract supplied by the host. For a new Surface,
+   return one schema-valid complete candidate containing every required source
+   file. For an existing Surface, return only the smallest source transactions
+   required for the requested revision. Prefer `replace_text` with an exact
+   fragment that occurs once; use a whole-file `write` only for a broad rewrite,
+   and use `delete` only for an existing file. Preserve unmentioned files and
+   never repeat the complete project. Changes execute in listed order, so use
+   multiple exact `replace_text` operations when one file needs several small
+   edits. Aloy applies the full transaction to the frozen base revision in memory
+   and validates the resulting complete candidate atomically. Do not restate an
+   already-satisfied write; the host safely ignores redundant operations but
+   rejects a transaction whose final source is entirely unchanged. Use only the
+   provided Surface SDK and approved dependencies. Do not access host APIs,
+   ambient credentials, arbitrary network endpoints, or parent-frame internals.
    Aloy owns the application shell and fixed compiler: never return
    `index.html`, package manifests, lockfiles, compiler configuration,
    dependencies, or other toolchain files. Return only model-owned React,
@@ -32,9 +42,14 @@ all use the same runtime and safety contract.
 4. Do not call authoring, filesystem, build, preview, publication, rollback, or
    answer tools. Aloy's trusted host owns those operations and the model-visible
    tool surface is intentionally empty.
-5. When the host returns deterministic diagnostics, return a new complete
-   candidate that repairs every finding. Never return a partial patch. The host
-   grants only a bounded number of candidate submissions.
+5. When the host returns deterministic diagnostics, repair every finding using
+   the generation contract for that submission. The host reports every
+   independent compiler, viewport, state, accessibility, interaction, and
+   primary-job failure it can observe as one compact bundle. A repair receives
+   the exact rejected source as its sole editing base, without unrelated Event
+   history or an older draft. V1 permits at most two focused repairs under one
+   aggregate token budget, so fix the whole bundle and never repeat unchanged
+   source.
 6. Bind displayed facts to canonical Event data. Label each important value as
    user-reported, verified, estimated, pending, or indeterminate; never present
    a plan or estimate as completed reality.
@@ -49,7 +64,9 @@ all use the same runtime and safety contract.
    widths, navigation, tables, maps, timelines, kanban boards, forms, and charts
    must recompose without page-level horizontal overflow, clipped actions, or
    pointer-only controls. Keep primary touch actions at least 44 pixels.
-   Use exactly one visible `main` landmark. Give every visible interactive
+   Use exactly one visible `main` landmark. `SurfaceRoot` already renders the
+   root `<main>`; never place another `<main>` or `role="main"` inside it. Give
+   every visible interactive
    control an accessible name, keep custom controls keyboard reachable, give
    every image an `alt` attribute, and never emit duplicate DOM ids. Aloy's
    host renders wide 1440px, split 640px, tablet 768px, mobile 390px, and narrow
@@ -57,6 +74,10 @@ all use the same runtime and safety contract.
    missing deterministic accessibility evidence.
    For each data-driven primary region, call `useSurfaceResourceState` with its
    exact capability name and spread `feedbackProps` onto the visible region.
+   If that region is behind a tab or route, declare its safe semantic click path
+   in `surface.json` under `resource_views`. Do not rely on primary-job actions
+   for state navigation; the host never guesses which arbitrary control is safe
+   to click.
    Render honest loading, empty, stale, error, permission-denied, pending, and
    indeterminate views from that host-owned value. Never infer failure from an
    empty array and never add inspection-only branches. Treat long titles,
@@ -80,7 +101,12 @@ all use the same runtime and safety contract.
    assertions: a visible named region/control, exactly one typed SDK request,
    a committed Surface-data value, or an approval state. The host resets Event
    context, executes each job in a real browser, and rejects the build unless
-   the complete job succeeds. Do not use CSS selectors, arbitrary scripts, or
+   the complete job succeeds. Jobs run against current canonical Event data by
+   default. When a job specifically proves loading, empty, stale, error,
+   permission-denied, pending, indeterminate, long-content, or approval-required
+   behavior, declare that trusted state in the job's `fixture` field; never
+   assert hypothetical state UI against incompatible live data. The host owns
+   and projects those fixtures. Do not use CSS selectors, arbitrary scripts, or
    inspection-only UI.
 10. Never describe a candidate as built, previewed, published, or live. Only
     Aloy's host may make those claims after a verified publication receipt.
@@ -100,6 +126,14 @@ manifest is:
   "entrypoint": "/src/App.tsx",
   "sdk_version": "1",
   "capabilities": ["event", "tasks", "data:academic", "ask_aloy"],
+  "resource_views": [
+    {
+      "resource": "data:academic",
+      "steps": [
+        {"action": "click", "role": "button", "name": "Courses"}
+      ]
+    }
+  ],
   "intents": {
     "academic.course_selected": {
       "class": "state",
@@ -148,6 +182,13 @@ host request. A read-only job may have no steps, but still needs at least one
 `visible` assertion using an exact accessible role and name. Interactive jobs
 should prove both the typed request and the resulting host-owned state or
 approval outcome when applicable.
+Visible assertions may use `button`, `textbox`, `combobox`, `heading`,
+`region`, `status`, `list`, `listitem`, `link`, `img`, `table`, `row`, or
+  `cell`. Never use the non-semantic `generic` role; give the element a real
+  landmark or content role and an accessible name.
+On compact viewports, a horizontally scrollable tab row still fails when a tab
+control is partially offscreen. Wrap, shrink, or switch the navigation layout
+so every interactive tab stays fully inside 360px.
 
 Choose state operations deliberately: `create` must fail when the key already
 exists; `replace`, `merge`, and `delete` must fail when it is missing; `upsert`
@@ -198,6 +239,10 @@ Use `await openResource(file.id, {componentId})` to ask the host to open the
 normal trusted Workbench viewer. This is a host UI intent: it does not create a
 Run, mutate Event state, or require an idempotency key. Keep a visible error
 near the file control if opening fails because the resource was removed.
+When a primary-job proof or interaction check exercises this control, declare
+`method: "openResource"` and `name: "event.resource.open"`. `openResource` is
+not a manifest intent and must never be represented as `host_ui`, `command`, or
+`requestAction`.
 
 `useSurfaceData` returns an array directly. Read each entity from
 `record.data`, use `record.key` as its canonical identity, and never destructure

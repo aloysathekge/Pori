@@ -425,6 +425,26 @@ def test_fireworks_kimi_structured_output_includes_schema_and_disables_reasoning
     assert sent["response_format"]["type"] == "json_schema"
 
 
+def test_fireworks_kimi_k2p7_code_disables_reasoning_for_builder_output():
+    from pori.llm.fireworks import ChatFireworks
+
+    llm = ChatFireworks(
+        api_key="x", model="accounts/fireworks/models/kimi-k2p7-code"
+    )
+    llm._client = _OAIClient(
+        _OAIResp([_OAIChoice(_OAIMessage(content='{"status":"ready"}'))])
+    )
+
+    result = asyncio.run(
+        llm.with_structured_output(_StructuredSmoke).ainvoke(
+            [UserMessage(content="Return the status")]
+        )
+    )
+
+    assert result.status == "ready"
+    assert llm._client.chat.completions.last_kwargs["reasoning_effort"] == "none"
+
+
 def test_fireworks_glm_structured_output_uses_provider_schema_contract():
     from pori.llm.fireworks import ChatFireworks
 

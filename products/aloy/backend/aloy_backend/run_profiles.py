@@ -9,10 +9,13 @@ SURFACE_BUILDER_ALLOWED_TOOLS: frozenset[str] = frozenset()
 
 SURFACE_BUILDER_RUN_PROFILE = RunProfile(
     profile_id="aloy.surface-builder",
-    version="1",
+    version="3",
     system_prompt=(
-        "Return one complete schema-valid React Surface candidate. Treat source "
-        "as a proposal: use only the Surface SDK and declared intents, preserve "
+        "Return one schema-valid React Surface candidate, or the smallest exact "
+        "source transactions when revising the exact host-supplied candidate. "
+        "On repair, treat the current rejected source—not an older Event "
+        "snapshot—as the sole editing base. Treat source as "
+        "a proposal: use only the Surface SDK and declared intents, preserve "
         "canonical Event data, and never claim that generation itself changed "
         "durable truth. Aloy's trusted host—not you—persists, validates, builds, "
         "previews, and publishes the candidate."

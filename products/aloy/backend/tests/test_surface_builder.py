@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from sqlmodel import select
 
 from aloy_backend import surface_builder as builder_module
@@ -18,6 +21,7 @@ from aloy_backend.models import (
 from aloy_backend.run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from aloy_backend.surface_pipeline import (
     SurfaceCandidate,
+    SurfaceCandidateEditEnvelope,
     SurfaceCandidateEnvelope,
     SurfacePipelineResult,
 )
@@ -38,6 +42,114 @@ async def test_progress_heartbeat_stop_handles_pre_start_cancellation() -> None:
 
     assert not started
     assert task.cancelled()
+
+
+def test_repair_diagnostics_are_compacted_without_losing_compositions() -> None:
+    diagnostics = [
+        {
+            "stage": "preview",
+            "code": "state_region_missing",
+            "severity": "error",
+            "message": "No visible SDK-bound resource region",
+            "viewport": viewport,
+            "state": state,
+        }
+        for viewport in ("wide", "mobile")
+        for state in ("loading", "empty", "error")
+    ]
+
+    compact = builder_module._compact_repair_diagnostics(diagnostics)
+
+    assert len(compact) == 1
+    assert compact[0]["occurrences"] == 6
+    assert compact[0]["viewports"] == ["wide", "mobile"]
+    assert compact[0]["states"] == ["loading", "empty", "error"]
+
+
+def test_prompt_context_keeps_draft_once_and_compacts_operational_trail() -> None:
+    source = "export default function App(){return <main>Career</main>}"
+    rendered = json.loads(
+        builder_module._render_prompt_context(
+            {
+                "event": {"id": "evt-career", "title": "Career OS"},
+                "brief": {"purpose": "Run a focused job search"},
+                "tasks": [],
+                "proposals": [],
+                "files": [{"id": "file-cv", "name": "cv.pdf"}],
+                "file_excerpts": {"/files/notes.txt": "x" * 20_000},
+                "trail": [
+                    {
+                        "id": "trail-1",
+                        "kind": "surface_build_failed",
+                        "summary": "A candidate was rejected",
+                        "created_at": "2026-07-22T00:00:00Z",
+                        "payload": {"internal": "x" * 20_000},
+                    }
+                ],
+                "surface": {
+                    "expected_revision": "srev-draft",
+                    "draft": {"id": "srev-draft", "files": {"/src/App.tsx": source}},
+                    "published": {
+                        "id": "srev-live",
+                        "files": {"/src/App.tsx": source},
+                    },
+                },
+            }
+        )
+    )
+
+    assert rendered["surface"]["draft"]["files"]["/src/App.tsx"] == source
+    assert rendered["surface"]["published"] == {"id": "srev-live"}
+    assert rendered["trail"] == [
+        {
+            "id": "trail-1",
+            "kind": "surface_build_failed",
+            "summary": "A candidate was rejected",
+            "created_at": "2026-07-22T00:00:00Z",
+        }
+    ]
+    assert len(rendered["file_excerpts"]["/files/notes.txt"]) == 8_000
+
+
+def test_repair_prompt_uses_exact_rejected_source_without_stale_event_context() -> None:
+    previous = SurfaceCandidateEditEnvelope.model_validate(
+        {
+            "summary": "Add resources",
+            "changes": [
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "operation": "replace_text",
+                    "match": "Old",
+                    "replacement": "Resources",
+                }
+            ],
+        }
+    )
+
+    messages = builder_module._messages(
+        task="Add Event resources",
+        context='{"surface":{"draft":{"files":{"/src/App.tsx":"STALE"}}}}',
+        instructions="Build safely",
+        previous_candidate=previous,
+        diagnostics=[
+            {
+                "stage": "build",
+                "code": "typescript_contract_error",
+                "message": "Cannot find name filesResource",
+            }
+        ],
+        repair_files={
+            "/surface.json": '{"entrypoint":"/src/App.tsx"}',
+            "/src/App.tsx": "const current = 'EXACT_REJECTED_SOURCE';",
+        },
+        candidate_mode="edit",
+        required_primary_jobs=[],
+    )
+
+    content = messages[-1].content
+    assert "EXACT_REJECTED_SOURCE" in content
+    assert "Cannot find name filesResource" in content
+    assert "STALE" not in content
 
 
 def _assignment() -> ModelAssignment:
@@ -96,7 +208,30 @@ def _candidate(version: int) -> SurfaceCandidate:
     )
 
 
+def _provider_candidate(version: int) -> SurfaceCandidateEnvelope:
+    candidate = _candidate(version)
+    return SurfaceCandidateEnvelope.model_validate(
+        {
+            "summary": candidate.summary,
+            "files": [item.model_dump(mode="python") for item in candidate.files],
+        }
+    )
+
+
 async def _create_builder_run(db_session_maker, *, run_id: str) -> None:
+    primary_jobs = [
+        {
+            "id": "job_" + hashlib.sha256(b"See this week").hexdigest()[:16],
+            "description": "See this week",
+        }
+    ]
+    contract_body = {
+        "policy_version": "aloy-surface-primary-jobs@1",
+        "jobs": primary_jobs,
+    }
+    contract_fingerprint = hashlib.sha256(
+        json.dumps(contract_body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     async with db_session_maker() as session:
         session.add_all(
             [
@@ -134,6 +269,13 @@ async def _create_builder_run(db_session_maker, *, run_id: str) -> None:
                     lease_owner="worker-a",
                     lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
                     started_at=datetime.now(timezone.utc),
+                    execution_receipts=[
+                        {
+                            "kind": "surface_primary_job_contract",
+                            **contract_body,
+                            "fingerprint": contract_fingerprint,
+                        }
+                    ],
                 ),
             ]
         )
@@ -152,11 +294,31 @@ async def test_builder_uses_structured_output_and_host_repairs_without_tools(
     generated: list[int] = []
 
     async def structured_invoker(_llm, schema, messages, **kwargs):
-        assert schema is SurfaceCandidateEnvelope
         assert "tools" not in kwargs
         assert len(messages) == 2
         generated.append(len(generated) + 1)
-        return {"parsed": _candidate(len(generated)), "raw": {}}
+        if len(generated) == 1:
+            assert schema is SurfaceCandidateEnvelope
+            return {"parsed": _provider_candidate(1), "raw": {}}
+        assert schema is SurfaceCandidateEditEnvelope
+        return {
+            "parsed": SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": "University workspace v2",
+                    "changes": [
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "write",
+                            "content": (
+                                "export default function App() { return "
+                                "<main>v2</main> }"
+                            ),
+                        }
+                    ],
+                }
+            ),
+            "raw": {},
+        }
 
     async def runtime_resolver(*_args, **_kwargs):
         return SimpleNamespace(
@@ -250,6 +412,131 @@ async def test_builder_uses_structured_output_and_host_repairs_without_tools(
         ]
 
 
+async def test_builder_streams_incremental_edits_for_existing_surface(
+    db_session_maker,
+    monkeypatch,
+):
+    monkeypatch.setattr(builder_module, "async_session", db_session_maker)
+    await _create_builder_run(db_session_maker, run_id="builder-incremental")
+    llm = SimpleNamespace(
+        last_usage={"prompt_tokens": 80, "completion_tokens": 20, "total_tokens": 100}
+    )
+    manifest = (
+        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+        '"sdk_version":"1","capabilities":[],"intents":{},"widgets":[]}'
+    )
+    app_source = "export default function App(){return <main>Old</main>}"
+    factory_arguments: list[dict] = []
+
+    async def structured_invoker(_llm, schema, messages, **kwargs):
+        assert schema is SurfaceCandidateEditEnvelope
+        assert "Revision contract" in messages[-1].content
+        kwargs["on_delta"]('{"changes":[')
+        return {
+            "parsed": SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": "Career resources",
+                    "changes": [
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "write",
+                            "content": (
+                                "export default function App(){return "
+                                "<main>Resources</main>}"
+                            ),
+                        }
+                    ],
+                }
+            ),
+            "raw": None,
+        }
+
+    async def runtime_resolver(*_args, **_kwargs):
+        snapshot = {
+            "expected_revision": "revision-live",
+            "draft": {
+                "id": "revision-live",
+                "files": {
+                    "/surface.json": manifest,
+                    "/src/App.tsx": app_source,
+                },
+            },
+        }
+        return SimpleNamespace(
+            project_snapshot=snapshot,
+            prompt_context={"event": {"title": "Career"}, "surface": snapshot},
+            authoring_handler=object(),
+            build_handler=object(),
+        )
+
+    class PublishingPipeline:
+        async def execute(self, candidate, *, submission):
+            files = {item.source_path: item.content for item in candidate.files}
+            assert submission == 1
+            assert files["/surface.json"] == manifest
+            assert "Resources" in files["/src/App.tsx"]
+            return SurfacePipelineResult(
+                status="published",
+                candidate_fingerprint=candidate.fingerprint,
+                revision_id="revision-new",
+                build_id="build-new",
+                publication={"id": "publication-new"},
+            )
+
+    def pipeline_factory(**kwargs):
+        factory_arguments.append(kwargs)
+        return PublishingPipeline()
+
+    async def verified_receipt(*_args, **_kwargs):
+        return {
+            "project_id": "project-1",
+            "publication_id": "publication-new",
+            "revision_id": "revision-new",
+            "build_id": "build-new",
+        }
+
+    monkeypatch.setattr(
+        builder_module, "verified_surface_publication", verified_receipt
+    )
+    assert await builder_module.execute_claimed_surface_builder(
+        "builder-incremental",
+        "worker-a",
+        llm_factory=lambda _config: llm,
+        structured_invoker=structured_invoker,
+        runtime_resolver=runtime_resolver,
+        pipeline_factory=pipeline_factory,
+    )
+
+    assert factory_arguments[0]["expected_base_revision_id"] == "revision-live"
+    async with db_session_maker() as session:
+        run = await session.get(Run, "builder-incremental")
+        assert run is not None
+        receipt = next(
+            item
+            for item in run.execution_receipts or []
+            if item.get("kind") == "surface_candidate"
+        )
+        assert receipt["candidate_mode"] == "edit"
+        assert receipt["changed_file_count"] == 1
+        assert receipt["generation_phase"] == "receiving_output"
+        assert receipt["output_chars"] > 0
+
+
+async def test_generation_timeout_cancels_stalled_provider_call():
+    progress = builder_module._GenerationProgress()
+
+    async def stalled():
+        await asyncio.sleep(60)
+
+    with pytest.raises(builder_module.SurfaceGenerationTimeoutError):
+        await builder_module._await_candidate_generation(
+            stalled(),
+            progress=progress,
+            first_output_timeout_seconds=0.01,
+            deadline=builder_module.perf_counter() + 1,
+        )
+
+
 async def test_builder_repairs_host_source_contract_before_pipeline(
     db_session_maker,
     monkeypatch,
@@ -266,7 +553,7 @@ async def test_builder_repairs_host_source_contract_before_pipeline(
         assert schema is SurfaceCandidateEnvelope
         generated += 1
         if generated == 1:
-            invalid = _candidate(1).model_dump(mode="python")
+            invalid = _provider_candidate(1).model_dump(mode="python")
             invalid["files"].append(
                 {
                     "path": "/workspace/index.html",
@@ -281,7 +568,7 @@ async def test_builder_repairs_host_source_contract_before_pipeline(
         assert "Unsupported Surface source extension" in messages[-1].content
         return {
             "parsed": SurfaceCandidateEnvelope.model_validate(
-                _candidate(2).model_dump(mode="python")
+                _provider_candidate(2).model_dump(mode="python")
             ),
             "raw": None,
         }
@@ -354,7 +641,7 @@ async def test_builder_exhaustion_fails_without_claiming_publication(
     llm = SimpleNamespace(last_usage={})
 
     async def structured_invoker(*_args, **_kwargs):
-        return {"parsed": _candidate(1), "raw": {}}
+        return {"parsed": _provider_candidate(1), "raw": {}}
 
     async def runtime_resolver(*_args, **_kwargs):
         return SimpleNamespace(
@@ -393,6 +680,26 @@ async def test_builder_exhaustion_fails_without_claiming_publication(
         assert run.status == "failed"
         assert run.success is False
         assert run.steps_taken == 2
+        assert (
+            len(
+                [
+                    item
+                    for item in run.execution_receipts or []
+                    if item.get("kind") == "surface_candidate"
+                ]
+            )
+            == 1
+        )
+        assert (
+            len(
+                [
+                    item
+                    for item in run.execution_receipts or []
+                    if item.get("kind") == "surface_candidate_duplicate"
+                ]
+            )
+            == 1
+        )
         assert not any(
             item.get("kind") == "surface_publication"
             for item in run.execution_receipts or []
@@ -412,6 +719,94 @@ async def test_builder_exhaustion_fails_without_claiming_publication(
         assert len(trails) == 1
 
 
+async def test_builder_never_opens_a_fourth_paid_diagnostic_cycle(
+    db_session_maker,
+    monkeypatch,
+):
+    monkeypatch.setattr(builder_module, "async_session", db_session_maker)
+    await _create_builder_run(db_session_maker, run_id="builder-one-repair")
+    llm = SimpleNamespace(last_usage={})
+    generated = 0
+
+    async def structured_invoker(_llm, schema, _messages, **_kwargs):
+        nonlocal generated
+        generated += 1
+        if generated == 1:
+            assert schema is SurfaceCandidateEnvelope
+            return {"parsed": _provider_candidate(1), "raw": {}}
+        assert schema is SurfaceCandidateEditEnvelope
+        previous = generated - 1
+        return {
+            "parsed": SurfaceCandidateEditEnvelope.model_validate(
+                {
+                    "summary": f"University workspace repair {previous}",
+                    "changes": [
+                        {
+                            "path": "/workspace/src/App.tsx",
+                            "operation": "replace_text",
+                            "match": f"v{previous}",
+                            "replacement": f"v{generated}",
+                        }
+                    ],
+                }
+            ),
+            "raw": {},
+        }
+
+    async def runtime_resolver(*_args, **_kwargs):
+        return SimpleNamespace(
+            prompt_context={"event": {}, "surface": {}},
+            authoring_handler=object(),
+            build_handler=object(),
+        )
+
+    class SerialRejectingPipeline:
+        async def execute(self, candidate, *, submission):
+            return SurfacePipelineResult(
+                status="repair_required",
+                candidate_fingerprint=candidate.fingerprint,
+                revision_id=f"revision-{submission}",
+                build_id=f"build-{submission}",
+                diagnostics=[
+                    {
+                        "stage": "preview",
+                        "code": f"quality_failure_{submission}",
+                        "severity": "error",
+                        "message": "A later quality class also failed",
+                    }
+                ],
+            )
+
+    assert await builder_module.execute_claimed_surface_builder(
+        "builder-one-repair",
+        "worker-a",
+        llm_factory=lambda _config: llm,
+        structured_invoker=structured_invoker,
+        runtime_resolver=runtime_resolver,
+        pipeline_factory=lambda **_kwargs: SerialRejectingPipeline(),
+    )
+
+    assert generated == 3
+    async with db_session_maker() as session:
+        run = await session.get(Run, "builder-one-repair")
+        assert run is not None
+        assert run.status == "failed"
+        assert run.steps_taken == 3
+        assert run.progress is not None
+        assert run.progress["submission"] == 3
+        assert run.progress["submissions"] == 3
+        candidates = [
+            item
+            for item in run.execution_receipts or []
+            if item.get("kind") == "surface_candidate"
+        ]
+        assert [item["submission"] for item in candidates] == [1, 2, 3]
+        assert not any(
+            item.get("kind") == "surface_publication"
+            for item in run.execution_receipts or []
+        )
+
+
 async def test_builder_does_not_spend_model_repair_on_host_failure(
     db_session_maker,
     monkeypatch,
@@ -424,7 +819,7 @@ async def test_builder_does_not_spend_model_repair_on_host_failure(
     async def structured_invoker(*_args, **_kwargs):
         nonlocal generated
         generated += 1
-        return {"parsed": _candidate(1), "raw": {}}
+        return {"parsed": _provider_candidate(1), "raw": {}}
 
     async def runtime_resolver(*_args, **_kwargs):
         return SimpleNamespace(
