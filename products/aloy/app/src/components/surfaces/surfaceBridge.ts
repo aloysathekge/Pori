@@ -48,6 +48,27 @@ export interface SurfaceResourceOpenRequest {
   componentId: string;
 }
 
+export interface SurfaceElementSelection {
+  selectionId: string;
+  buildId: string;
+  codeRevisionId: string;
+  nodeId: string;
+  tagName: string;
+  role: string;
+  accessibleName: string;
+  text: string;
+  componentId: string;
+  resource: string | null;
+  source: string | null;
+  bounds: { x: number; y: number; width: number; height: number };
+  styles: {
+    display: string;
+    color: string;
+    backgroundColor: string;
+    fontSize: string;
+  };
+}
+
 export function shouldSummonAloy(
   method: SurfaceInteractionMethod,
   response: SurfaceInteractionResponse,
@@ -64,6 +85,7 @@ export interface SurfaceBridgeOptions {
   onStatus?: (update: SurfaceBridgeStatusUpdate) => void;
   onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
   onOpenResource?: (request: SurfaceResourceOpenRequest) => void | Promise<void>;
+  onElementSelection?: (selection: SurfaceElementSelection) => void;
   contextTimeoutMs?: number;
   handshakeTimeoutMs?: number;
   heartbeatIntervalMs?: number;
@@ -206,13 +228,14 @@ export class SurfaceBridgeHost {
   private handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pendingPing: { nonce: string; sentAt: number } | null = null;
+  private inspectionEnabled = false;
   private readyResolve: (() => void) | null = null;
   private readyReject: ((error: Error) => void) | null = null;
   private readonly eventId: string;
   private readonly buildId: string;
   private readonly options: Required<
-    Omit<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource'>
-  > & Pick<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource'>;
+    Omit<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource' | 'onElementSelection'>
+  > & Pick<SurfaceBridgeOptions, 'onStatus' | 'onAloyHandoff' | 'onOpenResource' | 'onElementSelection'>;
   private readonly dependencies: SurfaceBridgeDependencies;
 
   constructor(
@@ -227,6 +250,7 @@ export class SurfaceBridgeHost {
       onStatus: options.onStatus,
       onAloyHandoff: options.onAloyHandoff,
       onOpenResource: options.onOpenResource,
+      onElementSelection: options.onElementSelection,
       contextTimeoutMs: options.contextTimeoutMs ?? 12_000,
       handshakeTimeoutMs: options.handshakeTimeoutMs ?? 5_000,
       heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
@@ -306,6 +330,22 @@ export class SurfaceBridgeHost {
     }
     this.emit({ status: 'healthy' });
     this.startHeartbeat();
+    if (this.inspectionEnabled) this.sendInspectionMode();
+  }
+
+  setInspectionMode(enabled: boolean): void {
+    this.inspectionEnabled = enabled;
+    this.sendInspectionMode();
+  }
+
+  private sendInspectionMode(): void {
+    if (!this.port || !this.sessionId || this.status !== 'healthy') return;
+    this.port.postMessage({
+      protocol: PROTOCOL,
+      type: 'inspection',
+      sessionId: this.sessionId,
+      enabled: this.inspectionEnabled,
+    });
   }
 
   async refresh(): Promise<void> {
@@ -465,6 +505,7 @@ export class SurfaceBridgeHost {
       type?: string;
       sessionId?: string;
       nonce?: string;
+      selection?: unknown;
     } | null;
     if (
       !message
@@ -479,6 +520,55 @@ export class SurfaceBridgeHost {
     if (message.type === 'pong') {
       if (message.nonce && message.nonce === this.pendingPing?.nonce) {
         this.pendingPing = null;
+      }
+      return;
+    }
+    if (message.type === 'selection') {
+      try {
+        const raw = object(message.selection);
+        const bounds = object(raw.bounds);
+        const styles = object(raw.styles);
+        const finite = (value: unknown) => {
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            throw new Error('Surface selection bounds are invalid');
+          }
+          return Math.round(Math.max(-100_000, Math.min(100_000, value)));
+        };
+        const nullableString = (value: unknown, name: string, max: number) => (
+          value === null || value === undefined ? null : string(value, name, max)
+        );
+        const selection: SurfaceElementSelection = {
+          selectionId: string(raw.selectionId, 'selection id', 200),
+          buildId: this.context.build_id,
+          codeRevisionId: this.context.code_revision_id,
+          nodeId: string(raw.nodeId, 'node id', 300),
+          tagName: string(raw.tagName, 'tag name', 50),
+          role: string(raw.role, 'role', 80),
+          accessibleName: typeof raw.accessibleName === 'string'
+            ? raw.accessibleName.trim().slice(0, 300)
+            : '',
+          text: typeof raw.text === 'string' ? raw.text.trim().slice(0, 1_000) : '',
+          componentId: string(raw.componentId, 'component id', 200),
+          resource: nullableString(raw.resource, 'resource', 100),
+          source: nullableString(raw.source, 'source', 300),
+          bounds: {
+            x: finite(bounds.x),
+            y: finite(bounds.y),
+            width: Math.max(0, finite(bounds.width)),
+            height: Math.max(0, finite(bounds.height)),
+          },
+          styles: {
+            display: string(styles.display, 'display style', 80),
+            color: string(styles.color, 'color style', 100),
+            backgroundColor: string(styles.backgroundColor, 'background style', 100),
+            fontSize: string(styles.fontSize, 'font size', 50),
+          },
+        };
+        this.inspectionEnabled = false;
+        this.options.onElementSelection?.(selection);
+      } catch {
+        // Selection context is advisory and grants no authority. Malformed
+        // iframe metadata is discarded without degrading normal Surface use.
       }
       return;
     }

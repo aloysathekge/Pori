@@ -1,11 +1,9 @@
-"""Dedicated no-tool Surface Builder execution.
+"""Durable Surface Builder execution over a trusted development workspace.
 
-The Builder is a single structured-output model role. It returns complete
-source for a new Surface or bounded source transactions for an existing revision.
-The trusted host materializes a complete candidate, executes the lifecycle,
-and may provide one exhaustive diagnostic bundle for one bounded repair call. The
-model never receives authoring, build, preview, publication, filesystem, or
-answer tools.
+Production uses a bounded edit/check loop against a temporary Git-tracked
+project. The older schema-bound executor remains private for focused lifecycle
+compatibility tests while v4 Runs use the workspace path. Neither path grants
+model code publication, Event-state, shell, or network authority.
 """
 
 from __future__ import annotations
@@ -52,12 +50,19 @@ from .run_outcome import make_usage_record
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .runtime import authenticated_run_context
 from .skills import SURFACE_BUILDER_SKILL_ID, surface_builder_instructions
+from .surface_builder_loop import run_surface_builder_loop
+from .surface_development_workspace import (
+    LocalGitSurfaceWorkspace,
+    SurfaceDevelopmentWorkspace,
+)
 from .surface_lifecycle import mark_surface_run_started, reconcile_surface_run
 from .surface_pipeline import (
     MAX_CANDIDATE_SUBMISSIONS,
     SurfaceCandidate,
     SurfaceCandidateEditEnvelope,
+    SurfaceCandidateEditEnvelopeFile,
     SurfaceCandidateEnvelope,
+    SurfaceCandidateEnvelopeFile,
     SurfaceHostPipeline,
     SurfacePipelineResult,
     bind_surface_manifest_primary_jobs,
@@ -589,7 +594,7 @@ async def _await_candidate_generation(
                 pass
 
 
-async def execute_claimed_surface_builder(
+async def _execute_claimed_surface_builder_legacy(
     run_id: str,
     worker_id: str,
     *,
@@ -1344,6 +1349,278 @@ async def execute_claimed_surface_builder(
                 )
             await session.commit()
             return True
+
+
+async def execute_claimed_surface_builder(
+    run_id: str,
+    worker_id: str,
+    *,
+    llm_factory: Callable[[Any], Any] = create_llm,
+    structured_invoker: Callable[..., Any] | None = None,
+    runtime_resolver: Callable[..., Any] = resolve_surface_authoring_runtime,
+    pipeline_factory: Callable[..., SurfaceHostPipeline] = SurfaceHostPipeline,
+) -> bool:
+    """Execute the workspace Builder, retaining v3 injection compatibility.
+
+    Focused lifecycle tests may inject the schema-bound invoker explicitly.
+    Normal worker calls omit it and use the provider-neutral development
+    workspace.
+    """
+    if structured_invoker is not None:
+        return await _execute_claimed_surface_builder_legacy(
+            run_id,
+            worker_id,
+            llm_factory=llm_factory,
+            structured_invoker=structured_invoker,
+            runtime_resolver=runtime_resolver,
+            pipeline_factory=pipeline_factory,
+        )
+
+    captured_runtime: Any | None = None
+    workspace: SurfaceDevelopmentWorkspace | None = None
+    workspace_receipts: list[dict[str, Any]] = []
+    previous_files: dict[str, str] | None = None
+    invocation = 0
+
+    async with async_session() as preflight_session:
+        preflight_run = await preflight_session.get(Run, run_id)
+        if (
+            preflight_run is None
+            or preflight_run.run_kind != SURFACE_BUILDER_RUN_KIND
+            or preflight_run.status != "running"
+            or preflight_run.lease_owner != worker_id
+        ):
+            return False
+        task = preflight_run.task
+        assignment_value = ModelAssignment.model_validate(
+            preflight_run.model_assignment
+        )
+        capabilities = set(assignment_value.capabilities)
+        required_jobs = surface_request_primary_jobs(preflight_run)
+        primary_job_descriptions = [item["description"] for item in required_jobs]
+
+    async def capture_runtime(*args: Any, **kwargs: Any) -> Any:
+        nonlocal captured_runtime, previous_files
+        captured_runtime = await runtime_resolver(*args, **kwargs)
+        project = dict(getattr(captured_runtime, "project_snapshot", None) or {})
+        draft = dict(project.get("draft") or {})
+        previous_files = {
+            str(path): str(content)
+            for path, content in dict(draft.get("files") or {}).items()
+        }
+        return captured_runtime
+
+    async def workspace_invoker(
+        llm: Any,
+        output_model: type[BaseModel],
+        legacy_messages: list[Any],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        nonlocal workspace, previous_files, invocation
+        if captured_runtime is None or previous_files is None:
+            raise RuntimeError("Surface development runtime was not resolved")
+        if workspace is None:
+            workspace = await LocalGitSurfaceWorkspace.create(
+                workspace_id=run_id,
+                base_files=previous_files,
+                build_runner=captured_runtime.workspace_build_runner,
+            )
+        invocation += 1
+        if invocation == 1:
+            user_context = (
+                task
+                + "\n\nTrusted Event and current Surface context:\n"
+                + _render_prompt_context(captured_runtime.prompt_context)
+                + "\n\nHost-owned acceptance jobs:\n"
+                + _json(required_jobs)
+            )
+        else:
+            legacy_text = str(legacy_messages[-1].content)
+            diagnostic_text = legacy_text
+            marker = "\nDiagnostics:\n"
+            source_marker = "\nExact current rejected source:\n"
+            if marker in legacy_text:
+                diagnostic_text = legacy_text.split(marker, 1)[1]
+            if source_marker in diagnostic_text:
+                diagnostic_text = diagnostic_text.split(source_marker, 1)[0]
+            user_context = (
+                task
+                + "\n\nThe full host gate rejected the checked workspace. Repair every "
+                "diagnostic below against the current workspace, then finish again.\n"
+                + diagnostic_text[:120_000]
+            )
+
+        on_delta = kwargs.get("on_delta")
+
+        async def progress(update: dict[str, Any]) -> None:
+            if callable(on_delta):
+                on_delta(
+                    f"workspace turn {update.get('turn', 0)}; "
+                    f"tool calls {update.get('tool_calls', 0)}\n"
+                )
+
+        ledger = getattr(llm, "budget_ledger", None)
+        remaining_turns = 20
+        if isinstance(ledger, BudgetLedger):
+            usage = ledger.snapshot()
+            max_steps = usage.get("max_steps")
+            if isinstance(max_steps, int):
+                remaining_turns = max(1, min(20, max_steps - int(usage["steps_used"])))
+        loop_result = await run_surface_builder_loop(
+            llm=llm,
+            workspace=workspace,
+            messages=[
+                SystemMessage(
+                    content=(
+                        SURFACE_BUILDER_RUN_PROFILE.system_prompt
+                        + "\n\nApply this exact Aloy Builder skill:\n\n"
+                        + surface_builder_instructions()
+                    )
+                ),
+                UserMessage(content=user_context),
+            ],
+            primary_jobs=primary_job_descriptions,
+            capabilities=capabilities,
+            budget_ledger=ledger if isinstance(ledger, BudgetLedger) else None,
+            max_turns=remaining_turns,
+            on_progress=progress,
+        )
+        current_files = {
+            item.source_path: item.content
+            for item in loop_result.finished.candidate.files
+        }
+        if invocation > 1 and current_files == previous_files:
+            raise SurfaceCandidateExhaustedError(
+                "Workspace repair did not change the rejected source"
+            )
+        receipt = loop_result.finished.receipt
+        workspace_receipts.append(
+            {
+                "kind": "surface_development_workspace",
+                "submission": invocation,
+                "workspace_id": receipt.workspace_id,
+                "base_commit": receipt.base_commit,
+                "candidate_commit": receipt.candidate_commit,
+                "source_fingerprint": receipt.source_fingerprint,
+                "changed_paths": receipt.changed_paths,
+                "diff_sha256": hashlib.sha256(
+                    receipt.diff_excerpt.encode("utf-8")
+                ).hexdigest(),
+                "diff_chars": len(receipt.diff_excerpt),
+                "turns": loop_result.turns,
+                "tool_calls": loop_result.tool_calls,
+                "protocol": loop_result.protocol,
+            }
+        )
+        summary = loop_result.finished.candidate.summary
+        if output_model is SurfaceCandidateEditEnvelope:
+            changes: list[SurfaceCandidateEditEnvelopeFile] = []
+            for path, content in sorted(current_files.items()):
+                if previous_files.get(path) != content:
+                    changes.append(
+                        SurfaceCandidateEditEnvelopeFile(
+                            path=f"/workspace{path}",
+                            operation="write",
+                            content=content,
+                        )
+                    )
+            changes.extend(
+                SurfaceCandidateEditEnvelopeFile(
+                    path=f"/workspace{path}",
+                    operation="delete",
+                )
+                for path in sorted(set(previous_files) - set(current_files))
+            )
+            parsed: BaseModel = SurfaceCandidateEditEnvelope(
+                summary=summary,
+                changes=changes,
+            )
+        elif output_model is SurfaceCandidateEnvelope:
+            parsed = SurfaceCandidateEnvelope(
+                summary=summary,
+                files=[
+                    SurfaceCandidateEnvelopeFile(
+                        path=f"/workspace{path}",
+                        content=content,
+                    )
+                    for path, content in sorted(current_files.items())
+                ],
+            )
+        else:
+            raise SurfaceCandidateOutputError(
+                {
+                    "error": "Workspace Builder received an unsupported output contract",
+                    "output_model": output_model.__name__,
+                }
+            )
+        previous_files = current_files
+        return {
+            "parsed": parsed,
+            "raw": {
+                "workspace_commit": receipt.candidate_commit,
+                "source_fingerprint": receipt.source_fingerprint,
+            },
+        }
+
+    try:
+        completed = await _execute_claimed_surface_builder_legacy(
+            run_id,
+            worker_id,
+            llm_factory=llm_factory,
+            structured_invoker=workspace_invoker,
+            runtime_resolver=capture_runtime,
+            pipeline_factory=pipeline_factory,
+        )
+        if workspace_receipts:
+            async with async_session() as receipt_session:
+                persisted = await receipt_session.get(Run, run_id)
+                if persisted is not None:
+                    persisted.execution_receipts = [
+                        *(persisted.execution_receipts or []),
+                        *workspace_receipts,
+                    ]
+                    metrics = dict(persisted.metrics or {})
+                    metrics["structured_output"] = False
+                    metrics["tool_calls"] = sum(
+                        int(item["tool_calls"]) for item in workspace_receipts
+                    )
+                    metrics["surface_workspace"] = {
+                        "version": "1",
+                        "submissions": len(workspace_receipts),
+                        "protocols": [
+                            str(item["protocol"]) for item in workspace_receipts
+                        ],
+                    }
+                    persisted.metrics = metrics
+                    persisted.tool_surface_fingerprint = stable_fingerprint(
+                        {
+                            "model_tools": [
+                                "list_files",
+                                "read_file",
+                                "search_source",
+                                "write_file",
+                                "replace_text",
+                                "delete_file",
+                                "run_typecheck",
+                                "run_preview_check",
+                                "read_diagnostics",
+                                "finish_candidate",
+                            ],
+                            "host_pipeline": "surface-host-v1",
+                            "workspace": "surface-development-workspace-v1",
+                        }
+                    )
+                    if persisted.status == "completed":
+                        persisted.reasoning = (
+                            "The Git-tracked Surface workspace passed its local "
+                            "compiler loop and the full host publication gate."
+                        )
+                    receipt_session.add(persisted)
+                    await receipt_session.commit()
+        return completed
+    finally:
+        if workspace is not None:
+            await workspace.close()
 
 
 __all__ = [

@@ -2,6 +2,28 @@
 
 ## Active Task
 
+R12 Event-resource work merged into `aloy-v1` through PR #223. The active R13
+branch, `aloy-v1-r13-surface-workspace`, replaces the default one-shot Surface
+Builder path with a provider-neutral iterative development workspace. The local
+provider uses an ephemeral source-only Git repository; the Builder receives
+bounded list/read/search/edit/check/diagnostic/finish tools, works across
+multiple turns, and no longer requires provider `structured_output`. A fresh
+trusted check must match the exact finished source fingerprint before the
+existing immutable revision, browser-quality, and atomic publication pipeline
+can make it live. Native tool calls are preferred and a validated JSON-action
+fallback supports text-only providers.
+
+R13 also adds a host-owned Surface element selector. The fixed local build
+toolchain overwrites intrinsic JSX with real source attribution, the isolated
+SDK captures bounded semantic element context without firing the underlying
+control, the host binds it to the authenticated build/revision, and the backend
+rejects stale selections. **Ask Aloy about this** and **Change this** route plain
+language plus hidden advisory selection context into the permanent Event
+Conversation. The integrated 78-test Surface suite passes against the rebuilt
+SDK, along with 32 kernel tool-call/skill tests, all 30 Aloy app tests, SDK and
+app production builds, app lint, full kernel/backend mypy, focused Ruff, Black,
+and isort. CI remains before merge.
+
 The live provider acceptance exposed and the branch now corrects a Builder
 control-flow flaw before any further paid testing: runtime inspection used to
 stop after each quality class, allowing successive model submissions to reveal
@@ -49,15 +71,12 @@ passed. The expanded 82-test Surface/request slice, focused Ruff and mypy, and
 the Aloy app's 29 tests, lint, typecheck, and production build are green.
 
 The Event-actions UX slice passed all seven GitHub checks and merged into
-`aloy-v1` through PR #222. The follow-on branch
-`aloy-v1-r12-surface-resources` now implements the trusted Event-resource
-boundary for generated Surfaces: typed file/artifact metadata, a host-owned
-`openResource(fileId)` Workbench intent with no Run or storage URL, and
-resource-aware `askAloy` turns whose explicit file IDs are revalidated by both
-the browser host and backend before entering the permanent Event Conversation.
-The Surface Builder skill and parent Surface/vision contracts describe the
-same API. Focused backend, bridge, SDK, lint, type, and production-build checks
-are green; the branch is ready for review and remains unmerged.
+`aloy-v1` through PR #222. The follow-on trusted Event-resource boundary also
+passed all checks and merged through PR #223: generated Surfaces receive typed
+file/artifact metadata, a host-owned `openResource(fileId)` Workbench intent
+with no Run or storage URL, and resource-aware `askAloy` turns whose explicit
+file IDs are revalidated by both the browser host and backend before entering
+the permanent Event Conversation.
 
 R11 durable Work Story hardening passed all seven GitHub checks and merged into
 `aloy-v1` through PR #216. R12's governed Event-template catalog passed all
@@ -135,6 +154,14 @@ control on those request cards.
 
 ## Decisions Made
 
+- Surface authoring uses a provider-neutral, source-only development workspace.
+  Local Git supplies execution checkpoints and diffs; immutable database
+  revisions remain canonical, and only the shared host pipeline can publish.
+- The Builder does not require provider structured output. Native tool calls or
+  a validated text action envelope drive the same bounded workspace tools.
+- Surface element selection is host-owned, source-attributed, and bound to the
+  current publication twice: by the authenticated iframe bridge and by the
+  message endpoint. It is advisory context, never action authority.
 - Work Story sequencing cannot depend on a `Run` row because inline
   Conversations emit milestones before their terminal Run is committed. A
   dedicated per-Run cursor atomically allocates sequence numbers in the same

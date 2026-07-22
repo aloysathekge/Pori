@@ -89,10 +89,12 @@ from .hitl import (
 from .llm.base import BaseChatModel
 from .llm.budgeted import ensure_budgeted_chat_model
 from .llm.messages import (
+    AssistantMessage,
     DocumentBlock,
     ImageBlock,
     SystemMessage,
     TextBlock,
+    ToolResultMessage,
     UserMessage,
     normalize_usage,
 )
@@ -368,6 +370,8 @@ __all__ = [
     "create_llm",
     "get_configured_llm",
     "SystemMessage",
+    "AssistantMessage",
+    "ToolResultMessage",
     "UserMessage",
     "ImageBlock",
     "DocumentBlock",

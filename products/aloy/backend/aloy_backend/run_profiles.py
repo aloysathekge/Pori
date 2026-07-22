@@ -5,25 +5,38 @@ from pori import RunProfile
 from .skills import SURFACE_BUILDER_SKILL_ID
 
 SURFACE_BUILDER_REQUIRED_TOOLS: frozenset[str] = frozenset()
-SURFACE_BUILDER_ALLOWED_TOOLS: frozenset[str] = frozenset()
+SURFACE_BUILDER_ALLOWED_TOOLS: frozenset[str] = frozenset(
+    {
+        "list_files",
+        "read_file",
+        "search_source",
+        "write_file",
+        "replace_text",
+        "delete_file",
+        "run_typecheck",
+        "run_preview_check",
+        "read_diagnostics",
+        "finish_candidate",
+    }
+)
 
 SURFACE_BUILDER_RUN_PROFILE = RunProfile(
     profile_id="aloy.surface-builder",
-    version="3",
+    version="4",
     system_prompt=(
-        "Return one schema-valid React Surface candidate, or the smallest exact "
-        "source transactions when revising the exact host-supplied candidate. "
-        "On repair, treat the current rejected source—not an older Event "
-        "snapshot—as the sole editing base. Treat source as "
-        "a proposal: use only the Surface SDK and declared intents, preserve "
-        "canonical Event data, and never claim that generation itself changed "
-        "durable truth. Aloy's trusted host—not you—persists, validates, builds, "
-        "previews, and publishes the candidate."
+        "Develop one React Surface inside the exact persistent workspace supplied "
+        "by Aloy's host. Inspect before editing, make bounded source changes, use "
+        "the fixed typecheck/preview operations, repair their diagnostics, and "
+        "finish only the checked current source. Treat source as a proposal: use "
+        "only the Surface SDK and declared intents, preserve canonical Event data, "
+        "and never claim that editing changed durable truth. Aloy's trusted host—"
+        "not you—owns Event state, the toolchain, the full quality gate, immutable "
+        "revision persistence, and publication."
     ),
     allowed_tools=SURFACE_BUILDER_ALLOWED_TOOLS,
     required_tools=SURFACE_BUILDER_REQUIRED_TOOLS,
     required_skill_ids=frozenset({SURFACE_BUILDER_SKILL_ID}),
-    required_model_capabilities=frozenset({"structured_output"}),
+    required_model_capabilities=frozenset(),
 )
 
 EVENT_BOOTSTRAP_RUN_PROFILE = RunProfile(

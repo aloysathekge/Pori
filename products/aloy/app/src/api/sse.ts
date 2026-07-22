@@ -71,6 +71,7 @@ export async function streamMessage(
     resume_run_id?: string;
     /** Durable upload ids for this turn (from uploadConversationFile). */
     file_refs?: string[];
+    surface_selection?: Record<string, unknown>;
     signal?: AbortSignal;
   },
 ) {

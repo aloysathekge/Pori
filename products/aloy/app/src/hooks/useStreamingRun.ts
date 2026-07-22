@@ -279,7 +279,10 @@ export function useStreamingRun({
     content: string,
     images: MessageImage[],
     files: PendingFile[],
-    opts?: { resumeRunId?: string },
+    opts?: {
+      resumeRunId?: string;
+      surfaceSelection?: Record<string, unknown>;
+    },
   ) {
     if (!activeId) return;
     setSending(true);
@@ -298,7 +301,7 @@ export function useStreamingRun({
       role: 'user',
       content,
       metadata:
-        images.length > 0 || files.length > 0
+        images.length > 0 || files.length > 0 || opts?.surfaceSelection
           ? {
               ...(images.length > 0 ? { images } : {}),
               ...(files.length > 0
@@ -312,6 +315,9 @@ export function useStreamingRun({
                       ...(f.file_id ? { file_id: f.file_id } : {}),
                     })),
                   }
+                : {}),
+              ...(opts?.surfaceSelection
+                ? { surface_selection: opts.surfaceSelection }
                 : {}),
             }
           : null,
@@ -332,6 +338,7 @@ export function useStreamingRun({
       await streamMessage(activeId, content, callbacks, {
         resume_run_id: opts?.resumeRunId,
         file_refs: uploadRefs.length > 0 ? uploadRefs : undefined,
+        surface_selection: opts?.surfaceSelection,
         images: images.length > 0 ? images : undefined,
         files:
           textFiles.length > 0

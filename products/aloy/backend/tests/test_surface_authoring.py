@@ -397,10 +397,24 @@ def test_surface_source_schema_guards_toolchain_and_workspace_paths():
 
 def test_surface_builder_profile_reserves_lifecycle_tools_for_the_host():
     assert SURFACE_BUILDER_RUN_PROFILE.required_tools == frozenset()
-    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset()
-    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset(
-        {"structured_output"}
+    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset(
+        {
+            "list_files",
+            "read_file",
+            "search_source",
+            "write_file",
+            "replace_text",
+            "delete_file",
+            "run_typecheck",
+            "run_preview_check",
+            "read_diagnostics",
+            "finish_candidate",
+        }
     )
+    assert not SURFACE_BUILDER_RUN_PROFILE.allowed_tools.intersection(
+        {"surface_publish", "surface_rollback", "shell", "answer"}
+    )
+    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset()
 
 
 def test_surface_migration_creates_and_removes_revision_tables(tmp_path):

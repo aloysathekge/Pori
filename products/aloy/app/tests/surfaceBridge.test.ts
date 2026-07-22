@@ -96,6 +96,64 @@ describe('SurfaceBridgeHost', () => {
     bridge.disconnect(false);
   });
 
+  test('binds an inspected element to the authenticated build and revision', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    const selections: Array<Record<string, unknown>> = [];
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      { onElementSelection: (selection) => selections.push(selection) },
+      { getContext: async () => context },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    bridge.setInspectionMode(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (!surfacePort) throw new Error('Surface port is unavailable');
+    surfacePort.postMessage({
+      protocol: '1',
+      type: 'selection',
+      sessionId,
+      selection: {
+        selectionId: 'selection-1',
+        nodeId: 'main:0/button:0',
+        tagName: 'button',
+        role: 'button',
+        accessibleName: 'Save application',
+        text: 'Save application',
+        componentId: 'application-form',
+        resource: 'data:career',
+        source: '/src/App.tsx:42:8',
+        bounds: { x: 10, y: 20, width: 180, height: 44 },
+        styles: {
+          display: 'inline-flex',
+          color: 'rgb(255, 255, 255)',
+          backgroundColor: 'rgb(15, 133, 113)',
+          fontSize: '14px',
+        },
+        // The iframe cannot choose authority; these are intentionally ignored.
+        buildId: 'forged-build',
+        codeRevisionId: 'forged-revision',
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(selections).toHaveLength(1);
+    expect(selections[0]).toMatchObject({
+      buildId: 'build-1',
+      codeRevisionId: 'revision-1',
+      accessibleName: 'Save application',
+      source: '/src/App.tsx:42:8',
+    });
+    bridge.disconnect(false);
+  });
+
   test('rejects an acknowledgement from a different session', async () => {
     const bridge = new SurfaceBridgeHost(
       'event-1',

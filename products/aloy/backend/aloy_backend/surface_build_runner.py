@@ -102,6 +102,66 @@ _FORBIDDEN_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
 )
 
+_SURFACE_SOURCE_INSTRUMENTER = r"""
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require(process.argv[2]);
+const sourceRoot = path.resolve(process.argv[3]);
+
+function sourceFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(full);
+    if (!entry.isFile() || !/\.(jsx|tsx)$/.test(entry.name)) return [];
+    if (entry.name.startsWith('.aloy-')) return [];
+    return [full];
+  });
+}
+
+function intrinsicName(tagName) {
+  return ts.isIdentifier(tagName) && /^[a-z]/.test(tagName.text);
+}
+
+for (const file of sourceFiles(sourceRoot)) {
+  const original = fs.readFileSync(file, 'utf8');
+  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.JSX;
+  const sourceFile = ts.createSourceFile(file, original, ts.ScriptTarget.Latest, true, kind);
+  const relative = '/' + path.relative(sourceRoot, file).split(path.sep).join('/');
+  const transformer = (context) => {
+    const visit = (node) => {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && intrinsicName(node.tagName)) {
+        const attributes = node.attributes.properties;
+        const modelAttributes = attributes.filter((attribute) => {
+          if (!ts.isJsxAttribute(attribute)) return true;
+          return attribute.name.text !== 'data-aloy-node' && attribute.name.text !== 'data-aloy-source';
+        });
+        const location = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const source = `${relative}:${location.line + 1}:${location.character + 1}`;
+        const nextAttributes = ts.factory.updateJsxAttributes(node.attributes, [
+          ...modelAttributes,
+          ts.factory.createJsxAttribute(ts.factory.createIdentifier('data-aloy-node'), ts.factory.createStringLiteral(source)),
+          ts.factory.createJsxAttribute(ts.factory.createIdentifier('data-aloy-source'), ts.factory.createStringLiteral(source)),
+        ]);
+        if (ts.isJsxOpeningElement(node)) {
+          node = ts.factory.updateJsxOpeningElement(node, node.tagName, node.typeArguments, nextAttributes);
+        } else {
+          node = ts.factory.updateJsxSelfClosingElement(node, node.tagName, node.typeArguments, nextAttributes);
+        }
+      }
+      return ts.visitEachChild(node, visit, context);
+    };
+    return (root) => ts.visitNode(root, visit);
+  };
+  const transformed = ts.transform(sourceFile, [transformer]);
+  try {
+    const output = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(transformed.transformed[0]);
+    fs.writeFileSync(file, output, 'utf8');
+  } finally {
+    transformed.dispose();
+  }
+}
+"""
+
 
 def _line_number(content: str, offset: int) -> int:
     return content.count("\n", 0, offset) + 1
@@ -332,7 +392,7 @@ class LocalDevelopmentSurfaceBuildRunner:
     Vite entrypoint. Production must use ``SandboxSurfaceBuildRunner``.
     """
 
-    toolchain_version = SURFACE_TOOLCHAIN_VERSION + "+local-dev"
+    toolchain_version = SURFACE_TOOLCHAIN_VERSION + "+local-dev+source-inspector@1"
 
     def __init__(self, *, repository_root: Path | None = None) -> None:
         self._repository_root = repository_root or Path(__file__).resolve().parents[4]
@@ -371,6 +431,7 @@ class LocalDevelopmentSurfaceBuildRunner:
             / "dist"
             / "index.d.ts",
             "typescript": app_modules / "typescript" / "bin" / "tsc",
+            "typescript_runtime": app_modules / "typescript" / "lib" / "typescript.js",
             "react_types": app_modules / "@types" / "react" / "index.d.ts",
             "react_jsx_types": app_modules / "@types" / "react" / "jsx-runtime.d.ts",
             "react_dom_types": app_modules / "@types" / "react-dom" / "client.d.ts",
@@ -554,6 +615,58 @@ class LocalDevelopmentSurfaceBuildRunner:
                             "typecheck_ms": round(typecheck_ms, 3),
                         },
                     )
+                instrumenter = root / ".aloy-instrument.cjs"
+                instrumenter.write_text(
+                    _SURFACE_SOURCE_INSTRUMENTER,
+                    encoding="utf-8",
+                )
+                instrumentation_started = time.perf_counter()
+                try:
+                    instrumented = subprocess.run(
+                        [
+                            node,
+                            str(instrumenter),
+                            str(toolchain["typescript_runtime"]),
+                            str(source),
+                        ],
+                        cwd=root,
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    return SurfaceBuildRunnerResult(
+                        status="failed",
+                        diagnostics=[
+                            _diagnostic(
+                                "source_instrumentation_timeout",
+                                "The host Surface source-attribution pass exceeded 15 seconds",
+                            )
+                        ],
+                    )
+                instrumentation_ms = (
+                    time.perf_counter() - instrumentation_started
+                ) * 1000
+                if instrumented.returncode != 0:
+                    instrumentation_log = (instrumented.stdout + instrumented.stderr)[
+                        -MAX_SURFACE_BUILD_LOG_CHARS:
+                    ]
+                    return SurfaceBuildRunnerResult(
+                        status="failed",
+                        build_log=instrumentation_log,
+                        diagnostics=[
+                            _diagnostic(
+                                "source_instrumentation_failed",
+                                "The host could not add trusted Surface source attribution",
+                            )
+                        ],
+                        resource_metrics={
+                            "backend": "local_dev",
+                            "typecheck_ms": round(typecheck_ms, 3),
+                            "instrumentation_ms": round(instrumentation_ms, 3),
+                        },
+                    )
                 config = root / "vite.config.mjs"
                 config.write_text(
                     "export default "
@@ -657,6 +770,7 @@ class LocalDevelopmentSurfaceBuildRunner:
                         "backend": "local_dev",
                         "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                         "typecheck_ms": round(typecheck_ms, 3),
+                        "instrumentation_ms": round(instrumentation_ms, 3),
                         "compile_ms": round(compile_ms, 3),
                         "bundle_bytes": len(bundle),
                     },

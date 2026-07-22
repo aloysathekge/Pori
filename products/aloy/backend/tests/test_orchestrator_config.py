@@ -48,12 +48,23 @@ def test_build_orchestrator_threads_product_and_user_run_contract(monkeypatch):
     assert orchestrator.run_profile == profile
 
 
-def test_surface_builder_profile_exposes_no_model_tools():
-    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset()
-    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == frozenset()
-    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset(
-        {"structured_output"}
+def test_surface_builder_profile_exposes_only_bounded_workspace_tools():
+    assert SURFACE_BUILDER_RUN_PROFILE.allowed_tools == frozenset(
+        {
+            "list_files",
+            "read_file",
+            "search_source",
+            "write_file",
+            "replace_text",
+            "delete_file",
+            "run_typecheck",
+            "run_preview_check",
+            "read_diagnostics",
+            "finish_candidate",
+        }
     )
+    assert SURFACE_BUILDER_RUN_PROFILE.required_tools == frozenset()
+    assert SURFACE_BUILDER_RUN_PROFILE.required_model_capabilities == frozenset()
 
 
 def test_ordinary_event_agent_can_request_but_cannot_author_a_surface(monkeypatch):
@@ -108,16 +119,20 @@ def test_product_owned_llm_config_never_inherits_user_agent_preferences(monkeypa
         model="frontier-builder",
         temperature=0.1,
     )
+    purpose_profile = RunProfile(
+        profile_id="aloy.test-purpose",
+        system_prompt="Follow the product-owned purpose contract.",
+    )
 
     orchestrator = orchestrator_module.build_orchestrator(
         llm_config=purpose_config,
-        run_profile=SURFACE_BUILDER_RUN_PROFILE,
+        run_profile=purpose_profile,
         skill_catalog=_load_bundled_skill_catalog(),
         file_backend=MemoryFileBackend(),
     )
 
     assert orchestrator.llm is llm
-    assert orchestrator.system_prompt == SURFACE_BUILDER_RUN_PROFILE.system_prompt
+    assert orchestrator.system_prompt == purpose_profile.system_prompt
     with pytest.raises(ValueError, match="mutually exclusive"):
         orchestrator_module.build_orchestrator(
             llm_config=purpose_config,
