@@ -456,12 +456,30 @@ async def execute_claimed_run(run_id: str, worker_id: str) -> None:
                 # chat path — connections, MCP servers, file library, gated
                 # denials. (It used to build runs without any of them: the
                 # drift the 2026-07-11 audit flagged.)
+                explicit_file_ids: tuple[str, ...] = ()
+                if surface_interaction is not None:
+                    result = surface_interaction.result or {}
+                    trigger = result.get("trigger")
+                    refs = (
+                        trigger.get("resource_refs")
+                        if isinstance(trigger, dict)
+                        else []
+                    )
+                    if isinstance(refs, list):
+                        explicit_file_ids = tuple(
+                            str(ref["id"])
+                            for ref in refs
+                            if isinstance(ref, dict)
+                            and ref.get("type") == "file"
+                            and isinstance(ref.get("id"), str)
+                        )
                 surface = await resolve_run_surface(
                     session,
                     organization_id=run.organization_id,
                     user_id=run.user_id,
                     event_id=run.event_id,
                     policy=policy,
+                    explicit_file_ids=explicit_file_ids,
                 )
                 execution_memory = memory
                 schedule_denials = scheduled_denied_tools(run)

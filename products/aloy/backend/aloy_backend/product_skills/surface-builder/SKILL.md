@@ -169,13 +169,14 @@ Unknown widget ids and missing capability grants fail closed before source is
 persisted. Provider-backed widgets such as maps are not yet in the registry;
 do not invent or declare them.
 
-Use `useEvent`, `useTasks`, `useSurfaceData(namespace)`,
+Use `useEvent`, `useTasks`, `useEventFiles`, `useSurfaceData(namespace)`,
 `useEventRecords(namespace)`, `useInteractions`, and
 `useCommandAttempts` for reactive reads. Their exact V1 shapes are:
 
 ```ts
 useEvent<T>(): T | null
 useTasks(): Array<Record<string, unknown>>
+useEventFiles(): SurfaceFile[]
 useSurfaceData<T>(namespace: string): Array<SurfaceDataRecord<T>>
 useEventRecords<T>(namespace: string): Array<EventRecord<T>>
 useInteractions(): SurfaceInteraction[]
@@ -189,6 +190,14 @@ useTrail(): SurfaceTrailEntry[]
 useCommandAttempts(): SurfaceCommandAttempt[]
 useSurfaceRuntime(): { status: 'disconnected' | 'healthy' | 'degraded'; message?: string }
 ```
+
+`useEventFiles()` exposes trusted metadata only for uploads and artifacts in
+the current Event when the manifest declares the `files` capability. Never
+invent a storage URL, fetch file bytes, or render a model-owned file viewer.
+Use `await openResource(file.id, {componentId})` to ask the host to open the
+normal trusted Workbench viewer. This is a host UI intent: it does not create a
+Run, mutate Event state, or require an idempotency key. Keep a visible error
+near the file control if opening fails because the resource was removed.
 
 `useSurfaceData` returns an array directly. Read each entity from
 `record.data`, use `record.key` as its canonical identity, and never destructure
@@ -266,7 +275,11 @@ to the host approval region. Spread its `feedbackProps` onto the persistently
 visible summary region so the trusted host can verify the pending state. Its
 `proposals` and `interactions` identify the work, but it never grants decision
 authority. Use `useReceipts()` to render confirmed external outcomes and
-`useTrail()` for a bounded semantic history. Never put Approve, Reject,
+`useTrail()` for a bounded semantic history. To ask Aloy about an explicit
+Event file, pass a typed reference rather than copying its contents into the
+prompt: `askAloy(message, context, {resources: [{type: 'file', id: file.id}]})`.
+The bridge and backend both revalidate that reference against the current
+Event and persist it with the permanent Conversation turn. Never put Approve, Reject,
 credential, payment-confirmation, or provider-execution authority in generated
 code; those controls remain in Aloy's trusted host.
 

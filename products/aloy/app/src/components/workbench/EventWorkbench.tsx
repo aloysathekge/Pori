@@ -37,6 +37,7 @@ interface EventWorkbenchProps {
   focused: boolean;
   onToggleFocus: () => void;
   onSurfaceAloyHandoff: (handoff: SurfaceAloyHandoff) => void;
+  onSurfaceOpenResource: (fileId: string) => void;
 }
 
 function TabIcon({ tab }: { tab: WorkbenchTab }) {
@@ -65,6 +66,7 @@ export function EventWorkbench({
   focused,
   onToggleFocus,
   onSurfaceAloyHandoff,
+  onSurfaceOpenResource,
 }: EventWorkbenchProps) {
   const splitRef = useRef<HTMLDivElement | null>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? SURFACE_TAB;
@@ -89,7 +91,7 @@ export function EventWorkbench({
 
   function activeContent() {
     if (activeTab.kind === 'surface') {
-      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} />;
+      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} />;
     }
     if (activeTab.kind === 'artifact') {
       return <ArtifactViewer conversationId={conversationId} path={activeTab.path} onAskAloy={onAskAloy} />;
@@ -154,7 +156,7 @@ export function EventWorkbench({
         {canShowSurfaceAlongside && showSurfaceAlongside && (
           <>
             <div className="hidden min-h-0 min-w-0 flex-none 2xl:block" style={{ flexBasis: `${resourceRatio}%` }}>
-              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} />
+              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} />
             </div>
             <button type="button" onPointerDown={startResize} className="group relative hidden w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-accent-600 2xl:block" aria-label="Resize Surface and active Workbench tab" title="Drag to resize"><span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-600 group-hover:bg-white/70" /></button>
           </>

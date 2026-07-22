@@ -61,7 +61,22 @@ export interface SurfaceRuntimeContext {
     message?: string;
     retryable: boolean;
   }>;
-  data: Record<string, unknown>;
+  data: {
+    files?: SurfaceRuntimeFile[];
+    [key: string]: unknown;
+  };
+}
+
+export interface SurfaceRuntimeFile {
+  id: string;
+  name: string;
+  kind: string;
+  in_library?: boolean;
+  content_type: string;
+  size_bytes: number;
+  origin_session_id: string | null;
+  origin_run_id: string | null;
+  created_at: string;
 }
 
 export type SurfaceInteractionMethod =
@@ -80,7 +95,13 @@ export interface SurfaceInteractionRequest {
   payload: Record<string, unknown>;
   message?: string;
   reason?: string;
+  resource_refs?: SurfaceResourceRef[];
   idempotency_key: string;
+}
+
+export interface SurfaceResourceRef {
+  type: 'file';
+  id: string;
 }
 
 export interface SurfaceInteractionResponse {

@@ -557,6 +557,14 @@ function EventPageWorkspace({
     openWorkbenchTab({ id: `file:${file.id}`, kind: 'file', label: file.name, file });
   }
 
+  function openSurfaceResource(fileId: string) {
+    const file = files.find((candidate) => candidate.id === fileId);
+    if (!file) {
+      throw new Error('This resource is no longer available in this Event.');
+    }
+    openFile(file);
+  }
+
   function handleFileDeleted(fileId: string) {
     closeWorkbenchTab(`file:${fileId}`);
     void loadSurface();
@@ -916,6 +924,7 @@ function EventPageWorkspace({
                 setWorkbenchFocused((value) => !value);
               }}
               onSurfaceAloyHandoff={handleSurfaceAloyHandoff}
+              onSurfaceOpenResource={openSurfaceResource}
             />
           </div>
         )}

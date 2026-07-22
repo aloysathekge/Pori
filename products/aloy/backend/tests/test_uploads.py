@@ -273,6 +273,10 @@ class TestUploadEndpoint:
             files={"file": ("course-plan.txt", b"course", "text/plain")},
         )
         await client.post(f"/v1/files/{event_file.json()['file_id']}/library")
+        explicit_file = await client.post(
+            f"/v1/conversations/{event_conv}/files",
+            files={"file": ("selected-notes.txt", b"selected", "text/plain")},
+        )
 
         async with db_session_maker() as session:
             dedicated = await resolve_run_surface(
@@ -289,10 +293,34 @@ class TestUploadEndpoint:
                 event_id=life_event_id,
                 policy=OrganizationPolicy(),
             )
+            selected = await resolve_run_surface(
+                session,
+                organization_id="user:test-user",
+                user_id="test-user",
+                event_id=event_id,
+                policy=OrganizationPolicy(),
+                explicit_file_ids=(explicit_file.json()["file_id"],),
+            )
+            life_with_foreign_selection = await resolve_run_surface(
+                session,
+                organization_id="user:test-user",
+                user_id="test-user",
+                event_id=life_event_id,
+                policy=OrganizationPolicy(),
+                explicit_file_ids=(explicit_file.json()["file_id"],),
+            )
 
         assert life_file.status_code == event_file.status_code == 201
         assert {row["name"] for row in dedicated.library} == {"course-plan.txt"}
         assert {row["name"] for row in life.library} == {
+            "life-plan.txt",
+            "course-plan.txt",
+        }
+        assert {row["name"] for row in selected.library} == {
+            "course-plan.txt",
+            "selected-notes.txt",
+        }
+        assert {row["name"] for row in life_with_foreign_selection.library} == {
             "life-plan.txt",
             "course-plan.txt",
         }

@@ -2,6 +2,17 @@
 
 ## Active Task
 
+The Event-actions UX slice passed all seven GitHub checks and merged into
+`aloy-v1` through PR #222. The follow-on branch
+`aloy-v1-r12-surface-resources` now implements the trusted Event-resource
+boundary for generated Surfaces: typed file/artifact metadata, a host-owned
+`openResource(fileId)` Workbench intent with no Run or storage URL, and
+resource-aware `askAloy` turns whose explicit file IDs are revalidated by both
+the browser host and backend before entering the permanent Event Conversation.
+The Surface Builder skill and parent Surface/vision contracts describe the
+same API. Focused backend, bridge, SDK, lint, type, and production-build checks
+are green; the branch is ready for review and remains unmerged.
+
 R11 durable Work Story hardening passed all seven GitHub checks and merged into
 `aloy-v1` through PR #216. R12's governed Event-template catalog passed all
 seven checks and merged through PR #217. The first model-free slice defines

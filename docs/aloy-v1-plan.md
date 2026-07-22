@@ -70,6 +70,10 @@ back into the Event without losing continuity.
     without a Run; explicit reasoning starts a Run; external consequences stage
     a Proposal. A canonical Task is created or changed only when genuine work
     with a useful definition of done exists.
+20. Surface file controls use typed Event metadata and host-owned resource
+    intents. Opening a file creates no Run and exposes no storage URL; asking
+    Aloy about it carries an explicit Event-scoped reference that the host and
+    backend both revalidate before the permanent Conversation turn is queued.
 
 ## 3. Branch and merge policy
 

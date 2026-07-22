@@ -24,6 +24,7 @@ from aloy_backend.models import (
     Message,
     Organization,
     Run,
+    StoredFile,
     SurfaceBuild,
     SurfaceCommandAttempt,
     SurfaceDataRecord,
@@ -937,10 +938,29 @@ async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
     db_session_maker,
 ):
     event = await _create_event(client, "Madrid")
-    manifest = SurfaceManifest(capabilities=["ask_aloy"]).model_dump(
+    manifest = SurfaceManifest(capabilities=["ask_aloy", "files"]).model_dump(
         mode="json", by_alias=True
     )
     build_id, revision_id = await _seed_runtime(db_session_maker, event["id"], manifest)
+    async with db_session_maker() as session:
+        event_row = await session.get(Event, event["id"])
+        assert event_row is not None
+        brief = StoredFile(
+            organization_id=event_row.organization_id,
+            user_id=event_row.user_id,
+            event_id=event_row.id,
+            conversation_id=event["conversation_id"],
+            kind="artifact",
+            name="match-weekend-brief.md",
+            content_type="text/markdown",
+            size_bytes=512,
+            sha256="brief-sha256",
+            storage_key="tests/match-weekend-brief.md",
+        )
+        session.add(brief)
+        await session.commit()
+        await session.refresh(brief)
+        brief_id = brief.id
     body = {
         "build_id": build_id,
         "code_revision_id": revision_id,
@@ -950,6 +970,7 @@ async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
         "component_id": "hotel-comparison",
         "payload": {"hotelIds": ["h1", "h2"]},
         "message": "Compare these two hotels for the match weekend.",
+        "resource_refs": [{"type": "file", "id": brief_id}],
         "idempotency_key": "madrid-compare-hotels-0001",
     }
     created = await client.post(
@@ -975,6 +996,15 @@ async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
         assert len(messages) == 1
         assert messages[0].metadata_["kind"] == "surface_interaction"
         assert messages[0].metadata_["surface_request_origin"] == "user_question"
+        assert messages[0].metadata_["files"] == [
+            {
+                "file_id": brief_id,
+                "name": "match-weekend-brief.md",
+                "size": 512,
+            }
+        ]
+        assert f'"id": "{brief_id}"' in runs[0].task
+        assert "<referenced-event-resources>" in runs[0].task
 
         run = runs[0]
         run.status = "running"
@@ -1033,6 +1063,61 @@ async def test_surface_ask_aloy_queues_one_canonical_conversation_run(
         assert len(messages) == 2
         assert messages[-1].metadata_["kind"] == "surface_reasoning_result"
         assert len(lifecycle) == 2
+
+
+async def test_surface_ask_aloy_rejects_file_from_another_event(
+    client,
+    db_session_maker,
+):
+    event = await _create_event(client, "University")
+    other = await _create_event(client, "Private travel")
+    manifest = SurfaceManifest(capabilities=["ask_aloy", "files"]).model_dump(
+        mode="json", by_alias=True
+    )
+    build_id, revision_id = await _seed_runtime(db_session_maker, event["id"], manifest)
+    async with db_session_maker() as session:
+        other_event = await session.get(Event, other["id"])
+        assert other_event is not None
+        private_file = StoredFile(
+            organization_id=other_event.organization_id,
+            user_id=other_event.user_id,
+            event_id=other_event.id,
+            conversation_id=other["conversation_id"],
+            kind="upload",
+            name="private-itinerary.pdf",
+            content_type="application/pdf",
+            size_bytes=1024,
+            sha256="private-sha256",
+            storage_key="tests/private-itinerary.pdf",
+        )
+        session.add(private_file)
+        await session.commit()
+        await session.refresh(private_file)
+        private_file_id = private_file.id
+
+    response = await client.post(
+        f"/v1/events/{event['id']}/surface/interactions",
+        json={
+            "build_id": build_id,
+            "code_revision_id": revision_id,
+            "data_revision": 0,
+            "method": "ask_aloy",
+            "name": "aloy.ask",
+            "component_id": "course-planner",
+            "payload": {},
+            "message": "Use this private file.",
+            "resource_refs": [{"type": "file", "id": private_file_id}],
+            "idempotency_key": "university-private-file-0001",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_resource_ref"
+    async with db_session_maker() as session:
+        assert (await session.execute(select(Run))).scalars().all() == []
+        assert (
+            await session.execute(select(Message).where(Message.role == "user"))
+        ).scalars().all() == []
 
 
 async def test_surface_permission_rejection_is_durable_and_non_retryable(

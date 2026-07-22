@@ -1343,6 +1343,24 @@ URLs and range-capable media loading; local Blob thumbnails are size-bounded so
 a file list never silently buffers a large video. Thumbnail failure falls back
 to the correct format icon and never prevents opening the original.
 
+Generated Surfaces receive only typed metadata for files in their Event and
+only when their immutable manifest declares the `files` capability. A Surface
+opens a file by emitting `openResource(fileId)` through the SDK. Aloy's trusted
+host revalidates the ID against the signed-in user and current Event, then
+opens the same first-class Workbench viewer used everywhere else. The iframe
+never receives object-store credentials, a permanent blob URL, or raw host
+filesystem access, and opening a resource does not summon Aloy or create a Run.
+
+When a Surface asks Aloy to reason about a file, it sends an explicit typed
+resource reference with the request. Both the host bridge and backend validate
+the reference again, attach the trusted file chip to the Event's permanent
+Conversation turn, and include its identity in the Run's context envelope.
+This makes Surface selections visible to Aloy without copying file contents
+through generated React or granting the iframe broader Event authority. The
+worker adds only those validated files to the Run's lazy file manifest, so
+Aloy can fetch one when needed without promoting it to the global library or
+paying the byte-transfer cost before reasoning actually requires it.
+
 Office previews prioritize safe access to content over false visual fidelity.
 Layout-faithful Office conversion, thumbnails, waveform generation, captions,
 and Desktop **Open in default application** may enrich the same presentation

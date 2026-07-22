@@ -219,10 +219,135 @@ describe('SurfaceBridgeHost', () => {
     bridge.disconnect(false);
   });
 
+  test('opens a declared Event file through host chrome without creating an interaction', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    let interactionCalls = 0;
+    const opened: Array<{ fileId: string; componentId: string }> = [];
+    const fileContext: SurfaceRuntimeContext = {
+      ...context,
+      capabilities: ['files'],
+      data: {
+        files: [{
+          id: 'file-1',
+          name: 'semester-plan.md',
+          kind: 'artifact',
+          content_type: 'text/markdown',
+          size_bytes: 2048,
+          origin_session_id: 'conversation-1',
+          origin_run_id: 'run-1',
+          created_at: '2026-07-22T12:00:00Z',
+        }],
+      },
+    };
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      { onOpenResource: (request) => { opened.push(request); } },
+      {
+        getContext: async () => fileContext,
+        createInteraction: async () => {
+          interactionCalls += 1;
+          return interaction;
+        },
+      },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (event.data.type === 'ping') {
+          surfacePort?.postMessage({
+            protocol: '1',
+            type: 'pong',
+            sessionId,
+            nonce: event.data.nonce,
+          });
+        } else if (event.data.type === 'response') {
+          resolve(event.data);
+        }
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-open-file',
+        method: 'openResource',
+        params: { fileId: 'file-1', componentId: 'reading-list' },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for host response')), 500);
+    });
+
+    await expect(response).resolves.toMatchObject({
+      ok: true,
+      result: { opened: true, fileId: 'file-1' },
+    });
+    expect(opened).toEqual([{ fileId: 'file-1', componentId: 'reading-list' }]);
+    expect(interactionCalls).toBe(0);
+    bridge.disconnect(false);
+  });
+
+  test('refuses resource ids outside the capability-scoped Event context', async () => {
+    let surfacePort: MessagePort | null = null;
+    let sessionId = '';
+    let opened = false;
+    const bridge = new SurfaceBridgeHost(
+      'event-1',
+      'build-1',
+      { onOpenResource: () => { opened = true; } },
+      {
+        getContext: async () => ({
+          ...context,
+          capabilities: ['files'],
+          data: { files: [] },
+        }),
+      },
+    );
+    await bridge.connect(
+      frame((message, port) => {
+        surfacePort = port;
+        sessionId = message.sessionId;
+        responsivePort(message, port);
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const response = new Promise<Record<string, unknown>>((resolve, reject) => {
+      if (!surfacePort) throw new Error('Surface port is unavailable');
+      surfacePort.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        if (event.data.type === 'response') resolve(event.data);
+      };
+      surfacePort.postMessage({
+        protocol: '1',
+        type: 'request',
+        sessionId,
+        requestId: 'request-open-missing-file',
+        method: 'openResource',
+        params: { fileId: 'other-event-file' },
+      });
+      setTimeout(() => reject(new Error('Timed out waiting for host response')), 500);
+    });
+
+    await expect(response).resolves.toMatchObject({
+      ok: false,
+      errorCode: 'invalid',
+      retryable: false,
+    });
+    expect(opened).toBe(false);
+    bridge.disconnect(false);
+  });
+
   test('notifies host chrome without letting its failure hide a successful handoff', async () => {
     let surfacePort: MessagePort | null = null;
     let sessionId = '';
     const handoffs: Array<{ method: string; name: string; message?: string }> = [];
+    let forwardedResourceIds: string[] = [];
     const bridge = new SurfaceBridgeHost(
       'event-1',
       'build-1',
@@ -233,14 +358,32 @@ describe('SurfaceBridgeHost', () => {
         },
       },
       {
-        getContext: async () => context,
-        createInteraction: async () => ({
-          ...interaction,
-          name: 'aloy.ask',
-          interaction_class: 'reasoning',
-          data_revision: null,
-          handling_run_id: 'run-ask-1',
+        getContext: async () => ({
+          ...context,
+          capabilities: ['ask_aloy', 'files'],
+          data: {
+            files: [{
+              id: 'file-brief',
+              name: 'flight-brief.md',
+              kind: 'artifact',
+              content_type: 'text/markdown',
+              size_bytes: 400,
+              origin_session_id: 'conversation-1',
+              origin_run_id: 'run-brief',
+              created_at: '2026-07-22T12:00:00Z',
+            }],
+          },
         }),
+        createInteraction: async (_eventId, request) => {
+          forwardedResourceIds = (request.resource_refs ?? []).map((ref) => ref.id);
+          return {
+            ...interaction,
+            name: 'aloy.ask',
+            interaction_class: 'reasoning',
+            data_revision: null,
+            handling_run_id: 'run-ask-1',
+          };
+        },
       },
     );
     await bridge.connect(
@@ -274,6 +417,7 @@ describe('SurfaceBridgeHost', () => {
         params: {
           message: 'Compare the selected flights',
           context: { selectedFlightId: 'flight-2' },
+          resources: [{ type: 'file', id: 'file-brief' }],
           componentId: 'flight-comparison',
           idempotencyKey: 'interaction-ask-1',
         },
@@ -287,7 +431,9 @@ describe('SurfaceBridgeHost', () => {
       method: 'ask_aloy',
       name: 'aloy.ask',
       message: 'Compare the selected flights',
+      resourceRefs: [{ type: 'file', id: 'file-brief' }],
     });
+    expect(forwardedResourceIds).toEqual(['file-brief']);
     bridge.disconnect(false);
   });
 

@@ -22,6 +22,7 @@ interface SurfaceFrameProps {
   eventTitle: string;
   refreshKey?: string;
   onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
+  onOpenResource?: (fileId: string) => void | Promise<void>;
 }
 
 type FrameState =
@@ -38,7 +39,13 @@ type RuntimeState = {
 
 const RECONNECT_DELAYS = [1_000, 2_000, 4_000] as const;
 
-export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }: SurfaceFrameProps) {
+export function SurfaceFrame({
+  eventId,
+  eventTitle,
+  refreshKey,
+  onAloyHandoff,
+  onOpenResource,
+}: SurfaceFrameProps) {
   const [state, setState] = useState<FrameState>({ kind: 'loading' });
   const [runtime, setRuntime] = useState<RuntimeState>({ status: 'idle' });
   const [reload, setReload] = useState(0);
@@ -55,6 +62,7 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
   const historyPopoverRef = useRef<HTMLDivElement | null>(null);
   const bridgeRef = useRef<SurfaceBridgeHost | null>(null);
   const onAloyHandoffRef = useRef(onAloyHandoff);
+  const onOpenResourceRef = useRef(onOpenResource);
   const currentBuildId = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
@@ -66,6 +74,10 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
   useEffect(() => {
     onAloyHandoffRef.current = onAloyHandoff;
   }, [onAloyHandoff]);
+
+  useEffect(() => {
+    onOpenResourceRef.current = onOpenResource;
+  }, [onOpenResource]);
 
   const clearReconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -223,6 +235,12 @@ export function SurfaceFrame({ eventId, eventTitle, refreshKey, onAloyHandoff }:
     bridgeRef.current?.disconnect(false);
     const bridge = new SurfaceBridgeHost(eventId, build.id, {
       onAloyHandoff: (handoff) => onAloyHandoffRef.current?.(handoff),
+      onOpenResource: ({ fileId }) => {
+        if (!onOpenResourceRef.current) {
+          throw new Error('The Event resource viewer is unavailable');
+        }
+        return onOpenResourceRef.current(fileId);
+      },
       onStatus(update) {
         if (bridgeRef.current !== bridge) return;
         if (update.status === 'healthy') {

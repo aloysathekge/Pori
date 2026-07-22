@@ -552,7 +552,7 @@ export interface SurfaceContext {
   data: {
     event?: Record<string, unknown>;
     tasks?: Array<Record<string, unknown>>;
-    files?: Array<Record<string, unknown>>;
+    files?: SurfaceFile[];
     proposals?: SurfaceProposal[];
     receipts?: SurfaceReceipt[];
     trail?: SurfaceTrailEntry[];
@@ -561,6 +561,29 @@ export interface SurfaceContext {
     surface?: Record<string, Array<SurfaceDataRecord>>;
     records?: Record<string, Array<EventRecord>>;
   };
+}
+
+/** Trusted metadata for one file or artifact scoped to the current Event. */
+export interface SurfaceFile {
+  id: string;
+  name: string;
+  kind: string;
+  in_library?: boolean;
+  content_type: string;
+  size_bytes: number;
+  origin_session_id: string | null;
+  origin_run_id: string | null;
+  created_at: string;
+}
+
+export interface OpenSurfaceResourceResult {
+  opened: true;
+  fileId: string;
+}
+
+export interface SurfaceResourceRef {
+  type: 'file';
+  id: string;
 }
 
 export type SurfaceResourceStatus =
@@ -1024,6 +1047,11 @@ export function useSurfaceContext(): SurfaceContext | null {
   return useSyncExternalStore(subscribeSurface, getSurfaceContext, () => null);
 }
 
+/** List trusted file and artifact metadata belonging to the current Event. */
+export function useEventFiles(): SurfaceFile[] {
+  return useSurfaceContext()?.data.files ?? [];
+}
+
 export function useSurfaceRuntime(): SurfaceRuntimeState {
   return useSyncExternalStore(
     subscribeSurfaceRuntime,
@@ -1401,13 +1429,39 @@ export function useSurfaceCommand<
 export function askAloy<T = Record<string, unknown>>(
   message: string,
   surfaceContext: Record<string, unknown> = {},
-  options: { componentId?: string; idempotencyKey?: string } = {},
+  options: {
+    componentId?: string;
+    idempotencyKey?: string;
+    resources?: SurfaceResourceRef[];
+  } = {},
 ): Promise<T> {
   return request<T>('askAloy', {
     message,
     context: surfaceContext,
+    resources: options.resources ?? [],
     componentId: componentId(options.componentId),
     idempotencyKey: idempotencyKey(options.idempotencyKey),
+  });
+}
+
+/** Ask the Aloy host to open an Event file in its trusted Workbench viewer. */
+export function openResource(
+  fileId: string,
+  options: { componentId?: string } = {},
+): Promise<OpenSurfaceResourceResult> {
+  const normalized = fileId.trim();
+  if (!normalized || normalized.length > 200) {
+    return Promise.reject(
+      new SurfaceRequestError('Event resource id is invalid', {
+        method: 'openResource',
+        code: 'invalid',
+        retryable: false,
+      }),
+    );
+  }
+  return request<OpenSurfaceResourceResult>('openResource', {
+    fileId: normalized,
+    componentId: componentId(options.componentId),
   });
 }
 
