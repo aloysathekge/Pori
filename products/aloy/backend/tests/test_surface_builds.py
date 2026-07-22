@@ -248,6 +248,9 @@ async def test_local_development_bundle_is_browser_safe():
     assert "process.env.NODE_ENV" not in script
     assert "process is not defined" not in script
     assert "aloy.surface.connect" in script
+    assert "data-aloy-source" in script
+    assert "/src/App.tsx:1:" in script
+    assert result.resource_metrics["instrumentation_ms"] >= 0
     runtime = build_surface_runtime_document(result.bundle)
     evidence: dict = {}
     diagnostics = inspect_surface_runtime(

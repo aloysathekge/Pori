@@ -19,6 +19,7 @@ from aloy_backend.models import (
     Run,
 )
 from aloy_backend.run_profiles import SURFACE_BUILDER_RUN_PROFILE
+from aloy_backend.surface_build_runner import SurfaceBuildRunnerResult
 from aloy_backend.surface_pipeline import (
     SurfaceCandidate,
     SurfaceCandidateEditEnvelope,
@@ -27,6 +28,7 @@ from aloy_backend.surface_pipeline import (
 )
 from aloy_backend.surface_requests import SURFACE_BUILDER_RUN_KIND
 from pori import stable_fingerprint
+from pori.llm.messages import ToolCall, ToolTurn
 
 
 async def test_progress_heartbeat_stop_handles_pre_start_cancellation() -> None:
@@ -280,6 +282,122 @@ async def _create_builder_run(db_session_maker, *, run_id: str) -> None:
             ]
         )
         await session.commit()
+
+
+async def test_default_builder_uses_git_workspace_tools_without_structured_output(
+    db_session_maker,
+    monkeypatch,
+):
+    monkeypatch.setattr(builder_module, "async_session", db_session_maker)
+    await _create_builder_run(db_session_maker, run_id="builder-workspace")
+
+    class WorkspaceModel:
+        model = "accounts/fireworks/models/kimi-k2p6"
+        last_usage = {
+            "prompt_tokens": 100,
+            "completion_tokens": 80,
+            "total_tokens": 180,
+        }
+
+        async def ainvoke_tools(self, _messages, _tools):
+            return ToolTurn(
+                tool_calls=[
+                    ToolCall(
+                        id="manifest",
+                        name="write_file",
+                        arguments={
+                            "path": "/surface.json",
+                            "content": (
+                                '{"format":"aloy-react-surface",'
+                                '"entrypoint":"/src/App.tsx","sdk_version":"1",'
+                                '"capabilities":[],"intents":{},"widgets":[]}'
+                            ),
+                        },
+                    ),
+                    ToolCall(
+                        id="app",
+                        name="write_file",
+                        arguments={
+                            "path": "/src/App.tsx",
+                            "content": (
+                                "export default function App() { return "
+                                "<main>Workspace Surface</main> }"
+                            ),
+                        },
+                    ),
+                    ToolCall(
+                        id="finish",
+                        name="finish_candidate",
+                        arguments={"summary": "Build in a workspace"},
+                    ),
+                ]
+            )
+
+    class WorkspaceRunner:
+        toolchain_version = "test@1"
+
+        async def build(self, *, build_id, files, manifest):
+            del build_id, manifest
+            assert "Workspace Surface" in files["/src/App.tsx"]
+            return SurfaceBuildRunnerResult(status="succeeded", bundle=b"bundle")
+
+    async def runtime_resolver(*_args, **_kwargs):
+        return SimpleNamespace(
+            prompt_context={
+                "event": {"title": "University"},
+                "brief": {"summary": "Manage Semester 2"},
+                "surface": {"draft": None},
+            },
+            project_snapshot={"expected_revision": None, "draft": None},
+            authoring_handler=object(),
+            build_handler=object(),
+            workspace_build_runner=WorkspaceRunner(),
+        )
+
+    class PublishingPipeline:
+        async def execute(self, candidate, *, submission):
+            assert submission == 1
+            assert any("Workspace Surface" in item.content for item in candidate.files)
+            return SurfacePipelineResult(
+                status="published",
+                candidate_fingerprint=candidate.fingerprint,
+                revision_id="revision-workspace",
+                build_id="build-workspace",
+                publication={"id": "publication-workspace"},
+            )
+
+    async def verified_receipt(*_args, **_kwargs):
+        return {
+            "project_id": "project-1",
+            "publication_id": "publication-workspace",
+            "revision_id": "revision-workspace",
+            "build_id": "build-workspace",
+        }
+
+    monkeypatch.setattr(
+        builder_module, "verified_surface_publication", verified_receipt
+    )
+    assert await builder_module.execute_claimed_surface_builder(
+        "builder-workspace",
+        "worker-a",
+        llm_factory=lambda _config: WorkspaceModel(),
+        runtime_resolver=runtime_resolver,
+        pipeline_factory=lambda **_kwargs: PublishingPipeline(),
+    )
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, "builder-workspace")
+        assert run is not None
+        assert run.status == "completed"
+        assert run.metrics["structured_output"] is False
+        assert run.metrics["tool_calls"] == 3
+        receipt = next(
+            item
+            for item in run.execution_receipts
+            if item.get("kind") == "surface_development_workspace"
+        )
+        assert receipt["protocol"] == "native_tools"
+        assert receipt["changed_paths"] == ["src/App.tsx", "surface.json"]
 
 
 async def test_builder_uses_structured_output_and_host_repairs_without_tools(

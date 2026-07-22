@@ -30,7 +30,7 @@ def _load_bundled_skill_catalog() -> SkillCatalog:
                 "provenance": "aloy-bundled",
                 "trust_level": "product",
                 "source": f"aloy-bundled:{manifest.slug}",
-                "required_model_capabilities": frozenset({"structured_output"}),
+                "required_model_capabilities": frozenset(),
                 "model_invocation_disabled": True,
             }
         )
@@ -43,7 +43,7 @@ def _load_bundled_skill_catalog() -> SkillCatalog:
 
 
 def surface_builder_instructions() -> str:
-    """Return the exact bundled Builder skill used by structured generation."""
+    """Return the exact bundled Builder skill used by workspace development."""
     skill = _load_bundled_skill_catalog().load(SURFACE_BUILDER_SKILL_ID)
     return skill.instructions
 

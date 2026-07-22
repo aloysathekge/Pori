@@ -64,7 +64,7 @@ import { useAttachments, type StoredFileReference } from '@/hooks/useAttachments
 import { useFileReferences } from '@/hooks/useFileReferences';
 import { useStreamingRun } from '@/hooks/useStreamingRun';
 import { useWorkspaceFocus } from '@/contexts/WorkspaceFocusContext';
-import type { SurfaceAloyHandoff } from '@/components/surfaces/surfaceBridge';
+import type { SurfaceAloyHandoff, SurfaceElementSelection } from '@/components/surfaces/surfaceBridge';
 import type { MessageResponse } from '@/types';
 
 type ContextTab = 'tasks' | 'approvals' | 'receipts' | 'files' | 'trail' | 'settings';
@@ -124,6 +124,10 @@ function EventPageWorkspace({
   const [loadingOlderTrail, setLoadingOlderTrail] = useState(false);
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'reconnecting' | 'stale' | 'offline'>('connecting');
   const [input, setInput] = useState('');
+  const [pendingSurfaceSelection, setPendingSurfaceSelection] = useState<{
+    selection: SurfaceElementSelection;
+    action: 'ask' | 'modify';
+  } | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [contextOpen, setContextOpen] = useState(() => window.localStorage.getItem(`aloy:event:${eventId}:context-open`) !== 'false');
@@ -496,9 +500,35 @@ function EventPageWorkspace({
     if (sending) return;
     const images = pendingImages;
     const files = pendingFiles;
+    const selectedSurfaceElement = pendingSurfaceSelection;
     resetAttachments();
+    setPendingSurfaceSelection(null);
     setInput('');
-    await dispatchSend(content, images, files);
+    await dispatchSend(content, images, files, {
+      surfaceSelection: selectedSurfaceElement
+        ? {
+            action: selectedSurfaceElement.action,
+            selection_id: selectedSurfaceElement.selection.selectionId,
+            build_id: selectedSurfaceElement.selection.buildId,
+            code_revision_id: selectedSurfaceElement.selection.codeRevisionId,
+            node_id: selectedSurfaceElement.selection.nodeId,
+            tag_name: selectedSurfaceElement.selection.tagName,
+            role: selectedSurfaceElement.selection.role,
+            accessible_name: selectedSurfaceElement.selection.accessibleName,
+            text: selectedSurfaceElement.selection.text,
+            component_id: selectedSurfaceElement.selection.componentId,
+            resource: selectedSurfaceElement.selection.resource,
+            source: selectedSurfaceElement.selection.source,
+            bounds: selectedSurfaceElement.selection.bounds,
+            styles: {
+              display: selectedSurfaceElement.selection.styles.display,
+              color: selectedSurfaceElement.selection.styles.color,
+              background_color: selectedSurfaceElement.selection.styles.backgroundColor,
+              font_size: selectedSurfaceElement.selection.styles.fontSize,
+            },
+          }
+        : undefined,
+    });
   }
 
   async function addTask() {
@@ -590,6 +620,24 @@ function EventPageWorkspace({
     void getConversation(conversationId)
       .then((conversation) => setMessages(conversation.messages))
       .catch(() => undefined);
+  }
+
+  function handleSurfaceElementSelection(
+    selection: SurfaceElementSelection,
+    action: 'ask' | 'modify',
+  ) {
+    setPendingSurfaceSelection({ selection, action });
+    const label = selection.accessibleName || selection.text || selection.role;
+    const prompt = action === 'modify'
+      ? `Change “${label}” in this Surface: `
+      : `Help me understand “${label}” in this Surface.`;
+    setInput((current) => (
+      current.trim() ? `${current.trim()}\n\n${prompt}` : prompt
+    ));
+    if (workspaceMode === 'workbench') setAloyPanelOpen(true);
+    else changeWorkspaceMode(
+      window.matchMedia('(min-width: 768px)').matches ? 'split' : 'conversation',
+    );
   }
 
   if (!data) {
@@ -877,6 +925,11 @@ function EventPageWorkspace({
               onRemoveImage={removeImage}
               pendingFiles={pendingFiles}
               onRemoveFile={removeFile}
+              contextAttachment={pendingSurfaceSelection ? {
+                label: pendingSurfaceSelection.action === 'modify' ? 'Change selected element' : 'Ask about selected element',
+                detail: pendingSurfaceSelection.selection.accessibleName || pendingSurfaceSelection.selection.role,
+                onRemove: () => setPendingSurfaceSelection(null),
+              } : undefined}
               disabled={sending && !clarify}
               placeholder={clarify ? 'Answer the question above…' : approval ? 'Approve or reject the action above…' : `Ask Aloy about ${data.event.title}…`}
               attachFull={attachmentsFull}
@@ -925,6 +978,7 @@ function EventPageWorkspace({
               }}
               onSurfaceAloyHandoff={handleSurfaceAloyHandoff}
               onSurfaceOpenResource={openSurfaceResource}
+              onSurfaceElementSelection={handleSurfaceElementSelection}
             />
           </div>
         )}
@@ -972,6 +1026,11 @@ function EventPageWorkspace({
                 onRemoveImage={removeImage}
                 pendingFiles={pendingFiles}
                 onRemoveFile={removeFile}
+                contextAttachment={pendingSurfaceSelection ? {
+                  label: pendingSurfaceSelection.action === 'modify' ? 'Change selected element' : 'Ask about selected element',
+                  detail: pendingSurfaceSelection.selection.accessibleName || pendingSurfaceSelection.selection.role,
+                  onRemove: () => setPendingSurfaceSelection(null),
+                } : undefined}
                 disabled={sending && !clarify}
                 placeholder={clarify ? 'Answer the question aboveâ€¦' : approval ? 'Review the approval aboveâ€¦' : `Ask Aloy about this ${activeWorkbenchTabId === 'surface' ? 'Surface' : 'view'}â€¦`}
                 attachFull={attachmentsFull}

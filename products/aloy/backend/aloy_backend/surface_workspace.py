@@ -37,7 +37,10 @@ from .models import (
 )
 from .storage import ObjectStore, get_object_store, safe_name
 from .surface_authoring import SurfaceAuthoringHandler, surface_project_snapshot
-from .surface_build_runner import SurfaceBuildRunner
+from .surface_build_runner import (
+    SurfaceBuildRunner,
+    configured_surface_build_runner,
+)
 from .surface_builds import SurfaceBuildHandler
 from .tools.surface_builds import SURFACE_BUILD_CONTEXT_KEY
 from .tools.surfaces import SURFACE_AUTHORING_CONTEXT_KEY
@@ -91,6 +94,7 @@ class SurfaceAuthoringRuntime:
     file_backend: CompositeFileBackend
     authoring_handler: SurfaceAuthoringHandler
     build_handler: SurfaceBuildHandler
+    workspace_build_runner: SurfaceBuildRunner
     project_snapshot: dict[str, Any]
     prompt_context: dict[str, Any]
 
@@ -268,6 +272,7 @@ async def resolve_surface_authoring_runtime(
             FileMount("/workspace", workspace_backend),
         )
     )
+    resolved_build_runner = build_runner or configured_surface_build_runner()
     return SurfaceAuthoringRuntime(
         file_backend=file_backend,
         authoring_handler=SurfaceAuthoringHandler(
@@ -277,11 +282,12 @@ async def resolve_surface_authoring_runtime(
         ),
         build_handler=SurfaceBuildHandler(
             run_context=run_context,
-            runner=build_runner,
+            runner=resolved_build_runner,
             object_store=object_store,
             session_factory=session_factory,
             owner_loop=owner_loop,
         ),
+        workspace_build_runner=resolved_build_runner,
         project_snapshot=project,
         prompt_context={
             "event": event_payload(event),

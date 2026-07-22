@@ -244,6 +244,36 @@ across worker crashes. A model answer without that proof becomes a failed
 interaction with retry guidance and cannot publish artifacts as if it used the
 selection.
 
+### 6.2 Point at a Surface element
+
+The trusted Workbench may enter an explicit element-selection mode. Hover and
+selection decoration is supplied by the SDK and host, not generated React. One
+trusted click captures bounded semantic context: role, accessible name, visible
+text, component/resource identity, bounds, a small style subset, and host-added
+source attribution. It suppresses the underlying application action so
+selecting **Save** cannot accidentally save.
+
+The build toolchain overwrites `data-aloy-node` and `data-aloy-source` on
+intrinsic JSX elements with the real project path and source position. The
+iframe may report that metadata, but the host binds the selection to the
+authenticated current build and code revision. The message endpoint verifies
+those exact publication pointers again; an old selection returns a conflict and
+must be selected again. Selection grants no command, file, publication, or
+approval authority.
+
+The host offers two outcomes:
+
+- **Ask Aloy about this** opens the permanent Event Conversation with the
+  element as advisory context for ordinary reasoning;
+- **Change this** opens the same Conversation with a source-change request that
+  can queue the normal Builder workspace and publication lifecycle.
+
+The visible user message remains plain language. The revision-bound selection
+is stored in message metadata and enters model context explicitly as advisory,
+untrusted UI context. This makes small changes precise without requiring a
+screenshot critic, while screenshots or richer region capture can remain a
+future optional input for visual redesigns.
+
 ## 7. Truth, evidence, and consequences
 
 Generated presentation cannot upgrade the posture of a claim. Canonical
@@ -265,20 +295,36 @@ not in skill instructions or generated source.
 
 ## 8. Authoring tools and Surface Builder skill
 
-The runtime needs product tools similar to:
+One Builder Run receives this bounded Surface Development Workspace toolset:
 
 ```text
-surface_read_project
-surface_write_files(expected_revision, idempotency_key, patches)
-surface_build
-surface_preview
-surface_publish(expected_revision)
-surface_rollback
+list_files
+read_file
+search_source
+write_file
+replace_text
+delete_file
+run_typecheck
+run_preview_check
+read_diagnostics
+finish_candidate
 ```
 
-Tools derive tenant, user, and Event identity from the authenticated Run. Source
-mutation, builds, and publishing are optimistic and idempotent. Publishing is
-atomic and produces a semantic Trail entry.
+The workspace starts from the exact retained revision and persists across the
+bounded edit/check/repair turns of that Run. Locally it is a temporary private
+Git worktree; remote implementations use the same provider-neutral protocol.
+Paths are jailed and source size, file count, actions, turns, tool calls, time,
+tokens, and cost are bounded. The model receives no shell, network, package
+installation, Event database, secret, or publish tool. Native model tools are
+preferred; a validated JSON action envelope supports text-only models without
+making provider structured output a requirement.
+
+`finish_candidate` runs a fresh host-owned check and accepts only the exact
+fingerprinted files it inspected. Git records baseline/candidate commits,
+changed paths, and a bounded diff receipt. The ordinary immutable revision,
+build, browser-inspection, primary-job, and atomic publication pipeline remains
+the only route to live. Workspace Git history is execution evidence, not
+canonical Event or Surface state.
 
 An Aloy **Surface Builder** skill is also required, but it is guidance—not the
 security boundary. It teaches:

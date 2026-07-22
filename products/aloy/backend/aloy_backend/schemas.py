@@ -234,6 +234,53 @@ class DocumentAttachment(BaseModel):
         return v
 
 
+class SurfaceSelectionBounds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: int = Field(ge=-100_000, le=100_000)
+    y: int = Field(ge=-100_000, le=100_000)
+    width: int = Field(ge=0, le=100_000)
+    height: int = Field(ge=0, le=100_000)
+
+
+class SurfaceSelectionStyles(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    display: str = Field(min_length=1, max_length=80)
+    color: str = Field(min_length=1, max_length=100)
+    background_color: str = Field(
+        min_length=1,
+        max_length=100,
+        alias="backgroundColor",
+    )
+    font_size: str = Field(min_length=1, max_length=50, alias="fontSize")
+
+
+class SurfaceMessageSelection(BaseModel):
+    """Advisory, revision-bound UI context selected in the trusted host."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    action: Literal["ask", "modify"]
+    selection_id: str = Field(min_length=1, max_length=200, alias="selectionId")
+    build_id: str = Field(min_length=1, max_length=200, alias="buildId")
+    code_revision_id: str = Field(
+        min_length=1,
+        max_length=200,
+        alias="codeRevisionId",
+    )
+    node_id: str = Field(min_length=1, max_length=300, alias="nodeId")
+    tag_name: str = Field(min_length=1, max_length=50, alias="tagName")
+    role: str = Field(min_length=1, max_length=80)
+    accessible_name: str = Field(default="", max_length=300, alias="accessibleName")
+    text: str = Field(default="", max_length=1_000)
+    component_id: str = Field(min_length=1, max_length=200, alias="componentId")
+    resource: str | None = Field(default=None, max_length=100)
+    source: str | None = Field(default=None, max_length=300)
+    bounds: SurfaceSelectionBounds
+    styles: SurfaceSelectionStyles
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     max_steps: int = Field(15, ge=1, le=10_000)
@@ -254,6 +301,9 @@ class SendMessageRequest(BaseModel):
     # POST /conversations/{id}/files. The model gets a reference block +
     # the file provisioned in its sandbox — bytes never ride in the request.
     file_refs: list[str] = Field(default_factory=list, max_length=10)
+    # Host-selected Surface context is advisory only. The endpoint binds it to
+    # the Event's exact current publication before it reaches model context.
+    surface_selection: SurfaceMessageSelection | None = None
 
 
 # --- Agent Configs ---

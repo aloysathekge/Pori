@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, FileSearch, Mic, Plus, Square, Upload, X } from 'lucide-react';
+import { ArrowUp, FileSearch, Mic, MousePointer2, Plus, Square, Upload, X } from 'lucide-react';
 import { FileTypeIcon } from '@/components/files/FileVisual';
 import type { MessageFile, MessageImage } from '@/types';
 import type { StoredFileReference } from '@/hooks/useAttachments';
@@ -37,6 +37,7 @@ export function Composer({
   onRemoveImage,
   pendingFiles,
   onRemoveFile,
+  contextAttachment,
   disabled,
   placeholder,
   attachFull,
@@ -62,6 +63,11 @@ export function Composer({
     error?: boolean;
   })[];
   onRemoveFile: (index: number) => void;
+  contextAttachment?: {
+    label: string;
+    detail: string;
+    onRemove: () => void;
+  };
   disabled: boolean;
   placeholder: string;
   attachFull: boolean;
@@ -79,7 +85,7 @@ export function Composer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragActive, setDragActive] = useState(false);
 
-  const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
+  const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0 || !!contextAttachment;
   const canSend = !disabled && (value.trim().length > 0 || hasAttachments);
   const pickerOpen = mention !== null || menu === 'files';
   const pickerQuery = mention?.query ?? browserQuery;
@@ -270,6 +276,23 @@ export function Composer({
 
       {hasAttachments && (
         <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 pt-3">
+          {contextAttachment && (
+            <div className="group relative flex shrink-0 items-center gap-2 rounded-xl border border-accent-600/30 bg-accent-600/10 py-2 pl-2.5 pr-3">
+              <MousePointer2 size={15} className="text-accent-500" />
+              <div className="min-w-0">
+                <p className="max-w-44 truncate text-xs font-medium text-zinc-200">{contextAttachment.label}</p>
+                <p className="max-w-44 truncate text-[10px] text-zinc-500">{contextAttachment.detail}</p>
+              </div>
+              <button
+                type="button"
+                onClick={contextAttachment.onRemove}
+                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-700 text-zinc-200 opacity-100 transition-opacity hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100"
+                aria-label="Remove selected Surface element"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          )}
           {pendingImages.map((image, index) => (
             <div key={`img-${index}`} className="group relative shrink-0">
               <img

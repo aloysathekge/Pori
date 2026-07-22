@@ -4,7 +4,7 @@ import type { EventFile } from '@/api/events';
 import type { StoredFileReference } from '@/hooks/useAttachments';
 import { RunReplay } from '@/components/chat/RunReplay';
 import { SurfaceFrame } from '@/components/surfaces/SurfaceFrame';
-import type { SurfaceAloyHandoff } from '@/components/surfaces/surfaceBridge';
+import type { SurfaceAloyHandoff, SurfaceElementSelection } from '@/components/surfaces/surfaceBridge';
 import { FileTypeIcon } from '@/components/files/FileVisual';
 import { ArtifactViewer } from './ArtifactViewer';
 import { StoredFileViewer } from './StoredFileViewer';
@@ -38,6 +38,10 @@ interface EventWorkbenchProps {
   onToggleFocus: () => void;
   onSurfaceAloyHandoff: (handoff: SurfaceAloyHandoff) => void;
   onSurfaceOpenResource: (fileId: string) => void;
+  onSurfaceElementSelection: (
+    selection: SurfaceElementSelection,
+    action: 'ask' | 'modify',
+  ) => void;
 }
 
 function TabIcon({ tab }: { tab: WorkbenchTab }) {
@@ -67,6 +71,7 @@ export function EventWorkbench({
   onToggleFocus,
   onSurfaceAloyHandoff,
   onSurfaceOpenResource,
+  onSurfaceElementSelection,
 }: EventWorkbenchProps) {
   const splitRef = useRef<HTMLDivElement | null>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? SURFACE_TAB;
@@ -91,7 +96,7 @@ export function EventWorkbench({
 
   function activeContent() {
     if (activeTab.kind === 'surface') {
-      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} />;
+      return <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} onElementSelectionAction={onSurfaceElementSelection} />;
     }
     if (activeTab.kind === 'artifact') {
       return <ArtifactViewer conversationId={conversationId} path={activeTab.path} onAskAloy={onAskAloy} />;
@@ -156,7 +161,7 @@ export function EventWorkbench({
         {canShowSurfaceAlongside && showSurfaceAlongside && (
           <>
             <div className="hidden min-h-0 min-w-0 flex-none 2xl:block" style={{ flexBasis: `${resourceRatio}%` }}>
-              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} />
+              <SurfaceFrame eventId={eventId} eventTitle={eventTitle} refreshKey={refreshKey} onAloyHandoff={onSurfaceAloyHandoff} onOpenResource={onSurfaceOpenResource} onElementSelectionAction={onSurfaceElementSelection} />
             </div>
             <button type="button" onPointerDown={startResize} className="group relative hidden w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-accent-600 2xl:block" aria-label="Resize Surface and active Workbench tab" title="Drag to resize"><span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-600 group-hover:bg-white/70" /></button>
           </>

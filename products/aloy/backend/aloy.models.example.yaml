@@ -13,7 +13,9 @@ roles:
     # One opaque model call may not consume the whole durable Run budget.
     generation_timeout_seconds: 120
     reasoning_mode: none
-    required_capabilities: [structured_output]
+    # Native tools are preferred when the provider supports them. Text-only
+    # models use the same bounded operations through Aloy's JSON action protocol.
+    required_capabilities: []
     skill_id: surface-builder@1
     qualification:
       # Change only after the model passes the governed Builder evaluation.

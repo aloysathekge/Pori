@@ -561,41 +561,53 @@ opportunity or request
 → monitor and improve
 ```
 
-The Builder submits one complete candidate revision. It does not orchestrate
-the mechanical lifecycle by calling persist, build, preview, publish, and
-answer tools in sequence. The trusted host owns that sequence atomically,
-returns structured diagnostics when repair is required, and grants at most a
-bounded number of candidate resubmissions. This keeps model behavior focused on
+The Builder edits one bounded development workspace. It does not orchestrate
+the mechanical persistence, browser inspection, publication, or Conversation
+answer lifecycle. The trusted host owns that sequence, returns concrete
+diagnostics when repair is required, and enforces aggregate step, tool, time,
+token, cost, and submission limits. This keeps model behavior focused on
 authoring while publication correctness remains deterministic.
 
-The Builder path is therefore not an agent tool loop. It is a bounded
-structured-generation loop: one product candidate, trusted host diagnostics,
-and at most two focused repair candidates under one aggregate token budget in
-V1. Every repair is rebased onto the exact rejected source; it does not receive
-an older draft buried in the broader Event context. The trusted inspector does
-not reveal quality gates
-one at a time: after a bundle boots, it completes every independent viewport,
-state, accessibility, interaction, and primary-job check it can safely execute
-and returns one compact diagnostic bundle. The repair uses exact single-match
-source replacements, whole-file writes only where necessary, and file creation
-or deletion against the frozen rejected revision. Ordered exact transactions
-may target one file more than once; Aloy applies them sequentially to an
-in-memory copy and commits only the final fully validated candidate. Missing or
-ambiguous matches reject the whole transaction without changing the frozen
-source. Redundant idempotent operations are normalized away so one already-
-satisfied manifest write cannot discard other meaningful changes. If the final
-transaction is still byte-identical to its frozen base, the Run ends immediately
-and never triggers another paid call. Aloy
-records each candidate fingerprint and stage receipt; the model cannot directly
-mutate a draft, launch a compiler, or advance the live publication pointer.
+The trusted inspector does not reveal quality gates one at a time. After a
+bundle boots, it completes every independent viewport, state, accessibility,
+interaction, and primary-job check it can safely execute and returns one
+compact diagnostic bundle. The Builder repairs that bundle against the exact
+current workspace. Missing or ambiguous exact replacements fail without
+touching canonical source; writes and deletes remain inside the source jail.
+An unchanged candidate terminates immediately rather than spending another
+call. Aloy records each candidate fingerprint and workspace receipt; the model
+cannot advance the live publication pointer.
 
 The Builder receives a purpose-scoped context projection, not the entire Event
-operational record. It gets the complete editable draft exactly once, active
-Event/Brief facts, bounded canonical records and permitted excerpts, compact
-semantic Trail summaries, and published revision metadata without a duplicate
-copy of published source. This keeps generation grounded while preventing old
-build receipts and repeated source from dominating latency, tokens, or prompt
-cache boundaries.
+operational record. Active Event/Brief facts, bounded canonical records,
+permitted excerpts, compact semantic Trail summaries, and publication metadata
+enter the assignment. Editable source enters a dedicated **Surface Development
+Workspace** instead of being duplicated into the prompt. This keeps generation
+grounded while preventing old build receipts and repeated source from
+dominating latency, tokens, or prompt-cache boundaries.
+
+The Surface Development Workspace is a provider-neutral, source-only worktree
+created for one Builder Run. Locally it is an ephemeral Git repository; a
+remote provider may implement the same protocol in E2B, Daytona, or another
+sandbox. The Builder can list, read, and search files; apply bounded writes,
+exact replacements, and deletes; run the fixed type and preview checks; read
+bounded diagnostics; and finish one exact candidate. It cannot run arbitrary
+shell commands, install packages, access the network, read Event storage, call
+providers, publish, or mutate canonical Event data. Git supplies a baseline,
+candidate commit, exact changed paths, and a bounded diff receipt. It is audit
+and recovery machinery, not the Event's source of truth; accepted immutable
+Surface revisions remain canonical in Aloy's data plane.
+
+The Builder works iteratively in that same workspace. It inspects the current
+tree, edits only what the request needs, runs checks, reads concrete failures,
+repairs, and calls `finish_candidate`. Native model tool calls are preferred.
+A small validated JSON action envelope provides compatibility for providers
+without native tools; neither path requires provider structured-output support.
+Every action is host-validated and budgeted. A finish is accepted only after a
+fresh trusted check whose fingerprint matches the exact files being submitted.
+The existing revision pipeline then persists, compiles, inspects, and publishes
+the candidate. A model never receives publication authority merely because it
+can edit source.
 
 Browser proofs have explicit isolation boundaries too. Each primary job starts
 from a fresh host-owned context. The ordered interaction suite resets once to
@@ -608,40 +620,23 @@ declare the corresponding trusted fixture; the host projects it only for that
 proof. Hypothetical state UI is never required to be visible against incompatible
 live data.
 
-Structured generation may take minutes and does not stream partial source.
-That must never look like inactivity. The Builder writes a durable heartbeat
-while waiting for the complete candidate, and every host-owned transition
-updates the Run: queued, generating, validating, compiling, inspecting,
-repairing, publishing, ready, failed, or overdue. Conversation shows a compact
-activity card after the assistant queues the work; opening it reveals the same
-state in the Surface Workbench with elapsed time and bounded retry count. The
-user may keep talking while this background work continues.
+Builder work may still take time, but it must never look inactive. The worker
+writes durable heartbeats and every host-owned transition updates the Run:
+queued, editing, checking, repairing, compiling, inspecting, publishing, ready,
+failed, or overdue. Individual source fragments never stream into the user
+Conversation. The activity card and Workbench show useful product state while
+the user keeps talking. Operator evidence records bounded tool transcripts,
+model usage, baseline/candidate commits, source fingerprints, changed paths,
+diagnostics, and timings without exposing raw internal mechanics to the user.
 
-A provider-level success is not a valid candidate until schema validation
-succeeds. Rejected output remains diagnosable: Aloy records the exact parser
-error, token usage, response length and hash, whether React-like source was
-present, and a bounded head/tail excerpt. Retry attempts preserve earlier
-rejection receipts. Raw failure evidence is bounded and owner-scoped; it is not
-silently discarded or mistaken for a successful build.
-
-Provider compatibility belongs below Aloy in the Pori model layer. A
-structured-output policy declares the provider's supported JSON Schema
-dialect, whether the schema must also be present in the prompt, strictness, and
-model-family request controls. Product schemas remain complete Pydantic
-contracts and host validation remains unchanged; only the request schema is
-adapted to the selected provider. The immutable Builder assignment also freezes
-a short per-generation deadline. That deadline is separate from the durable
-Run's wider pipeline budget, so one opaque model call cannot consume the full
-build lifecycle. Invalid structured output and generation timeout do not cause
-blind identical retries; failover requires an explicitly configured and
-qualified alternate Builder assignment.
-
-Provider shape validation and host authority validation are separate gates.
-The provider must return a complete candidate envelope with summary, primary
-jobs, and files. Aloy then validates paths, file types, sizes, manifests, SDK
-authority, and compiler ownership. A valid envelope containing a forbidden
-file such as `index.html` becomes trusted repair feedback and may consume the
-single bounded repair submission; the file is never accepted or published.
+Provider compatibility belongs below Aloy in the Pori model layer. An immutable
+Builder assignment freezes provider/model, tool compatibility, deadline,
+budgets, and fallback policy. Provider success means only that the next bounded
+workspace action was received; host validation, source policy, compiler
+ownership, inspection, and publication remain separate gates. A timeout,
+malformed action, repeated no-op, or exhausted budget terminates predictably and
+retains the last-good Surface. Failover requires an explicitly configured and
+qualified alternate Builder assignment; it is never an unbounded blind retry.
 
 Compilation happens only when source changes, never when an Event or published
 Surface is reopened. The fixed toolchain contains React, the Surface SDK,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, History, MessageSquareWarning, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
+import { Check, History, MessageSquareWarning, MousePointer2, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   getPublishedSurfaceRuntime,
   getSurfaceRuntimeDocument,
@@ -14,7 +14,7 @@ import {
 import { Spinner } from '@/components/ui/Spinner';
 import { useSurfaceActivity } from '@/hooks/useSurfaceActivity';
 import { SurfaceActivityStatus } from './SurfaceActivityStatus';
-import { SurfaceBridgeHost, type SurfaceAloyHandoff } from './surfaceBridge';
+import { SurfaceBridgeHost, type SurfaceAloyHandoff, type SurfaceElementSelection } from './surfaceBridge';
 import { SURFACE_IFRAME_SANDBOX } from './surfaceSecurity';
 
 interface SurfaceFrameProps {
@@ -23,6 +23,10 @@ interface SurfaceFrameProps {
   refreshKey?: string;
   onAloyHandoff?: (handoff: SurfaceAloyHandoff) => void;
   onOpenResource?: (fileId: string) => void | Promise<void>;
+  onElementSelectionAction?: (
+    selection: SurfaceElementSelection,
+    action: 'ask' | 'modify',
+  ) => void;
 }
 
 type FrameState =
@@ -45,6 +49,7 @@ export function SurfaceFrame({
   refreshKey,
   onAloyHandoff,
   onOpenResource,
+  onElementSelectionAction,
 }: SurfaceFrameProps) {
   const [state, setState] = useState<FrameState>({ kind: 'loading' });
   const [runtime, setRuntime] = useState<RuntimeState>({ status: 'idle' });
@@ -55,6 +60,8 @@ export function SurfaceFrame({
   const [restoringBuildId, setRestoringBuildId] = useState<string | null>(null);
   const [feedbackState, setFeedbackState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [inspectionMode, setInspectionMode] = useState(false);
+  const [selection, setSelection] = useState<SurfaceElementSelection | null>(null);
   const objectUrl = useRef<string | null>(null);
   const requestId = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -66,6 +73,7 @@ export function SurfaceFrame({
   const currentBuildId = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
+  const inspectionModeRef = useRef(false);
   const {
     activity,
     refresh: refreshActivity,
@@ -78,6 +86,11 @@ export function SurfaceFrame({
   useEffect(() => {
     onOpenResourceRef.current = onOpenResource;
   }, [onOpenResource]);
+
+  useEffect(() => {
+    inspectionModeRef.current = inspectionMode;
+    bridgeRef.current?.setInspectionMode(inspectionMode);
+  }, [inspectionMode]);
 
   const clearReconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -97,6 +110,8 @@ export function SurfaceFrame({
     setHistory(null);
     setHistoryError(null);
     setRuntime({ status: 'idle' });
+    setInspectionMode(false);
+    setSelection(null);
     setState({ kind: 'loading' });
     try {
       const published = await getPublishedSurfaceRuntime(eventId);
@@ -241,6 +256,10 @@ export function SurfaceFrame({
         }
         return onOpenResourceRef.current(fileId);
       },
+      onElementSelection: (nextSelection) => {
+        setSelection(nextSelection);
+        setInspectionMode(false);
+      },
       onStatus(update) {
         if (bridgeRef.current !== bridge) return;
         if (update.status === 'healthy') {
@@ -259,6 +278,7 @@ export function SurfaceFrame({
     bridgeRef.current = bridge;
     try {
       await bridge.connect(frame);
+      bridge.setInspectionMode(inspectionModeRef.current);
     } catch (cause) {
       if (bridgeRef.current !== bridge) return;
       scheduleReconnect(
@@ -381,6 +401,21 @@ export function SurfaceFrame({
           {state.kind === 'ready' && (
             <button
               type="button"
+              onClick={() => {
+                setSelection(null);
+                setInspectionMode((value) => !value);
+              }}
+              className={`flex h-10 w-10 items-center justify-center rounded-lg hover:bg-zinc-800 sm:h-8 sm:w-8 ${inspectionMode ? 'bg-accent-600/15 text-accent-500' : 'text-zinc-500 hover:text-zinc-200'}`}
+              aria-label={inspectionMode ? 'Stop selecting a Surface element' : 'Select a Surface element'}
+              aria-pressed={inspectionMode}
+              title={inspectionMode ? 'Stop selecting' : 'Select an element to ask Aloy or request a change'}
+            >
+              <MousePointer2 size={14} />
+            </button>
+          )}
+          {state.kind === 'ready' && (
+            <button
+              type="button"
               onClick={() => void markNotUseful()}
               disabled={feedbackState !== 'idle'}
               className="flex h-10 items-center gap-1.5 rounded-lg px-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-70 sm:h-8"
@@ -500,6 +535,12 @@ export function SurfaceFrame({
       )}
 
       <div className="relative min-h-0 flex-1">
+        {inspectionMode && state.kind === 'ready' && (
+          <div className="absolute inset-x-3 top-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-accent-600/30 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-200 shadow-xl backdrop-blur" role="status">
+            <span>Choose an element inside the Surface.</span>
+            <button type="button" onClick={() => setInspectionMode(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Cancel element selection"><X size={14} /></button>
+          </div>
+        )}
         {state.kind === 'loading' && (
           <div className="flex h-full items-center justify-center"><Spinner className="h-6 w-6" /></div>
         )}
@@ -576,6 +617,26 @@ export function SurfaceFrame({
               </div>
             )}
           </>
+        )}
+        {selection && state.kind === 'ready' && (
+          <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl border border-zinc-700/80 bg-zinc-950/95 p-3 shadow-2xl backdrop-blur" role="region" aria-label="Selected Surface element">
+            <div className="flex items-start gap-3">
+              <MousePointer2 size={15} className="mt-0.5 shrink-0 text-accent-500" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-zinc-100">
+                  {selection.accessibleName || selection.text || selection.role}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-zinc-500">
+                  Selected {selection.role}
+                </p>
+              </div>
+              <button type="button" onClick={() => setSelection(null)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Clear selected element"><X size={14} /></button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => { onElementSelectionAction?.(selection, 'ask'); setSelection(null); }} className="min-h-10 rounded-lg border border-zinc-700 px-3 text-xs font-medium text-zinc-200 hover:bg-zinc-800">Ask Aloy about this</button>
+              <button type="button" onClick={() => { onElementSelectionAction?.(selection, 'modify'); setSelection(null); }} className="min-h-10 rounded-lg bg-accent-600 px-3 text-xs font-semibold text-white hover:bg-accent-500">Change this</button>
+            </div>
+          </div>
         )}
       </div>
     </section>

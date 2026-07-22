@@ -700,6 +700,25 @@ export interface SurfaceRuntimeState {
   message?: string;
 }
 
+export interface SurfaceElementSelection {
+  selectionId: string;
+  nodeId: string;
+  tagName: string;
+  role: string;
+  accessibleName: string;
+  text: string;
+  componentId: string;
+  resource: string | null;
+  source: string | null;
+  bounds: { x: number; y: number; width: number; height: number };
+  styles: {
+    display: string;
+    color: string;
+    backgroundColor: string;
+    fontSize: string;
+  };
+}
+
 interface BridgeResponse {
   protocol: '1';
   type: 'response';
@@ -783,6 +802,186 @@ let runtime: SurfaceRuntimeState = disconnectedRuntime;
 const contextSubscribers = new Set<() => void>();
 const runtimeSubscribers = new Set<() => void>();
 const pending = new Map<string, PendingRequest>();
+let inspectionEnabled = false;
+let inspectionTarget: HTMLElement | null = null;
+let inspectionOverlay: HTMLDivElement | null = null;
+let inspectionPreviousCursor = '';
+
+function boundedText(value: string | null | undefined, maximum: number): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, maximum);
+}
+
+function semanticRole(element: HTMLElement): string {
+  const declared = element.getAttribute('role');
+  if (declared) return boundedText(declared, 80);
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'button') return 'button';
+  if (tag === 'a') return 'link';
+  if (/^h[1-6]$/.test(tag)) return 'heading';
+  if (tag === 'input') {
+    const type = (element.getAttribute('type') ?? 'text').toLowerCase();
+    if (type === 'checkbox') return 'checkbox';
+    if (type === 'radio') return 'radio';
+    if (type === 'range') return 'slider';
+    return 'textbox';
+  }
+  if (tag === 'textarea') return 'textbox';
+  if (tag === 'select') return 'combobox';
+  if (tag === 'table') return 'table';
+  if (tag === 'img') return 'img';
+  return tag;
+}
+
+function accessibleName(element: HTMLElement): string {
+  const labelledBy = element.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const label = labelledBy
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ');
+    if (label.trim()) return boundedText(label, 300);
+  }
+  const labels = (element as HTMLInputElement).labels;
+  if (labels?.length) {
+    const label = Array.from(labels).map((item) => item.textContent ?? '').join(' ');
+    if (label.trim()) return boundedText(label, 300);
+  }
+  return boundedText(
+    element.getAttribute('aria-label')
+      ?? element.getAttribute('alt')
+      ?? element.getAttribute('title')
+      ?? element.getAttribute('placeholder')
+      ?? element.textContent,
+    300,
+  );
+}
+
+function semanticNodeId(element: HTMLElement): string {
+  const declared = element.dataset.aloyNode;
+  if (declared) return boundedText(declared, 300);
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+  while (current && parts.length < 8) {
+    const tag = current.tagName.toLowerCase();
+    const siblings = current.parentElement
+      ? Array.from(current.parentElement.children).filter((child) => child.tagName === current?.tagName)
+      : [];
+    const index = Math.max(0, siblings.indexOf(current));
+    parts.unshift(`${tag}:${index}`);
+    if (current.dataset.aloySurfaceRoot === 'true') break;
+    current = current.parentElement;
+  }
+  return parts.join('/').slice(0, 300);
+}
+
+function ensureInspectionOverlay(): HTMLDivElement {
+  if (inspectionOverlay) return inspectionOverlay;
+  const overlay = document.createElement('div');
+  overlay.dataset.aloyInspectorOverlay = 'true';
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    zIndex: '2147483647',
+    pointerEvents: 'none',
+    border: '2px solid #0f8571',
+    borderRadius: '6px',
+    background: 'rgb(15 133 113 / 10%)',
+    boxShadow: '0 0 0 1px rgb(255 255 255 / 70%) inset',
+    display: 'none',
+  });
+  document.documentElement.appendChild(overlay);
+  inspectionOverlay = overlay;
+  return overlay;
+}
+
+function positionInspectionOverlay(element: HTMLElement | null) {
+  if (!element && !inspectionOverlay) return;
+  const overlay = ensureInspectionOverlay();
+  if (!element) {
+    overlay.style.display = 'none';
+    return;
+  }
+  const bounds = element.getBoundingClientRect();
+  Object.assign(overlay.style, {
+    display: 'block',
+    left: `${bounds.left}px`,
+    top: `${bounds.top}px`,
+    width: `${bounds.width}px`,
+    height: `${bounds.height}px`,
+  });
+}
+
+function selectableTarget(value: EventTarget | null): HTMLElement | null {
+  if (!(value instanceof HTMLElement)) return null;
+  if (value.dataset.aloyInspectorOverlay === 'true') return null;
+  return value.closest<HTMLElement>('[data-aloy-node], button, a, input, select, textarea, [role], section, article, header, nav, li, tr, main, div, span');
+}
+
+function onInspectionPointer(event: PointerEvent) {
+  if (!inspectionEnabled || !event.isTrusted) return;
+  inspectionTarget = selectableTarget(event.target);
+  positionInspectionOverlay(inspectionTarget);
+}
+
+function onInspectionClick(event: MouseEvent) {
+  if (!inspectionEnabled || !event.isTrusted) return;
+  const element = selectableTarget(event.target) ?? inspectionTarget;
+  if (!element || !port || !sessionId || !context) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const bounds = element.getBoundingClientRect();
+  const styles = window.getComputedStyle(element);
+  const component = element.closest<HTMLElement>('[data-aloy-component], [data-aloy-action], [data-aloy-field]');
+  const resource = element.closest<HTMLElement>('[data-aloy-resource]');
+  const selection: SurfaceElementSelection = {
+    selectionId: createRuntimeId('selection'),
+    nodeId: semanticNodeId(element),
+    tagName: element.tagName.toLowerCase().slice(0, 50),
+    role: semanticRole(element),
+    accessibleName: accessibleName(element),
+    text: boundedText(element.textContent, 1_000),
+    componentId: boundedText(component?.dataset.aloyComponent ?? component?.id ?? 'surface', 200),
+    resource: resource?.dataset.aloyResource?.slice(0, 100) ?? null,
+    source: element.dataset.aloySource?.slice(0, 300) ?? null,
+    bounds: {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    },
+    styles: {
+      display: styles.display.slice(0, 80),
+      color: styles.color.slice(0, 100),
+      backgroundColor: styles.backgroundColor.slice(0, 100),
+      fontSize: styles.fontSize.slice(0, 50),
+    },
+  };
+  port.postMessage({
+    protocol: PROTOCOL,
+    type: 'selection',
+    sessionId,
+    selection,
+  });
+  inspectionEnabled = false;
+  inspectionTarget = null;
+  positionInspectionOverlay(null);
+}
+
+function setInspectionEnabled(enabled: boolean) {
+  if (enabled && !inspectionEnabled) {
+    inspectionPreviousCursor = document.documentElement.style.cursor;
+  }
+  inspectionEnabled = enabled;
+  inspectionTarget = null;
+  positionInspectionOverlay(null);
+  document.documentElement.style.cursor = enabled ? 'crosshair' : inspectionPreviousCursor;
+  if (enabled) {
+    document.addEventListener('pointerover', onInspectionPointer, true);
+    document.addEventListener('click', onInspectionClick, true);
+  } else {
+    document.removeEventListener('pointerover', onInspectionPointer, true);
+    document.removeEventListener('click', onInspectionClick, true);
+  }
+}
 
 function publishContext(next: SurfaceContext) {
   context = next;
@@ -896,6 +1095,7 @@ function onPortMessage(event: MessageEvent<unknown>) {
     context?: SurfaceContext;
     status?: string;
     message?: string;
+    enabled?: boolean;
   } | null;
   if (
     !value
@@ -917,10 +1117,15 @@ function onPortMessage(event: MessageEvent<unknown>) {
     return;
   }
   if (value.type === 'runtime' && value.status === 'degraded') {
+    setInspectionEnabled(false);
     publishRuntime({ status: 'degraded', message: value.message });
     port?.close();
     port = null;
     sessionId = null;
+    return;
+  }
+  if (value.type === 'inspection' && typeof value.enabled === 'boolean') {
+    setInspectionEnabled(value.enabled);
     return;
   }
   if (value.type !== 'response' || !('requestId' in value)) return;
@@ -976,6 +1181,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     || event.ports.length !== 1
   ) return;
 
+  setInspectionEnabled(false);
   port?.close();
   for (const request of pending.values()) clearPendingTimeout(request);
   sessionId = value.sessionId;

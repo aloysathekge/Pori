@@ -1174,6 +1174,51 @@ User-facing discovery and installation completed on
   workspace while the model-free starting Surface reports `preparing`; and
 - unavailable or empty catalogs never block the existing custom Event setup.
 
+### R13 - iterative Surface development workspace
+
+Replace one-shot full-source generation with the same basic architecture that
+makes reliable coding agents useful: a persistent bounded worktree, explicit
+edit and inspection tools, concrete compiler feedback, immutable checkpoints,
+and a separate publish authority.
+
+**Branch:** `aloy-v1-r13-surface-workspace`
+
+Scope:
+
+- define a provider-neutral `SurfaceDevelopmentWorkspace` and implement the
+  local development provider as an ephemeral source-only Git repository;
+- expose only list/read/search/write/exact-replace/delete, fixed type and
+  preview checks, bounded diagnostics, and `finish_candidate`;
+- prefer native model tool calls and support a small validated JSON-action
+  fallback, removing `structured_output` as a Builder eligibility requirement;
+- keep the workspace alive across bounded edit/check/repair turns, record its
+  baseline and candidate commits, changed paths, fingerprint, and diff receipt,
+  then hand the exact result to the existing revision/publish pipeline;
+- add host-owned JSX source attribution and a Workbench element selector that
+  routes **Ask Aloy about this** and **Change this** into the permanent Event
+  Conversation with revision-bound advisory context;
+- reject stale selection context after a publication changes, and preserve the
+  last-good Surface on every Builder or inspection failure.
+
+Gate:
+
+- a model can inspect and repair a multi-file Surface without re-emitting the
+  complete project or relying on provider structured output;
+- no workspace operation can escape the path jail, exceed source limits, run
+  arbitrary commands, install packages, use the network, or publish;
+- `finish_candidate` cannot submit files that differ from the fresh trusted
+  check fingerprint;
+- iframe-supplied build/revision claims are ignored, and the backend accepts a
+  selected element only against the current Event publication;
+- source selection is precise enough to begin a focused Builder change without
+  requiring a screenshot critic;
+- focused Builder/workspace/bridge/message tests, backend static checks, app
+  tests/lint/build, and CI are green.
+
+Remote E2B/Daytona workspace providers, warm pools, content-addressed compile
+caching, and richer drag-region/screenshot selection follow the same protocol
+after local behavior is measured. They are not alternate product semantics.
+
 ## 6. Required V1 evals
 
 1. **Conversation topology:** New conversation enters Life; New Event creates
@@ -1268,28 +1313,24 @@ memory, or success declaration.
 
 ## 8. Immediate next action
 
-The R9 Surface quality and operator-control slices, trusted universal file
-viewer, and R11 durable Work Stories plus hardening are merged into `aloy-v1`
-through PRs #214 and #216.
-The private `aloy-internal` repository is bootstrapped separately and must stay
-an optional operator consumer of protected APIs, never a product dependency.
+R12 is merged into `aloy-v1`, including the Event-resource boundary through PR
+#223. R13 now establishes the local Git-backed Surface Development Workspace,
+iterative Builder tool loop, host source attribution, and revision-bound
+element-selection flow. Finish its verification and merge it into `aloy-v1`.
 
-The R12 backend contract, installation transaction, protected two-step release
-API, Aloy Internal review workflow, first real Career OS v1 candidate,
-automatic model-free source materialization, and catalog discovery/install UI
-are implemented without model credits. The catalog and materialization work
-merged through PRs #217 and #218; Career OS v1 merged into Aloy Internal's
-`main` through PR #5 with reviewed fingerprint
-`a914fb5865531441e12bc3cffab53a88220447ac049b10216d679b54e190c0ae`.
-Next, merge the discovery UI, configure local-only operator authority outside Git,
-stage and publish the exact reviewed candidate, then prove the signed-in
-install -> preparing -> live Surface path. Add a protected asset-upload boundary before binary template assets;
-Aloy Internal must not receive direct object-store access. University then uses
-the same contracts; Madrid waits for the trusted Map/widget phase. Subscription
-packaging remains a separate entitlement/limits design and must not leak into
-template taxonomy.
+After R13, exercise one bounded paid Builder acceptance against a real Event:
+request a focused change, observe edit/check/repair progress, publish only the
+passing candidate, select the changed element, and route a follow-up Ask and
+Modify turn through the permanent Event Conversation. Measure model, editing,
+typecheck, compile, inspection, storage, and publication timings separately.
 
-R10 document ingestion remains a parallel planned architecture slice, not a
-reason to block the template proof. Keep `main` untouched until manual product
-QA, live-provider proofs, remote sandbox acceptance, and dogfooding exit
-criteria pass.
+Then implement the remote workspace provider behind the same contract and test
+cold versus warm latency. Add content-addressed build reuse only after telemetry
+shows where time is spent. Do not weaken the fixed toolchain, host quality gate,
+or last-good publication policy to make a demo appear faster.
+
+The protected template asset-upload boundary and University starting template
+remain next product work; Madrid still waits for the trusted Map/widget phase.
+R10 document ingestion remains a parallel planned architecture slice. Keep
+`main` untouched until manual product QA, live-provider proofs, remote sandbox
+acceptance, and dogfooding exit criteria pass.

@@ -21,35 +21,25 @@ all use the same runtime and safety contract.
    The request includes a host-issued `primary_job_contract`. Copy every job id
    and description exactly into `surface.json`; never drop, rename, reorder, or
    replace them with easier jobs.
-3. Follow the generation contract supplied by the host. For a new Surface,
-   return one schema-valid complete candidate containing every required source
-   file. For an existing Surface, return only the smallest source transactions
-   required for the requested revision. Prefer `replace_text` with an exact
-   fragment that occurs once; use a whole-file `write` only for a broad rewrite,
-   and use `delete` only for an existing file. Preserve unmentioned files and
-   never repeat the complete project. Changes execute in listed order, so use
-   multiple exact `replace_text` operations when one file needs several small
-   edits. Aloy applies the full transaction to the frozen base revision in memory
-   and validates the resulting complete candidate atomically. Do not restate an
-   already-satisfied write; the host safely ignores redundant operations but
-   rejects a transaction whose final source is entirely unchanged. Use only the
-   provided Surface SDK and approved dependencies. Do not access host APIs,
-   ambient credentials, arbitrary network endpoints, or parent-frame internals.
-   Aloy owns the application shell and fixed compiler: never return
-   `index.html`, package manifests, lockfiles, compiler configuration,
-   dependencies, or other toolchain files. Return only model-owned React,
-   TypeScript, JavaScript, CSS, JSON, Markdown, and SVG source.
-4. Do not call authoring, filesystem, build, preview, publication, rollback, or
-   answer tools. Aloy's trusted host owns those operations and the model-visible
-   tool surface is intentionally empty.
-5. When the host returns deterministic diagnostics, repair every finding using
-   the generation contract for that submission. The host reports every
-   independent compiler, viewport, state, accessibility, interaction, and
-   primary-job failure it can observe as one compact bundle. A repair receives
-   the exact rejected source as its sole editing base, without unrelated Event
-   history or an older draft. V1 permits at most two focused repairs under one
-   aggregate token budget, so fix the whole bundle and never repeat unchanged
-   source.
+3. Work only through the host-owned Surface workspace operations. Start with
+   `list_files`, then use `read_file` and `search_source` to understand the exact
+   current project. Prefer `replace_text` with a fragment that occurs once; use
+   `write_file` only to create a file or when a broad rewrite is truly required,
+   and use `delete_file` only for an existing source file. The workspace persists
+   between turns and is Git-tracked, so do not repeat unchanged source.
+4. Use only the provided Surface SDK and approved dependencies. Do not access
+   host APIs, ambient credentials, arbitrary network endpoints, parent-frame
+   internals, a shell, or package installation. Aloy owns the application shell
+   and fixed compiler: never create `index.html`, package manifests, lockfiles,
+   compiler configuration, dependencies, or other toolchain files. Edit only
+   model-owned React, TypeScript, JavaScript, CSS, JSON, Markdown, and SVG source.
+5. Run `run_typecheck` or `run_preview_check` after a coherent edit. Read and
+   repair every diagnostic against the current workspace. `finish_candidate`
+   performs a fresh trusted check and succeeds only for that exact source
+   fingerprint. It creates a Git commit and candidate receipt, not a publication.
+   If the later full browser/quality gate rejects it, continue editing the same
+   workspace and repair the whole compact diagnostic bundle. Never repeat an
+   unchanged candidate merely to spend another model call.
 6. Bind displayed facts to canonical Event data. Label each important value as
    user-reported, verified, estimated, pending, or indeterminate; never present
    a plan or estimate as completed reality.
@@ -90,7 +80,7 @@ all use the same runtime and safety contract.
    normal text and 3:1 for large text. Treat browser-reported focus and contrast
    failures as blocking diagnostics, not visual preferences.
 9. Repair deterministic build, SDK, accessibility, responsiveness, and intent
-   diagnostics in the next complete candidate.
+   diagnostics in the current workspace before finishing again.
    Every declared intent must include an accessible executable
    `interaction_checks` path in `surface.json`. Aloy's host runs those paths in
    a real browser against the exact Event context and refuses publication when
