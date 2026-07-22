@@ -94,7 +94,7 @@ async def get_artifact_content(
     renderer = presentation_kind(record.name, record.content_type)
     content = None
     truncated = False
-    if renderer in {"code", "markdown", "text"}:
+    if renderer in {"code", "html", "markdown", "text"}:
         try:
             raw = await run_in_threadpool(_read_artifact_head, record.storage_key)
         except FileNotFoundError:

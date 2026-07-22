@@ -1,8 +1,9 @@
 """Trusted file presentation classification and bounded Office previews.
 
-Original bytes remain immutable in object storage. This module never renders
-untrusted HTML: it returns typed JSON which the Aloy host maps to fixed viewer
-components. Generated Surfaces do not participate in this path.
+Original bytes remain immutable in object storage. This module never executes
+HTML: it returns typed JSON which the Aloy host maps to fixed viewer
+components. The host may place an HTML artifact in its isolated preview frame;
+generated Surfaces do not participate in this path.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ _DOCX_SUFFIXES = {".docx"}
 _SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 _SLIDE_SUFFIXES = {".pptx"}
 _MARKDOWN_SUFFIXES = {".md", ".mdx"}
+_HTML_SUFFIXES = {".htm", ".html"}
 _CODE_SUFFIXES = {
     ".astro",
     ".bash",
@@ -45,8 +47,6 @@ _CODE_SUFFIXES = {
     ".graphql",
     ".h",
     ".hpp",
-    ".htm",
-    ".html",
     ".ini",
     ".java",
     ".js",
@@ -155,6 +155,8 @@ def presentation_kind(name: str, content_type: str) -> str:
         return "slides"
     if suffix in _MARKDOWN_SUFFIXES:
         return "markdown"
+    if suffix in _HTML_SUFFIXES:
+        return "html"
     if suffix in _CODE_SUFFIXES:
         return "code"
     if suffix in _TEXT_SUFFIXES:
@@ -176,6 +178,8 @@ def presentation_kind(name: str, content_type: str) -> str:
         return "slides"
     if media_type == "text/markdown":
         return "markdown"
+    if media_type == "text/html":
+        return "html"
     if media_type in _CODE_MEDIA_TYPES:
         return "code"
     if media_type.startswith("text/"):
