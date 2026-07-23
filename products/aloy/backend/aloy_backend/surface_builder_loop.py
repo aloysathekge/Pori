@@ -10,6 +10,7 @@ the exact current source compiles successfully.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -437,6 +438,45 @@ async def _execute_action(
     raise SurfaceBuilderLoopError(f"Unsupported Surface workspace tool: {action.name}")
 
 
+async def _provider_turn(
+    invoke: Callable[[], Awaitable[Any]],
+    *,
+    timeout_seconds: float | None,
+    on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    turn_number: int,
+    tool_calls: int,
+) -> Any:
+    """Bound one non-streaming provider call and retry a single hang.
+
+    Providers occasionally accept a request and never answer; without a client
+    timeout that silence rides until the run-level stall watchdog terminally
+    fails the whole paid run. One bounded retry isolates a transport hang from
+    the Builder's repair budget. The retry emits progress so the watchdog's
+    idle clock restarts before the second attempt.
+    """
+    attempts = 2 if timeout_seconds is not None else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            if timeout_seconds is None:
+                return await invoke()
+            return await asyncio.wait_for(invoke(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            if on_progress is not None:
+                await on_progress(
+                    {
+                        "stage": "retrying_provider_call",
+                        "turn": turn_number,
+                        "tool_calls": tool_calls,
+                        "attempt": attempt,
+                    }
+                )
+            if attempt == attempts:
+                raise SurfaceBuilderLoopError(
+                    "The Builder provider produced no response within "
+                    f"{timeout_seconds:g} seconds twice in a row"
+                )
+
+
 async def run_surface_builder_loop(
     *,
     llm: Any,
@@ -447,6 +487,7 @@ async def run_surface_builder_loop(
     required_primary_jobs: list[dict[str, str]] | None = None,
     budget_ledger: BudgetLedger | None = None,
     max_turns: int = MAX_SURFACE_BUILDER_TURNS,
+    provider_call_timeout_seconds: float | None = None,
     on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> SurfaceBuilderLoopResult:
     """Run one model against a persistent workspace until checked source finishes."""
@@ -475,7 +516,13 @@ async def run_surface_builder_loop(
             )
         turn_used_native = False
         if native_available:
-            turn = await llm.ainvoke_tools(history, SURFACE_WORKSPACE_TOOL_SCHEMAS)
+            turn = await _provider_turn(
+                lambda: llm.ainvoke_tools(history, SURFACE_WORKSPACE_TOOL_SCHEMAS),
+                timeout_seconds=provider_call_timeout_seconds,
+                on_progress=on_progress,
+                turn_number=turn_number,
+                tool_calls=tool_calls,
+            )
             actions = [
                 SurfaceBuilderAction(
                     id=call.id,
@@ -499,7 +546,13 @@ async def run_surface_builder_loop(
                 )
             )
         else:
-            raw = await llm.ainvoke(history)
+            raw = await _provider_turn(
+                lambda: llm.ainvoke(history),
+                timeout_seconds=provider_call_timeout_seconds,
+                on_progress=on_progress,
+                turn_number=turn_number,
+                tool_calls=tool_calls,
+            )
             text = raw if isinstance(raw, str) else str(raw)
             actions = list(_json_action_envelope(text).actions)
             used_json = True

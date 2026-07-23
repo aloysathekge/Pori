@@ -851,6 +851,29 @@ async def test_generation_timeout_cancels_stalled_provider_call():
         )
 
 
+async def test_turn_boundary_silence_within_generation_timeout_is_not_a_stall(
+    monkeypatch,
+):
+    """Workspace turns are non-streaming provider calls that report progress
+    only when they complete; silence shorter than the declared per-call
+    generation timeout must not be treated as a stalled stream."""
+    monkeypatch.setattr(builder_module, "SURFACE_STREAM_IDLE_TIMEOUT_SECONDS", 0.05)
+    progress = builder_module._GenerationProgress()
+    progress.on_delta("workspace turn 1; tool calls 2\n")
+
+    async def slow_turn():
+        await asyncio.sleep(0.2)
+        return {"parsed": "candidate"}
+
+    result = await builder_module._await_candidate_generation(
+        slow_turn(),
+        progress=progress,
+        first_output_timeout_seconds=0.5,
+        deadline=builder_module.perf_counter() + 5,
+    )
+    assert result == {"parsed": "candidate"}
+
+
 async def test_builder_repairs_host_source_contract_before_pipeline(
     db_session_maker,
     monkeypatch,

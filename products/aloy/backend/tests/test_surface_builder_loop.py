@@ -1,10 +1,14 @@
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from aloy_backend.surface_build_runner import SurfaceBuildRunnerResult
-from aloy_backend.surface_builder_loop import run_surface_builder_loop
+from aloy_backend.surface_builder_loop import (
+    SurfaceBuilderLoopError,
+    run_surface_builder_loop,
+)
 from aloy_backend.surface_development_workspace import LocalGitSurfaceWorkspace
 from pori import SystemMessage, UserMessage
 from pori.llm.messages import ToolCall, ToolResultMessage, ToolTurn
@@ -315,6 +319,103 @@ async def test_finish_refuses_stale_primary_job_contract_before_paid_submission(
             {"id": item["id"], "description": item["description"]} for item in declared
         ] == [_REQUIRED_JOB]
         assert "New" in await workspace.read_file("/src/App.tsx")
+    finally:
+        await workspace.close()
+
+
+class _HangingThenWorkingModel:
+    """First provider call hangs forever; the retry answers normally."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.turns = [
+            ToolTurn(
+                tool_calls=[
+                    ToolCall(
+                        id="one",
+                        name="replace_text",
+                        arguments={
+                            "path": "/src/App.tsx",
+                            "match": "Old",
+                            "replacement": "New",
+                        },
+                    ),
+                    ToolCall(id="two", name="run_typecheck", arguments={}),
+                    ToolCall(
+                        id="three",
+                        name="finish_candidate",
+                        arguments={"summary": "Recovered from a hung call"},
+                    ),
+                ]
+            )
+        ]
+
+    async def ainvoke_tools(self, messages, tools):
+        del messages, tools
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.sleep(60)
+        return self.turns.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_one_hung_provider_call_is_retried_not_terminal(tmp_path: Path):
+    workspace = await LocalGitSurfaceWorkspace.create(
+        workspace_id="hang-retry",
+        base_files=_files(),
+        build_runner=_Runner(),
+        parent=tmp_path,
+    )
+    model = _HangingThenWorkingModel()
+    progress_stages: list[str] = []
+
+    async def progress(update):
+        progress_stages.append(str(update.get("stage")))
+
+    try:
+        result = await run_surface_builder_loop(
+            llm=model,
+            workspace=workspace,
+            messages=[SystemMessage(content="Build"), UserMessage(content="Change it")],
+            primary_jobs=["Use the updated view"],
+            capabilities={"tools"},
+            provider_call_timeout_seconds=0.2,
+            on_progress=progress,
+        )
+        assert model.calls == 2
+        assert "retrying_provider_call" in progress_stages
+        assert "New" in await workspace.read_file("/src/App.tsx")
+        assert result.turns == 1
+    finally:
+        await workspace.close()
+
+
+@pytest.mark.asyncio
+async def test_two_consecutive_hung_provider_calls_fail_the_loop(tmp_path: Path):
+    class AlwaysHangingModel:
+        async def ainvoke_tools(self, messages, tools):
+            del messages, tools
+            await asyncio.sleep(60)
+
+    workspace = await LocalGitSurfaceWorkspace.create(
+        workspace_id="hang-terminal",
+        base_files=_files(),
+        build_runner=_Runner(),
+        parent=tmp_path,
+    )
+    try:
+        with pytest.raises(SurfaceBuilderLoopError, match="no response within"):
+            await run_surface_builder_loop(
+                llm=AlwaysHangingModel(),
+                workspace=workspace,
+                messages=[
+                    SystemMessage(content="Build"),
+                    UserMessage(content="Change it"),
+                ],
+                primary_jobs=["Use the updated view"],
+                capabilities={"tools"},
+                provider_call_timeout_seconds=0.1,
+            )
     finally:
         await workspace.close()
 
