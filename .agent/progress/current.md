@@ -241,6 +241,51 @@ the `Research matching roles` label, and the signed-in UI proof contains no
 command identifier, retry-exhaustion copy, action counter, or technical-details
 control on those request cards.
 
+## Builder v2 Redesign (2026-07-23, evening)
+
+After the full live acceptance day (three bounded runs on Fireworks kimi; the
+final one reached contract-pass → persist → compile → browser gate → final
+repair before dying on the 40-step ceiling at 765k uncached tokens), the
+decision is a staged rewrite of the generation layer, specified in
+`docs/aloy-surface-builder-v2-spec.md`: one BuilderSession replaces
+Run-submissions (no envelopes/shim — the workspace IS the candidate), checks
+become tiered with a deterministic autofix tier, the full gate runs in place
+at finish with revisions persisted only on gate-pass, five ceilings collapse
+into one cache-aware cost budget, provider physics move into declared
+profiles, and change requests carry jobs_added/jobs_removed with the host
+computing the frozen contract. Trust layer (revisions, gates, publication,
+SDK/iframe) explicitly unchanged. Migration M1–M4; M1 = baseline delivery
+(S2/S3), whose S1 template is already built and gate-proven
+(`aloy_backend/product_surfaces/baseline/`, `tests/test_baseline_surface.py`).
+Also landed today, uncommitted: per-call provider timeout + retry in the
+loop, `reasoning_effort` applied to kernel tool-calls (the actual root cause
+of the Fireworks dead-air hangs), and the k2p6 model switch. No more paid
+from-scratch acceptance runs — each just re-proves the same conclusion.
+
+## Baseline Surface Direction (2026-07-23)
+
+Live acceptance exposed that from-scratch Surface creation is the fragile
+path (turn-count × uncached-context token burn, provider stall exposure,
+boilerplate gate rejections). Decision, specified in
+`docs/aloy-baseline-surface-spec.md` (v1.0): every custom Event receives a
+published v1 baseline Surface at creation via the existing model-free R12
+materialization pipeline (zero model tokens); the Builder then always runs in
+edit mode against real source — creation-from-nothing disappears as a
+generation mode. Industry research backing this (v0/Lovable/Bolt/Replit/Manus
+patterns, verified claims, and five concrete spec adjustments — protected
+primitives, deterministic autofixers, cache discipline, verbatim error
+context, small-model repair tier) is in
+`docs/research-ai-app-builder-templates.md`. The Event description personalizes v1 as runtime data
+through the SDK, not as generated code. Implementation slices S1–S4 are in
+the spec; nothing is implemented yet. Additional session fixes pending
+commit: stall watchdog honors per-call generation timeout for non-streaming
+workspace turns (with regression test), Surface Builder token ceiling is now
+`SURFACE_BUILDER_MAX_TOTAL_TOKENS` config (default 200k, local 800k),
+backend/.env now deterministically wins over the repo-root .env
+(aloy_backend/__init__.py), and the Builder model was being switched to
+kimi-k2p6 after kimi-k2p7-code showed repeated dead-air provider hangs
+(stack restart still pending user go-ahead).
+
 ## Decisions Made
 
 - Surface authoring uses a provider-neutral, source-only development workspace.
