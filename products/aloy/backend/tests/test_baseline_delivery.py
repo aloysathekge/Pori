@@ -89,6 +89,35 @@ async def test_event_creation_queues_the_baseline_materialization(
         )
 
 
+async def test_setup_draft_promotion_also_delivers_the_baseline(
+    client, db_session_maker
+):
+    created = await client.post(
+        "/v1/event-drafts",
+        json={"title": "Promoted Event", "description": "Planned via setup"},
+    )
+    assert created.status_code == 201
+    draft_id = created.json()["id"]
+    promoted = await client.post(f"/v1/event-drafts/{draft_id}/promote")
+    assert promoted.status_code == 201
+    event_id = promoted.json()["id"]
+    async with db_session_maker() as session:
+        run = (
+            (
+                await session.execute(
+                    select(Run).where(
+                        Run.event_id == event_id,
+                        Run.run_kind == SURFACE_MATERIALIZATION_RUN_KIND,
+                    )
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert run.status == "pending"
+        assert run.model_assignment is None
+
+
 async def test_life_and_events_with_existing_surface_state_are_exempt(
     client, db_session_maker
 ):

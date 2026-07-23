@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 from starlette.concurrency import run_in_threadpool
 
+from ..baseline_delivery import deliver_event_baseline_surface
 from ..config import settings
 from ..database import get_session
 from ..event_bootstrap import queue_event_bootstrap_if_ready
@@ -607,6 +608,11 @@ async def promote_draft(
         organization_id=context.organization_id,
         user_id=context.user_id,
         event_id=event.id,
+    )
+    await deliver_event_baseline_surface(
+        session,
+        event=event,
+        actor_id=context.user_id,
     )
     await session.commit()
     await session.refresh(event)
