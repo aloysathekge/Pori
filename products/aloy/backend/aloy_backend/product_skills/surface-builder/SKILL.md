@@ -18,9 +18,13 @@ all use the same runtime and safety contract.
    phone widths around 360 and 390 pixels, tablet, a narrow desktop Workbench
    pane, and wide desktop as distinct required compositions rather than scaled
    copies of one layout.
-   The request includes a host-issued `primary_job_contract`. Copy every job id
-   and description exactly into `surface.json`; never drop, rename, reorder, or
-   replace them with easier jobs.
+   The request includes a host-issued `primary_job_contract`. `surface.json`
+   `primary_jobs` must declare exactly this request's contract: copy every
+   host-issued job id and description exactly, in order, and nothing else.
+   Never rename, reorder, or replace them with easier jobs. When revising an
+   existing Surface, replace any previously declared `primary_jobs` from
+   earlier revisions with this request's contract — stale job entries fail the
+   publication gate deterministically.
 3. Work only through the host-owned Surface workspace operations. Start with
    `list_files`, then use `read_file` and `search_source` to understand the exact
    current project. Prefer `replace_text` with a fragment that occurs once; use

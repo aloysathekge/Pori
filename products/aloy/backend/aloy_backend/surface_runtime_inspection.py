@@ -444,7 +444,13 @@ def inspect_surface_runtime(
             )
         ]
 
-    with tempfile.TemporaryDirectory(prefix="aloy-surface-inspect-") as temp:
+    # Chrome's crashpad handler outlives the terminated browser on Windows and
+    # keeps profile files memory-mapped; a leaked temp file must never discard
+    # an otherwise complete inspection result.
+    with tempfile.TemporaryDirectory(
+        prefix="aloy-surface-inspect-",
+        ignore_cleanup_errors=True,
+    ) as temp:
         root = Path(temp)
         runtime_path = root / "surface.html"
         runtime_path.write_text(document.html, encoding="utf-8")
@@ -455,6 +461,8 @@ def inspect_surface_runtime(
                 browser,
                 "--headless=new",
                 "--disable-background-networking",
+                "--disable-breakpad",
+                "--disable-crash-reporter",
                 "--disable-component-update",
                 "--disable-default-apps",
                 "--disable-extensions",

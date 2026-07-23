@@ -11,6 +11,7 @@ from aloy_backend.surface_pipeline import (
     SurfaceRevisionHostPipeline,
     bind_surface_manifest_primary_jobs,
     materialize_surface_candidate_edit,
+    surface_primary_job_contract_diagnostics,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -316,6 +317,50 @@ async def test_host_binds_model_job_proofs_to_frozen_contract():
     )
     assert '"id": "job_1234567890abcdef"' in manifest
     assert "job_0000000000000000" not in manifest
+
+
+async def test_host_never_rebinds_stale_same_count_jobs_from_a_previous_request():
+    """A revision's manifest still declaring the previous request's job — same
+    count, foreign id, different description — must not have its old browser
+    proof positionally rebound onto the new job identity."""
+    candidate = SurfaceCandidate.model_validate(
+        {
+            "summary": "Resources",
+            "primary_jobs": ["Add a dark theme toggle"],
+            "files": [
+                {
+                    "path": "/workspace/surface.json",
+                    "content": (
+                        '{"format":"aloy-react-surface","entrypoint":"/src/App.tsx",'
+                        '"sdk_version":"1","capabilities":[],"intents":{},'
+                        '"primary_jobs":[{"id":"job_0000000000000000",'
+                        '"description":"Track applications","steps":[],'
+                        '"assertions":[{"kind":"visible","role":"heading",'
+                        '"name":"Applications"}]}],"widgets":[]}'
+                    ),
+                },
+                {
+                    "path": "/workspace/src/App.tsx",
+                    "content": "export default function App(){return <h1>Applications</h1>}",
+                },
+            ],
+        }
+    )
+    required = [
+        {"id": "job_1234567890abcdef", "description": "Add a dark theme toggle"}
+    ]
+
+    rebound = bind_surface_manifest_primary_jobs(
+        candidate,
+        required_primary_jobs=required,
+    )
+
+    assert rebound is candidate
+    diagnostics = surface_primary_job_contract_diagnostics(
+        rebound,
+        required_primary_jobs=required,
+    )
+    assert [item["code"] for item in diagnostics] == ["primary_job_manifest_mismatch"]
 
 
 async def test_host_pipeline_rejects_source_that_changed_after_context_freeze():

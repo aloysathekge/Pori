@@ -1,4 +1,93 @@
-# Current State - 2026-07-22
+# Current State - 2026-07-23
+
+## Local Environment Recovery (2026-07-23)
+
+The R13 Surface workspace merged into `aloy-v1` through PR #224; this checkout
+now tracks `origin/aloy-v1`. Surfaces did not build locally for three stacked
+reasons, all corrected:
+
+1. The `@aloy/surface` SDK `dist/` was never built in this checkout, so
+   `LocalDevelopmentSurfaceBuildRunner.available` was false and every build
+   returned `blocked: local_toolchain_unavailable`. Fixed with `bun install`
+   at the workspace root plus `bun run build` in `packages/aloy-surface`.
+2. The local `aloy.db` was stamped at Alembic `q3a4b5c6d7e8` — 30 migrations
+   behind head `t2d3e4f5a6b7` — with `stored_files` created out-of-band by
+   dev `create_all`. Recovery: backup to `aloy.db.bak-2026-07-23`, stamp to
+   `s5c6d7e8f9a0` (skipping the two already-materialized stored_files
+   migrations), then `alembic upgrade head`. All 30 migrations applied; the
+   Life event was created and all 24 conversations / 80 runs backfilled onto
+   it. A metadata-vs-DB diff shows zero missing tables or columns.
+3. A real Windows defect in `surface_runtime_inspection.py`: Chrome's
+   crashpad handler outlives the terminated browser and keeps
+   `chrome-profile/CrashpadMetrics-active.pma` memory-mapped, so
+   `TemporaryDirectory` cleanup raised `PermissionError` and destroyed
+   otherwise-complete inspection results (12 browser-gate tests failed; live
+   publication would fail the same way). Fixed by launching Chrome with
+   `--disable-breakpad --disable-crash-reporter` and using
+   `ignore_cleanup_errors=True` on the inspection temp directory. This code
+   change is uncommitted on `aloy-v1`.
+
+Verification: a direct `LocalDevelopmentSurfaceBuildRunner` smoke build
+succeeds (typecheck → instrumentation → Vite → 62 KB bundle). All 193
+Surface-related backend tests pass (builder/loop/builds/workspace/pipeline/
+publication/requests/materialization 93, remaining Surface files 100). SDK
+tests (5) and Aloy app tests (30) pass; the app production build passes.
+Focused mypy on the Surface modules is clean; black is clean on the edited
+file. Ruff reports 7 pre-existing unused-import errors in old migrations and
+`memory_store.py`, untouched.
+
+## Surface Update Pipeline Repair (2026-07-23)
+
+User-reported: updating an existing Surface always failed. Two structural
+defects in the workspace Builder path were found and corrected (uncommitted on
+`aloy-v1`, together with the crashpad fix above):
+
+1. **Repair-base desync** (`surface_builder.py`). The workspace invoker
+   advanced its diff base to the finished candidate after every submission,
+   but the executor only advanced `base_files` when a revision persisted. Any
+   pre-persistence rejection (typically the primary-job contract gate) made
+   the next edit envelope — a diff against candidate N — get materialized onto
+   the ORIGINAL source: the first submission's changes silently vanished, the
+   model's workspace and the host's candidate diverged permanently, and the
+   repair budget burned down to guaranteed failure. `base_files` now advances
+   to the exact rejected candidate source after every materialized edit-mode
+   submission, restoring the documented "repairs use the exact rejected
+   source" invariant for both the workspace invoker and the legacy repair
+   prompt.
+2. **Primary-job contract blindness in the workspace** (`surface_pipeline.py`,
+   `surface_builder_loop.py`). Every request — including a revision — freezes
+   its own job contract (ids hash the new descriptions), but the existing
+   published `surface.json` declares the PREVIOUS request's jobs, and the
+   workspace's trusted check never saw the contract: `finish_candidate` went
+   green and the paid host gate then deterministically rejected
+   `primary_job_manifest_mismatch` (bind's count-equal rebind fallback only
+   rescued same-count updates — Career OS's 4 old jobs vs 1 new job always
+   failed). The contract check is now a single shared function
+   (`surface_primary_job_contract_diagnostics`) used by the host pipeline and
+   evaluated (after the same bind) at `finish_candidate`, so a stale manifest
+   is refused in-workspace for free instead of burning a paid submission.
+
+Supporting changes: the Builder skill now states that `surface.json`
+`primary_jobs` must declare exactly this request's contract, replacing any
+previously declared set; `SurfaceRequestParams.jobs` now instructs the Event
+agent that a revision must restate the complete job set (retained + new), not
+only the delta. The stale-proof hazard is also closed:
+`bind_surface_manifest_primary_jobs`' positional fallback now requires the
+declared ids to exactly match the host-issued ids (paraphrased-description
+rescue only); a same-count manifest still declaring a previous request's
+foreign job ids fails the gate instead of silently carrying its old browser
+proofs onto new job identities.
+
+Verification: new regression tests
+`test_workspace_repair_keeps_prior_changes_after_pre_persistence_rejection`
+(surface_builder),
+`test_finish_refuses_stale_primary_job_contract_before_paid_submission`
+(surface_builder_loop), and
+`test_host_never_rebinds_stale_same_count_jobs_from_a_previous_request`
+(surface_pipeline) pass; the affected Surface slice passes 83 tests (two
+browser-gate tests flaked under load and pass in isolation); black, isort,
+focused mypy, and Ruff are clean on the changed modules.
+
 
 ## Active Task
 
@@ -151,6 +240,51 @@ full accepted interaction lifecycle. Career OS revision 4 was published with
 the `Research matching roles` label, and the signed-in UI proof contains no
 command identifier, retry-exhaustion copy, action counter, or technical-details
 control on those request cards.
+
+## Builder v2 Redesign (2026-07-23, evening)
+
+After the full live acceptance day (three bounded runs on Fireworks kimi; the
+final one reached contract-pass → persist → compile → browser gate → final
+repair before dying on the 40-step ceiling at 765k uncached tokens), the
+decision is a staged rewrite of the generation layer, specified in
+`docs/aloy-surface-builder-v2-spec.md`: one BuilderSession replaces
+Run-submissions (no envelopes/shim — the workspace IS the candidate), checks
+become tiered with a deterministic autofix tier, the full gate runs in place
+at finish with revisions persisted only on gate-pass, five ceilings collapse
+into one cache-aware cost budget, provider physics move into declared
+profiles, and change requests carry jobs_added/jobs_removed with the host
+computing the frozen contract. Trust layer (revisions, gates, publication,
+SDK/iframe) explicitly unchanged. Migration M1–M4; M1 = baseline delivery
+(S2/S3), whose S1 template is already built and gate-proven
+(`aloy_backend/product_surfaces/baseline/`, `tests/test_baseline_surface.py`).
+Also landed today, uncommitted: per-call provider timeout + retry in the
+loop, `reasoning_effort` applied to kernel tool-calls (the actual root cause
+of the Fireworks dead-air hangs), and the k2p6 model switch. No more paid
+from-scratch acceptance runs — each just re-proves the same conclusion.
+
+## Baseline Surface Direction (2026-07-23)
+
+Live acceptance exposed that from-scratch Surface creation is the fragile
+path (turn-count × uncached-context token burn, provider stall exposure,
+boilerplate gate rejections). Decision, specified in
+`docs/aloy-baseline-surface-spec.md` (v1.0): every custom Event receives a
+published v1 baseline Surface at creation via the existing model-free R12
+materialization pipeline (zero model tokens); the Builder then always runs in
+edit mode against real source — creation-from-nothing disappears as a
+generation mode. Industry research backing this (v0/Lovable/Bolt/Replit/Manus
+patterns, verified claims, and five concrete spec adjustments — protected
+primitives, deterministic autofixers, cache discipline, verbatim error
+context, small-model repair tier) is in
+`docs/research-ai-app-builder-templates.md`. The Event description personalizes v1 as runtime data
+through the SDK, not as generated code. Implementation slices S1–S4 are in
+the spec; nothing is implemented yet. Additional session fixes pending
+commit: stall watchdog honors per-call generation timeout for non-streaming
+workspace turns (with regression test), Surface Builder token ceiling is now
+`SURFACE_BUILDER_MAX_TOTAL_TOKENS` config (default 200k, local 800k),
+backend/.env now deterministically wins over the repo-root .env
+(aloy_backend/__init__.py), and the Builder model was being switched to
+kimi-k2p6 after kimi-k2p7-code showed repeated dead-air provider hangs
+(stack restart still pending user go-ahead).
 
 ## Decisions Made
 

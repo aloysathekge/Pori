@@ -304,6 +304,12 @@ class ChatOpenAI:
             ],
             "tool_choice": "auto",
         }
+        # Provider-family request options (e.g. reasoning_effort: none for
+        # hybrid-reasoning models on Fireworks) apply to tool-calling exactly
+        # as they do to structured output. Without them a reasoning model may
+        # think server-side for minutes before its first tool call, which a
+        # non-streaming caller cannot distinguish from a hung request.
+        request.update(self._structured_output_policy().request_options)
 
         # Streaming path: emit normalized events (text deltas + instant
         # tool_call_start) while assembling the full ToolTurn from the stream.

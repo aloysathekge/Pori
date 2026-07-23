@@ -400,7 +400,16 @@ def bind_surface_manifest_primary_jobs(
             break
         matched.append(dict(matches[0]))
     if not matched:
+        # A proof may only be rebound when it was authored for this request's
+        # jobs: matched above by exact description, or here by exact host-issued
+        # id with a paraphrased description. A same-count set with foreign ids
+        # is a previous revision's stale contract; rebinding would attach old
+        # browser proofs to new job identities, so it must fail the gate.
         if len(declared) != len(required_primary_jobs):
+            return candidate
+        if [str(item.get("id") or "") for item in declared] != [
+            item["id"] for item in required_primary_jobs
+        ]:
             return candidate
         matched = [dict(item) for item in declared]
 
@@ -435,6 +444,63 @@ def bind_surface_manifest_primary_jobs(
             "files": [item.model_dump(mode="python") for item in rebound_files],
         }
     )
+
+
+def surface_primary_job_contract_diagnostics(
+    candidate: SurfaceCandidate,
+    *,
+    required_primary_jobs: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Check one candidate against the host-frozen primary-job contract.
+
+    This is the single authority for the contract; the publication pipeline
+    enforces it, and the development workspace evaluates the same function at
+    ``finish_candidate`` so a Builder never spends a paid host submission on a
+    deterministically rejectable manifest.
+    """
+    if not required_primary_jobs:
+        return []
+    required_descriptions = [item["description"] for item in required_primary_jobs]
+    diagnostics: list[dict[str, Any]] = []
+    if candidate.primary_jobs != required_descriptions:
+        diagnostics.append(
+            {
+                "code": "primary_job_contract_mismatch",
+                "message": (
+                    "Candidate primary_jobs must exactly match the host-frozen "
+                    "job descriptions in their original order"
+                ),
+                "path": "/surface.json",
+            }
+        )
+    try:
+        manifest = parse_surface_manifest(
+            {item.source_path: item.content for item in candidate.files}
+        )
+        declared = [
+            {"id": job.id, "description": job.description}
+            for job in manifest.primary_jobs
+        ]
+        if declared != required_primary_jobs:
+            diagnostics.append(
+                {
+                    "code": "primary_job_manifest_mismatch",
+                    "message": (
+                        "surface.json must declare every host-issued primary job "
+                        "id and description exactly once and in order"
+                    ),
+                    "path": "/surface.json",
+                }
+            )
+    except ValueError as exc:
+        diagnostics.append(
+            {
+                "code": "primary_job_manifest_invalid",
+                "message": str(exc),
+                "path": "/surface.json",
+            }
+        )
+    return diagnostics
 
 
 class SurfacePipelineDiagnostic(BaseModel):
@@ -526,48 +592,10 @@ class SurfaceHostPipeline:
         await self._stage("validating_candidate")
         started = perf_counter()
         if self._required_primary_jobs:
-            required_descriptions = [
-                item["description"] for item in self._required_primary_jobs
-            ]
-            diagnostics: list[dict[str, Any]] = []
-            if candidate.primary_jobs != required_descriptions:
-                diagnostics.append(
-                    {
-                        "code": "primary_job_contract_mismatch",
-                        "message": (
-                            "Candidate primary_jobs must exactly match the host-frozen "
-                            "job descriptions in their original order"
-                        ),
-                        "path": "/surface.json",
-                    }
-                )
-            try:
-                manifest = parse_surface_manifest(
-                    {item.source_path: item.content for item in candidate.files}
-                )
-                declared = [
-                    {"id": job.id, "description": job.description}
-                    for job in manifest.primary_jobs
-                ]
-                if declared != self._required_primary_jobs:
-                    diagnostics.append(
-                        {
-                            "code": "primary_job_manifest_mismatch",
-                            "message": (
-                                "surface.json must declare every host-issued primary job "
-                                "id and description exactly once and in order"
-                            ),
-                            "path": "/surface.json",
-                        }
-                    )
-            except ValueError as exc:
-                diagnostics.append(
-                    {
-                        "code": "primary_job_manifest_invalid",
-                        "message": str(exc),
-                        "path": "/surface.json",
-                    }
-                )
+            diagnostics = surface_primary_job_contract_diagnostics(
+                candidate,
+                required_primary_jobs=self._required_primary_jobs,
+            )
             if diagnostics:
                 timings["contract"] = round((perf_counter() - started) * 1000, 3)
                 return SurfacePipelineResult(
@@ -762,4 +790,5 @@ __all__ = [
     "SurfacePipelineResult",
     "bind_surface_manifest_primary_jobs",
     "materialize_surface_candidate_edit",
+    "surface_primary_job_contract_diagnostics",
 ]

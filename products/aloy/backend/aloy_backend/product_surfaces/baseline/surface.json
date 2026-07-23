@@ -1,0 +1,69 @@
+{
+  "format": "aloy-react-surface",
+  "entrypoint": "/src/App.tsx",
+  "sdk_version": "1",
+  "capabilities": ["tasks", "files", "ask_aloy"],
+  "intents": {},
+  "widgets": [],
+  "resource_views": [
+    {
+      "resource": "tasks",
+      "steps": [{ "action": "click", "role": "button", "name": "Tasks" }]
+    },
+    {
+      "resource": "files",
+      "steps": [{ "action": "click", "role": "button", "name": "Files" }]
+    }
+  ],
+  "interaction_checks": [
+    {
+      "name": "Ask Aloy from the Surface",
+      "steps": [
+        {
+          "action": "fill",
+          "role": "textbox",
+          "name": "Ask Aloy",
+          "value": "What should we do next in this Event?"
+        },
+        { "action": "click", "role": "button", "name": "Ask Aloy" }
+      ],
+      "expect": { "method": "askAloy", "name": "aloy.ask" }
+    }
+  ],
+  "primary_jobs": [
+    {
+      "id": "job_ba5e11e5a1b2c3d4",
+      "description": "See this Event's work at a glance",
+      "steps": [],
+      "assertions": [
+        { "kind": "visible", "role": "heading", "name": "Overview" }
+      ]
+    },
+    {
+      "id": "job_ba5e11e5a1b2c3d5",
+      "description": "Review the Event's tasks even before any exist",
+      "fixture": "empty",
+      "steps": [{ "action": "click", "role": "button", "name": "Tasks" }],
+      "assertions": [
+        { "kind": "visible", "role": "heading", "name": "Tasks" },
+        { "kind": "visible", "role": "status", "name": "No tasks in this Event yet." }
+      ]
+    },
+    {
+      "id": "job_ba5e11e5a1b2c3d6",
+      "description": "Ask Aloy for help from this Surface",
+      "steps": [
+        {
+          "action": "fill",
+          "role": "textbox",
+          "name": "Ask Aloy",
+          "value": "Help me plan this Event."
+        },
+        { "action": "click", "role": "button", "name": "Ask Aloy" }
+      ],
+      "assertions": [
+        { "kind": "request", "method": "askAloy", "name": "aloy.ask" }
+      ]
+    }
+  ]
+}

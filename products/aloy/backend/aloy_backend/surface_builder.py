@@ -552,6 +552,15 @@ async def _await_candidate_generation(
     """Await a structured stream with first-output, idle, and Run deadlines."""
     task = asyncio.create_task(invocation)
     started = perf_counter()
+    # The workspace Builder reports progress only at turn boundaries (each turn
+    # is one non-streaming provider call), so mid-generation silence up to the
+    # operator's declared per-call generation timeout is legitimate work, not a
+    # stall. Streaming providers with a shorter declared timeout keep the
+    # tighter idle detection.
+    idle_timeout_seconds = max(
+        SURFACE_STREAM_IDLE_TIMEOUT_SECONDS,
+        first_output_timeout_seconds,
+    )
     try:
         while True:
             now = perf_counter()
@@ -570,13 +579,11 @@ async def _await_candidate_generation(
                     )
             else:
                 last_output = progress.last_output_monotonic or now
-                progress_timeout = SURFACE_STREAM_IDLE_TIMEOUT_SECONDS - (
-                    now - last_output
-                )
+                progress_timeout = idle_timeout_seconds - (now - last_output)
                 if progress_timeout <= 0:
                     raise SurfaceGenerationTimeoutError(
                         "Surface generation stopped producing output for "
-                        f"{SURFACE_STREAM_IDLE_TIMEOUT_SECONDS:g} seconds"
+                        f"{idle_timeout_seconds:g} seconds"
                     )
             done, _ = await asyncio.wait(
                 {task},
@@ -1058,10 +1065,16 @@ async def _execute_claimed_surface_builder_legacy(
                 diagnostics = outcome.diagnostics
                 if outcome.revision_id:
                     base_revision_id = outcome.revision_id
+                    candidate_mode = "edit"
+                if candidate_mode == "edit":
+                    # Repairs are diffs against the exact rejected candidate
+                    # source, whether or not the host persisted a revision. A
+                    # pre-persistence rejection (for example the primary-job
+                    # contract) must not silently rebase the next edit envelope
+                    # onto older source and drop this submission's changes.
                     base_files = {
                         item.source_path: item.content for item in candidate.files
                     }
-                    candidate_mode = "edit"
                 final_submission = submission >= MAX_CANDIDATE_SUBMISSIONS
                 run.progress = {
                     **(run.progress or {}),
@@ -1459,6 +1472,16 @@ async def execute_claimed_surface_builder(
                     f"tool calls {update.get('tool_calls', 0)}\n"
                 )
 
+        meta = kwargs.get("meta") or {}
+        generation_timeout = meta.get("generation_timeout_seconds")
+        # The per-call bound must fire before the run-level stall watchdog
+        # (whose idle window equals the generation timeout) so the loop's
+        # single transport retry gets a chance to run.
+        provider_call_timeout = (
+            max(30.0, float(generation_timeout) - 15.0)
+            if isinstance(generation_timeout, (int, float))
+            else None
+        )
         ledger = getattr(llm, "budget_ledger", None)
         remaining_turns = 20
         if isinstance(ledger, BudgetLedger):
@@ -1481,8 +1504,10 @@ async def execute_claimed_surface_builder(
             ],
             primary_jobs=primary_job_descriptions,
             capabilities=capabilities,
+            required_primary_jobs=required_jobs,
             budget_ledger=ledger if isinstance(ledger, BudgetLedger) else None,
             max_turns=remaining_turns,
+            provider_call_timeout_seconds=provider_call_timeout,
             on_progress=progress,
         )
         current_files = {

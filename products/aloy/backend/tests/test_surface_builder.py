@@ -307,10 +307,31 @@ async def test_default_builder_uses_git_workspace_tools_without_structured_outpu
                         name="write_file",
                         arguments={
                             "path": "/surface.json",
-                            "content": (
-                                '{"format":"aloy-react-surface",'
-                                '"entrypoint":"/src/App.tsx","sdk_version":"1",'
-                                '"capabilities":[],"intents":{},"widgets":[]}'
+                            "content": json.dumps(
+                                {
+                                    "format": "aloy-react-surface",
+                                    "entrypoint": "/src/App.tsx",
+                                    "sdk_version": "1",
+                                    "capabilities": [],
+                                    "intents": {},
+                                    "widgets": [],
+                                    "primary_jobs": [
+                                        {
+                                            "id": "job_"
+                                            + hashlib.sha256(
+                                                b"See this week"
+                                            ).hexdigest()[:16],
+                                            "description": "See this week",
+                                            "assertions": [
+                                                {
+                                                    "kind": "visible",
+                                                    "role": "heading",
+                                                    "name": "Week",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                }
                             ),
                         },
                     ),
@@ -398,6 +419,181 @@ async def test_default_builder_uses_git_workspace_tools_without_structured_outpu
         )
         assert receipt["protocol"] == "native_tools"
         assert receipt["changed_paths"] == ["src/App.tsx", "surface.json"]
+
+
+async def test_workspace_repair_keeps_prior_changes_after_pre_persistence_rejection(
+    db_session_maker,
+    monkeypatch,
+):
+    """A rejection before any revision persists must not rebase the next edit
+    envelope onto the original source and silently drop the first submission's
+    changes — the exact failure mode that made Surface updates unrepairable."""
+    monkeypatch.setattr(builder_module, "async_session", db_session_maker)
+    await _create_builder_run(db_session_maker, run_id="builder-repair-base")
+
+    job_id = "job_" + hashlib.sha256(b"See this week").hexdigest()[:16]
+    base_manifest = json.dumps(
+        {
+            "format": "aloy-react-surface",
+            "entrypoint": "/src/App.tsx",
+            "sdk_version": "1",
+            "capabilities": [],
+            "intents": {},
+            "widgets": [],
+            "interaction_checks": [],
+            "primary_jobs": [
+                {
+                    "id": job_id,
+                    "description": "See this week",
+                    "assertions": [
+                        {"kind": "visible", "role": "heading", "name": "Week"}
+                    ],
+                }
+            ],
+        }
+    )
+    base_files = {
+        "/surface.json": base_manifest,
+        "/src/App.tsx": "export default function App() { return <main>Old</main> }",
+    }
+
+    class WorkspaceModel:
+        model = "accounts/fireworks/models/kimi-k2p6"
+        last_usage = {
+            "prompt_tokens": 100,
+            "completion_tokens": 80,
+            "total_tokens": 180,
+        }
+
+        def __init__(self) -> None:
+            self.turns = [
+                ToolTurn(
+                    tool_calls=[
+                        ToolCall(
+                            id="edit",
+                            name="replace_text",
+                            arguments={
+                                "path": "/src/App.tsx",
+                                "match": "Old",
+                                "replacement": "New",
+                            },
+                        ),
+                        ToolCall(id="check", name="run_typecheck", arguments={}),
+                        ToolCall(
+                            id="finish-one",
+                            name="finish_candidate",
+                            arguments={"summary": "Apply the requested change"},
+                        ),
+                    ]
+                ),
+                ToolTurn(
+                    tool_calls=[
+                        ToolCall(
+                            id="note",
+                            name="write_file",
+                            arguments={
+                                "path": "/src/Note.ts",
+                                "content": "export const note = 'kept';\n",
+                            },
+                        ),
+                        ToolCall(id="recheck", name="run_typecheck", arguments={}),
+                        ToolCall(
+                            id="finish-two",
+                            name="finish_candidate",
+                            arguments={"summary": "Repair the rejected candidate"},
+                        ),
+                    ]
+                ),
+            ]
+
+        async def ainvoke_tools(self, _messages, _tools):
+            return self.turns.pop(0)
+
+    class WorkspaceRunner:
+        toolchain_version = "test@1"
+
+        async def build(self, *, build_id, files, manifest):
+            del build_id, manifest, files
+            return SurfaceBuildRunnerResult(status="succeeded", bundle=b"bundle")
+
+    async def runtime_resolver(*_args, **_kwargs):
+        return SimpleNamespace(
+            prompt_context={
+                "event": {"title": "University"},
+                "brief": {"summary": "Manage Semester 2"},
+                "surface": {"draft": {"files": base_files}},
+            },
+            project_snapshot={
+                "expected_revision": "revision-base",
+                "draft": {"files": base_files},
+            },
+            authoring_handler=object(),
+            build_handler=object(),
+            workspace_build_runner=WorkspaceRunner(),
+        )
+
+    class RejectThenInspectPipeline:
+        def __init__(self) -> None:
+            self.second_candidate: SurfaceCandidate | None = None
+
+        async def execute(self, candidate, *, submission):
+            files = {item.source_path: item.content for item in candidate.files}
+            if submission == 1:
+                assert "New" in files["/src/App.tsx"]
+                return SurfacePipelineResult(
+                    status="repair_required",
+                    candidate_fingerprint=candidate.fingerprint,
+                    diagnostics=[
+                        {
+                            "stage": "validation",
+                            "code": "primary_job_manifest_mismatch",
+                            "severity": "error",
+                            "message": "surface.json must declare the frozen jobs",
+                            "path": "/surface.json",
+                        }
+                    ],
+                )
+            self.second_candidate = candidate
+            return SurfacePipelineResult(
+                status="published",
+                candidate_fingerprint=candidate.fingerprint,
+                revision_id="revision-repaired",
+                build_id="build-repaired",
+                publication={"id": "publication-repaired"},
+            )
+
+    pipeline = RejectThenInspectPipeline()
+
+    async def verified_receipt(*_args, **_kwargs):
+        return {
+            "project_id": "project-1",
+            "publication_id": "publication-repaired",
+            "revision_id": "revision-repaired",
+            "build_id": "build-repaired",
+        }
+
+    monkeypatch.setattr(
+        builder_module, "verified_surface_publication", verified_receipt
+    )
+    assert await builder_module.execute_claimed_surface_builder(
+        "builder-repair-base",
+        "worker-a",
+        llm_factory=lambda _config: WorkspaceModel(),
+        runtime_resolver=runtime_resolver,
+        pipeline_factory=lambda **_kwargs: pipeline,
+    )
+
+    assert pipeline.second_candidate is not None
+    repaired = {
+        item.source_path: item.content for item in pipeline.second_candidate.files
+    }
+    assert "New" in repaired["/src/App.tsx"]
+    assert repaired["/src/Note.ts"] == "export const note = 'kept';\n"
+
+    async with db_session_maker() as session:
+        run = await session.get(Run, "builder-repair-base")
+        assert run is not None
+        assert run.status == "completed"
 
 
 async def test_builder_uses_structured_output_and_host_repairs_without_tools(
@@ -653,6 +849,29 @@ async def test_generation_timeout_cancels_stalled_provider_call():
             first_output_timeout_seconds=0.01,
             deadline=builder_module.perf_counter() + 1,
         )
+
+
+async def test_turn_boundary_silence_within_generation_timeout_is_not_a_stall(
+    monkeypatch,
+):
+    """Workspace turns are non-streaming provider calls that report progress
+    only when they complete; silence shorter than the declared per-call
+    generation timeout must not be treated as a stalled stream."""
+    monkeypatch.setattr(builder_module, "SURFACE_STREAM_IDLE_TIMEOUT_SECONDS", 0.05)
+    progress = builder_module._GenerationProgress()
+    progress.on_delta("workspace turn 1; tool calls 2\n")
+
+    async def slow_turn():
+        await asyncio.sleep(0.2)
+        return {"parsed": "candidate"}
+
+    result = await builder_module._await_candidate_generation(
+        slow_turn(),
+        progress=progress,
+        first_output_timeout_seconds=0.5,
+        deadline=builder_module.perf_counter() + 5,
+    )
+    assert result == {"parsed": "candidate"}
 
 
 async def test_builder_repairs_host_source_contract_before_pipeline(

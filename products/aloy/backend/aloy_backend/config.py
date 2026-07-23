@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     # ids and qualification evidence only; credentials remain environment vars.
     aloy_model_roles_path: str = "aloy.models.yaml"
 
+    # Aggregate token ceiling for one Surface Builder Run. The default is the
+    # V1 product cap; deployments whose Builder provider has no prompt caching
+    # may need a higher ceiling, because the multi-turn workspace loop re-sends
+    # its full growing context on every turn and the budget ledger currently
+    # counts those repeated input tokens at full price.
+    surface_builder_max_total_tokens: int = 200_000
+
     # Messaging gateway (aloy-backend-gateway). Telegram is enabled by setting
     # the bot token; no token -> the adapter simply doesn't exist.
     telegram_bot_token: str = ""

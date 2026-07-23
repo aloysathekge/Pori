@@ -20,12 +20,9 @@ from sqlmodel import col, select
 
 from pori import RunContext
 
+from .config import settings
 from .database import async_session
-from .model_roles import (
-    ModelAssignment,
-    ModelRole,
-    resolve_model_assignment,
-)
+from .model_roles import ModelAssignment, ModelRole, resolve_model_assignment
 from .models import (
     Event,
     EventTrailEntry,
@@ -94,7 +91,17 @@ class SurfaceRequestParams(BaseModel):
 
     goal: str = Field(min_length=3, max_length=1000)
     experience: str = Field(min_length=3, max_length=3000)
-    jobs: list[str] = Field(default_factory=list, max_length=20)
+    jobs: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "The complete set of user jobs the finished Surface must prove in a "
+            "real browser. This request's jobs replace any earlier Surface job "
+            "contract, so when revising an existing Surface, restate every job "
+            "the revised Surface must still support alongside the new one; do "
+            "not list only the change being requested."
+        ),
+    )
     source_refs: list[str] = Field(default_factory=list, max_length=30)
     interaction_notes: list[str] = Field(default_factory=list, max_length=20)
 
@@ -252,7 +259,7 @@ async def queue_surface_builder_run(
         policy,
         {
             "max_steps": 40,
-            "max_tokens": SURFACE_BUILDER_MAX_TOTAL_TOKENS,
+            "max_tokens": settings.surface_builder_max_total_tokens,
             "timeout_seconds": 900,
         },
     )
