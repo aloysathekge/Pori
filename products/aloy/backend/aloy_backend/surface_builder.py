@@ -9,6 +9,7 @@ model code publication, Event-state, shell, or network authority.
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -721,10 +722,12 @@ async def _execute_claimed_surface_builder_legacy(
                     "model_assignment": assignment.config_fingerprint,
                 }
             )
-            llm = ensure_budgeted_chat_model(
-                llm_factory(assignment.llm_config()),
-                budget_ledger,
-            )
+            raw_llm = llm_factory(assignment.llm_config())
+            # Serverless prefix caches are per-replica: pinning every call of
+            # this Run to one replica is what turns the loop's byte-stable
+            # prompt prefix into actual cached-input pricing.
+            raw_llm.session_affinity = run.id
+            llm = ensure_budgeted_chat_model(raw_llm, budget_ledger)
             pipeline_progress: dict[str, Any] = {
                 "submission": 1,
                 "candidate_fingerprint": None,
@@ -1364,6 +1367,30 @@ async def _execute_claimed_surface_builder_legacy(
             return True
 
 
+def _workspace_prompt_context(context_value: dict[str, Any]) -> dict[str, Any]:
+    """Drop source file contents the workspace already owns.
+
+    The workspace Builder reads source through ``list_files``/``read_file``,
+    so embedding full file bodies in the prompt pays for the same bytes twice
+    on every turn. The projection keeps the file paths (shape) and replaces
+    contents with a pointer to the workspace tools. The legacy structured
+    path, which has no workspace tools, keeps the full projection.
+    """
+    slimmed = copy.deepcopy(context_value)
+    surface = slimmed.get("surface")
+    if not isinstance(surface, dict):
+        return slimmed
+    for section_name in ("draft", "published", "revision"):
+        section = surface.get(section_name)
+        if isinstance(section, dict) and isinstance(section.get("files"), dict):
+            section["files"] = sorted(section["files"])
+            section["source_access"] = (
+                "Full source lives in your workspace; use list_files and "
+                "read_file instead of expecting it here."
+            )
+    return slimmed
+
+
 async def execute_claimed_surface_builder(
     run_id: str,
     worker_id: str,
@@ -1443,7 +1470,9 @@ async def execute_claimed_surface_builder(
             user_context = (
                 task
                 + "\n\nTrusted Event and current Surface context:\n"
-                + _render_prompt_context(captured_runtime.prompt_context)
+                + _render_prompt_context(
+                    _workspace_prompt_context(captured_runtime.prompt_context)
+                )
                 + "\n\nHost-owned acceptance jobs:\n"
                 + _json(required_jobs)
             )

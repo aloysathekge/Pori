@@ -117,4 +117,5 @@ async def test_openai_structured_stream_reports_deltas_then_validates_once():
         "prompt_tokens": 4,
         "completion_tokens": 3,
         "total_tokens": 7,
+        "cache_read_tokens": 0,
     }
