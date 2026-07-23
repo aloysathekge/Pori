@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # ids and qualification evidence only; credentials remain environment vars.
     aloy_model_roles_path: str = "aloy.models.yaml"
 
+    # Every custom Event receives a published baseline Surface at creation via
+    # the model-free materialization pipeline (docs/aloy-baseline-surface-spec.md).
+    # The flag exists for rollout control and test isolation, not as a
+    # per-user preference.
+    surface_baseline_enabled: bool = True
+
     # Aggregate token ceiling for one Surface Builder Run. The default is the
     # V1 product cap; deployments whose Builder provider has no prompt caching
     # may need a higher ceiling, because the multi-turn workspace loop re-sends

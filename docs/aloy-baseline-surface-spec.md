@@ -87,14 +87,22 @@ a demonstration of the pattern for the model.
 
 ## 4. Delivery: Event creation → live v1
 
-Reuses the R12 boundary end-to-end; no new authority.
+Reuses the R12 revision/materialization boundary end-to-end; no new
+authority.
 
-1. The baseline is authored as a versioned release
-   (`aloy-baseline-surface@1`) through the existing protected staging/review/
-   publish flow, carrying its exact source fingerprint.
-2. **On Event creation** the host queues the existing model-free Surface
-   materialization Run bound to the pinned baseline release revision. It runs
-   in the background; Event creation stays instant.
+1. The baseline is a **bundled, fingerprinted product asset**
+   (`aloy_backend/product_surfaces/baseline/`, identity
+   `aloy-baseline-surface@1`), reviewed through ordinary source review and
+   proven against the full gate in CI. _Implementation note (v1.1): delivery
+   consumes the bundled asset directly rather than requiring a catalog
+   release, because the protected catalog flow exists for tenant/global
+   authoring and would leave fresh deployments with no baseline until an
+   operator stages one. Publishing the same asset as a catalog release
+   remains an optional hardening step for hosted deployments._
+2. **On Event creation** the host persists the baseline draft revision
+   (checksum-bound, `request_fingerprint` = the bundled asset fingerprint)
+   and queues the existing model-free Surface materialization Run. It runs in
+   the background; Event creation stays instant.
 3. The materialization Run goes through the ordinary compile → browser
    inspection → atomic publication pipeline (same idempotency and crash-replay
    semantics it already has). Seconds of compute, zero model tokens.

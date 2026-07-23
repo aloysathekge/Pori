@@ -27,6 +27,7 @@ from sqlmodel import col, select
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse, StreamingResponse
 
+from ..baseline_delivery import deliver_event_baseline_surface
 from ..database import get_session
 from ..event_bootstrap import (
     event_bootstrap_status_payload,
@@ -60,11 +61,7 @@ from ..models import (
     Task,
 )
 from ..pagination import CursorError, HistoryCursor, decode_cursor, encode_cursor
-from ..proposal_executor import (
-    ProposalDecisionError,
-    decide_proposal,
-    execute_proposal,
-)
+from ..proposal_executor import ProposalDecisionError, decide_proposal, execute_proposal
 from ..rate_limit import rate_limited_permission
 from ..storage import event_cover_key, get_object_store, safe_name
 from ..surface_evolution import SurfaceEvolutionSignal
@@ -72,11 +69,7 @@ from ..surface_evolution_proposals import (
     SurfaceEvolutionProposalError,
     record_surface_evolution_signal,
 )
-from ..task_execution import (
-    TaskExecutionError,
-    queue_task_run,
-    stop_task_run,
-)
+from ..task_execution import TaskExecutionError, queue_task_run, stop_task_run
 from ..task_state import (
     TaskBudgetPolicy,
     TaskExecutionMode,
@@ -374,6 +367,11 @@ async def create_event(
         organization_id=context.organization_id,
         user_id=context.user_id,
         event_id=event.id,
+    )
+    await deliver_event_baseline_surface(
+        session,
+        event=event,
+        actor_id=context.user_id,
     )
     await session.commit()
     await session.refresh(event)

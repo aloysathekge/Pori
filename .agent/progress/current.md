@@ -241,6 +241,23 @@ the `Research matching roles` label, and the signed-in UI proof contains no
 command identifier, retry-exhaustion copy, action counter, or technical-details
 control on those request cards.
 
+## M1: Baseline Delivery Shipped (2026-07-23, late evening)
+
+`aloy_backend/baseline_delivery.py` + the `create_event` route now persist
+the bundled baseline draft (checksum-bound, fingerprint =
+`baseline_surface_fingerprint()`) and queue the model-free materialization
+Run on every custom Event creation. Life, archived Events, Events with
+existing Surface state, and replays are exempt/idempotent; a delivery
+failure logs and never blocks creation. Gated by
+`settings.surface_baseline_enabled` (default True; the test conftest
+disables it by default so pre-baseline suites keep their own fixtures, and
+`tests/test_baseline_delivery.py` re-enables it for its four delivery
+proofs including worker dispatch to publication via the injectable
+pipeline). Spec §4 updated (v1.1 note): delivery consumes the bundled asset
+directly; catalog-release publication stays optional hosted hardening.
+38 event/surface regression tests pass alongside the 7 baseline tests.
+Next: the Builder eval harness, then M2 (`builder_session.py`).
+
 ## Builder v2 Redesign (2026-07-23, evening)
 
 After the full live acceptance day (three bounded runs on Fireworks kimi; the
