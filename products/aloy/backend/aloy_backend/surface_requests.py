@@ -20,6 +20,7 @@ from sqlmodel import col, select
 
 from pori import RunContext
 
+from .config import settings
 from .database import async_session
 from .model_roles import ModelAssignment, ModelRole, resolve_model_assignment
 from .models import (
@@ -258,7 +259,7 @@ async def queue_surface_builder_run(
         policy,
         {
             "max_steps": 40,
-            "max_tokens": SURFACE_BUILDER_MAX_TOTAL_TOKENS,
+            "max_tokens": settings.surface_builder_max_total_tokens,
             "timeout_seconds": 900,
         },
     )

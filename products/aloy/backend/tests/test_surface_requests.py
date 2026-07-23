@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import select
 
 from aloy_backend import background as background_module
+from aloy_backend.config import settings
 from aloy_backend.model_roles import ModelAssignment, ModelRole
 from aloy_backend.models import (
     Event,
@@ -128,7 +129,7 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert run.model_assignment == assignment.descriptor()
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
-        assert run.max_tokens == 200_000
+        assert run.max_tokens == settings.surface_builder_max_total_tokens
         evolution_receipts = [
             item
             for item in run.execution_receipts or []
