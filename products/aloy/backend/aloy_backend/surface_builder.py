@@ -1058,10 +1058,16 @@ async def _execute_claimed_surface_builder_legacy(
                 diagnostics = outcome.diagnostics
                 if outcome.revision_id:
                     base_revision_id = outcome.revision_id
+                    candidate_mode = "edit"
+                if candidate_mode == "edit":
+                    # Repairs are diffs against the exact rejected candidate
+                    # source, whether or not the host persisted a revision. A
+                    # pre-persistence rejection (for example the primary-job
+                    # contract) must not silently rebase the next edit envelope
+                    # onto older source and drop this submission's changes.
                     base_files = {
                         item.source_path: item.content for item in candidate.files
                     }
-                    candidate_mode = "edit"
                 final_submission = submission >= MAX_CANDIDATE_SUBMISSIONS
                 run.progress = {
                     **(run.progress or {}),
@@ -1481,6 +1487,7 @@ async def execute_claimed_surface_builder(
             ],
             primary_jobs=primary_job_descriptions,
             capabilities=capabilities,
+            required_primary_jobs=required_jobs,
             budget_ledger=ledger if isinstance(ledger, BudgetLedger) else None,
             max_turns=remaining_turns,
             on_progress=progress,

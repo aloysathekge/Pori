@@ -23,6 +23,11 @@ from .surface_development_workspace import (
     SurfaceDevelopmentWorkspace,
     SurfaceWorkspaceEdit,
 )
+from .surface_pipeline import (
+    SurfaceCandidate,
+    bind_surface_manifest_primary_jobs,
+    surface_primary_job_contract_diagnostics,
+)
 
 MAX_SURFACE_BUILDER_TURNS = 20
 MAX_SURFACE_ACTIONS_PER_TURN = 12
@@ -274,11 +279,47 @@ def _bounded_result(value: Any) -> str:
     )
 
 
+async def _contract_diagnostics(
+    workspace: SurfaceDevelopmentWorkspace,
+    *,
+    summary: str,
+    required_primary_jobs: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Evaluate the host publication contract against the current workspace.
+
+    Uses the exact bind + validation functions the paid host gate runs later,
+    so a green ``finish_candidate`` can never be deterministically rejected by
+    the primary-job contract.
+    """
+    files = {
+        path: await workspace.read_file(path) for path in await workspace.list_files()
+    }
+    candidate = SurfaceCandidate.model_validate(
+        {
+            "summary": summary,
+            "primary_jobs": [item["description"] for item in required_primary_jobs],
+            "files": [
+                {"path": f"/workspace{path}", "content": content}
+                for path, content in sorted(files.items())
+            ],
+        }
+    )
+    bound = bind_surface_manifest_primary_jobs(
+        candidate,
+        required_primary_jobs=required_primary_jobs,
+    )
+    return surface_primary_job_contract_diagnostics(
+        bound,
+        required_primary_jobs=required_primary_jobs,
+    )
+
+
 async def _execute_action(
     workspace: SurfaceDevelopmentWorkspace,
     action: SurfaceBuilderAction,
     *,
     primary_jobs: list[str],
+    required_primary_jobs: list[dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], FinishedSurfaceWorkspace | None]:
     arguments = action.arguments
     if action.name == "list_files":
@@ -374,6 +415,19 @@ async def _execute_action(
                 "reason": "trusted_check_failed",
                 "check": finish_check.model_dump(mode="json"),
             }, None
+        if required_primary_jobs:
+            contract = await _contract_diagnostics(
+                workspace,
+                summary=summary,
+                required_primary_jobs=required_primary_jobs,
+            )
+            if contract:
+                return {
+                    "accepted": False,
+                    "reason": "primary_job_contract_failed",
+                    "required_primary_jobs": required_primary_jobs,
+                    "diagnostics": contract,
+                }, None
         finished = await workspace.finish(summary=summary, primary_jobs=primary_jobs)
         return {
             "accepted": True,
@@ -390,6 +444,7 @@ async def run_surface_builder_loop(
     messages: list[Any],
     primary_jobs: list[str],
     capabilities: set[str] | frozenset[str],
+    required_primary_jobs: list[dict[str, str]] | None = None,
     budget_ledger: BudgetLedger | None = None,
     max_turns: int = MAX_SURFACE_BUILDER_TURNS,
     on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -469,6 +524,7 @@ async def run_surface_builder_loop(
                     workspace,
                     action,
                     primary_jobs=primary_jobs,
+                    required_primary_jobs=required_primary_jobs,
                 )
                 payload = {"ok": True, "name": action.name, "result": result}
             except Exception as exc:
