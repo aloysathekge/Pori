@@ -21,6 +21,19 @@ def reset_rate_limiter_between_tests():
     _limiter._windows.clear()
 
 
+@pytest.fixture(autouse=True)
+def baseline_surface_disabled_by_default():
+    """Most suites predate the baseline Surface and construct their own
+    Surface fixtures; automatic delivery at Event creation would double-create
+    projects underneath them. Delivery-specific tests re-enable the flag."""
+    from aloy_backend.config import settings
+
+    previous = settings.surface_baseline_enabled
+    settings.surface_baseline_enabled = False
+    yield
+    settings.surface_baseline_enabled = previous
+
+
 @pytest_asyncio.fixture
 async def db_session_maker(tmp_path):
     db_path = tmp_path / "aloy_backend_test.db"
