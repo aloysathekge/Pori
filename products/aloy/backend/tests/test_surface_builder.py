@@ -466,6 +466,7 @@ async def test_workspace_repair_keeps_prior_changes_after_pre_persistence_reject
         }
 
         def __init__(self) -> None:
+            self.first_user_context = ""
             self.turns = [
                 ToolTurn(
                     tool_calls=[
@@ -506,7 +507,9 @@ async def test_workspace_repair_keeps_prior_changes_after_pre_persistence_reject
                 ),
             ]
 
-        async def ainvoke_tools(self, _messages, _tools):
+        async def ainvoke_tools(self, messages, _tools):
+            if not self.first_user_context:
+                self.first_user_context = str(messages[-1].content)
             return self.turns.pop(0)
 
     class WorkspaceRunner:
@@ -575,13 +578,20 @@ async def test_workspace_repair_keeps_prior_changes_after_pre_persistence_reject
     monkeypatch.setattr(
         builder_module, "verified_surface_publication", verified_receipt
     )
+    workspace_model = WorkspaceModel()
     assert await builder_module.execute_claimed_surface_builder(
         "builder-repair-base",
         "worker-a",
-        llm_factory=lambda _config: WorkspaceModel(),
+        llm_factory=lambda _config: workspace_model,
         runtime_resolver=runtime_resolver,
         pipeline_factory=lambda **_kwargs: pipeline,
     )
+
+    # The workspace owns the source: the prompt keeps file paths but never
+    # embeds file bodies, and every call carries the Run's affinity key.
+    assert "/src/App.tsx" in workspace_model.first_user_context
+    assert "export default function App" not in workspace_model.first_user_context
+    assert workspace_model.session_affinity == "builder-repair-base"
 
     assert pipeline.second_candidate is not None
     repaired = {

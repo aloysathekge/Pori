@@ -90,6 +90,36 @@ class ChatOpenAI:
         """Return the structured-output contract for this provider/model."""
         return StructuredOutputPolicy()
 
+    def _usage_dict(self, usage: Any) -> dict[str, Any] | None:
+        """Normalize one OpenAI-shaped usage object, including cached tokens.
+
+        OpenAI-compatible prefix caches (including Fireworks serverless)
+        report reused prompt tokens under ``prompt_tokens_details.cached_tokens``;
+        ``normalize_usage`` maps the ``cache_read_tokens`` key onward so cost
+        accounting can price cached input at the provider's cached rate.
+        """
+        if usage is None:
+            return None
+        details = getattr(usage, "prompt_tokens_details", None)
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+            "cache_read_tokens": (getattr(details, "cached_tokens", 0) or 0),
+        }
+
+    def _apply_session_affinity(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Route every call of one logical session to the same replica.
+
+        Serverless prefix caches are per-replica; without an affinity key,
+        consecutive calls land on different machines and a byte-stable prefix
+        still misses. Callers set ``session_affinity`` (e.g. the run id).
+        """
+        affinity = getattr(self, "session_affinity", None)
+        if affinity:
+            request["user"] = str(affinity)
+        return request
+
     async def ainvoke(
         self,
         messages: list[BaseMessage],
@@ -117,6 +147,7 @@ class ChatOpenAI:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
+        self._apply_session_affinity(request)
 
         if output_format is None:
             response = await retry_async(
@@ -126,14 +157,7 @@ class ChatOpenAI:
             )
             # Capture usage for metrics if available
             try:
-                if getattr(response, "usage", None) is not None:
-                    self.last_usage = {
-                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
-                        "completion_tokens": getattr(
-                            response.usage, "completion_tokens", 0
-                        ),
-                        "total_tokens": getattr(response.usage, "total_tokens", 0),
-                    }
+                self.last_usage = self._usage_dict(getattr(response, "usage", None))
             except Exception:
                 self.last_usage = None
             return response.choices[0].message.content or ""
@@ -153,14 +177,7 @@ class ChatOpenAI:
 
             # Capture usage for metrics if available
             try:
-                if getattr(response, "usage", None) is not None:
-                    self.last_usage = {
-                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
-                        "completion_tokens": getattr(
-                            response.usage, "completion_tokens", 0
-                        ),
-                        "total_tokens": getattr(response.usage, "total_tokens", 0),
-                    }
+                self.last_usage = self._usage_dict(getattr(response, "usage", None))
             except Exception:
                 self.last_usage = None
 
@@ -229,14 +246,7 @@ class ChatOpenAI:
                 # Progress reporting must never corrupt provider generation.
                 pass
 
-        if usage is not None:
-            self.last_usage = {
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-                "completion_tokens": getattr(usage, "completion_tokens", 0),
-                "total_tokens": getattr(usage, "total_tokens", 0),
-            }
-        else:
-            self.last_usage = None
+        self.last_usage = self._usage_dict(usage)
         content = "".join(content_parts)
         try:
             return output_format.model_validate_json(content)
@@ -310,6 +320,7 @@ class ChatOpenAI:
         # think server-side for minutes before its first tool call, which a
         # non-streaming caller cannot distinguish from a hung request.
         request.update(self._structured_output_policy().request_options)
+        self._apply_session_affinity(request)
 
         # Streaming path: emit normalized events (text deltas + instant
         # tool_call_start) while assembling the full ToolTurn from the stream.
@@ -322,14 +333,7 @@ class ChatOpenAI:
             label="openai",
         )
         try:
-            if getattr(response, "usage", None) is not None:
-                self.last_usage = {
-                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
-                    "completion_tokens": getattr(
-                        response.usage, "completion_tokens", 0
-                    ),
-                    "total_tokens": getattr(response.usage, "total_tokens", 0),
-                }
+            self.last_usage = self._usage_dict(getattr(response, "usage", None))
         except Exception:
             self.last_usage = None
 
@@ -433,14 +437,7 @@ class ChatOpenAI:
             for kind, seg in scrubber.flush():
                 _emit_segment(kind, seg)
 
-        if usage is not None:
-            self.last_usage = {
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-                "completion_tokens": getattr(usage, "completion_tokens", 0),
-                "total_tokens": getattr(usage, "total_tokens", 0),
-            }
-        else:
-            self.last_usage = None
+        self.last_usage = self._usage_dict(usage)
 
         tool_calls: list[ToolCall] = []
         for idx in sorted(acc):
