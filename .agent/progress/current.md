@@ -241,6 +241,21 @@ the `Research matching roles` label, and the signed-in UI proof contains no
 command identifier, retry-exhaustion copy, action counter, or technical-details
 control on those request cards.
 
+## Builder Eval Harness (2026-07-24 — PR #231)
+
+`aloy_backend/builder_eval.py`: offline model qualification by measurement.
+CLI (`python -m aloy_backend.builder_eval --provider fireworks --model …`)
+replays fixture revision requests (Notes view; the realistic job tracker)
+through the real workspace loop + real contract/compile/browser gate
+against the bundled baseline, up to 3 gate attempts with repair feedback
+and identical-fingerprint no-progress detection. Reports gate pass rate,
+turns, calls, fresh/cached/output tokens, estimated cost (price
+overrides), wall time, failing diagnostics; JSON output for cross-model
+comparison. 3 scripted-model tests (no spend) including a golden-path
+proof through the real gate. First real use: run kimi-k2p6 vs candidates
+(glm-5p2, deepseek) on both cases to settle the turn-convergence
+question with data. Next after merge: M2 `builder_session.py`.
+
 ## Cache Economics Proven (2026-07-23, night — PR #228)
 
 First edit-mode Builder run against the baseline burned 810k tokens (33
