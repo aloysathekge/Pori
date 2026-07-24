@@ -173,8 +173,12 @@ async def test_gate_rejection_feeds_repair_and_detects_no_progress(monkeypatch):
 
 
 async def test_builtin_cases_use_the_baseline_and_real_gate():
+    from aloy_backend.surface_build_runner import LocalDevelopmentSurfaceBuildRunner
+
     if shutil.which("node") is None:
         pytest.skip("Node.js is not installed")
+    if not LocalDevelopmentSurfaceBuildRunner().available:
+        pytest.skip("Pinned Aloy app dependencies are not installed")
     case = CASES["revision-small"]()
     assert "/src/App.tsx" in case.base_files
     assert "/surface.json" in case.base_files
