@@ -241,6 +241,25 @@ the `Research matching roles` label, and the signed-in UI proof contains no
 command identifier, retry-exhaustion copy, action counter, or technical-details
 control on those request cards.
 
+## Cache Economics Proven (2026-07-23, night — PR #228)
+
+First edit-mode Builder run against the baseline burned 810k tokens (33
+uncached calls of a ~24k prompt that embedded the source twice). Three
+fixes, measured live on the next run: session affinity (run id as the
+OpenAI `user` field — Fireworks serverless caching is automatic but
+per-replica, which is why hits were 0%), cached-token accounting
+(`prompt_tokens_details.cached_tokens` → `cache_read_tokens`), and a
+source-free workspace prompt (paths only; the workspace owns file bodies).
+Result: **89% cache hit rate** (437,708 of 489,650 input tokens cached),
+~$0.18 real cost vs ~$0.84. kimi-k2p6 IS Kimi K2.6 with $0.16/M cached
+pricing. Remaining Builder gap is model convergence — kimi burned the
+20-turn loop cap without finishing (plus a local DNS outage killed the
+retry); that is eval-harness territory, not infrastructure. The
+conversation agent also queues duplicate surface requests when the user
+retries — three duplicates were DB-cancelled twice today; worth a product
+fix. PRs today: #225 (hardening+v2 direction), #226 (M1 delivery), #227
+(promote-route delivery), #228 (cache economics).
+
 ## M1: Baseline Delivery Shipped (2026-07-23, late evening)
 
 `aloy_backend/baseline_delivery.py` + the `create_event` route now persist
