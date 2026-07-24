@@ -1,5 +1,24 @@
 # Current State - 2026-07-24
 
+## Live Revision Runs — Convergence Proven, Cap Is the Boundary (2026-07-24 evening)
+
+Two live packing-checklist revision runs on the merged stack. Run 1 died on
+the 40-step ceiling mid-repair -> fixed by PR #234 (request the designed
+3x20+10 shape; default policy narrows to 50). Run 2 (50 steps) delivered
+the decisive datapoint: sub 1 gate in 86s -> visibility rejection; sub 2
+repaired -> gate; **sub 3 FIXED the state-region/visibility rule itself**
+(the "unsolvable" rule is self-repairable given room) and then failed on a
+NEW shallower layer: self-authored primary-job proofs referencing items
+("Test item", "Passport") that don't exist in an empty checklist — proofs
+must create their data (fill -> add -> then assert). 74-second
+candidate->gate cycles, 91% cached, ~$0.10/run. Updated next-session
+priorities: (1) skill: job proofs must be self-sufficient + an eval case
+for it; (2) the 3-submission cap is the wrong boundary — the model was
+converging one layer per submission; M2's budget-bound session (no
+submission count) would likely have published on attempt 4; (3) the
+visibility lever demoted from "designed fix required" to "headroom or
+primitive". Stack stopped after this; no runs pending.
+
 ## Round 3 — Static Rule Works, Visibility Half Remains (2026-07-24, PR #233)
 
 The unwired-capability rule moved into the free static tier
