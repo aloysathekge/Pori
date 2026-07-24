@@ -34,11 +34,13 @@ from .models import (
 from .run_budgets import resolve_run_budget
 from .run_profiles import SURFACE_BUILDER_RUN_PROFILE
 from .skills import SURFACE_BUILDER_SKILL_ID
+from .surface_builder_loop import MAX_SURFACE_BUILDER_TURNS
 from .surface_evolution import (
     SurfaceEvolutionDecision,
     SurfaceEvolutionSignal,
     evaluate_surface_evolution,
 )
+from .surface_pipeline import MAX_CANDIDATE_SUBMISSIONS
 from .tenancy import OrganizationPolicy
 
 SURFACE_BUILDER_RUN_KIND = "surface_builder"
@@ -255,10 +257,16 @@ async def queue_surface_builder_run(
         allowed_provider_profiles=(policy.allowed_provider_profiles or None),
         allowed_models=policy.allowed_models or None,
     )
+    # A Builder step is one workspace turn. The ceiling must hold the designed
+    # session shape — MAX_CANDIDATE_SUBMISSIONS full loop invocations of up to
+    # MAX_SURFACE_BUILDER_TURNS each plus pipeline overhead — or the Run dies
+    # mid-repair on the wrong limit (observed live: 40 steps ended attempt 2
+    # while its diagnostics were being repaired). Organization policy may
+    # still narrow this.
     budget = resolve_run_budget(
         policy,
         {
-            "max_steps": 40,
+            "max_steps": MAX_CANDIDATE_SUBMISSIONS * MAX_SURFACE_BUILDER_TURNS + 10,
             "max_tokens": settings.surface_builder_max_total_tokens,
             "timeout_seconds": 900,
         },

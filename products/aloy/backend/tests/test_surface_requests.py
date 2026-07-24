@@ -130,6 +130,8 @@ async def test_model_surface_request_queues_one_purpose_scoped_builder(
         assert run.agent_id == "surface-builder"
         assert run.parent_run_id == "conversation-run-1"
         assert run.max_tokens == settings.surface_builder_max_total_tokens
+        # Requested 3x20+10 session shape, narrowed by default org policy.
+        assert run.max_steps == 50
         evolution_receipts = [
             item
             for item in run.execution_receipts or []
