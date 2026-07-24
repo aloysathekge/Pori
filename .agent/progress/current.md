@@ -1,5 +1,24 @@
 # Current State - 2026-07-24
 
+## Round 3 — Static Rule Works, Visibility Half Remains (2026-07-24, PR #233)
+
+The unwired-capability rule moved into the free static tier
+(`validate_surface_source`: declared tasks/files/proposals/data:*/records:*
+capability must appear in a `useSurfaceResourceState` call), the baseline
+gained a `ResourceSection` primitive (hook + feedbackProps + status banner
+built in), and the skill states the invariant. Round-3 eval: kimi now WIRES
+the hook (behavior change confirmed), `revision-small` still publishes
+($0.06), but `revision-jobtracker` fails on the rule's second half — the
+wired region sits behind navigation with no `resource_views` click path.
+That half is statically undecidable (root-visible regions cannot declare
+resource_views; steps require >=1 click), and kimi ignored the gate's
+explicit remediation across three repairs. Next levers to design fresh:
+richer repair guidance for this specific diagnostic, an App-shell pattern
+where adding a nav view auto-suggests the resource_views entry, or a
+workspace-tier warning when a data capability is wired but absent from
+resource_views AND the nav has multiple buttons. Eval r3 JSON in session
+scratchpad. After that: M2.
+
 ## First Measured Eval Cycle — Loop Convergence (2026-07-24, PR #232)
 
 The eval harness ran its first full measure→fix→measure cycle. Round 1:
