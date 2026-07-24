@@ -442,3 +442,102 @@ async def test_native_provider_can_fall_back_to_text_actions_without_fake_tool_r
         assert "Fallback" in await workspace.read_file("/src/App.tsx")
     finally:
         await workspace.close()
+
+
+@pytest.mark.asyncio
+async def test_exhausted_loop_error_carries_the_transcript(tmp_path: Path):
+    class NeverFinishingModel:
+        async def ainvoke_tools(self, messages, tools):
+            del messages, tools
+            return ToolTurn(
+                tool_calls=[ToolCall(id="l", name="list_files", arguments={})]
+            )
+
+    workspace = await LocalGitSurfaceWorkspace.create(
+        workspace_id="never-finishes",
+        base_files=_files(),
+        build_runner=_Runner(),
+        parent=tmp_path,
+    )
+    try:
+        with pytest.raises(SurfaceBuilderLoopError) as excinfo:
+            await run_surface_builder_loop(
+                llm=NeverFinishingModel(),
+                workspace=workspace,
+                messages=[
+                    SystemMessage(content="Build"),
+                    UserMessage(content="Change it"),
+                ],
+                primary_jobs=["Use the view"],
+                capabilities={"tools"},
+                max_turns=3,
+            )
+        transcript = excinfo.value.transcript
+        assert len(transcript) == 3
+        assert all(entry["action"] == "list_files" for entry in transcript)
+    finally:
+        await workspace.close()
+
+
+@pytest.mark.asyncio
+async def test_finish_summary_is_normalized_and_countdown_is_injected(tmp_path: Path):
+    seen_countdowns: list[str] = []
+
+    class SloppyFinisher:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def ainvoke_tools(self, messages, tools):
+            del tools
+            for message in messages:
+                if isinstance(message, UserMessage) and "turns remain" in str(
+                    message.content
+                ):
+                    seen_countdowns.append(str(message.content))
+            self.calls += 1
+            if self.calls == 1:
+                return ToolTurn(
+                    tool_calls=[
+                        ToolCall(
+                            id="edit",
+                            name="replace_text",
+                            arguments={
+                                "path": "/src/App.tsx",
+                                "match": "Old",
+                                "replacement": "New",
+                            },
+                        ),
+                        ToolCall(id="check", name="run_typecheck", arguments={}),
+                    ]
+                )
+            return ToolTurn(
+                tool_calls=[
+                    ToolCall(
+                        id="finish",
+                        name="finish_candidate",
+                        # No summary at all: the host normalizes instead of
+                        # killing the session on display metadata.
+                        arguments={},
+                    )
+                ]
+            )
+
+    workspace = await LocalGitSurfaceWorkspace.create(
+        workspace_id="sloppy-finish",
+        base_files=_files(),
+        build_runner=_Runner(),
+        parent=tmp_path,
+    )
+    try:
+        result = await run_surface_builder_loop(
+            llm=SloppyFinisher(),
+            workspace=workspace,
+            messages=[SystemMessage(content="Build"), UserMessage(content="Change it")],
+            primary_jobs=["Use the updated view"],
+            capabilities={"tools"},
+        )
+        assert result.finished.candidate.summary == "Surface revision"
+        assert seen_countdowns, "turn countdown must be visible to the model"
+        assert "19 of 20 workspace turns remain" in seen_countdowns[0]
+    finally:
+        await workspace.close()

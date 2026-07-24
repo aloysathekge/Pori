@@ -66,7 +66,20 @@ class SurfaceBuilderActionEnvelope(BaseModel):
 
 
 class SurfaceBuilderLoopError(RuntimeError):
-    """The model failed to complete the bounded workspace protocol."""
+    """The model failed to complete the bounded workspace protocol.
+
+    Carries the loop transcript so a non-converging session is diagnosable
+    (what the model actually spent its turns doing) instead of just terminal.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        transcript: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.transcript = list(transcript or [])
 
 
 class SurfaceBuilderLoopResult(BaseModel):
@@ -402,7 +415,14 @@ async def _execute_action(
         ), None
     if action.name == "finish_candidate":
         _no_extra(arguments, {"summary"})
-        summary = _required_string(arguments, "summary", maximum=2_000)
+        # The summary is display metadata, never authority. Rejecting an
+        # otherwise-finishable candidate over its shape wastes a whole session
+        # (observed live: a model's only finish attempt died on this at its
+        # final turn), so the host normalizes deterministically instead.
+        raw_summary = arguments.get("summary")
+        summary = " ".join(str(raw_summary or "").split())[:2_000] or (
+            "Surface revision"
+        )
         # Reuse a successful check only while the workspace still recognizes
         # it as current. Every edit clears this result and ``finish`` verifies
         # the exact source fingerprint again, avoiding a duplicate compile for
@@ -628,9 +648,26 @@ async def run_surface_builder_loop(
                     )
                 )
             )
+        # Models measurably polish forever without an explicit horizon: live
+        # evals showed sessions reaching a passing check and then reading
+        # files until the turn cap. The countdown is append-only (cache-safe)
+        # and host-owned truth, not persuasion.
+        remaining = max_turns - turn_number
+        if remaining > 0:
+            history.append(
+                UserMessage(
+                    content=(
+                        f"{remaining} of {max_turns} workspace turns remain. "
+                        "Once a trusted check passes, call finish_candidate "
+                        "with a one-sentence summary immediately instead of "
+                        "continuing to inspect or polish."
+                    )
+                )
+            )
 
     raise SurfaceBuilderLoopError(
-        f"Builder did not finish checked Surface source within {max_turns} turns"
+        f"Builder did not finish checked Surface source within {max_turns} turns",
+        transcript=transcript,
     )
 
 

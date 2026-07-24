@@ -1,4 +1,27 @@
-# Current State - 2026-07-23
+# Current State - 2026-07-24
+
+## First Measured Eval Cycle — Loop Convergence (2026-07-24, PR #232)
+
+The eval harness ran its first full measure→fix→measure cycle. Round 1:
+kimi-k2p6 and glm-5p2 both 0/2 (`did not finish within 20 turns`);
+transcripts showed sessions reaching green checks then reading files until
+the cap, and glm's only finish attempt dying on summary string validation.
+Three deterministic loop fixes (PR #232): per-turn host-owned countdown
+(cache-safe append-only), finish summary normalization (display metadata
+never kills a candidate), and transcript-carrying SurfaceBuilderLoopError
+with per-action counts in the eval report. Round 2: **both models
+published `revision-small` on the first gate attempt** — kimi: 16 turns,
+$0.056, 96s, the first model-authored Surface ever to clear the full real
+gate. Both fail `revision-jobtracker` on the identical rule
+(`state_region_missing` on new views, 3 attempts each) — a
+model-independent teachability finding: the next lever is baseline
+primitives that wire `useSurfaceResourceState` into new views by
+construction (or a deliberate review of the rule for local-state-only
+views). Head-to-head verdict: **kimi-k2p6 confirmed as Builder** (equal
+pass/convergence at ~3x lower cost than glm-5p2). Eval JSONs in session
+scratchpad; next session should fold the state-region lever, then M2.
+
+# (2026-07-23 log follows)
 
 ## Local Environment Recovery (2026-07-23)
 

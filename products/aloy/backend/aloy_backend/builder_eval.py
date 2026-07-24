@@ -258,7 +258,33 @@ async def run_case(
                 )
             except SurfaceBuilderLoopError as exc:
                 status = "loop_error"
-                failure = [{"stage": "loop", "message": str(exc)}]
+                transcript = getattr(exc, "transcript", [])
+                counts: dict[str, dict[str, int]] = {}
+                for entry in transcript:
+                    bucket = counts.setdefault(
+                        str(entry.get("action")), {"ok": 0, "error": 0}
+                    )
+                    bucket["ok" if entry.get("ok") else "error"] += 1
+                failure = [
+                    {
+                        "stage": "loop",
+                        "message": str(exc),
+                        "action_counts": counts,
+                        "transcript_tail": [
+                            {
+                                "turn": entry.get("turn"),
+                                "action": entry.get("action"),
+                                "ok": entry.get("ok"),
+                                "error": (
+                                    (str(entry.get("error"))[:160] or None)
+                                    if entry.get("error")
+                                    else None
+                                ),
+                            }
+                            for entry in transcript[-25:]
+                        ],
+                    }
+                ]
                 break
             turns += result.turns
             tool_calls += result.tool_calls
@@ -342,6 +368,8 @@ def _print_report(model: str, results: list[dict[str, Any]]) -> None:
         )
         for item in r["failure"][:3]:
             print(f"    ! {item.get('stage')}: {str(item.get('message'))[:110]}")
+            if item.get("action_counts"):
+                print(f"      actions: {json.dumps(item['action_counts'])[:160]}")
     passed = sum(1 for r in results if r["status"] == "published")
     print(f"\npass rate: {passed}/{len(results)}")
 
