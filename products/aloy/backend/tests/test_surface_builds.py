@@ -1270,6 +1270,7 @@ def test_durable_surface_intents_require_checks_and_visible_sdk_failures():
     assert {item["code"] for item in diagnostics} == {
         "missing_interaction_check",
         "swallowed_surface_failure",
+        "resource_state_unwired",
     }
 
 

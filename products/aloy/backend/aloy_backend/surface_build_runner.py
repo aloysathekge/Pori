@@ -254,6 +254,45 @@ def validate_surface_source(
             )
         )
 
+    # A declared resource capability whose state is never wired into the UI
+    # deterministically fails the browser gate later (state_region_missing).
+    # Both models measured in live evals made exactly this mistake, so the
+    # free static tier catches it: the exact capability name must appear in a
+    # useSurfaceResourceState call somewhere in the source.
+    source_text = "\n".join(
+        files[path]
+        for path in sorted(files)
+        if path.endswith((".js", ".jsx", ".ts", ".tsx"))
+    )
+    declared_capabilities = manifest.get("capabilities")
+    if isinstance(declared_capabilities, list):
+        for capability in declared_capabilities:
+            name = str(capability)
+            if not (
+                name in ("tasks", "files", "proposals")
+                or name.startswith(("data:", "records:"))
+            ):
+                continue
+            if (
+                f"useSurfaceResourceState('{name}')" in source_text
+                or f'useSurfaceResourceState("{name}")' in source_text
+            ):
+                continue
+            diagnostics.append(
+                _diagnostic(
+                    "resource_state_unwired",
+                    (
+                        f"Capability {name} is declared but no visible region "
+                        f"is bound to useSurfaceResourceState('{name}'). Spread "
+                        "its feedbackProps on the region that presents this "
+                        "data (the baseline's ResourceSection primitive does "
+                        "this), or the browser gate will reject the loading "
+                        "and empty states."
+                    ),
+                    path="/surface.json",
+                )
+            )
+
     imports_surface_sdk = False
     for path in sorted(files):
         content = files[path]
