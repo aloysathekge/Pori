@@ -68,6 +68,11 @@ all use the same runtime and safety contract.
    missing deterministic accessibility evidence.
    For each data-driven primary region, call `useSurfaceResourceState` with its
    exact capability name and spread `feedbackProps` onto the visible region.
+   Every capability you declare in `surface.json` must have such a region —
+   declaring `data:x` without a visible `useSurfaceResourceState('data:x')`
+   region deterministically fails both the workspace check and the browser
+   gate. When the project provides a `ResourceSection` primitive, render the
+   capability's view inside it instead of wiring the hook by hand.
    If that region is behind a tab or route, declare its safe semantic click path
    in `surface.json` under `resource_views`. Do not rely on primary-job actions
    for state navigation; the host never guesses which arbitrary control is safe

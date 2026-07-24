@@ -127,3 +127,24 @@ async def test_baseline_passes_full_gate_with_populated_event_data() -> None:
         manifest=manifest,
     )
     assert diagnostics == []
+
+
+def test_declared_capability_without_wired_region_fails_static_validation() -> None:
+    files = dict(baseline_surface_files())
+    manifest_value = json.loads(files["/surface.json"])
+    manifest_value["capabilities"] = sorted(
+        [*manifest_value["capabilities"], "data:career"]
+    )
+    files["/surface.json"] = json.dumps(manifest_value)
+    diagnostics = validate_surface_source(files, manifest_value)
+    assert [item["code"] for item in diagnostics] == ["resource_state_unwired"]
+    assert "data:career" in diagnostics[0]["message"]
+
+    files["/src/views/Career.tsx"] = (
+        "import { useSurfaceResourceState } from '@aloy/surface';\n"
+        "export function CareerView() {\n"
+        "  const state = useSurfaceResourceState('data:career');\n"
+        "  return <section {...state.feedbackProps}>Career</section>;\n"
+        "}\n"
+    )
+    assert validate_surface_source(files, manifest_value) == []

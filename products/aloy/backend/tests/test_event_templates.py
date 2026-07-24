@@ -177,8 +177,10 @@ async def _seed_career_os(db_session_maker, *, version: int = 1) -> tuple[str, s
                                 'import { useSurfaceResourceState } from "@aloy/surface";'
                                 "export default function App() {"
                                 "const resource=useSurfaceResourceState('data:career');"
+                                "const setup=useSurfaceResourceState('data:setup');"
                                 "return <main {...resource.feedbackProps}><h1>Career OS</h1>"
-                                "<p>Complete setup to begin.</p></main>; }"
+                                "<p {...setup.feedbackProps}>Complete setup to begin.</p>"
+                                "</main>; }"
                             ),
                         },
                     },
